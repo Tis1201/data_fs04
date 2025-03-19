@@ -1,0 +1,3 @@
+[submodule "src/components/ui_components_sveltekit"]
+	path = src/components/ui_components_sveltekit
+	url = git@bitbucket.org:codethings_dev/ui_components_sveltekit.git

@@ -1,0 +1,87 @@
+// This is your schema file,
+// learn more about it in the docs: https://zenstack.dev/docs/reference/zmodel-language
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// System-wide role enum
+// enum SystemRole {
+//   SUPER_ADMIN
+//   ADMIN
+//   USER
+// }
+
+model User {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  email         String    @unique
+  password      String
+  rolesString   String    @default("")  // Store as comma-separated string
+  systemRole    String    @default("USER")  // Can be: "SUPER_ADMIN", "ADMIN", "USER"
+  sessions      Session[]
+  keys          Key[]
+  apiKeys       ApiKey[]
+
+  // Authorization rules
+  @@allow('all', contains(auth().rolesString, 'admin'))  // Admin can do everything
+  @@allow('read', auth() != null)  // Authenticated users can read
+  @@allow('create', true)  // Anyone can create (signup)
+  @@allow('update', auth().id == id)  // Users can update their own data
+  @@allow('delete', false)  // Only admin can delete (covered by 'all' rule above)
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Allow session creation for login
+  @@allow('create', true)
+  // Allow users to manage their own sessions
+  @@allow('read,delete', auth().id == userId)
+  // Allow admins to manage all sessions
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@index([userId])
+}
+
+model Key {
+  id             String  @id
+  hashedPassword String? @map("hashed_password")
+  userId         String  @map("user_id")
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  key         String   @unique
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  @@allow('read,update,delete', auth().id == userId)  // Users can manage their own API keys
+  @@allow('create', auth() != null)  // Authenticated users can create API keys
+
+  @@index([userId])
+  @@index([key])
+}

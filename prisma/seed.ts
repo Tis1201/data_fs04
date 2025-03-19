@@ -1,0 +1,63 @@
+import { PrismaClient } from '@prisma/client';
+import { hash } from '@node-rs/argon2';
+import { randomBytes } from 'crypto';
+
+const prisma = new PrismaClient();
+
+// Generate a secure random API key
+function generateApiKey(length = 32): string {
+    return randomBytes(length).toString('hex');
+}
+
+async function main() {
+    // Create admin user
+    const hashedPassword = await hash('admin123'); // You should change this password
+    
+    const admin = await prisma.user.upsert({
+        where: { email: 'admin@example.com' },
+        update: {},
+        create: {
+            email: 'admin@example.com',
+            password: hashedPassword,
+            systemRole: 'ADMIN',
+            rolesString: 'admin',
+        },
+    });
+
+    console.log('Created admin user:', admin.email);
+
+    // Create API key for the admin user
+    const apiKey = generateApiKey();
+    
+    const adminApiKey = await prisma.apiKey.upsert({
+        where: { 
+            id: 'admin-api-key-1' // Using a fixed ID for upsert
+        },
+        update: {
+            key: apiKey,
+            lastUsedAt: new Date()
+        },
+        create: {
+            id: 'admin-api-key-1',
+            key: apiKey,
+            name: 'Admin Default API Key',
+            description: 'Default API key for WebSocket testing',
+            active: true,
+            userId: admin.id
+        }
+    });
+
+    console.log('Created API key for admin:');
+    console.log(`Name: ${adminApiKey.name}`);
+    console.log(`Key: ${apiKey}`);
+    console.log('⚠️  Store this API key securely as it will not be displayed again!');
+}
+
+main()
+    .catch((e) => {
+        console.error(e);
+        process.exit(1);
+    })
+    .finally(async () => {
+        await prisma.$disconnect();
+    });

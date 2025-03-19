@@ -1,0 +1,33 @@
+Be surgical in your updates, update or remove only those sections that needs to be updated and ***Do it in the least number of turns, not more than 2***
+Do not change any UI elements unless i tell you so
+Minimize Changes to existing code to prevent unwanted side effects
+Be a good team player, understand your teammates' needs and work together to ensure smooth and efficient code updates
+Always use Zenstack instead of pure Prisma
+Always use shadcn-svelte if available instead of custom or other UI frameworks
+Do not create API endpoints just for testing purpose, this sucks
+Use Zod and Superform together for form handling with Zenstack at the backend
+Use sveltekit-superforms for form handling with Shadcn UI at the frontend
+Use rollback and concurrency control to prevent data loss when necessary
+Always be very careful about the UI, it can easily lead to unexpected behavior
+Always be super secure when designing and implementing api and data access espcially when CRUD operations are involved
+Use lucide for icons
+There's 3 distinct UI
+- Marketing
+- App
+- Admin
+If in doubt, see the ws-gateway project for reference
+1. Uses SvelteKit
+2. Uses Vite
+3. Uses Vitest
+4. Uses Playwright
+5. Uses Prisma
+6. Uses Zenstack
+6. Uses Lucia
+7. Uses Zod
+8. Uses Tailwind
+9. Uses shadcn-svelte
+10. Uses sveltekit-superforms
+11. Uses sveltekit-sse
+12. Uses svelte-persisted-store
+13. Uses svelte-headless-table
+14. Uses @faker-js/faker
