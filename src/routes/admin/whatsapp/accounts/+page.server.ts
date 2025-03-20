@@ -30,8 +30,18 @@ function parseQueryParams(url: URL, allowedFilters: string[] = []) {
  *  Gatekeeper function to check user access based on roles
  * 
  *******************************************************************************************/
-async function gatekeeper(parent: () => PromiseLike<{ user: any; }> | { user: any; }, allowed_roles: string[] = ["admin"]){
-    const { user } = await parent();
+async function gatekeeper(context: any, allowed_roles: string[] = ["admin"]){
+    // Handle both parent function and locals object
+    let user;
+    if (typeof context === 'function') {
+        // For load function (parent)
+        const result = await context();
+        user = result.user;
+    } else {
+        // For actions (locals)
+        user = context.user;
+    }
+    
     if (!user || !allowed_roles.includes(user.rolesString)) {
         throw new Error("Access Denied")
     }
@@ -43,8 +53,18 @@ async function gatekeeper(parent: () => PromiseLike<{ user: any; }> | { user: an
  *  Database access function to get the enhanced Prisma client
  * 
  *******************************************************************************************/
-async function db(parent: () => PromiseLike<{ user: any; }> | { user: any; }){
-    const { user } = await parent();
+async function db(context: any){
+    // Handle both parent function and locals object
+    let user;
+    if (typeof context === 'function') {
+        // For load function (parent)
+        const result = await context();
+        user = result.user;
+    } else {
+        // For actions (locals)
+        user = context.user;
+    }
+    
     const prisma = getEnhancedPrisma({
         id: user.id,
         rolesString: user.rolesString,
@@ -90,11 +110,38 @@ function formatFilters(filters: Record<string, any>) {
  *  Main Logic Block
  * 
  *******************************************************************************************/
-export const load: PageServerLoad = async ({parent, url }) => {
-    
-    await gatekeeper(parent);
+export const actions = {
+    deleteAccount: async ({ request, locals }) => {
 
-    const prisma = await db(parent);
+        console.log(locals.auth)
+        // await gatekeeper(locals.auth);
+        const prisma = locals.prisma
+        
+        const data = await request.formData();
+        const id = data.get('id')?.toString();
+        
+        if (!id) {
+            return { success: false, error: 'Account ID is required' };
+        }
+        
+        try {
+            await prisma.whatsAppAccount.delete({
+                where: { id }
+            });
+            
+            return { success: true };
+        } catch (error) {
+            console.error('Error deleting WhatsApp account:', error);
+            return { success: false, error: 'Failed to delete account' };
+        }
+    }
+};
+
+export const load: PageServerLoad = async ({parent, url, locals }) => {
+    
+    // await gatekeeper(parent);
+
+    const prisma = locals.prisma
     
     const filters = parseQueryParams(url, ['roles', 'statuses']);
 

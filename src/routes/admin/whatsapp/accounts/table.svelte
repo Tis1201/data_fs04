@@ -5,7 +5,7 @@
     import PopoverFilter from "$lib/components/custom/table/filter/PopoverFilter.svelte";
     import ActionDropdown from "$lib/components/custom/table/column/ActionDropdown.svelte";
     import ConfirmationDialog from "$lib/components/custom/dialog/ConfirmationDialog.svelte";
-    import { Phone, Pencil, Trash2, MessageSquare } from "lucide-svelte";
+    import { Phone, Pencil, Trash2, MessageSquare, Trash } from "lucide-svelte";
     import type { WhatsAppAccount } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
@@ -13,6 +13,7 @@
     import { toast } from "svelte-sonner";
     import { api_post } from "$lib/utils/ApiUtils";
     import { Skeleton } from "$lib/components/ui/skeleton";
+    import { enhance } from "$app/forms";
 
     // Props for DataTable component
     export let records: WhatsAppAccount[] = [];
@@ -27,6 +28,16 @@
         order: "asc" | "desc";
     };
     export let loading = false;
+    
+    // State for confirmation dialog
+    let showDeleteConfirmation = false;
+    let accountToDelete: WhatsAppAccount | null = null;
+    
+    // Function to open delete confirmation dialog
+    function confirmDelete(account: WhatsAppAccount) {
+        accountToDelete = account;
+        showDeleteConfirmation = true;
+    }
 
     // Column definitions
     const columns = [
@@ -64,6 +75,11 @@
                             onClick: () => goto(`/admin/whatsapp/accounts/${record.id}`)
                         },
                         {
+                            label: "Delete",
+                            icon: Trash,
+                            onClick: () => confirmDelete(record)
+                        },
+                        {
                             label: "Send Message",
                             icon: MessageSquare,
                             onClick: () => goto(`/admin/whatsapp/accounts/${record.id}/messages`)
@@ -96,6 +112,39 @@
 </script>
 
 <div class="space-y-4">
+    <!-- Delete Confirmation Dialog -->
+    <ConfirmationDialog
+        bind:open={showDeleteConfirmation}
+        title="Delete WhatsApp Account"
+        description={`Are you sure you want to delete the WhatsApp account ${accountToDelete?.phoneNumber || ''}? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={() => {
+            // Trigger the form submission when confirmed
+            document.getElementById('delete-account-submit')?.click();
+        }}
+    />
+    
+    <!-- Hidden form for account deletion -->
+    {#if accountToDelete}
+        <form
+            method="POST"
+            action="?/deleteAccount"
+            use:enhance={() => {
+                return async ({ result }) => {
+                    if (result.type === 'success') {
+                        // Refresh the page to update the account list
+                        window.location.reload();
+                    }
+                    showDeleteConfirmation = false;
+                    accountToDelete = null;
+                };
+            }}
+        >
+            <input type="hidden" name="id" value={accountToDelete.id} />
+            <button type="submit" class="hidden" id="delete-account-submit"></button>
+        </form>
+    {/if}
     {#if loading}
         <div class="space-y-4">
             <Skeleton class="h-12 w-full" />
