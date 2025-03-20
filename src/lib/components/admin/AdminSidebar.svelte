@@ -26,7 +26,13 @@
         Activity,
         Zap,
 
-        Network
+        Network,
+
+        MessageCircle,
+
+        User
+
+
 
     } from "lucide-svelte";
 
@@ -63,12 +69,19 @@
     const mainMenuItems: MenuItem[] = [
         { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
         { href: "/admin/users", label: "Users", icon: Users },
-        { href: "/admin/streams", label: "Streams", icon: Cctv },
-        { href: "/admin/apps", label: "Apps", icon: Codepen },
-        { href: "/admin/connections", label: "Connections", icon: Cable },
-        { href: "/admin/screens", label: "Screens", icon: Tv },
-        { href: "/admin/mosaic", label: "Mosaic", icon: LayoutGrid },
+        // { href: "/admin/streams", label: "Streams", icon: Cctv },
+        // { href: "/admin/apps", label: "Apps", icon: Codepen },
+        // { href: "/admin/connections", label: "Connections", icon: Cable },
+        // { href: "/admin/screens", label: "Screens", icon: Tv },
+        // { href: "/admin/mosaic", label: "Mosaic", icon: LayoutGrid },
         { href: "/admin/api-keys", label: "API Keys", icon: Key },
+        { label: "Whatsapp", icon: MessageCircle,
+            subItems: [
+                    { href: "/admin/whatsapp/accounts", label: "Accounts", icon: Users },
+                    
+                ],
+
+        },
         {
             label: "Debug",
             icon: BugOff,

@@ -28,7 +28,8 @@ model User {
   sessions      Session[]
   keys          Key[]
   apiKeys       ApiKey[]
-
+  whatsappAccounts WhatsAppAccount[]
+  
   // Authorization rules
   @@allow('all', contains(auth().rolesString, 'admin'))  // Admin can do everything
   @@allow('read', auth() != null)  // Authenticated users can read
@@ -84,4 +85,17 @@ model ApiKey {
 
   @@index([userId])
   @@index([key])
+}
+
+model WhatsAppAccount {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  phoneNumber String
+  description String
+  createdBy   String
+  user        User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([createdBy])
+  @@allow('all', auth().systemRole == 'ADMIN') 
 }
