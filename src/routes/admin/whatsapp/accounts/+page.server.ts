@@ -99,34 +99,43 @@ export const load: PageServerLoad = async ({parent, url }) => {
 
     console.log(filters)
 
-    const page = Number(url.searchParams.get('page')) || 1;
-    const per_page = Number(url.searchParams.get('per_page')) || 10;
-    const search = url.searchParams.get('search') || ''; // Optional search filter
-    const role = url.searchParams.get('role') || ''; // Optional role filter
-
+    // Build where conditions dynamically
+    const whereConditions = [];
+    
+    // Define searchable fields
+    const searchableFields = ['phoneNumber', 'description'];
+    
+    if (filters.search) {
+        const searchConditions = searchableFields.map(field => ({
+            [field]: { contains: filters.search, mode: 'insensitive' }
+        }));
+        
+        whereConditions.push({
+            OR: searchConditions
+        });
+    }
+    
+    const where = whereConditions.length > 0 ? { AND: whereConditions } : {};
+    
+    // Get records with pagination and sorting
     const records = await prisma.WhatsAppAccount.findMany({
-        where: {
-            description: {
-                contains: search,
-                mode: 'insensitive',
-            },
-            // Add role filtering if applicable
-        },
-        skip: (page - 1) * per_page,
-        take: per_page,
+        where,
+        skip: (filters.page - 1) * filters.per_page,
+        take: filters.per_page,
+        orderBy: {
+            [filters.sortField]: filters.sortOrder
+        }
     });
-
-    console.log({page, per_page, search, role})
      
+    // Get total count for pagination
+    const totalRecords = await prisma.WhatsAppAccount.count({ where });
+
     return {
-        data: records,
+        accounts: records,
         meta: {
-            data: records,
-            meta: {
-                pagination: formatPagination(filters.page, filters.per_page, 5),
-                sort: formatSorting(filters.sortField, filters.sortOrder),
-                filters: formatFilters(filters)
-            }
+            pagination: formatPagination(filters.page, filters.per_page, totalRecords),
+            sort: formatSorting(filters.sortField, filters.sortOrder),
+            filters: formatFilters(filters)
         }
     };
 
