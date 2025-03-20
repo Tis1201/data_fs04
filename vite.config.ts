@@ -8,7 +8,7 @@ export default defineConfig({
 			name: 'integratedWebsocketServer',
 			configureServer(server) {
 				// Dynamically import the WebSocket utilities to avoid ESM issues
-				import('./src/lib/server/webSocketUtils.js').then(({ createWSSGlobalInstance, onHttpServerUpgrade }) => {
+				import('./src/lib/server/webSocketUtils.ts').then(({ createWSSGlobalInstance, onHttpServerUpgrade }) => {
 					createWSSGlobalInstance();
 					server.httpServer?.on('upgrade', onHttpServerUpgrade);
 				});

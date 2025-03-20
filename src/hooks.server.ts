@@ -4,6 +4,19 @@ import prisma from "$lib/server/prisma";
 import { GlobalThisWSS, type ExtendedGlobal, startupWebsocketServer, wssInitialized } from "$lib/server/webSocketUtils";
 import { building } from "$app/environment";
 import { parse as parseCookie } from 'cookie';
+import { initializeClientsFromDatabase } from "$lib/server/bailey/client";
+
+// Initialize WhatsApp clients on server startup (not during build)
+if (!building) {
+    console.error('=== STARTING WHATSAPP CLIENT INITIALIZATION FROM HOOKS ===');
+    // Use setTimeout to ensure this runs after the server has fully started
+    setTimeout(() => {
+        console.error('=== DELAYED WHATSAPP CLIENT INITIALIZATION ===');
+        initializeClientsFromDatabase().catch(error => {
+            console.error('Failed to initialize WhatsApp clients:', error);
+        });
+    }, 1000);
+}
 
 // WebSocket middleware
 const websocketMiddleware: Handle = async ({ event, resolve }) => {

@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import { getEnhancedPrisma } from '$lib/server/prisma';
 
 // Type definitions
 export type WhatsAppClient = ReturnType<typeof makeWASocket>;
@@ -30,6 +31,97 @@ const clients: Map<string, WhatsAppClientManager> = new Map();
 const AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
 if (!fs.existsSync(AUTH_DIR)) {
     fs.mkdirSync(AUTH_DIR, { recursive: true });
+}
+
+/**
+ * Initialize WhatsApp clients from database on server startup
+ * This function should be called when the server starts
+ * 
+ * NOTE: According to Baileys documentation, useMultiFileAuthState is not recommended
+ * for production use. Ideally, we should implement a custom auth state provider
+ * that stores credentials in the database. For now, we're using the file system
+ * but with improved handling.
+ */
+export async function initializeClientsFromDatabase(): Promise<void> {
+    // Use console.error for more visibility in the logs
+    console.error('=== INITIALIZING WHATSAPP CLIENTS FROM DATABASE ===');
+    console.error(`Auth directory path: ${AUTH_DIR}`);
+    
+    // Check if auth directory exists
+    if (!fs.existsSync(AUTH_DIR)) {
+        console.error('Auth directory does not exist, creating it...');
+        fs.mkdirSync(AUTH_DIR, { recursive: true });
+    }
+    
+    // List all directories in the auth folder
+    const authDirs = fs.readdirSync(AUTH_DIR).filter(dir => 
+        fs.statSync(path.join(AUTH_DIR, dir)).isDirectory() && !dir.startsWith('pending_')
+    );
+    console.error(`Found ${authDirs.length} auth directories: ${authDirs.join(', ')}`);
+    
+    try {
+        // Get prisma client with admin privileges
+        const prisma = getEnhancedPrisma({
+            id: 'system',
+            rolesString: 'admin',
+            systemRole: 'ADMIN'
+        });
+        
+        // Get all WhatsApp accounts
+        const accounts = await prisma.whatsAppAccount.findMany();
+        console.error(`Found ${accounts.length} total WhatsApp accounts in database`);
+        
+        // Filter accounts with valid client IDs (non-pending)
+        const validAccounts = accounts.filter(account => 
+            account.client_id && 
+            !account.client_id.startsWith('pending_')
+        );
+        
+        console.error(`Found ${validAccounts.length} WhatsApp accounts with valid client IDs to restore`);
+        
+        // Check for accounts with pending IDs
+        const pendingAccounts = accounts.filter(account => 
+            account.client_id && 
+            account.client_id.startsWith('pending_')
+        );
+        console.error(`Found ${pendingAccounts.length} WhatsApp accounts with pending client IDs (will be skipped)`);
+        
+        // Check for auth directories without matching accounts
+        const orphanedDirs = authDirs.filter(dir => 
+            !validAccounts.some(account => account.client_id === dir)
+        );
+        if (orphanedDirs.length > 0) {
+            console.error(`Warning: Found ${orphanedDirs.length} auth directories without matching accounts: ${orphanedDirs.join(', ')}`);
+        }
+        
+        // Initialize each client
+        for (const account of validAccounts) {
+            if (!account.client_id) continue;
+            
+            // Create the auth directory for this client if it doesn't exist
+            const clientAuthDir = path.join(AUTH_DIR, account.client_id);
+            if (!fs.existsSync(clientAuthDir)) {
+                console.log(`Auth directory for client ${account.client_id} not found, skipping`);
+                continue;
+            }
+            
+            // Check auth directory contents
+            const authFiles = fs.readdirSync(clientAuthDir);
+            console.log(`Auth directory for client ${account.client_id} contains ${authFiles.length} files/directories`);
+            
+            console.log(`Restoring WhatsApp client for account ${account.id} with client ID ${account.client_id}`);
+            
+            // Initialize the client
+            try {
+                await startClient(account.client_id, account.phoneNumber, account.id);
+                console.log(`Successfully restored client ${account.client_id}`);
+            } catch (error) {
+                console.error(`Failed to restore client ${account.client_id}:`, error);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to initialize clients from database:', error);
+    }
 }
 
 /**
@@ -111,6 +203,66 @@ async function startClient(clientId: string): Promise<void> {
     clientData.client = sock;
     clients.set(clientId, clientData);
     
+    // Handle incoming messages
+    sock.ev.on('messages.upsert', async (messagesUpsert) => {
+        console.log('New message received:', JSON.stringify(messagesUpsert, null, 2));
+        
+        // Get the latest client data
+        const currentClientData = clients.get(clientId);
+        if (!currentClientData) return;
+        
+        // Process only new messages
+        if (messagesUpsert.type === 'notify') {
+            for (const msg of messagesUpsert.messages) {
+                // Skip messages sent by the current user
+                if (msg.key.fromMe) continue;
+                
+                // Get message content
+                const messageContent = msg.message?.conversation || 
+                                      msg.message?.extendedTextMessage?.text || 
+                                      msg.message?.imageMessage?.caption || 
+                                      'Media message';
+                
+                // Get sender information
+                const sender = msg.key.remoteJid?.split('@')[0] || 'Unknown';
+                
+                console.log(`Message from ${sender}: ${messageContent}`);
+                
+                // Broadcast message to all connected clients
+                WebSocketServer.broadcast({
+                    type: 'whatsapp',
+                    action: 'message',
+                    data: {
+                        clientId,
+                        accountId: currentClientData.accountId,
+                        sender,
+                        content: messageContent,
+                        timestamp: new Date().toISOString(),
+                        messageId: msg.key.id,
+                        rawMessage: msg
+                    }
+                });
+                
+                // Send to specific client if connected
+                if (currentClientData.socket && currentClientData.socket.readyState === WebSocket.OPEN) {
+                    currentClientData.socket.send(JSON.stringify({
+                        type: 'whatsapp',
+                        action: 'message',
+                        data: {
+                            sender,
+                            content: messageContent,
+                            timestamp: new Date().toISOString(),
+                            messageId: msg.key.id
+                        }
+                    }));
+                }
+            }
+        }
+    });
+    
+    // Save credentials when updated
+    sock.ev.on('creds.update', saveCreds);
+    
     // Handle connection events
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -174,6 +326,114 @@ async function startClient(clientId: string): Promise<void> {
                         if (phoneNumber) {
                             currentClientData.phoneNumber = phoneNumber;
                             clients.set(clientId, currentClientData);
+                            
+                            // Store the client ID in the database for persistence
+                            if (currentClientData.accountId) {
+                                try {
+                                    // Get prisma client with admin privileges
+                                    const prisma = getEnhancedPrisma({
+                                        id: 'system',
+                                        rolesString: 'admin',
+                                        systemRole: 'ADMIN'
+                                    });
+                                    
+                                    // The client ID issue is that we need to find the correct directory in the auth folder
+                                    // that corresponds to this WhatsApp account
+                                    
+                                    // Get all directories in the main auth folder
+                                    const authDirContents = fs.readdirSync(AUTH_DIR);
+                                    
+                                    // Find the appropriate client ID for this account
+                                    let actualClientId = null;
+                                    
+                                    // First check if there's a directory with this exact client ID
+                                    if (authDirContents.includes(clientId)) {
+                                        const clientIdPath = path.join(AUTH_DIR, clientId);
+                                        if (fs.statSync(clientIdPath).isDirectory()) {
+                                            // The client ID already exists as a directory, use it
+                                            actualClientId = clientId;
+                                            console.log(`Found exact client ID directory: ${clientId}`);
+                                        }
+                                    }
+                                    
+                                    // If we couldn't find the exact client ID, look for non-pending directories
+                                    if (!actualClientId) {
+                                        // Look for non-pending directories
+                                        const nonPendingDirs = authDirContents
+                                            .filter(item => {
+                                                const itemPath = path.join(AUTH_DIR, item);
+                                                return fs.statSync(itemPath).isDirectory() && !item.startsWith('pending_');
+                                            });
+                                            
+                                        if (nonPendingDirs.length > 0) {
+                                            // Use the first non-pending directory
+                                            actualClientId = nonPendingDirs[0];
+                                            console.log(`Using non-pending directory: ${actualClientId}`);
+                                        } else {
+                                            // If no non-pending directories found, check for any directory
+                                            const allDirs = authDirContents
+                                                .filter(item => {
+                                                    const itemPath = path.join(AUTH_DIR, item);
+                                                    return fs.statSync(itemPath).isDirectory();
+                                                });
+                                                
+                                            if (allDirs.length > 0) {
+                                                // Use the first directory found
+                                                actualClientId = allDirs[0];
+                                                console.log(`Using first available directory: ${actualClientId}`);
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (actualClientId) {
+                                        // Check if the client ID has actually changed
+                                        if (actualClientId !== clientId) {
+                                            console.log(`Updating client ID from ${clientId} to ${actualClientId}`);
+                                            
+                                            // Update the WhatsApp account with the actual client ID
+                                            await prisma.whatsAppAccount.update({
+                                                where: { id: currentClientData.accountId },
+                                                data: { client_id: actualClientId }
+                                            });
+                                            
+                                            console.log(`Stored actual client ID ${actualClientId} for account ${currentClientData.accountId}`);
+                                            
+                                            // Update the client ID in memory
+                                            // First, copy the client data
+                                            const updatedClientData = {...currentClientData, id: actualClientId};
+                                            
+                                            // Remove the old client entry
+                                            clients.delete(clientId);
+                                            
+                                            // Add the new client entry with the actual ID
+                                            clients.set(actualClientId, updatedClientData);
+                                            
+                                            // Update the clientId variable for the rest of this function
+                                            clientId = actualClientId;
+                                            
+                                            // Since we've changed the client ID, we need to restart the client
+                                            // with the correct ID to ensure everything works properly
+                                            console.log(`Restarting client with correct ID: ${actualClientId}`);
+                                            
+                                            // We'll return from this function and let the client be restarted
+                                            // on the next request with the correct ID
+                                            return { success: true, message: 'Client ID updated, please refresh to connect with correct ID' };
+                                        } else {
+                                            console.log(`Client ID ${clientId} is already correct, no update needed`);
+                                        }
+                                    } else {
+                                        // If no directory found, use the original client ID
+                                        await prisma.whatsAppAccount.update({
+                                            where: { id: currentClientData.accountId },
+                                            data: { client_id: clientId }
+                                        });
+                                        console.log(`No actual client ID found, using original: ${clientId}`);
+                                    }
+                                    
+                                } catch (dbError) {
+                                    console.error('Failed to store client ID in database:', dbError);
+                                }
+                            }
                             
                             // Send phone info to client
                             if (currentClientData.socket && currentClientData.socket.readyState === WebSocket.OPEN) {
@@ -261,6 +521,31 @@ async function startClient(clientId: string): Promise<void> {
  */
 export function getWhatsAppClient(clientId: string): WhatsAppClientManager | undefined {
     return clients.get(clientId);
+}
+
+/**
+ * Send a WhatsApp message
+ */
+export async function sendWhatsAppMessage(clientId: string, to: string, message: string): Promise<boolean> {
+    const clientData = clients.get(clientId);
+    if (!clientData || !clientData.client) {
+        console.error(`Cannot send message: Client ${clientId} not found or not initialized`);
+        return false;
+    }
+    
+    try {
+        // Format the recipient number
+        const recipient = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+        
+        // Send the message
+        await clientData.client.sendMessage(recipient, { text: message });
+        
+        console.log(`Message sent to ${to}: ${message}`);
+        return true;
+    } catch (error) {
+        console.error(`Failed to send WhatsApp message to ${to}:`, error);
+        return false;
+    }
 }
 
 /**

@@ -4,6 +4,7 @@ import { getEnhancedPrisma } from '$lib/server/prisma';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { createWhatsAppAccountSchema } from '$lib/schemas/whatsapp-account';
 import { zod } from 'sveltekit-superforms/adapters';
+import { v4 as uuidv4 } from 'uuid';
 
 
 
@@ -58,7 +59,8 @@ export const actions: Actions = {
                 data: {
                     phoneNumber: form.data.phoneNumber,
                     description: form.data.description,
-                    createdBy: auth.user.id
+                    createdBy: auth.user.id,
+                    client_id: `pending_${uuidv4()}` // Temporary client ID until authenticated
                 }
             });
             

@@ -200,8 +200,33 @@ const createSocketStore = () => {
     };
   };
   
+  // Add status getter for direct access to current status
+  const getStatus = () => {
+    let currentStatus: WebSocketStatus = 'CLOSED';
+    // Get the current status from the store
+    const unsubscribe = subscribe(state => {
+      currentStatus = state.status;
+    });
+    unsubscribe();
+    return currentStatus;
+  };
+
+  // Connect on initialization
   connect();
-  return { subscribe, connect, disconnect, send, clearMessages, on };
+  
+  // Return the store interface with properly typed subscribe method
+  return {
+    subscribe,  // This is the Svelte store subscribe method that returns an unsubscribe function
+    connect,
+    disconnect,
+    send,
+    clearMessages,
+    on,
+    // Add a getter for the current status
+    get status() {
+      return getStatus();
+    }
+  };
 };
 
 let socket: WebSocket | null = null;

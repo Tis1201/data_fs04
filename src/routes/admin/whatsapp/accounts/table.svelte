@@ -42,6 +42,12 @@
     // Column definitions
     const columns = [
         {
+            id: "client_id",
+            label: "Client ID",
+            sortable: true,
+            width: "30%"
+        },
+        {
             id: "phoneNumber",
             label: "Phone Number",
             sortable: true,

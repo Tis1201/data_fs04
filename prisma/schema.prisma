@@ -65,6 +65,7 @@ model ApiKey {
 
 model WhatsAppAccount {
   id          String   @id() @default(cuid())
+  client_id   String   @unique()
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt()
   phoneNumber String

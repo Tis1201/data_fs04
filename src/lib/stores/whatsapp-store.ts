@@ -111,20 +111,27 @@ const createWhatsAppStore = () => {
                 
                 // Wait for connection to establish
                 await new Promise<void>((resolve) => {
-                    let unsubscribe: () => void;
+                    // Initialize with a no-op function to prevent null/undefined errors
+                    let unsubscribe = () => {};
                     
                     const timeoutId = setTimeout(() => {
-                        if (unsubscribe) unsubscribe();
+                        unsubscribe();
                         resolve();
                     }, 3000);
                     
-                    unsubscribe = socketStore.subscribe(($socket) => {
+                    // Store the returned unsubscribe function
+                    const unsub = socketStore.subscribe(($socket) => {
                         if ($socket && $socket.status === 'OPEN') {
                             clearTimeout(timeoutId);
-                            unsubscribe();
+                            unsub();
                             resolve();
                         }
                     });
+                    
+                    // Safely assign the unsubscribe function
+                    if (typeof unsub === 'function') {
+                        unsubscribe = unsub;
+                    }
                 });
             }
             
@@ -171,20 +178,27 @@ const createWhatsAppStore = () => {
                 
                 // Wait for connection to establish
                 await new Promise<void>((resolve) => {
-                    let unsubscribe: () => void;
+                    // Initialize with a no-op function to prevent null/undefined errors
+                    let unsubscribe = () => {};
                     
                     const timeoutId = setTimeout(() => {
-                        if (unsubscribe) unsubscribe();
+                        unsubscribe();
                         resolve();
                     }, 3000);
                     
-                    unsubscribe = socketStore.subscribe(($socket) => {
+                    // Store the returned unsubscribe function
+                    const unsub = socketStore.subscribe(($socket) => {
                         if ($socket && $socket.status === 'OPEN') {
                             clearTimeout(timeoutId);
-                            unsubscribe();
+                            unsub();
                             resolve();
                         }
                     });
+                    
+                    // Safely assign the unsubscribe function
+                    if (typeof unsub === 'function') {
+                        unsubscribe = unsub;
+                    }
                 });
             }
             
