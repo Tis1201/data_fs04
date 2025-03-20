@@ -21,30 +21,15 @@
     // Generate QR code data URL from the WhatsApp store data
     $: if ($whatsAppStore.qrCode) {
         try {
-            // If the store already has a base64 image, use it directly
-            if ($whatsAppStore.qrCode.startsWith('data:') || $whatsAppStore.qrCode.match(/^[A-Za-z0-9+/=]+$/)) {
-                // Create a QR code from the actual data in the store
-                QRCode.toDataURL($whatsAppStore.qrCode.startsWith('data:') ? 
-                    $whatsAppStore.qrCode : 
-                    'https://example.com/whatsapp-test')
-                    .then(url => {
-                        qrCodeDataUrl = url;
-                        console.log('QR code generated successfully');
-                    })
-                    .catch(err => {
-                        console.error('Error generating QR code:', err);
-                    });
-            } else {
-                // If it's not a valid base64 string, create a QR code from a test URL
-                QRCode.toDataURL('https://example.com/whatsapp-test')
-                    .then(url => {
-                        qrCodeDataUrl = url;
-                        console.log('Generated fallback QR code');
-                    })
-                    .catch(err => {
-                        console.error('Error generating fallback QR code:', err);
-                    });
-            }
+            // The QR code from Baileys is the actual data to encode, not a base64 image
+            QRCode.toDataURL($whatsAppStore.qrCode)
+                .then(url => {
+                    qrCodeDataUrl = url;
+                    console.log('QR code generated successfully');
+                })
+                .catch(err => {
+                    console.error('Error generating QR code:', err);
+                });
         } catch (error) {
             console.error('Error processing QR code data:', error);
         }
@@ -117,7 +102,7 @@
         <TabsContent value="qr" class="space-y-4">
             <div class="flex flex-col items-center justify-center p-4 space-y-4">
                 <!-- Always show QR code area, but conditionally show skeleton or error -->
-                <div class="w-64 h-64 border rounded-lg overflow-hidden relative">
+                <div class="w-64 h-64 border rounded-lg overflow-hidden">
                     {#if qrCodeDataUrl}
                         <!-- Using a simple img tag with data URL for QR code -->
                         <img 
@@ -125,9 +110,6 @@
                             alt="WhatsApp QR Code" 
                             class="w-full h-full object-contain"
                         />
-                        <div class="absolute bottom-0 right-0 p-1 text-xs text-green-600 bg-white rounded-tl-md">
-                            {$whatsAppStore.connectionStatus === 'authenticated' ? 'Authenticated' : 'Ready to scan'}
-                        </div>
                     {:else if $whatsAppStore.connectionStatus === 'connecting'}
                         <div class="w-full h-full flex items-center justify-center">
                             <Skeleton class="w-full h-full" />
@@ -142,6 +124,12 @@
                         </div>
                     {/if}
                 </div>
+                
+                {#if qrCodeDataUrl}
+                    <div class="text-sm text-center text-green-600 font-medium">
+                        {$whatsAppStore.connectionStatus === 'authenticated' ? 'Authenticated ✓' : 'Ready to scan'}
+                    </div>
+                {/if}
                 
                 <p class="text-sm text-center text-muted-foreground">
                     Open WhatsApp on your phone, tap Menu or Settings and select Linked Devices.

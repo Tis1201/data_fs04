@@ -52,6 +52,18 @@ export const createWSSGlobalInstance = () => {
                     return;
                 }
                 
+                // Handle WhatsApp messages
+                if (data.type === 'whatsapp') {
+                    // Forward to all clients for now
+                    // In a real implementation, you'd only forward to relevant clients
+                    wss.clients.forEach(client => {
+                        if (client.readyState === WebSocket.OPEN) {
+                            client.send(JSON.stringify(data));
+                        }
+                    });
+                    return;
+                }
+                
                 // Echo the message back
                 ws.send(JSON.stringify({ type: 'echo', data }));
             } catch (error) {
