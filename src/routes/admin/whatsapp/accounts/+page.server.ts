@@ -11,7 +11,7 @@ function parseQueryParams(url: URL, allowedFilters: string[] = []) {
         page: Number(url.searchParams.get('page')) || 1,
         per_page: Number(url.searchParams.get('per_page')) || 10,
         search: url.searchParams.get('search') || '',
-        sortField: (url.searchParams.get('sort') as 'email' | 'rolesString' | 'createdAt' | 'systemRole') || 'email',
+        sortField: (url.searchParams.get('sort') as 'phoneNumber' | 'description' | 'createdAt') || 'phoneNumber',
         sortOrder: (url.searchParams.get('order') as 'asc' | 'desc') || 'asc'
     };
 
@@ -47,7 +47,8 @@ async function db(parent: () => PromiseLike<{ user: any; }> | { user: any; }){
     const { user } = await parent();
     const prisma = getEnhancedPrisma({
         id: user.id,
-        rolesString: user.rolesString
+        rolesString: user.rolesString,
+        systemRole: user.systemRole
     });
     return prisma;
 }

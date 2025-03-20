@@ -32,7 +32,9 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
         // Use enhanced prisma with user context
         const prisma = getEnhancedPrisma({
             id: parentData.user.id,
-            rolesString: parentData.user.rolesString
+            rolesString: parentData.user.rolesString,
+            systemRole: parentData.user.systemRole
+            
         });
         console.log('Auth context:', { id: parentData.user.id, rolesString: parentData.user.rolesString });
 

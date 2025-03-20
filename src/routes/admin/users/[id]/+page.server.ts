@@ -15,7 +15,8 @@ export const load: PageServerLoad = async ({ params, parent }) => {
     try {
         const prisma = getEnhancedPrisma({
             id: parentData.user.id,
-            rolesString: parentData.user.rolesString
+            rolesString: parentData.user.rolesString,
+            systemRole: parentData.user.systemRole
         });
 
         const user = await prisma.user.findUnique({

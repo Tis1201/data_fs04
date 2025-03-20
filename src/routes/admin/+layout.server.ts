@@ -32,7 +32,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     // Now use enhanced prisma with full user context
     const prisma = getEnhancedPrisma({
         id: user.id,
-        rolesString: user.rolesString
+        rolesString: user.rolesString,
+        systemRole: user.systemRole
     });
 
     return {

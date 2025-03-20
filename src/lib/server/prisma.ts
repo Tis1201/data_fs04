@@ -20,7 +20,7 @@ if (dev) {
 }
 
 // Create enhanced client with user context
-export function getEnhancedPrisma(user?: { id: string; rolesString: string } | null) {
+export function getEnhancedPrisma(user?: { id: string; rolesString: string; systemRole?: string } | null) {
     if (!user?.id) {
         // Return unenhanced client for anonymous access
         return prisma;
@@ -32,11 +32,16 @@ export function getEnhancedPrisma(user?: { id: string; rolesString: string } | n
         return global.enhancedClients.get(key)!;
     }
 
+    console.log('user.systemRole: ', user.systemRole)
+
     const enhanced = enhance(prisma, {
+        
         user: {
             id: user.id,
-            rolesString: user.rolesString
+            rolesString: user.rolesString,
+            systemRole: user.systemRole || 'USER'
         }
+        
     });
 
     if (dev) {
