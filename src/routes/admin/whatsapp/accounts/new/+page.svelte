@@ -5,7 +5,7 @@
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
     import { Textarea } from "$lib/components/ui/textarea";
-    import { ArrowLeft, RefreshCw, CheckCircle, Plus, AlertCircle } from "lucide-svelte";
+    import { ArrowLeft, RefreshCw, CheckCircle, Plus, AlertCircle, QrCode } from "lucide-svelte";
     import { toast } from "svelte-sonner";
     import type { PageData } from './$types';
     import { superForm } from 'sveltekit-superforms/client';
@@ -13,12 +13,24 @@
     import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
     import { Alert, AlertDescription } from "$lib/components/ui/alert";
     import { zodClient } from 'sveltekit-superforms/adapters';
+    import QRCodeScanner from "$lib/components/whatsapp/QRCodeScanner.svelte";
+    import { whatsAppStore } from "$lib/stores/whatsapp-store";
+    import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
 
     export let data: PageData;
 
     let showSuccessPage = false;
-    let createdAccount: { phoneNumber: string; description: string } | null = null;
+    let createdAccount: { id?: string; phoneNumber: string; description: string } | null = null;
     let serverError: string | null = null;
+    
+    // Track the current step in the account creation process
+    let currentStep = 1; // 1: Connect WhatsApp, 2: Account Details, 3: Success
+    
+    // WhatsApp account info received from authentication
+    let whatsAppInfo: { phoneNumber: string; name: string } | null = null;
+    
+    // Generate a temporary ID for the QR code scanner
+    const tempAccountId = `temp-${Date.now()}`;
 
     const { form, errors, enhance, submitting, reset } = superForm(data.form, {
         validators: zodClient(createWhatsAppAccountSchema),
@@ -30,6 +42,7 @@
                 // Check if account data is available in the result
                 if (result.data?.account) {
                     createdAccount = {
+                        id: result.data.account.id,
                         phoneNumber: result.data.account.phoneNumber,
                         description: result.data.account.description
                     };
@@ -62,9 +75,39 @@
     });
     
     function createAnother() {
-        showSuccessPage = false;
+        currentStep = 1;
         createdAccount = null;
         serverError = null;
+        whatsAppInfo = null;
+        whatsAppStore.reset();
+    }
+    
+    function handleAuthenticated() {
+        // In a real implementation, this would come from the WhatsApp API
+        // For now, we'll use mock data based on the WhatsApp store state
+        whatsAppInfo = {
+            phoneNumber: $whatsAppStore.phoneNumber || '',
+            name: `WhatsApp (${$whatsAppStore.phoneNumber})` // Mock account name from WhatsApp
+        };
+        
+        // Pre-fill the form with the data from WhatsApp
+        $form.phoneNumber = whatsAppInfo.phoneNumber;
+        $form.description = `WhatsApp account for ${whatsAppInfo.name}`;
+        
+        toast.success('WhatsApp account authenticated successfully');
+        // Don't automatically advance to step 2, let the user click the button
+    }
+    
+    function handleError(event: CustomEvent) {
+        toast.error(`WhatsApp authentication error: ${event.detail.message}`);
+    }
+    
+    function goBack() {
+        if (currentStep > 1) {
+            currentStep--;
+        } else {
+            goto('/admin/whatsapp/accounts');
+        }
     }
 </script>
 
@@ -87,15 +130,31 @@
 
     <div class="flex justify-between items-center">
         <h2 class="text-3xl font-bold tracking-tight">New WhatsApp Account</h2>
-        <Button variant="outline" on:click={() => goto('/admin/whatsapp/accounts')}>
+        <Button variant="outline" on:click={goBack}>
             <ArrowLeft class="mr-2 h-4 w-4" />
-            Back to Accounts
+            {currentStep > 1 ? 'Back' : 'Back to Accounts'}
         </Button>
     </div>
+    
+    <div class="flex w-full gap-2 pb-4 mb-4 border-b">
+        {#each [{value: 1, label: 'Connect WhatsApp'}, {value: 2, label: 'Account Details'}, {value: 3, label: 'Success'}] as step}
+            <div class={`flex items-center gap-2 flex-1 pb-2 ${currentStep === step.value ? 'text-primary font-medium' : currentStep > step.value ? 'text-primary/70' : 'text-muted-foreground'}`}>
+                <div class={`flex items-center justify-center rounded-full border h-5 w-5 text-xs ${currentStep === step.value ? 'border-primary bg-primary text-primary-foreground' : currentStep > step.value ? 'border-primary/50 bg-primary/50 text-primary-foreground' : 'border-muted bg-background'}`}>
+                    {#if currentStep > step.value}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    {:else}
+                        {step.value}
+                    {/if}
+                </div>
+                <span class="text-xs">{step.label}</span>
+            </div>
+        {/each}
+    </div>
 
-    {#if showSuccessPage}
-        <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-            <div class="p-6 space-y-6">
+    {#if currentStep === 3}
+        <!-- Step 3: Success Page -->
+        <Card>
+            <CardContent class="pt-6 space-y-6">
                 <div class="flex flex-col items-center justify-center text-center space-y-4">
                     <div class="rounded-full bg-green-50 p-3">
                         <CheckCircle class="h-8 w-8 text-green-600" />
@@ -116,30 +175,75 @@
                         Create Another Account
                     </Button>
                 </div>
-            </div>
-        </div>
-    {:else}
-        <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+            </CardContent>
+        </Card>
+    {:else if currentStep === 1}
+        <!-- Step 1: Connect WhatsApp -->
+        <Card>
+            <CardHeader>
+                <CardTitle>Connect WhatsApp</CardTitle>
+                <CardDescription>
+                    Scan the QR code with your WhatsApp app to connect your account
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <QRCodeScanner 
+                    phoneNumber="" 
+                    accountId={tempAccountId}
+                    on:authenticated={handleAuthenticated}
+                    on:error={handleError}
+                />
+                
+                <div class="flex justify-end mt-6">
+                    <Button 
+                        type="button" 
+                        on:click={() => currentStep = 2}
+                        disabled={$whatsAppStore.connectionStatus !== 'authenticated'}
+                    >
+                        {$whatsAppStore.connectionStatus === 'authenticated' ? 'Next' : 'Scan QR Code First'}
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2 h-4 w-4"><path d="m9 18 6-6-6-6"/></svg>
+                    </Button>
+                </div>
+            </CardContent>
+            <CardFooter class="border-t pt-6">
+                <p class="text-sm text-muted-foreground">
+                    After scanning the QR code, your WhatsApp account information will be automatically retrieved.
+                </p>
+            </CardFooter>
+        </Card>
+    {:else if currentStep === 2}
+        <!-- Step 2: Account Details -->
+        <Card>
             <form 
                 method="POST" 
                 use:enhance
-                class="p-6 space-y-6"
+                class="space-y-6"
             >
-                {#if serverError}
-                    <Alert variant="destructive">
-                        <AlertCircle class="h-4 w-4" />
-                        <AlertDescription>
-                            {serverError}
-                        </AlertDescription>
-                    </Alert>
-                {/if}
-
-                <div class="space-y-1">
-                    <h3 class="font-semibold text-lg">Account Details</h3>
-                    <p class="text-sm text-muted-foreground">
-                        Add a new WhatsApp account to the system.
-                    </p>
-                </div>
+                <CardHeader>
+                    <CardTitle>Account Details</CardTitle>
+                    <CardDescription>
+                        Confirm or modify the account details from WhatsApp
+                    </CardDescription>
+                </CardHeader>
+                
+                <CardContent class="space-y-6">
+                    {#if serverError}
+                        <Alert variant="destructive">
+                            <AlertCircle class="h-4 w-4" />
+                            <AlertDescription>
+                                {serverError}
+                            </AlertDescription>
+                        </Alert>
+                    {/if}
+                    
+                    {#if whatsAppInfo}
+                        <Alert>
+                            <CheckCircle class="h-4 w-4" />
+                            <AlertDescription>
+                                WhatsApp account connected successfully. Please confirm the details below.
+                            </AlertDescription>
+                        </Alert>
+                    {/if}
 
                 <div class="grid gap-6">
                     <!-- Phone Number -->
@@ -167,9 +271,11 @@
                     </div>
                 </div>
 
-                <div class="flex justify-end space-x-2">
-                    <Button variant="outline" type="button" on:click={() => goto('/admin/whatsapp/accounts')}>
-                        Cancel
+                </CardContent>
+                
+                <CardFooter class="border-t pt-6 flex justify-end space-x-2">
+                    <Button variant="outline" type="button" on:click={goBack}>
+                        Back
                     </Button>
                     <Button type="submit" disabled={$submitting}>
                         {#if $submitting}
@@ -179,9 +285,9 @@
                             Create Account
                         {/if}
                     </Button>
-                </div>
+                </CardFooter>
             </form>
-        </div>
+        </Card>
     {/if}
 </div>
 

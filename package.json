@@ -100,6 +100,7 @@
 		"pg": "^8.13.1",
 		"playwright": "^1.49.0",
 		"prismjs": "^1.29.0",
+		"qrcode": "^1.5.4",
 		"socket.io-client": "^4.7.4",
 		"sqlite3": "^5.1.2",
 		"stripe": "^17.5.0",
