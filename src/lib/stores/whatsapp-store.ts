@@ -12,6 +12,7 @@ export interface WhatsAppState {
     error: string | null;
     accountId: string | null;
     phoneNumber: string | null;
+    pushName: string | null;
 }
 
 // Create WhatsApp store
@@ -23,7 +24,8 @@ const createWhatsAppStore = () => {
             connectionStatus: 'disconnected',
             error: null,
             accountId: null,
-            phoneNumber: null
+            phoneNumber: null,
+            pushName: null
         });
         return {
             subscribe,
@@ -39,7 +41,8 @@ const createWhatsAppStore = () => {
         connectionStatus: 'disconnected',
         error: null,
         accountId: null,
-        phoneNumber: null
+        phoneNumber: null,
+        pushName: null
     });
     
     // Initialize WebSocket listener
@@ -71,6 +74,12 @@ const createWhatsAppStore = () => {
                         ...state, 
                         error: message.data.message,
                         connectionStatus: 'disconnected'
+                    }));
+                } else if (message.action === 'phoneInfo') {
+                    update(state => ({ 
+                        ...state, 
+                        phoneNumber: message.data.phoneNumber,
+                        pushName: message.data.pushName
                     }));
                 }
             }

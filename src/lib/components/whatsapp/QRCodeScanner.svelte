@@ -44,7 +44,11 @@
     
     // Watch for authentication status changes
     $: if ($whatsAppStore.connectionStatus === 'authenticated') {
-        dispatch('authenticated');
+        // Pass phone information to the parent component
+        dispatch('authenticated', {
+            phoneNumber: $whatsAppStore.phoneNumber,
+            pushName: $whatsAppStore.pushName
+        });
     }
     
     $: if ($whatsAppStore.error) {

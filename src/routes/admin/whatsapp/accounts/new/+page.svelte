@@ -54,6 +54,7 @@
                     };
                 }
                 showSuccessPage = true;
+                currentStep = 3; // Advance to success page (step 3)
                 reset();
                 toast.success('WhatsApp account created successfully');
             } else if (result.type === 'error') {
@@ -82,20 +83,25 @@
         whatsAppStore.reset();
     }
     
-    function handleAuthenticated() {
-        // In a real implementation, this would come from the WhatsApp API
-        // For now, we'll use mock data based on the WhatsApp store state
+    function handleAuthenticated(event: CustomEvent) {
+        // Use the real phone information from Baileys
+        const phoneNumber = event.detail?.phoneNumber || $whatsAppStore.phoneNumber || '';
+        const pushName = event.detail?.pushName || $whatsAppStore.pushName || 'Unknown';
+        
         whatsAppInfo = {
-            phoneNumber: $whatsAppStore.phoneNumber || '',
-            name: `WhatsApp (${$whatsAppStore.phoneNumber})` // Mock account name from WhatsApp
+            phoneNumber: phoneNumber,
+            name: pushName
         };
         
         // Pre-fill the form with the data from WhatsApp
         $form.phoneNumber = whatsAppInfo.phoneNumber;
         $form.description = `WhatsApp account for ${whatsAppInfo.name}`;
         
+        console.log(`WhatsApp authenticated: ${phoneNumber} (${pushName})`);
         toast.success('WhatsApp account authenticated successfully');
-        // Don't automatically advance to step 2, let the user click the button
+        
+        // Automatically advance to step 2 after successful authentication
+        currentStep = 2;
     }
     
     function handleError(event: CustomEvent) {
@@ -197,10 +203,14 @@
                 <div class="flex justify-end mt-6">
                     <Button 
                         type="button" 
-                        on:click={() => currentStep = 2}
+                        on:click={() => {
+                            if ($whatsAppStore.connectionStatus === 'authenticated') {
+                                currentStep = 2;
+                            }
+                        }}
                         disabled={$whatsAppStore.connectionStatus !== 'authenticated'}
                     >
-                        {$whatsAppStore.connectionStatus === 'authenticated' ? 'Next' : 'Scan QR Code First'}
+                        {$whatsAppStore.connectionStatus === 'authenticated' ? 'Next' : 'Waiting for Authentication...'}
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2 h-4 w-4"><path d="m9 18 6-6-6-6"/></svg>
                     </Button>
                 </div>
@@ -287,6 +297,47 @@
                     </Button>
                 </CardFooter>
             </form>
+        </Card>
+    {:else if currentStep === 3}
+        <!-- Step 3: Success Page -->
+        <Card>
+            <CardHeader>
+                <CardTitle>Account Created Successfully</CardTitle>
+                <CardDescription>
+                    Your WhatsApp account has been successfully connected and created
+                </CardDescription>
+            </CardHeader>
+            <CardContent class="space-y-6">
+                <Alert>
+                    <CheckCircle class="h-4 w-4" />
+                    <AlertDescription>
+                        WhatsApp account has been successfully created and is ready to use.
+                    </AlertDescription>
+                </Alert>
+                
+                {#if createdAccount}
+                    <div class="grid gap-4">
+                        <div>
+                            <p class="font-semibold">Phone Number:</p>
+                            <p>{createdAccount.phoneNumber}</p>
+                        </div>
+                        <div>
+                            <p class="font-semibold">Description:</p>
+                            <p>{createdAccount.description}</p>
+                        </div>
+                    </div>
+                {/if}
+            </CardContent>
+            <CardFooter class="flex justify-between border-t pt-6">
+                <Button variant="outline" on:click={() => goto('/admin/whatsapp/accounts')}>
+                    <ArrowLeft class="mr-2 h-4 w-4" />
+                    Back to Accounts
+                </Button>
+                <Button on:click={createAnother}>
+                    <Plus class="mr-2 h-4 w-4" />
+                    Create Another Account
+                </Button>
+            </CardFooter>
         </Card>
     {/if}
 </div>

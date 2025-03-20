@@ -163,6 +163,47 @@ async function startClient(clientId: string): Promise<void> {
                     break;
                 case 'open':
                     newState = 'authenticated';
+                    
+                    // Get phone number and other info after successful authentication
+                    try {
+                        // Get the connected user's information
+                        const phoneNumber = sock.user?.id?.split(':')[0];
+                        const pushName = sock.user?.name || 'Unknown';
+                        
+                        // Update client data with phone info
+                        if (phoneNumber) {
+                            currentClientData.phoneNumber = phoneNumber;
+                            clients.set(clientId, currentClientData);
+                            
+                            // Send phone info to client
+                            if (currentClientData.socket && currentClientData.socket.readyState === WebSocket.OPEN) {
+                                currentClientData.socket.send(JSON.stringify({
+                                    type: 'whatsapp',
+                                    action: 'phoneInfo',
+                                    data: {
+                                        phoneNumber,
+                                        pushName
+                                    }
+                                }));
+                            }
+                            
+                            // Broadcast to all connected clients
+                            WebSocketServer.broadcast({
+                                type: 'whatsapp',
+                                action: 'phoneInfo',
+                                data: {
+                                    clientId,
+                                    accountId: currentClientData.accountId,
+                                    phoneNumber,
+                                    pushName
+                                }
+                            });
+                            
+                            console.log(`WhatsApp authenticated for ${phoneNumber} (${pushName})`);
+                        }
+                    } catch (error) {
+                        console.error('Error getting phone information:', error);
+                    }
                     break;
                 case 'close':
                     newState = 'disconnected';
