@@ -1,6 +1,11 @@
 import type { PageServerLoad } from './$types';
 import {getEnhancedPrisma} from '$lib/server/prisma';
 
+/*******************************************************************************************
+ * 
+ *  Parse Query Params including pagination, sorting, and filters
+ * 
+ *******************************************************************************************/
 function parseQueryParams(url: URL, allowedFilters: string[] = []) {
     const queryParams: Record<string, any> = {
         page: Number(url.searchParams.get('page')) || 1,
@@ -10,7 +15,6 @@ function parseQueryParams(url: URL, allowedFilters: string[] = []) {
         sortOrder: (url.searchParams.get('order') as 'asc' | 'desc') || 'asc'
     };
 
-    // Dynamically extract allowed filters
     allowedFilters.forEach((filter) => {
         const value = url.searchParams.get(filter);
         if (value) {
@@ -21,6 +25,11 @@ function parseQueryParams(url: URL, allowedFilters: string[] = []) {
     return queryParams;
 }
 
+/*******************************************************************************************
+ * 
+ *  Gatekeeper function to check user access based on roles
+ * 
+ *******************************************************************************************/
 async function gatekeeper(parent: () => PromiseLike<{ user: any; }> | { user: any; }, allowed_roles: string[] = ["admin"]){
     const { user } = await parent();
     if (!user || !allowed_roles.includes(user.rolesString)) {
@@ -29,7 +38,11 @@ async function gatekeeper(parent: () => PromiseLike<{ user: any; }> | { user: an
     console.log('Auth context:', { id: user.id, rolesString: user.rolesString });
 } 
 
-//
+/*******************************************************************************************
+ * 
+ *  Database access function to get the enhanced Prisma client
+ * 
+ *******************************************************************************************/
 async function db(parent: () => PromiseLike<{ user: any; }> | { user: any; }){
     const { user } = await parent();
     const prisma = getEnhancedPrisma({
@@ -39,6 +52,11 @@ async function db(parent: () => PromiseLike<{ user: any; }> | { user: any; }){
     return prisma;
 }
 
+/*******************************************************************************************
+ * 
+ *  Function to format pagination data for response metadata
+ * 
+ *******************************************************************************************/
 function formatPagination(page: number, per_page: number, totalRecords: number) {
     return {
         page,
@@ -48,15 +66,29 @@ function formatPagination(page: number, per_page: number, totalRecords: number) 
     };
 }
 
+/*******************************************************************************************
+ * 
+ *  Function to format sorting data for response metadata
+ * 
+ *******************************************************************************************/
 function formatSorting(sortField: string, sortOrder: string) {
     return { field: sortField, order: sortOrder };
 }
 
+/*******************************************************************************************
+ * 
+ *  Function to format filters for response metadata
+ * 
+ *******************************************************************************************/
 function formatFilters(filters: Record<string, any>) {
     return filters;
 }
 
-
+/*******************************************************************************************
+ * 
+ *  Main Logic Block
+ * 
+ *******************************************************************************************/
 export const load: PageServerLoad = async ({parent, url }) => {
     
     await gatekeeper(parent);
