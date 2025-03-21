@@ -1,6 +1,8 @@
 // take any path after /api/webhook and return a 200
 import { json } from '@sveltejs/kit';
 import { validateApiAuth } from '$lib/server/auth/api-auth';
+import { sseManager } from '$lib/server/sse';
+import { logger } from '$lib/server/logger';
 
 export const POST = async ({ request, cookies }) => {
     // Extract API key from request headers
@@ -12,10 +14,42 @@ export const POST = async ({ request, cookies }) => {
         return auth.response;
     }
 
-    const params = new URL(request.url).searchParams
-
-    console.log(params);
-
-    // Return a 200 response
-    return json({ message: 'Webhook received successfully' }, { status: 200 });
+    try {
+        // Get URL parameters
+        const params = new URL(request.url).searchParams;
+        const paramsObj = Object.fromEntries(params);
+        
+        // Try to parse the request body as JSON
+        let body = {};
+        try {
+            const contentType = request.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                body = await request.json();
+            }
+        } catch (error) {
+            // If body parsing fails, continue with empty body
+            logger.debug('Failed to parse webhook request body', { error });
+        }
+        
+        // Prepare webhook data to broadcast
+        const webhookData = {
+            timestamp: new Date().toISOString(),
+            params: paramsObj,
+            body,
+            path: new URL(request.url).pathname,
+            method: request.method
+        };
+        
+        // Log webhook data
+        logger.info('Webhook received', { webhookData });
+        
+        // Broadcast webhook data to all SSE clients
+        sseManager.broadcast('webhook', webhookData);
+        
+        // Return a 200 response
+        return json({ message: 'Webhook received successfully' }, { status: 200 });
+    } catch (error) {
+        logger.error('Error processing webhook', { error });
+        return json({ error: 'Failed to process webhook' }, { status: 500 });
+    }
 };
