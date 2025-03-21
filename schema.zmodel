@@ -88,15 +88,16 @@ model ApiKey {
 }
 
 model WhatsAppAccount {
-  id          String   @id @default(cuid())
-  client_id   String @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  phoneNumber String
-  description String
-  createdBy   String
-  user        User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-
+  id            String   @id @default(cuid())
+  client_id     String @unique
+  client_status String @default("disconnected")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  phoneNumber   String
+  description   String
+  createdBy     String
+  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  
   @@allow('all', auth().systemRole == 'ADMIN') 
   @@index([createdBy])
   

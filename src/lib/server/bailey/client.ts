@@ -331,9 +331,41 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
             switch (connection) {
                 case 'connecting':
                     newState = 'connecting';
+                    // Update database status
+                    if (currentClientData.accountId) {
+                        try {
+                            const prisma = getEnhancedPrisma({
+                                id: 'system',
+                                rolesString: 'admin',
+                                systemRole: 'ADMIN'
+                            });
+                            await prisma.whatsAppAccount.update({
+                                where: { id: currentClientData.accountId },
+                                data: { client_status: 'connecting' }
+                            });
+                        } catch (error) {
+                            console.error('Failed to update client status:', error);
+                        }
+                    }
                     break;
                 case 'open':
                     newState = 'authenticated';
+                    // Update database status
+                    if (currentClientData.accountId) {
+                        try {
+                            const prisma = getEnhancedPrisma({
+                                id: 'system',
+                                rolesString: 'admin',
+                                systemRole: 'ADMIN'
+                            });
+                            await prisma.whatsAppAccount.update({
+                                where: { id: currentClientData.accountId },
+                                data: { client_status: 'connected' }
+                            });
+                        } catch (error) {
+                            console.error('Failed to update client status:', error);
+                        }
+                    }
                     
                     // Get phone number and other info after successful authentication
                     try {
@@ -486,6 +518,23 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
                     break;
                 case 'close':
                     newState = 'disconnected';
+                    
+                    // Update database status
+                    if (currentClientData.accountId) {
+                        try {
+                            const prisma = getEnhancedPrisma({
+                                id: 'system',
+                                rolesString: 'admin',
+                                systemRole: 'ADMIN'
+                            });
+                            await prisma.whatsAppAccount.update({
+                                where: { id: currentClientData.accountId },
+                                data: { client_status: 'disconnected' }
+                            });
+                        } catch (error) {
+                            console.error('Failed to update client status:', error);
+                        }
+                    }
                     
                     // Check if we need to reconnect
                     const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
