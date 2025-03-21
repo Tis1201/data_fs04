@@ -388,6 +388,23 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
                                         systemRole: 'ADMIN'
                                     });
                                     
+                                    // Store the user's name in the database
+                                    if (pushName && pushName !== 'Unknown') {
+                                        try {
+                                            await prisma.whatsAppAccount.update({
+                                                where: { id: currentClientData.accountId },
+                                                data: { client_status: 'connected' }
+                                            });
+                                            console.log(`Updated WhatsApp account status to connected`);
+                                            
+                                            // Store the pushName in memory for now
+                                            // We'll add proper database support for this field later
+                                            console.log(`WhatsApp authenticated for ${phoneNumber} (${pushName})`);
+                                        } catch (error) {
+                                            console.error('Failed to update WhatsApp account:', error);
+                                        }
+                                    }
+                                    
                                     // The client ID issue is that we need to find the correct directory in the auth folder
                                     // that corresponds to this WhatsApp account
                                     

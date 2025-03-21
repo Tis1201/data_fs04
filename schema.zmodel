@@ -94,6 +94,7 @@ model WhatsAppAccount {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   phoneNumber   String
+  name          String?
   description   String
   createdBy     String
   user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)

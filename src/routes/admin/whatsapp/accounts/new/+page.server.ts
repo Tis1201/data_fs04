@@ -62,6 +62,7 @@ export const actions: Actions = {
                 data: {
                     phoneNumber: form.data.phoneNumber,
                     description: form.data.description,
+                    name: form.data.name, // Add the name field from the form
                     createdBy: auth.user.id,
                     client_id: form.data.client_id
                 }

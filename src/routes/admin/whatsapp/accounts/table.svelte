@@ -41,9 +41,15 @@
 
     // Column definitions
     const columns = [
+        // {
+        //     id: "client_id",
+        //     label: "Client ID",
+        //     sortable: true,
+        //     width: "30%"
+        // },
         {
-            id: "client_id",
-            label: "Client ID",
+            id: "name",
+            label: "Name",
             sortable: true,
             width: "30%"
         },

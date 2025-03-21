@@ -7,6 +7,7 @@ export const createWhatsAppAccountSchema = z.object({
     description: z.string()
         .min(1, 'Description is required')
         .max(255, 'Description must be less than 255 characters'),
+    name: z.string().optional(),
     client_id: z.string().optional()
 });
 

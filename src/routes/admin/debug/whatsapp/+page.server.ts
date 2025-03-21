@@ -33,6 +33,7 @@ export const load: PageServerLoad = async ({ locals }) => {
             id: true,
             phoneNumber: true,
             description: true,
+            name: true,
             client_id: true,
             client_status: true
         },

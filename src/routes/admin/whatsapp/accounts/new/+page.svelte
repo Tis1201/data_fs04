@@ -97,6 +97,7 @@
         // Pre-fill the form with the data from WhatsApp
         $form.phoneNumber = whatsAppInfo.phoneNumber;
         $form.description = `WhatsApp account for ${whatsAppInfo.name}`;
+        $form.name = whatsAppInfo.name;
         $form.client_id = clientId;
         
         console.log(`WhatsApp authenticated: ${phoneNumber} (${pushName}), Client ID: ${clientId}`);
@@ -255,6 +256,15 @@
                                 WhatsApp account connected successfully. Please confirm the details below.
                             </AlertDescription>
                         </Alert>
+                        
+                        <!-- Display extracted WhatsApp account name -->
+                        <div class="flex items-center p-4 border rounded-md bg-muted/50">
+                            <div class="space-y-1">
+                                <p class="text-sm font-medium">WhatsApp Account Name</p>
+                                <p class="text-lg font-semibold">{whatsAppInfo.name}</p>
+                                <p class="text-xs text-muted-foreground">This name was extracted from your WhatsApp account</p>
+                            </div>
+                        </div>
                     {/if}
 
                 <div class="grid gap-6">
@@ -290,6 +300,7 @@
                             WhatsApp client ID (automatically set during authentication)
                         </p>
                         <input type="hidden" name="client_id" bind:value={$form.client_id} />
+                        <input type="hidden" name="name" bind:value={$form.name} />
                     </div>
                 </div>
 

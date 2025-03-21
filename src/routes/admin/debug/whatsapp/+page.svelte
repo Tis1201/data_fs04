@@ -45,16 +45,84 @@
     // Selected account for viewing messages and sending messages
     let selectedAccountId = data.accounts.length > 0 ? data.accounts[0].id : '';
     $: selectedAccount = data.accounts.find(a => a.id === selectedAccountId);
+    $: selectedAccountLabel = selectedAccount ? 
+        `${selectedAccount.phoneNumber} (${selectedAccount.name || selectedAccount.description || 'No description'})` : 
+        'Select an account';
     
     // Update form when selectedAccountId changes
     $: if (selectedAccountId) {
         $form.accountId = selectedAccountId;
+        checkConnectionStatus(selectedAccountId);
+    }
+    
+    // Update connection status whenever selectedAccount or clientStatuses changes
+    $: if (selectedAccount) {
+        // First check if we have a real-time status from WebSocket
+        if (selectedAccount.client_id && $clientStatuses[selectedAccount.client_id]) {
+            $connectionStatus = $clientStatuses[selectedAccount.client_id];
+        } 
+        // Otherwise use the status from the database
+        else if (selectedAccount.client_status) {
+            $connectionStatus = selectedAccount.client_status;
+        } 
+        // Default to disconnected if no status information is available
+        else {
+            $connectionStatus = 'disconnected';
+        }
     }
 
     // WebSocket connection
     let ws: WebSocket | null = null;
     let wsConnected = writable(false);
     let connectionStatus = writable('disconnected');
+    let clientStatuses = writable<Record<string, string>>({});
+
+    // Pending status checks to run when WebSocket connects
+    let pendingStatusChecks: string[] = [];
+    
+    // Function to update connection status based on account data
+    function updateConnectionStatus(accountId: string) {
+        const account = data.accounts.find(a => a.id === accountId);
+        if (!account) return;
+        
+        // If we have a client_id and status from the database, use it
+        if (account.client_id && account.client_status) {
+            // Store the status from the database in our client statuses store
+            $clientStatuses = { ...$clientStatuses, [account.client_id]: account.client_status };
+            console.log('Using status from DB:', account.client_status);
+        }
+    }
+
+    // Function to check connection status for a specific account
+    function checkConnectionStatus(accountId: string) {
+        const account = data.accounts.find(a => a.id === accountId);
+        if (!account?.client_id) {
+            console.log('Cannot check status: Account has no client_id');
+            $connectionStatus = 'disconnected';
+            return;
+        }
+        
+        // First update connection status based on database data
+        updateConnectionStatus(accountId);
+        
+        // Then also check via WebSocket for real-time updates
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'whatsapp',
+                action: 'checkStatus',
+                data: {
+                    clientId: account.client_id
+                }
+            }));
+            console.log('Checking connection status for client:', account.client_id);
+        } else {
+            // Queue the status check to run when WebSocket connects
+            if (!pendingStatusChecks.includes(accountId)) {
+                pendingStatusChecks.push(accountId);
+                console.log('WebSocket not ready, queued status check for:', accountId);
+            }
+        }
+    }
 
     function connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -65,8 +133,15 @@
         ws.onopen = () => {
             console.log('WebSocket connected');
             $wsConnected = true;
-            $connectionStatus = 'connected';
             toast.success('WebSocket connected');
+            
+            // Process any pending status checks
+            if (pendingStatusChecks.length > 0) {
+                console.log('Processing pending status checks:', pendingStatusChecks);
+                const currentCheck = pendingStatusChecks[0];
+                checkConnectionStatus(currentCheck);
+                pendingStatusChecks = [];
+            }
         };
         
         ws.onclose = () => {
@@ -105,12 +180,11 @@
                     }, ...$messages];
                 }
                 
-                // Handle connection status updates
+                            // Handle connection status updates
                 if (data.type === 'whatsapp' && data.action === 'connectionStatus') {
                     console.log('WhatsApp connection status update:', data);
-                    if (data.data.clientId === selectedAccount?.client_id) {
-                        $connectionStatus = data.data.status;
-                    }
+                    // Store status for each client ID
+                    $clientStatuses = { ...$clientStatuses, [data.data.clientId]: data.data.status };
                 }
             } catch (error) {
                 console.error('Error parsing WebSocket message:', error);
@@ -119,9 +193,27 @@
     }
 
     onMount(() => {
-        // Set initial form values if we have accounts
+        // Set initial form values and selectedAccountId if we have accounts
         if (data.accounts.length > 0) {
-            $form.accountId = data.accounts[0].id;
+            selectedAccountId = data.accounts[0].id;
+            $form.accountId = selectedAccountId;
+            
+            // Check if we have any existing status for this account's client
+            const account = data.accounts[0];
+            if (account.client_id) {
+                // Send a request to check status
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: 'whatsapp',
+                            action: 'checkStatus',
+                            data: {
+                                clientId: account.client_id
+                            }
+                        }));
+                    }
+                }, 1000);
+            }
         }
         
         // Connect to WebSocket
@@ -137,6 +229,18 @@
 
     // Filter messages for the selected account
     $: filteredMessages = $messages.filter(msg => msg.accountId === selectedAccountId);
+    
+    // Request status check when account changes
+    $: if (selectedAccount && ws && ws.readyState === WebSocket.OPEN) {
+        console.log('Checking status for client:', selectedAccount.client_id);
+        ws.send(JSON.stringify({
+            type: 'whatsapp',
+            action: 'checkStatus',
+            data: {
+                clientId: selectedAccount.client_id
+            }
+        }));
+    }
 </script>
 
 <div class="space-y-4 p-4">
@@ -178,16 +282,28 @@
     <div class="flex items-center justify-between bg-muted p-3 rounded-lg mb-4">
         <div class="flex items-center gap-4">
             <div>
-                <Select bind:value={selectedAccountId}>
-                    <SelectTrigger class="w-[250px]">
-                        <SelectValue placeholder="Select an account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {#each data.accounts as account}
-                            <SelectItem value={account.id}>{account.phoneNumber} ({account.name})</SelectItem>
-                        {/each}
-                    </SelectContent>
-                </Select>
+                <div class="w-[250px]">
+                    <Select value={selectedAccountId}>
+                        <SelectTrigger>
+                            <SelectValue>{selectedAccountLabel}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                            {#each data.accounts as account}
+                                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                                <SelectItem 
+                                    value={account.id} 
+                                    on:click={() => {
+                                        selectedAccountId = account.id;
+                                        checkConnectionStatus(account.id);
+                                    }}
+                                    class={selectedAccountId === account.id ? 'bg-accent' : ''}
+                                >
+                                    {account.phoneNumber} ({account.name || account.description || 'No description'})
+                                </SelectItem>
+                            {/each}
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
             
             {#if selectedAccount}
