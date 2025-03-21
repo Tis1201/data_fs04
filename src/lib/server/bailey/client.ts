@@ -173,11 +173,30 @@ export async function initWhatsAppClient(phoneNumber: string, accountId: string,
 
 /**
  * Start a WhatsApp client with the given ID
+ * @param clientId The unique ID of the client to start
+ * @param phoneNumber Optional phone number for the client
+ * @param accountId Optional account ID associated with the client
  */
-async function startClient(clientId: string): Promise<void> {
-    const clientData = clients.get(clientId);
+async function startClient(clientId: string, phoneNumber?: string, accountId?: string): Promise<void> {
+    // Get client data from the map or create a new entry if it doesn't exist
+    let clientData = clients.get(clientId);
     if (!clientData) {
-        throw new Error(`Client ${clientId} not found`);
+        // If client doesn't exist in memory but we have phoneNumber and accountId, create it
+        if (phoneNumber && accountId) {
+            clientData = {
+                id: clientId,
+                client: null,
+                state: 'connecting',
+                qrCode: null,
+                pairingCode: null,
+                phoneNumber,
+                socket: null,
+                accountId
+            };
+            clients.set(clientId, clientData);
+        } else {
+            throw new Error(`Client ${clientId} not found`);
+        }
     }
     
     // Get auth state for this client
