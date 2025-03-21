@@ -16,13 +16,30 @@
     import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
     import { superForm } from 'sveltekit-superforms/client';
     import { toast } from 'svelte-sonner';
+    import { socketStore } from '$lib/stores/socket-store';
 
     export let data: PageData;
     
     const { form, errors, enhance, message, constraints } = superForm(data.form, {
+        resetForm: false,
         onResult: ({ result }) => {
             if (result.type === 'success') {
                 toast.success('Message sent successfully');
+                
+                // Add the sent message to the messages store
+                if (selectedAccountId) {
+                    const sentMessage = {
+                        id: crypto.randomUUID(),
+                        clientId: selectedAccount?.client_id || '',
+                        accountId: selectedAccountId,
+                        sender: 'You',
+                        content: $form.message,
+                        timestamp: new Date().toISOString(),
+                        fromMe: true
+                    };
+                    $messages = [sentMessage, ...$messages];
+                }
+                
                 // Clear the message field but keep the account and recipient
                 $form.message = '';
             } else if (result.type === 'failure') {
@@ -41,6 +58,17 @@
         timestamp: string;
         fromMe: boolean;
     }[]>([]);
+    
+    // Initialize filtered messages
+    let filteredMessages: {
+        id: string;
+        clientId: string;
+        accountId: string;
+        sender: string;
+        content: string;
+        timestamp: string;
+        fromMe: boolean;
+    }[] = [];
 
     // Selected account for viewing messages and sending messages
     let selectedAccountId = data.accounts.length > 0 ? data.accounts[0].id : '';
@@ -131,87 +159,112 @@
         }
     }
     
-    // WebSocket connection
-    let ws: WebSocket;
-    const connectionStatus = writable<string>('disconnected');
+    // WebSocket connection status
     const clientStatuses = writable<Record<string, string>>({});
     let pendingStatusChecks: string[] = [];
     
+    // Use the shared socketStore instead of a direct WebSocket connection
     function connectWebSocket() {
-        if (ws) {
-            try {
-                ws.close();
-            } catch (e) {
-                console.error('Error closing existing WebSocket:', e);
-            }
+        // Disconnect any existing connection
+        socketStore.disconnect();
+        
+        // Connect to the WebSocket server with the correct path
+        // The path should not include the leading slash as socketStore adds it
+        socketStore.connect('admin/debug/whatsapp/ws');
+        
+        // Process any pending status checks when connected
+        if ($socketStore.status === 'OPEN' && pendingStatusChecks.length > 0) {
+            console.log('Processing pending status checks:', pendingStatusChecks);
+            pendingStatusChecks.forEach(accountId => {
+                fetchAccountStatus(accountId);
+            });
+            pendingStatusChecks = [];
         }
+    }
+    
+    // Process WebSocket messages from the socketStore
+    $: if ($socketStore && $socketStore.messages && $socketStore.messages.length > 0) {
+        // Get the latest message
+        const latestMessage = $socketStore.messages[$socketStore.messages.length - 1];
+        console.log('Latest WebSocket message:', latestMessage);
         
-        $connectionStatus = 'connecting';
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/admin/debug/whatsapp/ws`;
-        
-        ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-            console.log('WebSocket connected');
-            $connectionStatus = 'connected';
-            toast.success('WebSocket connected');
-            
-            // Process any pending status checks
-            if (pendingStatusChecks.length > 0) {
-                console.log('Processing pending status checks:', pendingStatusChecks);
-                pendingStatusChecks.forEach(accountId => {
-                    fetchAccountStatus(accountId);
-                });
-                pendingStatusChecks = [];
-            }
-        };
-        
-        ws.onclose = () => {
-            console.log('WebSocket disconnected');
-            $connectionStatus = 'disconnected';
-            toast.error('WebSocket disconnected');
-            
-            // Try to reconnect after a delay
-            setTimeout(connectWebSocket, 5000);
-        };
-        
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            $connectionStatus = 'error';
-            toast.error('WebSocket error');
-        };
-        
-        ws.onmessage = (event) => {
+        // Process the message if we haven't seen it before
+        if (latestMessage && !latestMessage._processed) {
             try {
-                const data = JSON.parse(event.data);
+                // Mark as processed to avoid duplicate processing
+                latestMessage._processed = true;
                 
-                // Handle WhatsApp messages
-                if (data.type === 'whatsapp' && data.action === 'message') {
-                    console.log('Received WhatsApp message:', data);
+                // Process based on message type
+                if (latestMessage.type === 'whatsapp' && latestMessage.action === 'message') {
+                    console.log('Received WhatsApp message:', latestMessage);
                     
                     // Add the message to our store
-                    $messages = [{
-                        id: data.data.messageId,
-                        clientId: data.data.clientId,
-                        accountId: data.data.accountId,
-                        sender: data.data.sender,
-                        content: data.data.content,
-                        timestamp: data.data.timestamp,
-                        fromMe: data.data.rawMessage?.key?.fromMe || false
-                    }, ...$messages];
+                    const newMessage = {
+                        id: latestMessage.data.messageId || crypto.randomUUID(),
+                        clientId: latestMessage.data.clientId,
+                        accountId: latestMessage.data.accountId,
+                        sender: latestMessage.data.sender,
+                        content: latestMessage.data.content,
+                        timestamp: latestMessage.data.timestamp || new Date().toISOString(),
+                        fromMe: latestMessage.data.rawMessage?.key?.fromMe || false
+                    };
+                    
+                    console.log('Adding message to store:', newMessage);
+                    $messages = [newMessage, ...$messages];
+                    
+                    // Show a toast notification for new messages
+                    if (!newMessage.fromMe) {
+                        toast.info(`New message from ${newMessage.sender}: ${newMessage.content.substring(0, 30)}${newMessage.content.length > 30 ? '...' : ''}`);
+                    }
+                }
+                
+                // Handle raw messages (notify type)
+                if (latestMessage.type === 'notify' && latestMessage.messages && Array.isArray(latestMessage.messages)) {
+                    console.log('Received raw WhatsApp message:', latestMessage);
+                    
+                    for (const msg of latestMessage.messages) {
+                        if (!msg.key || !msg.message) continue;
+                        
+                        // Extract message content
+                        const content = msg.message.conversation || 
+                                       msg.message.extendedTextMessage?.text || 
+                                       msg.message.imageMessage?.caption || 
+                                       'Media message';
+                        
+                        // Extract sender information
+                        const sender = msg.key.remoteJid?.split('@')[0] || 'Unknown';
+                        
+                        // Use the client_id from the selected account
+                        const newMessage = {
+                            id: msg.key.id || crypto.randomUUID(),
+                            clientId: selectedAccount?.client_id || '',
+                            accountId: selectedAccountId,
+                            sender: msg.pushName || sender,
+                            content,
+                            timestamp: msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
+                            fromMe: msg.key.fromMe || false
+                        };
+                        
+                        console.log('Adding raw message to store:', newMessage);
+                        $messages = [newMessage, ...$messages];
+                        
+                        // Show a toast notification for new messages
+                        if (!newMessage.fromMe) {
+                            toast.success(`New message from ${newMessage.sender}: ${newMessage.content.substring(0, 30)}${newMessage.content.length > 30 ? '...' : ''}`);
+                        }
+                    }
                 }
                 
                 // Handle connection status updates
-                if (data.type === 'whatsapp' && data.action === 'connectionStatus') {
-                    console.log('WhatsApp connection status update:', data);
+                if (latestMessage.type === 'whatsapp' && latestMessage.action === 'connectionStatus') {
+                    console.log('WhatsApp connection status update:', latestMessage);
                     // Store status for each client ID
-                    $clientStatuses = { ...$clientStatuses, [data.data.clientId]: data.data.status };
+                    $clientStatuses = { ...$clientStatuses, [latestMessage.data.clientId]: latestMessage.data.status };
                 }
             } catch (error) {
-                console.error('Error parsing WebSocket message:', error);
+                console.error('Error processing WebSocket message:', error);
             }
-        };
+        }
     }
 
     onMount(() => {
@@ -249,7 +302,40 @@
     });
 
     // Filter messages for the selected account
-    $: filteredMessages = $messages.filter(msg => msg.accountId === selectedAccountId);
+    $: if (selectedAccount && $messages) {
+        console.log('Filtering messages:', { 
+            messages: $messages, 
+            selectedAccountId,
+            selectedAccountClientId: selectedAccount?.client_id 
+        });
+        
+        filteredMessages = $messages.filter(msg => {
+            // Primary match: by client_id from the WhatsApp account
+            if (selectedAccount?.client_id && msg.clientId === selectedAccount.client_id) {
+                return true;
+            }
+            
+            // Secondary match: by account ID
+            if (msg.accountId === selectedAccountId) {
+                return true;
+            }
+            
+            // For messages from the terminal output format
+            if (msg.sender && selectedAccount?.phoneNumber) {
+                // Check if the sender number is related to the selected account's phone number
+                const senderNumber = msg.sender.replace(/\D/g, '');
+                const accountNumber = selectedAccount.phoneNumber.replace(/\D/g, '');
+                
+                if (senderNumber.includes(accountNumber) || accountNumber.includes(senderNumber)) {
+                    return true;
+                }
+            }
+            
+            return false;
+        });
+        
+        console.log('Filtered messages:', filteredMessages);
+    }
     
     // Request status check when account changes (browser-only)
     $: if (isBrowser && selectedAccount && selectedAccount.id) {
@@ -280,10 +366,11 @@
         </h1>
         
         <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted">
+                <div class={`w-2 h-2 rounded-full ${$socketStore.status === 'OPEN' ? "bg-green-500" : "bg-red-500"} animate-pulse`}></div>
+                <span class="text-sm font-medium">{$socketStore.status === 'OPEN' ? "Connected" : "Disconnected"}</span>
+            </div>
             <Button variant="outline" size="sm" on:click={() => {
-                if (ws) {
-                    ws.close();
-                }
                 connectWebSocket();
             }}>
                 <RefreshCw class="h-4 w-4 mr-2" />
