@@ -59,6 +59,12 @@
         fromMe: boolean;
     }[]>([]);
     
+    // Track processed messages to avoid duplicates
+    const processedMessageIds = new Set<string>();
+    
+    // Track message IDs to prevent duplicates
+    const messageIdSet = new Set<string>();
+    
     // Initialize filtered messages
     let filteredMessages: {
         id: string;
@@ -165,12 +171,15 @@
     
     // Use the shared socketStore instead of a direct WebSocket connection
     function connectWebSocket() {
+        console.log('[WhatsApp Debug] Connecting to WebSocket...');
         // Disconnect any existing connection
         socketStore.disconnect();
         
-        // Connect to the WebSocket server with the correct path
-        // The path should not include the leading slash as socketStore adds it
-        socketStore.connect('admin/debug/whatsapp/ws');
+        // Connect to the WebSocket server
+        // The socketStore will handle the base path (/websocket)
+        socketStore.connect();
+        
+        console.log('[WhatsApp Debug] WebSocket connection initiated');
         
         // Process any pending status checks when connected
         if ($socketStore.status === 'OPEN' && pendingStatusChecks.length > 0) {
@@ -186,30 +195,39 @@
     $: if ($socketStore && $socketStore.messages && $socketStore.messages.length > 0) {
         // Get the latest message
         const latestMessage = $socketStore.messages[$socketStore.messages.length - 1];
-        console.log('Latest WebSocket message:', latestMessage);
+        console.log('[WhatsApp Debug] Latest WebSocket message:', latestMessage);
+        
+        // Generate a unique ID for the message to track if we've processed it
+        const messageId = latestMessage?.type + '-' + 
+                         (latestMessage?.data?.messageId || 
+                          latestMessage?.data?.id || 
+                          latestMessage?.timestamp || 
+                          JSON.stringify(latestMessage).substring(0, 50));
         
         // Process the message if we haven't seen it before
-        if (latestMessage && !latestMessage._processed) {
+        if (latestMessage && !processedMessageIds.has(messageId)) {
             try {
                 // Mark as processed to avoid duplicate processing
-                latestMessage._processed = true;
+                processedMessageIds.add(messageId);
+                console.log('[WhatsApp Debug] Processing new message with ID:', messageId);
+                console.log('[WhatsApp Debug] Message type:', latestMessage.type, 'Action:', latestMessage.action);
                 
                 // Process based on message type
                 if (latestMessage.type === 'whatsapp' && latestMessage.action === 'message') {
-                    console.log('Received WhatsApp message:', latestMessage);
+                    console.log('[WhatsApp Debug] Received WhatsApp message:', latestMessage);
                     
                     // Add the message to our store
                     const newMessage = {
-                        id: latestMessage.data.messageId || crypto.randomUUID(),
-                        clientId: latestMessage.data.clientId,
-                        accountId: latestMessage.data.accountId,
-                        sender: latestMessage.data.sender,
-                        content: latestMessage.data.content,
-                        timestamp: latestMessage.data.timestamp || new Date().toISOString(),
-                        fromMe: latestMessage.data.rawMessage?.key?.fromMe || false
+                        id: latestMessage.data?.messageId || crypto.randomUUID(),
+                        clientId: latestMessage.data?.clientId || '',
+                        accountId: latestMessage.data?.accountId || '',
+                        sender: latestMessage.data?.sender || 'Unknown',
+                        content: latestMessage.data?.content || '',
+                        timestamp: latestMessage.data?.timestamp || new Date().toISOString(),
+                        fromMe: latestMessage.data?.rawMessage?.key?.fromMe || false
                     };
                     
-                    console.log('Adding message to store:', newMessage);
+                    console.log('[WhatsApp Debug] Adding message to store:', newMessage);
                     $messages = [newMessage, ...$messages];
                     
                     // Show a toast notification for new messages
@@ -220,7 +238,7 @@
                 
                 // Handle raw messages (notify type)
                 if (latestMessage.type === 'notify' && latestMessage.messages && Array.isArray(latestMessage.messages)) {
-                    console.log('Received raw WhatsApp message:', latestMessage);
+                    console.log('[WhatsApp Debug] Received raw WhatsApp message:', latestMessage);
                     
                     for (const msg of latestMessage.messages) {
                         if (!msg.key || !msg.message) continue;
@@ -245,7 +263,7 @@
                             fromMe: msg.key.fromMe || false
                         };
                         
-                        console.log('Adding raw message to store:', newMessage);
+                        console.log('[WhatsApp Debug] Adding raw message to store:', newMessage);
                         $messages = [newMessage, ...$messages];
                         
                         // Show a toast notification for new messages
@@ -254,6 +272,9 @@
                         }
                     }
                 }
+                
+                // We don't need this additional handler anymore since we're already handling messages
+                // with the action === 'message' condition above
                 
                 // Handle connection status updates
                 if (latestMessage.type === 'whatsapp' && latestMessage.action === 'connectionStatus') {
@@ -268,6 +289,7 @@
     }
 
     onMount(() => {
+        console.log('[WhatsApp Debug] Component mounted');
         // Set initial form values and selectedAccountId if we have accounts
         if (data.accounts.length > 0) {
             selectedAccountId = data.accounts[0].id;
@@ -286,22 +308,24 @@
                 if (selectedAccountId) {
                     fetchAccountStatus(selectedAccountId);
                 }
+                
+                // Check WebSocket connection and reconnect if needed
+                if ($socketStore.status !== 'OPEN') {
+                    console.log('[WhatsApp Debug] WebSocket not open, reconnecting...');
+                    connectWebSocket();
+                }
             }, 30000); // Check every 30 seconds
             
             return () => {
+                console.log('[WhatsApp Debug] Component unmounting, cleaning up...');
                 clearInterval(statusInterval);
-                if (ws) {
-                    try {
-                        ws.close();
-                    } catch (e) {
-                        console.error('Error closing WebSocket:', e);
-                    }
-                }
+                // Clean up the socketStore connection
+                socketStore.disconnect();
             };
         }
     });
 
-    // Filter messages for the selected account
+    // Filter messages for the selected account and deduplicate
     $: if (selectedAccount && $messages) {
         console.log('Filtering messages:', { 
             messages: $messages, 
@@ -309,30 +333,43 @@
             selectedAccountClientId: selectedAccount?.client_id 
         });
         
-        filteredMessages = $messages.filter(msg => {
-            // Primary match: by client_id from the WhatsApp account
-            if (selectedAccount?.client_id && msg.clientId === selectedAccount.client_id) {
-                return true;
-            }
-            
-            // Secondary match: by account ID
-            if (msg.accountId === selectedAccountId) {
-                return true;
-            }
-            
-            // For messages from the terminal output format
-            if (msg.sender && selectedAccount?.phoneNumber) {
-                // Check if the sender number is related to the selected account's phone number
-                const senderNumber = msg.sender.replace(/\D/g, '');
-                const accountNumber = selectedAccount.phoneNumber.replace(/\D/g, '');
-                
-                if (senderNumber.includes(accountNumber) || accountNumber.includes(senderNumber)) {
+        // Reset message ID set when account changes
+        messageIdSet.clear();
+        
+        // Filter and deduplicate messages
+        filteredMessages = $messages
+            .filter(msg => {
+                // Primary match: by client_id from the WhatsApp account
+                if (selectedAccount?.client_id && msg.clientId === selectedAccount.client_id) {
                     return true;
                 }
-            }
-            
-            return false;
-        });
+                
+                // Secondary match: by account ID
+                if (msg.accountId === selectedAccountId) {
+                    return true;
+                }
+                
+                // For messages from the terminal output format
+                if (msg.sender && selectedAccount?.phoneNumber) {
+                    // Check if the sender number is related to the selected account's phone number
+                    const senderNumber = msg.sender.replace(/\D/g, '');
+                    const accountNumber = selectedAccount.phoneNumber.replace(/\D/g, '');
+                    
+                    if (senderNumber.includes(accountNumber) || accountNumber.includes(senderNumber)) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            })
+            .filter(msg => {
+                // Deduplicate messages based on ID
+                if (messageIdSet.has(msg.id)) {
+                    return false;
+                }
+                messageIdSet.add(msg.id);
+                return true;
+            });
         
         console.log('Filtered messages:', filteredMessages);
     }
