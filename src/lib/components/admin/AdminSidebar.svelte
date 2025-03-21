@@ -90,6 +90,7 @@
                 { href: "/admin/debug/npu", label: "NPU", icon: Cpu },
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap },
                 { href: "/admin/debug/stream", label: "WebRTC", icon: Network },
+                { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
             ],
         },
         
