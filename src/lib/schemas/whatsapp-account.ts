@@ -6,7 +6,8 @@ export const createWhatsAppAccountSchema = z.object({
         .regex(/^\+?[0-9\s\-()]+$/, 'Please enter a valid phone number'),
     description: z.string()
         .min(1, 'Description is required')
-        .max(255, 'Description must be less than 255 characters')
+        .max(255, 'Description must be less than 255 characters'),
+    client_id: z.string().optional()
 });
 
 export type CreateWhatsAppAccountSchema = typeof createWhatsAppAccountSchema;

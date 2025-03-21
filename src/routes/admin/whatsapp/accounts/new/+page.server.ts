@@ -45,26 +45,34 @@ export const actions: Actions = {
         
         try {
             // Get enhanced prisma client with user context
-            const prisma = getEnhancedPrisma({
-                id: auth.user.id,
-                rolesString: auth.user.rolesString,
-                systemRole: auth.user.systemRole
-            });
+            const prisma = locals.prisma;
             
             // Log user info for debugging
             console.log(auth.user)
             
-            // Create the WhatsApp account
+            // Create the WhatsApp account with the client_id from the form
+            // The client_id should have been set in the frontend when the WebSocket connection was authenticated
+            if (!form.data.client_id) {
+                return fail(400, { 
+                    form: message(form, 'Client ID is required. Please authenticate with WhatsApp first.', { status: 'error' })
+                });
+            }
+            
             const account = await prisma.whatsAppAccount.create({
                 data: {
                     phoneNumber: form.data.phoneNumber,
                     description: form.data.description,
                     createdBy: auth.user.id,
-                    client_id: `pending_${uuidv4()}` // Temporary client ID until authenticated
+                    client_id: form.data.client_id
                 }
             });
             
-            return message(form, 'WhatsApp account created successfully');
+            // Return the account ID along with the success message
+            // This will be used by the client to establish the WebSocket connection
+            return { 
+                form: message(form, 'WhatsApp account created successfully'),
+                accountId: account.id 
+            };
         } catch (err) {
             console.error('Error creating WhatsApp account:', err);
             

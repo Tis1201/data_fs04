@@ -87,6 +87,7 @@
         // Use the real phone information from Baileys
         const phoneNumber = event.detail?.phoneNumber || $whatsAppStore.phoneNumber || '';
         const pushName = event.detail?.pushName || $whatsAppStore.pushName || 'Unknown';
+        const clientId = $whatsAppStore.clientId || '';
         
         whatsAppInfo = {
             phoneNumber: phoneNumber,
@@ -96,8 +97,9 @@
         // Pre-fill the form with the data from WhatsApp
         $form.phoneNumber = whatsAppInfo.phoneNumber;
         $form.description = `WhatsApp account for ${whatsAppInfo.name}`;
+        $form.client_id = clientId;
         
-        console.log(`WhatsApp authenticated: ${phoneNumber} (${pushName})`);
+        console.log(`WhatsApp authenticated: ${phoneNumber} (${pushName}), Client ID: ${clientId}`);
         toast.success('WhatsApp account authenticated successfully');
         
         // Automatically advance to step 2 after successful authentication
@@ -278,6 +280,16 @@
                         {#if $errors.description}
                             <p class="text-sm text-destructive">{$errors.description}</p>
                         {/if}
+                    </div>
+                    
+                    <!-- Client ID (hidden input but displayed for reference) -->
+                    <div class="grid gap-2">
+                        <Label for="clientId">Client ID</Label>
+                        <Input type="text" id="clientId" readonly value={$form.client_id || 'Not available'} />
+                        <p class="text-sm text-muted-foreground">
+                            WhatsApp client ID (automatically set during authentication)
+                        </p>
+                        <input type="hidden" name="client_id" bind:value={$form.client_id} />
                     </div>
                 </div>
 

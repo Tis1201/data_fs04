@@ -13,6 +13,7 @@ export interface WhatsAppState {
     accountId: string | null;
     phoneNumber: string | null;
     pushName: string | null;
+    clientId: string | null;
 }
 
 // Create WhatsApp store
@@ -25,7 +26,8 @@ const createWhatsAppStore = () => {
             error: null,
             accountId: null,
             phoneNumber: null,
-            pushName: null
+            pushName: null,
+            clientId: null
         });
         return {
             subscribe,
@@ -42,7 +44,8 @@ const createWhatsAppStore = () => {
         error: null,
         accountId: null,
         phoneNumber: null,
-        pushName: null
+        pushName: null,
+        clientId: null
     });
     
     // Initialize WebSocket listener
@@ -65,10 +68,17 @@ const createWhatsAppStore = () => {
                         error: null
                     }));
                 } else if (message.action === 'connectionStatus') {
-                    update(state => ({ 
-                        ...state, 
-                        connectionStatus: message.data.status
-                    }));
+                    update(state => {
+                        // Log the received message for debugging
+                        console.log('Received connectionStatus message:', message.data);
+                        
+                        return { 
+                            ...state, 
+                            connectionStatus: message.data.status,
+                            // Store the client_id when it's available
+                            ...(message.data.clientId ? { clientId: message.data.clientId } : {})
+                        };
+                    });
                 } else if (message.action === 'error') {
                     update(state => ({ 
                         ...state, 
