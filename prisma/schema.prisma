@@ -77,3 +77,19 @@ model WhatsAppAccount {
 
   @@index([createdBy])
 }
+
+model WebhookEndPoint {
+  id          String    @id() @default(cuid())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt()
+  postfix     String
+  name        String
+  description String?
+  active      Boolean   @default(true)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  createdBy   String
+
+  @@index([name])
+  @@index([description])
+}

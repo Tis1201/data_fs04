@@ -101,5 +101,24 @@ model WhatsAppAccount {
   
   @@allow('all', auth().systemRole == 'ADMIN') 
   @@index([createdBy])
+}
+
+model WebhookEndPoint{
+  id String @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  postfix String // appends to the back of http://localhost/webhook/{postfix}
+  name String
+  description String?
+  active Boolean @default(true)
+  expiresAt DateTime?
+  lastUsedAt DateTime?
+  createdBy     String
   
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  //@allow('read,update,delete', auth().id == userId)  // Users can manage their own webhook endpoints
+  @@allow('create', auth() != null)  // Authenticated users can create webhook endpoints
+
+  @@index([name])
+  @@index([description])
 }
