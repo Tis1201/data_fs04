@@ -30,7 +30,19 @@
 
         MessageCircle,
 
-        User
+        User,
+
+        Link,
+
+        ArrowRight,
+
+        Link2,
+
+        Link2Icon
+
+
+
+
 
 
 
@@ -75,8 +87,15 @@
         // { href: "/admin/screens", label: "Screens", icon: Tv },
         // { href: "/admin/mosaic", label: "Mosaic", icon: LayoutGrid },
         { href: "/admin/api-keys", label: "API Keys", icon: Key },
+        { label: "Webhook", icon: Link,
+          subItems: [
+                    { href: "/admin/webhook/endpoints", label: "Endpoints", icon: Link2Icon },
+                    
+                ],
+
+        },
         { label: "Whatsapp", icon: MessageCircle,
-            subItems: [
+          subItems: [
                     { href: "/admin/whatsapp/accounts", label: "Accounts", icon: Users },
                     
                 ],
