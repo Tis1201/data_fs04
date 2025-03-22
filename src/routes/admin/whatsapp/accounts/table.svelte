@@ -14,6 +14,7 @@
     import { api_post } from "$lib/utils/ApiUtils";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { enhance } from "$app/forms";
+    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
     // Props for DataTable component
     export let records: WhatsAppAccount[] = [];
@@ -102,25 +103,7 @@
         }
     ];
 
-    /**
-     * Handle table sort
-     */
-    function handleTableSort(event: CustomEvent<{ field: string; order: "asc" | "desc" }>) {
-        const url = new URL(window.location.href);
-        url.searchParams.set("sort", event.detail.field);
-        url.searchParams.set("order", event.detail.order);
-        goto(url.toString());
-    }
-
-    /**
-     * Handle table pagination
-     */
-    function handleTablePagination(event: CustomEvent<{ page: number; per_page: number }>) {
-        const url = new URL(window.location.href);
-        url.searchParams.set("page", event.detail.page.toString());
-        url.searchParams.set("per_page", event.detail.per_page.toString());
-        goto(url.toString());
-    }
+    // Using imported pagination utilities for table interactions
 </script>
 
 <div class="space-y-4">
