@@ -3,8 +3,9 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import ActionDropdown from "$lib/components/ui_components_sveltekit/table/column/ActionDropdown.svelte";
-    import ConfirmationDialog from "$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte";
+    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
+    import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import { Phone, Pencil, Trash2, MessageSquare, Trash } from "lucide-svelte";
     import type { WhatsAppAccount } from "@prisma/client";
     import { goto } from "$app/navigation";
@@ -31,13 +32,11 @@
     export let loading = false;
     
     // State for confirmation dialog
-    let showDeleteConfirmation = false;
     let accountToDelete: WhatsAppAccount | null = null;
     
     // Function to open delete confirmation dialog
     function confirmDelete(account: WhatsAppAccount) {
         accountToDelete = account;
-        showDeleteConfirmation = true;
     }
 
     // Column definitions
@@ -79,25 +78,10 @@
             label: "Actions",
             width: "10%",
             render: (record: WhatsAppAccount) => ({
-                component: ActionDropdown,
+                component: RecordActions,
                 props: {
-                    items: [
-                        {
-                            label: "Edit",
-                            icon: Pencil,
-                            onClick: () => goto(`/admin/whatsapp/accounts/${record.id}`)
-                        },
-                        {
-                            label: "Delete",
-                            icon: Trash,
-                            onClick: () => confirmDelete(record)
-                        },
-                        {
-                            label: "Send Message",
-                            icon: MessageSquare,
-                            onClick: () => goto(`/admin/whatsapp/accounts/${record.id}/messages`)
-                        }
-                    ]
+                    record,
+                    onDelete: confirmDelete
                 }
             })
         }
@@ -108,43 +92,15 @@
 
 <div class="space-y-4">
     <!-- Delete Confirmation Dialog -->
-    <ConfirmationDialog
-        bind:open={showDeleteConfirmation}
-        title="Delete WhatsApp Account"
-        description={`Are you sure you want to delete the WhatsApp account ${accountToDelete?.phoneNumber || ''}? This action cannot be undone.`}
-        confirmText="Delete"
-        cancelText="Cancel"
+    <RecordDeleteDialog
+        {accountToDelete}
         onConfirm={() => {
-            // Trigger the form submission when confirmed
-            document.getElementById('delete-account-submit')?.click();
+            // Refresh the page to update the account list
+            window.location.reload();
         }}
     />
-    
-    <!-- Hidden form for account deletion -->
-    {#if accountToDelete}
-        <form
-            method="POST"
-            action="?/deleteAccount"
-            use:enhance={() => {
-                return async ({ result }) => {
-                    if (result.type === 'success') {
-                        // Refresh the page to update the account list
-                        window.location.reload();
-                    }
-                    showDeleteConfirmation = false;
-                    accountToDelete = null;
-                };
-            }}
-        >
-            <input type="hidden" name="id" value={accountToDelete.id} />
-            <button type="submit" class="hidden" id="delete-account-submit"></button>
-        </form>
-    {/if}
     {#if loading}
-        <div class="space-y-4">
-            <Skeleton class="h-12 w-full" />
-            <Skeleton class="h-64 w-full" />
-        </div>
+        <LoadingSkeleton />
     {:else}
         <div class="flex items-center gap-4">
             <!-- Search filter -->
