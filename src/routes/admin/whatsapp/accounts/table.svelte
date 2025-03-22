@@ -1,10 +1,10 @@
 <script lang="ts">
     // Import components and dependencies
-    import DataTable from "$lib/components/custom/table/DataTable.svelte";
-    import DebouncedTextFilter from "$lib/components/custom/table/filter/DebouncedTextFilter.svelte";
-    import PopoverFilter from "$lib/components/custom/table/filter/PopoverFilter.svelte";
-    import ActionDropdown from "$lib/components/custom/table/column/ActionDropdown.svelte";
-    import ConfirmationDialog from "$lib/components/custom/dialog/ConfirmationDialog.svelte";
+    import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
+    import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
+    import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
+    import ActionDropdown from "$lib/components/ui_components_sveltekit/table/column/ActionDropdown.svelte";
+    import ConfirmationDialog from "$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte";
     import { Phone, Pencil, Trash2, MessageSquare, Trash } from "lucide-svelte";
     import type { WhatsAppAccount } from "@prisma/client";
     import { goto } from "$app/navigation";

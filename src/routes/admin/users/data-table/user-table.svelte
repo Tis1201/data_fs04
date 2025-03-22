@@ -4,7 +4,7 @@
     import DebouncedTextFilter from "$lib/components/custom/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/custom/table/filter/PopoverFilter.svelte";
     import ActionDropdown from "$lib/components/custom/table/column/ActionDropdown.svelte";
-    import ConfirmationDialog from "$lib/components/custom/dialog/ConfirmationDialog.svelte";
+    import ConfirmationDialog from "$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte";
     import { Mail, Ban, Pencil, Trash2, Power } from "lucide-svelte";
     import type { User } from "@prisma/client";
     import { goto } from "$app/navigation";
