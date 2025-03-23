@@ -115,6 +115,24 @@ export async function initializeClientsFromDatabase(): Promise<void> {
             try {
                 await startClient(account.client_id, account.phoneNumber, account.id);
                 console.log(`Successfully restored client ${account.client_id}`);
+                
+                // Update the database status to connected after successful restoration
+                try {
+                    const prisma = getEnhancedPrisma({
+                        id: 'system',
+                        rolesString: 'admin',
+                        systemRole: 'ADMIN'
+                    });
+                    
+                    await prisma.whatsAppAccount.update({
+                        where: { id: account.id },
+                        data: { client_status: 'connected' }
+                    });
+                    
+                    console.log(`Updated database status to connected for account ${account.id}`);
+                } catch (dbError) {
+                    console.error(`Failed to update client status in database:`, dbError);
+                }
             } catch (error) {
                 console.error(`Failed to restore client ${account.client_id}:`, error);
             }
