@@ -37,9 +37,11 @@
     </div>
 
     <RecordTable
-        {records}
-        {pagination}
-        {sort}
-        {loading}
+        props={{
+            records,
+            pagination,
+            sort,
+            loading
+        }}
     />
 </div>

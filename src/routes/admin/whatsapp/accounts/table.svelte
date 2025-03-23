@@ -2,41 +2,43 @@
     // Import components and dependencies
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
-    import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
+    // import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
     import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
-    import { Phone, Pencil, Trash2, MessageSquare, Trash } from "lucide-svelte";
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import type { WhatsAppAccount } from "@prisma/client";
-    import { goto } from "$app/navigation";
     import { page } from "$app/stores";
-    import { writable } from "svelte/store";
-    import { toast } from "svelte-sonner";
-    import { api_post } from "$lib/utils/ApiUtils";
-    import { Skeleton } from "$lib/components/ui/skeleton";
-    import { enhance } from "$app/forms";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import type { TableProps, TableState } from "$lib/components/ui_components_sveltekit/table/types";
 
     // Props for DataTable component
-    export let records: WhatsAppAccount[] = [];
-    export let pagination: {
-        page: number;
-        per_page: number;
-        total_records: number;
-        total_pages: number;
+    export let props: TableProps<WhatsAppAccount> = {
+        records: [],
+        pagination: {
+            page: 1,
+            per_page: 10,
+            total_records: 0,
+            total_pages: 0
+        },
+        sort: {
+            field: "createdAt",
+            order: "desc"
+        },
+        loading: false
     };
-    export let sort: {
-        field: string;
-        order: "asc" | "desc";
-    };
-    export let loading = false;
-    
+
     // State for confirmation dialog
-    let accountToDelete: WhatsAppAccount | null = null;
-    
+    let state: TableState<WhatsAppAccount> = {
+        selectedRecord: null,
+        confirmationOpen: false
+    };
+
     // Function to open delete confirmation dialog
     function confirmDelete(account: WhatsAppAccount) {
-        accountToDelete = account;
+        state.selectedRecord = account;
+        state.confirmationOpen = true;
     }
 
     // Column definitions
@@ -51,7 +53,16 @@
             id: "name",
             label: "Name",
             sortable: true,
-            width: "30%"
+            width: "30%",
+            render: (record: WhatsAppAccount) => ({
+                component: NameWithIdLink,
+                props: {
+                    record,
+                    baseUrl: "/admin/whatsapp/accounts",
+                    idField: "id",
+                    nameField: "name"
+                }
+            })
         },
         {
             id: "phoneNumber",
@@ -71,7 +82,16 @@
             label: "Created At",
             sortable: true,
             width: "20%",
-            render: (record: WhatsAppAccount) => new Date(record.createdAt).toLocaleDateString()
+            render: (record: WhatsAppAccount) => ({
+                component: RelativeDate,
+                props: {
+                    date: record.createdAt,
+                    format: "relative",
+                    showTooltip: true,
+                    useHoverCard: true,
+                    iconSize: 12
+                }
+            })
         },
         {
             id: "actions",
@@ -93,20 +113,20 @@
 <div class="space-y-4">
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
-        {accountToDelete}
+        {state}
         onConfirm={() => {
             // Refresh the page to update the account list
             window.location.reload();
         }}
     />
-    {#if loading}
+    {#if props.loading}
         <LoadingSkeleton />
     {:else}
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2">
             <!-- Search filter -->
-            <div class="flex-1">
+            <div class="w-1/3">
                 <DebouncedTextFilter
-                    placeholder="Search by phone number or description..."
+                    placeholder="Search..."
                     paramName="search"
                     value={$page.url.searchParams.get('search') || ''}
                 />
@@ -116,9 +136,7 @@
         <!-- Data table -->
         <DataTable
             {columns}
-            data={records}
-            {pagination}
-            {sort}
+            {props}
             on:sort={handleTableSort}
             on:pagination={handleTablePagination}
         />

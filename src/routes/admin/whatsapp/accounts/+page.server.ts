@@ -155,7 +155,7 @@ export const load: PageServerLoad = async ({parent, url, locals }) => {
     
     if (filters.search) {
         const searchConditions = searchableFields.map(field => ({
-            [field]: { contains: filters.search, mode: 'insensitive' }
+            [field]: { contains: filters.search }
         }));
         
         whereConditions.push({
