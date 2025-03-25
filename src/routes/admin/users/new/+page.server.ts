@@ -38,6 +38,20 @@ export const actions = {
                 return fail(400, { form });
             }
 
+            // throw new Error("This is a test server error to verify the error handling in the UI");
+            // Test error for error display testing
+            // return fail(500, { 
+            //     form,
+            //     error: {
+            //         code: 'SERVER_ERROR',
+            //         message: 'This is a test server error to verify the error handling in the UI',
+            //         details: 'Additional error details would appear here. For example: The database connection failed or a required service is unavailable.',
+            //         timestamp: new Date().toISOString(),
+            //         requestId: `req-${Math.random().toString(36).substring(2, 15)}`
+            //     }
+            // });
+
+
             try {
                 // Create new user
                 await locals.prisma.user.create({

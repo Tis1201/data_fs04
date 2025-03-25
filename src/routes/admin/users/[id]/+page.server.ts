@@ -67,6 +67,7 @@ export const actions = {
                 return fail(400, { form });
             }
 
+            
             try {
                 // Update user data
                 const userData = {
