@@ -70,7 +70,7 @@
         >
             <FormContainer {enhance} action="?/save">
                 <!-- Two-column layout for shorter fields -->
-                <FormRow columns={3}>
+                <FormRow columns={2}>
                     <!-- Phone Number -->
                     <FormField
                         id="phoneNumber"
@@ -85,18 +85,7 @@
                         />
                     </FormField>
 
-                    <FormField
-                        id="phoneNumber2"
-                        label="Phone Number"
-                        error={$errors.phoneNumber}
-                    >
-                        <Input
-                            id="phoneNumber"
-                            name="phoneNumber"
-                            bind:value={$form.phoneNumber}
-                            placeholder="e.g. +65 9123 4567"
-                        />
-                    </FormField>
+                   
 
                     <!-- Name -->
                     <FormField id="name" label="Name" error={$errors.name}>
