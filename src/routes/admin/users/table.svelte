@@ -2,6 +2,7 @@
     // Import components and dependencies
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
+    import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
     import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
@@ -14,6 +15,8 @@
     import { writable } from "svelte/store";
     import { toast } from "svelte-sonner";
     import { api_post } from "$lib/utils/ApiUtils";
+    import { browser } from "$app/environment";
+    import { onMount } from "svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
     // Props for DataTable component
@@ -46,8 +49,42 @@
 
     // Stores for filters and table state
     const selectedRoles = writable<string[]>(
-        $page.url.searchParams.get("roles")?.split(",").filter(Boolean) ?? []
+        $page.url.searchParams.get("systemRoles")?.split(",").filter(Boolean) ?? []
     );
+    $: {
+        // Keep selectedRoles in sync with URL changes
+        const urlRoles = $page.url.searchParams.get("systemRoles")?.split(",").filter(Boolean) ?? [];
+        if (JSON.stringify(urlRoles) !== JSON.stringify($selectedRoles)) {
+            selectedRoles.set(urlRoles);
+        }
+    }
+    
+    // Clean up legacy URL parameters
+    onMount(() => {
+        if (!browser) return;
+        
+        const url = new URL(window.location.href);
+        let needsRedirect = false;
+        
+        // Check for legacy 'roles' parameter and remove it
+        if (url.searchParams.has('roles')) {
+            // If systemRoles is not set but roles is, transfer the value (with uppercase conversion)
+            if (!url.searchParams.has('systemRoles')) {
+                const rolesValue = url.searchParams.get('roles');
+                if (rolesValue) {
+                    // Convert role values to uppercase to match the database format
+                    const upperCaseRoles = rolesValue.split(',').map(r => r.toUpperCase()).join(',');
+                    url.searchParams.set('systemRoles', upperCaseRoles);
+                }
+            }
+            url.searchParams.delete('roles');
+            needsRedirect = true;
+        }
+        
+        if (needsRedirect) {
+            goto(url.toString(), { replaceState: true, noScroll: true });
+        }
+    });
     const selectedStatuses = writable<string[]>(
         $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? []
     );
@@ -138,6 +175,29 @@
                     value={$page.url.searchParams.get('search') || ''}
                 />
             </div>
+            
+            <!-- Role filter -->
+            <PopoverFilter
+                label="System Role"
+                options={[
+                    { label: "Admin", value: "ADMIN" },
+                    { label: "User", value: "USER" }
+                ]}
+                selectedValues={$selectedRoles}
+                key="systemRoles"
+            />
+            
+            <!-- Status filter -->
+            <PopoverFilter
+                label="Status"
+                options={[
+                    { label: "Active", value: "ACTIVE" },
+                    { label: "Inactive", value: "INACTIVE" },
+                    { label: "Suspended", value: "SUSPENDED" }
+                ]}
+                selectedValues={$selectedStatuses}
+                key="statuses"
+            />
         </div>
 
         <!-- Data table -->

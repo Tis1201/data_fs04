@@ -15,10 +15,15 @@ import { logger } from '$lib/server/logger';
 const table_options = {
     modelName: 'user',
     searchableFields: ['email', 'name'],
-    allowedFilters: ['roles', 'statuses'],
+    allowedFilters: ['systemRoles', 'statuses'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
-    defaultPerPage: 10
+    defaultPerPage: 10,
+    // Define filter mappings at the table level
+    filterMappings: {
+        'systemRoles': { field: 'systemRole', operator: 'in' },
+        'statuses': { field: 'status', operator: 'in' }
+    }
 };
 
 /*******************************************************************************************
@@ -28,6 +33,7 @@ const table_options = {
  *******************************************************************************************/
 export const load = restrict(
     async ({ url, locals }) => {
+        console.log('url: ', url)
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
@@ -103,17 +109,66 @@ export const actions = {
     /*******************************************************************************************
      * Delete
      ******************************************************************************************/
-    deleteUser: restrict(
+    /**
+     * Delete user account
+     */
+    delete: restrict(
         async ({ request, locals }) => {
-            const data = await request.formData();
-            const id = data.get('id')?.toString();
-            
-            if (!id) {
-                return { success: false, error: 'User ID is required' };
+            try {
+                // Get the user ID from form data
+                const data = await request.formData();
+                const id = data.get('id')?.toString();
+                
+                if (!id) {
+                    return fail(400, { error: 'User ID is required' });
+                }
+                
+                // Get the user to be deleted
+                const user = await locals.prisma.user.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        email: true,
+                        systemRole: true
+                    }
+                });
+
+                if (!user) {
+                    return fail(404, { error: 'User not found' });
+                }
+
+                // Check if the user is trying to delete themselves
+                const auth = await locals.auth.validate();
+                if (auth?.user?.id === id) {
+                    return fail(400, {
+                        error: 'You cannot delete your own account'
+                    });
+                }
+
+                // Delete the user
+                await locals.prisma.user.delete({
+                    where: { id }
+                });
+
+                logger.info('User deleted successfully:', { userId: id });
+                
+                // Return success response
+                return {
+                    success: true,
+                    message: 'User deleted successfully'
+                };
+
+            } catch (e) {
+                logger.error('Error deleting user:', e);
+                if (e.code === 'P2025') {
+                    return fail(404, {
+                        error: 'User not found'
+                    });
+                }
+                return fail(500, {
+                    error: 'Failed to delete user'
+                });
             }
-            
-            // Use the reusable deleteRecord function
-            return deleteRecord(locals, 'user', id);
         },
         ['admin'] // Only allow admin role to delete users
     )
