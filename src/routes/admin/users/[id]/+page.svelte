@@ -8,6 +8,8 @@
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import { Clock } from "lucide-svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
@@ -18,6 +20,7 @@
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
+    import { SYSTEM_ROLES, USER_STATUSES } from "./schema";
 
     export let data: PageData;
     const { user } = data;
@@ -29,6 +32,16 @@
         ["Users", "/admin/users"],
         user?.email || "Edit User",
     ];
+    
+    // Get status badge variant based on status value
+    const getStatusVariant = (status: string) => {
+        switch (status) {
+            case 'ACTIVE': return 'success';
+            case 'INACTIVE': return 'secondary';
+            case 'SUSPENDED': return 'destructive';
+            default: return 'outline';
+        }
+    };
 
     const { form, errors, enhance, submitting } = superForm(data.form, {
         onResult: async ({ result }) => {
@@ -92,18 +105,19 @@
                     </FormField>
                 </FormRow>
 
-                <!-- Role -->
-                <FormField id="role" label="Role" error={$errors.role}>
+                <!-- System Role -->
+                <FormField id="systemRole" label="System Role" error={$errors.systemRole}>
                     <EnhancedSelect
-                        value={$form.role}
-                        name="role"
-                        placeholder="Select a role"
-                        labelText="Role"
+                        value={$form.systemRole}
+                        name="systemRole"
+                        placeholder="Select a system role"
+                        labelText="System Role"
                         portal={null}
-                        on:change={(e) => ($form.role = e.detail)}
+                        on:change={(e) => ($form.systemRole = e.detail)}
                     >
-                        <Select.Item value="ADMIN">Admin</Select.Item>
-                        <Select.Item value="USER">User</Select.Item>
+                        {#each SYSTEM_ROLES as role}
+                            <Select.Item value={role}>{role}</Select.Item>
+                        {/each}
                     </EnhancedSelect>
                 </FormField>
 
@@ -117,10 +131,20 @@
                         portal={null}
                         on:change={(e) => ($form.status = e.detail)}
                     >
-                        <Select.Item value="ACTIVE">Active</Select.Item>
-                        <Select.Item value="INACTIVE">Inactive</Select.Item>
-                        <Select.Item value="SUSPENDED">Suspended</Select.Item>
+                        {#each USER_STATUSES as status}
+                            <Select.Item value={status}>{status}</Select.Item>
+                        {/each}
                     </EnhancedSelect>
+                </FormField>
+                
+                <!-- Roles String (Additional Roles) -->
+                <FormField id="rolesString" label="Additional Roles" error={$errors.rolesString} description="Comma-separated list of additional roles">
+                    <Input
+                        id="rolesString"
+                        name="rolesString"
+                        bind:value={$form.rolesString}
+                        placeholder="role1,role2,role3"
+                    />
                 </FormField>
 
                 <!-- Submit Button -->
@@ -140,12 +164,41 @@
 
             <svelte:fragment slot="footer">
                 {#if user}
-                    <MetadataFooter
-                        items={[
-                            { label: "Created", date: user.createdAt },
-                            { label: "Last Updated", date: user.updatedAt },
-                        ]}
-                    />
+                    <div class="mt-4 pt-3 border-t border-muted">
+                        <div class="flex items-center text-xs text-muted-foreground">
+                            <Clock size={12} class="mr-1.5" />
+                            <div class="flex items-center">
+                                <span class="font-medium">ID:</span>
+                                <span class="ml-1">{user.id}</span>
+                                <span class="mx-2">•</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="font-medium">Created:</span>
+                                <span class="ml-1">
+                                    <RelativeDate 
+                                        date={user.createdAt} 
+                                        format="relative" 
+                                        showTooltip={true} 
+                                        useHoverCard={true} 
+                                        iconSize={0}
+                                    />
+                                </span>
+                                <span class="mx-2">•</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="font-medium">Updated:</span>
+                                <span class="ml-1">
+                                    <RelativeDate 
+                                        date={user.updatedAt} 
+                                        format="relative" 
+                                        showTooltip={true} 
+                                        useHoverCard={true} 
+                                        iconSize={0}
+                                    />
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                 {/if}
             </svelte:fragment>
         </FormCard>

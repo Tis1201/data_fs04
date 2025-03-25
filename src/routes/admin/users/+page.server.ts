@@ -110,6 +110,65 @@ export const actions = {
      * Delete
      ******************************************************************************************/
     /**
+     * Toggle user status (activate/deactivate)
+     */
+    toggleStatus: restrict(
+        async ({ request, locals }) => {
+            try {
+                // Get the user ID and new status from form data
+                const data = await request.formData();
+                const id = data.get('id')?.toString();
+                const status = data.get('status')?.toString() as UserStatus;
+                
+                if (!id) {
+                    return fail(400, { error: 'User ID is required' });
+                }
+                
+                if (!status || !['ACTIVE', 'INACTIVE'].includes(status)) {
+                    return fail(400, { error: 'Valid status is required' });
+                }
+                
+                // Get the user to be updated
+                const user = await locals.prisma.user.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        email: true,
+                        systemRole: true,
+                        status: true
+                    }
+                });
+
+                if (!user) {
+                    return fail(404, { error: 'User not found' });
+                }
+
+                // Check if the user is trying to deactivate themselves
+                const auth = await locals.auth.validate();
+                if (auth?.user?.id === id && status === 'INACTIVE') {
+                    return fail(400, {
+                        error: 'You cannot deactivate your own account'
+                    });
+                }
+
+                // Update the user status
+                await locals.prisma.user.update({
+                    where: { id },
+                    data: { status }
+                });
+
+                logger.info(`User ${id} status changed to ${status}`);
+                
+                return { success: true };
+            } catch (err) {
+                logger.error(`Error toggling user status: ${err}`);
+                return fail(500, { error: 'Failed to update user status' });
+            }
+        },
+        ['admin'] // Only allow admin role to toggle user status
+    ),
+
+    /**
      * Delete user account
      */
     delete: restrict(

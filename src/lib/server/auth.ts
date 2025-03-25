@@ -1,5 +1,5 @@
 import { dev } from '$app/environment';
-import { Lucia, TimeSpan } from 'lucia';
+import { Lucia, TimeSpan, LuciaError } from 'lucia';
 import { PrismaAdapter } from '@lucia-auth/adapter-prisma';
 import { PrismaClient } from '@prisma/client';
 
@@ -21,10 +21,16 @@ export const lucia = new Lucia(adapter, {
         expires: new TimeSpan(30, 'd')
     },
     getUserAttributes: (attributes) => {
+        // Check if user is active
+        if (attributes.status !== 'ACTIVE') {
+            throw new LuciaError('AUTH_INVALID_USER_STATE', 'User account is not active');
+        }
+        
         return {
             email: attributes.email,
             role: attributes.systemRole,
-            rolesString: attributes.rolesString
+            status: attributes.status
+            // rolesString: attributes.rolesString
         };
     }
 });

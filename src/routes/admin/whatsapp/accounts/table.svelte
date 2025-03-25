@@ -3,13 +3,15 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     // import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import type { WhatsAppAccount } from "@prisma/client";
     import { page } from "$app/stores";
+    import { goto } from "$app/navigation";
+    import { Pencil, Trash, MessageSquare } from "lucide-svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import type { TableProps, TableState } from "$lib/components/ui_components_sveltekit/table/types";
 
@@ -97,13 +99,33 @@
             id: "actions",
             label: "Actions",
             width: "10%",
-            render: (record: WhatsAppAccount) => ({
-                component: RecordActions,
-                props: {
-                    record,
-                    onDelete: confirmDelete
-                }
-            })
+            render: (record: WhatsAppAccount) => {
+                // Define action items here instead of in the RecordActions component
+                const actionItems: ActionItem[] = [
+                    {
+                        label: "Edit",
+                        icon: Pencil,
+                        onClick: () => goto(`/admin/whatsapp/accounts/${record.id}`)
+                    },
+                    {
+                        label: "Delete",
+                        icon: Trash,
+                        onClick: () => confirmDelete(record)
+                    },
+                    {
+                        label: "Send Message",
+                        icon: MessageSquare,
+                        onClick: () => goto(`/admin/whatsapp/accounts/${record.id}/messages`)
+                    }
+                ];
+                
+                return {
+                    component: RecordActions,
+                    props: {
+                        items: actionItems
+                    }
+                };
+            }
         }
     ];
 
