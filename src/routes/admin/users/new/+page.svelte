@@ -30,7 +30,13 @@
         "New User",
     ];
 
-    const { form, errors, enhance, submitting, constraints, message } = superForm(data.form, {
+    import { derived } from 'svelte/store';
+    
+    // Use a local variable for error display
+    import { writable } from 'svelte/store';
+    const errorMessage = writable(null);
+    
+    const { form, errors, enhance, submitting, constraints } = superForm(data.form, {
         // Use tainted to track if form has been modified
         taintedMessage: false,
         // Validate on blur for better UX
@@ -39,34 +45,69 @@
         delayMs: 300,
         // Set a reasonable timeout for server requests
         timeoutMs: 8000,
+        // Enable debug mode to see more information in the console
+        debugForm: true,
+        // Add custom transform to debug the form submission
+        transform({ formData, cancel }) {
+            console.log('Form submission data:', Object.fromEntries(formData));
+            return { formData };
+        },
         onResult: async ({ result }) => {
+            console.log('Form submission result:', result);
+            
             if (result.type === "success") {
                 toast.success("User created successfully");
                 try {
                     await goto("/admin/users");
                 } catch (error) {
                     console.error("Navigation error:", error);
-                    $message = { type: 'error', text: 'Failed to redirect. Please try again.' };
+                    $errorMessage = { type: 'error', text: 'Failed to redirect. Please try again.' };
                 }
-            } else if (result.type === "error") {
+            } else if (result.type === "failure") {
                 // Handle server errors that aren't field validation errors
-                console.log('Server error:', result.error);
+                console.log('Server failure:', result);
                 
-                if (typeof result.error === 'object' && result.error !== null) {
-                    // Handle structured error object
-                    $message = { 
-                        type: 'error', 
-                        text: result.error.message || "An error occurred while creating the user",
-                        details: result.error.details,
-                        code: result.error.code,
-                        requestId: result.error.requestId,
-                        timestamp: result.error.timestamp
+                // Check if the server returned a message object directly
+                if (result.data?.message) {
+                    console.log('Server returned message object:', result.data.message);
+                    // Force a new object to trigger reactivity
+                    const serverMessage = result.data.message;
+                    $errorMessage = {
+                        type: serverMessage.type || 'error',
+                        text: serverMessage.text || 'An error occurred',
+                        details: serverMessage.details || '',
+                        code: serverMessage.code || '',
+                        requestId: serverMessage.requestId || '',
+                        timestamp: serverMessage.timestamp || ''
                     };
+                    console.log('Set message directly from server:', $errorMessage);
+                }
+                // Check for form-level errors from Zod validation
+                else if (result.data?.form?.$errors?._errors?.length > 0) {
+                    // Handle Zod form-level errors
+                    const formErrors = result.data.form.$errors._errors;
+                    const errorMessage = formErrors[0] || "An error occurred while creating the user";
+                    
+                    // Extract metadata if available
+                    const meta = result.data.form.$meta || {};
+                    console.log('Form error metadata:', meta);
+                    
+                    $errorMessage = { 
+                        type: 'error', 
+                        text: errorMessage,
+                        details: meta.details,
+                        code: result.data.form.$id,
+                        requestId: meta.requestId,
+                        timestamp: meta.timestamp
+                    };
+                    
+                    console.log('Set message from form errors:', $errorMessage);
                 } else {
-                    // Handle string error or undefined
-                    const errorMessage = typeof result.error === 'string' ? result.error : 
-                        "An error occurred while creating the user";
-                    $message = { type: 'error', text: errorMessage };
+                    // Fallback error handling
+                    console.log('Using fallback error handling');
+                    const errorMessage = "An error occurred while processing your request";
+                    $errorMessage = { type: 'error', text: errorMessage };
+                    console.log('Set fallback message:', $errorMessage);
                 }
             }
         },
@@ -82,7 +123,7 @@
             
             if (typeof result.error === 'object' && result.error !== null) {
                 // Handle structured error object
-                $message = { 
+                $errorMessage = { 
                     type: 'error', 
                     text: result.error.message || "Server error occurred. Please try again.",
                     details: result.error.details,
@@ -94,7 +135,7 @@
                 // Handle string error or undefined
                 const errorMessage = typeof result.error === 'string' ? result.error : 
                     "Server error occurred. Please try again.";
-                $message = { type: 'error', text: errorMessage };
+                $errorMessage = { type: 'error', text: errorMessage };
             }
         }
     });
@@ -116,31 +157,47 @@
     <PageHeader {title} />
 
     <PageContent>
-        <FormContainer method="POST" action="?/save" {enhance} novalidate>
-            {#if $message}                
-                <Alert variant={$message.type === 'error' ? 'destructive' : 'default'} class="mb-6">
-                    <AlertTitle>{$message.type === 'error' ? 'Error' : 'Information'}</AlertTitle>
-                    <AlertDescription>
-                        <div class="space-y-2">
-                            <p class="font-medium">{$message.text}</p>
-                            {#if $message.details}
-                                <p class="text-sm">{$message.details}</p>
-                            {/if}
-                            {#if $message.code}
-                                <div class="text-xs bg-background/50 p-2 rounded">
-                                    <p><span class="font-mono">Code:</span> {$message.code}</p>
-                                    {#if $message.requestId}
-                                        <p><span class="font-mono">Request ID:</span> {$message.requestId}</p>
-                                    {/if}
-                                    {#if $message.timestamp}
-                                        <p><span class="font-mono">Time:</span> {new Date($message.timestamp).toLocaleString()}</p>
-                                    {/if}
-                                </div>
-                            {/if}
-                        </div>
-                    </AlertDescription>
-                </Alert>
-            {/if}
+        <!-- Direct error display -->
+         {JSON.stringify($errorMessage)}
+        {#if $errorMessage}
+            <Alert variant={$errorMessage.type === 'success' ? 'default' : 'destructive'} class="mb-6">
+                <AlertTitle>{$errorMessage.type === 'error' ? 'Error' : 'Information'}</AlertTitle>
+                <AlertDescription>
+                    <div class="space-y-2">
+                        <p class="font-medium">{$errorMessage.text || 'An error occurred'}</p>
+                        {#if $errorMessage.details}
+                            <p class="text-sm">{$errorMessage.details}</p>
+                        {/if}
+                        {#if $errorMessage.code}
+                            <div class="text-xs bg-background/50 p-2 rounded">
+                                <p><span class="font-mono">Code:</span> {$errorMessage.code}</p>
+                                {#if $errorMessage.requestId}
+                                    <p><span class="font-mono">Request ID:</span> {$errorMessage.requestId}</p>
+                                {/if}
+                                {#if $errorMessage.timestamp}
+                                    <p><span class="font-mono">Time:</span> {new Date($errorMessage.timestamp).toLocaleString()}</p>
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
+                </AlertDescription>
+            </Alert>
+        {/if}
+        
+        <!-- Debug message state (hidden in production) -->
+        <div class="hidden">
+            <p>Debug message state:</p>
+            <pre>{JSON.stringify($errorMessage, null, 2)}</pre>
+        </div>
+        
+        <FormContainer method="POST" action="?/save" {enhance} novalidate on:submit={() => {
+            console.log('Form submitted to ?/save');
+            // Set a loading message
+            $errorMessage = {
+                type: 'info',
+                text: 'Processing your request...',
+            };
+        }}>
             <FormCard title="User Information">
                 <FormRow columns={2}>
                         <FormField id="email" label="Email" error={$errors.email}>

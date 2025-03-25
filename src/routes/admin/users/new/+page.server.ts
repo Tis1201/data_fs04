@@ -31,54 +31,38 @@ export const actions = {
      */
     save: restrict(
         async ({ request, locals }) => {
+            console.log('Save action triggered');
+            logger.info('Save action triggered in admin/users/new');
+            
             const form = await superValidate(request, zod(createUserSchema));
             logger.debug('Create user form data:', form);
 
             if (!form.valid) {
+                console.log("Form is invalid")
                 return fail(400, { form });
             }
 
-            // throw new Error("This is a test server error to verify the error handling in the UI");
-            // Test error for error display testing
-            // return fail(500, { 
-            //     form,
-            //     error: {
-            //         code: 'SERVER_ERROR',
-            //         message: 'This is a test server error to verify the error handling in the UI',
-            //         details: 'Additional error details would appear here. For example: The database connection failed or a required service is unavailable.',
-            //         timestamp: new Date().toISOString(),
-            //         requestId: `req-${Math.random().toString(36).substring(2, 15)}`
-            //     }
-            // });
+            // Return a structured error response with the form data
+            // This ensures the form values are preserved when showing the error
+            // Log what we're returning to help with debugging
+            const errorResponse = {
+                form,
+                message: {
+                    type: 'error',
+                    text: 'Unable to create user at this time',
+                    details: 'The system is currently unable to process your request due to a temporary issue. Please try again later or contact support if the problem persists.',
+                    code: 'SERVICE_UNAVAILABLE',
+                    requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
+                    timestamp: new Date().toISOString()
+                }
+            };
+            
+            console.log('Returning error response:', errorResponse);
+            
+            return fail(400, errorResponse)
 
-
-            try {
-                // Create new user
-                await locals.prisma.user.create({
-                    data: {
-                        email: form.data.email,
-                        name: form.data.name || "",
-                        systemRole: form.data.role,
-                        status: form.data.status,
-                        rolesString: form.data.role.toLowerCase(),
-                        // Set a temporary password that must be changed on first login
-                        password: form.data.password || 'ChangeMe123!'
-                    }
-                });
-                
-                logger.info('User created successfully');
-                
-                return {
-                    form,
-                    success: true
-                };
-            } catch (e) {
-                logger.error('Error creating user:', e);
-                return fail(500, {
-                    form,
-                    error: 'Failed to create user'
-                });
-            }
+            
+           
         },
         ['admin'] // Only allow admin role to create users
     )
