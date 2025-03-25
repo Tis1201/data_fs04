@@ -1,17 +1,18 @@
 <script lang="ts">
-    import { page } from "$app/stores";
     import { goto } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
-    import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
-    import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
+    import { Select } from "$lib/components/ui/select/index.js";
+    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
     import { Badge } from "$lib/components/ui/badge";
     import { formatDate } from "$lib/utils";
+    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import type { PageData } from "./$types";
 
     export let data: PageData;
@@ -33,24 +34,21 @@
             toast.error(err.message);
         }
     });
+    
+    // Define breadcrumbs for this page
+    const pageCrumbs = [
+        ["Admin", "/admin"],
+        ["Users", "/admin/users"],
+        "User"
+    ];
 </script>
 
-<div class="space-y-4 p-2">
-    <Breadcrumb>
-        <BreadcrumbList>
-            <BreadcrumbItem>
-                <a href="/admin" class="text-sm font-medium underline-offset-4 hover:underline">Admin</a>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-                <a href="/admin/users" class="text-sm font-medium underline-offset-4 hover:underline">Users</a>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-                <BreadcrumbPage>{user.email}</BreadcrumbPage>
-            </BreadcrumbItem>
-        </BreadcrumbList>
-    </Breadcrumb>
+<PageContainer crumbs={pageCrumbs}>
+    <PageHeader title="User">
+        <svelte:fragment slot="action">
+            <!-- No action button needed for this page -->
+        </svelte:fragment>
+    </PageHeader>
 
             <div class="grid gap-6">
                 <!-- User Info Card -->
@@ -79,15 +77,17 @@
                             <!-- Role -->
                             <div class="space-y-2">
                                 <Label for="role">Role</Label>
-                                <Select bind:value={$form.role}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a role" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ADMIN">Admin</SelectItem>
-                                        <SelectItem value="USER">User</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <EnhancedSelect
+                                    value={$form.role}
+                                    name="role"
+                                    placeholder="Select a role"
+                                    labelText="Role"
+                                    portal={null}
+                                    on:change={(e) => $form.role = e.detail}
+                                >
+                                    <Select.Item value="ADMIN">Admin</Select.Item>
+                                    <Select.Item value="USER">User</Select.Item>
+                                </EnhancedSelect>
                                 {#if $errors.role}
                                     <span class="text-sm text-destructive">{$errors.role}</span>
                                 {/if}
@@ -128,4 +128,4 @@
                 </Card>
             </div>
 
-</div>
+</PageContainer>

@@ -4,7 +4,7 @@ import { fetchTableData, deleteRecord } from '$lib/components/ui_components_svel
 import { restrict } from '$lib/server/security/guards';
 
 // Define table options for WhatsApp accounts
-const whatsAppTableOptions = {
+const table_options = {
     modelName: 'whatsAppAccount',
     searchableFields: ['phoneNumber', 'description', 'name'],
     allowedFilters: ['roles', 'statuses'],
@@ -21,7 +21,7 @@ const whatsAppTableOptions = {
 export const load = restrict(
     async ({ url, locals }) => {
         // Use the reusable fetchTableData function with our table options
-        const result = await fetchTableData(locals, url, whatsAppTableOptions);
+        const result = await fetchTableData(locals, url, table_options);
         
         return {
             accounts: result.records,

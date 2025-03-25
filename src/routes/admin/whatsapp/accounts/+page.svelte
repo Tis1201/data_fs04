@@ -1,9 +1,10 @@
 <script lang="ts">
-    import { Button } from "$lib/components/ui/button";
     import { Plus } from "lucide-svelte";
     import type { PageData } from "./$types";
     import { goto } from "$app/navigation";
-    import PageBreadcrumb from "$lib/components/ui_components_sveltekit/layout/PageBreadcrumb.svelte";
+    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import RecordTable from "./table.svelte";
     import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     
@@ -17,24 +18,25 @@
     
     // Initialize pagination with stored preferences
     initPagination('preferredPageSize', true);
+    
+    // Define breadcrumbs for this page
+    const pageCrumbs = [
+        ["Admin", "/admin"],
+        ["WhatsApp", null],
+        "Accounts"
+    ];
 </script>
 
-<div class="space-y-6">
-    <PageBreadcrumb
-        crumbs={[
-            "Admin", "/admin",
-            "WhatsApp", "/admin/whatsapp",
-            "Accounts"
-        ]}
-    />
-
-    <div class="flex justify-between items-center">
-        <h2 class="text-3xl font-bold tracking-tight">WhatsApp Accounts</h2>
-        <Button on:click={() => goto('/admin/whatsapp/accounts/new')}>
-            <Plus class="mr-2 h-4 w-4" />
-            New Account
-        </Button>
-    </div>
+<PageContainer crumbs={pageCrumbs}>
+    <PageHeader title="WhatsApp Accounts">
+        <svelte:fragment slot="action">
+            <ActionButton
+                label="New Account"
+                icon={Plus}
+                onClick={() => goto('/admin/whatsapp/accounts/new')}
+            />
+        </svelte:fragment>
+    </PageHeader>
 
     <RecordTable
         props={{
@@ -44,4 +46,4 @@
             loading
         }}
     />
-</div>
+</PageContainer>
