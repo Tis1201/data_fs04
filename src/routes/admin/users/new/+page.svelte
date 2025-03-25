@@ -9,6 +9,7 @@
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
+    import { Card, CardContent } from "$lib/components/ui/card";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
@@ -17,6 +18,7 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
     import type { PageData } from "./$types";
     import type { CreateUserSchema } from "./schema";
 
@@ -157,47 +159,21 @@
     <PageHeader {title} />
 
     <PageContent>
-        <!-- Direct error display -->
-         {JSON.stringify($errorMessage)}
-        {#if $errorMessage}
-            <Alert variant={$errorMessage.type === 'success' ? 'default' : 'destructive'} class="mb-6">
-                <AlertTitle>{$errorMessage.type === 'error' ? 'Error' : 'Information'}</AlertTitle>
-                <AlertDescription>
-                    <div class="space-y-2">
-                        <p class="font-medium">{$errorMessage.text || 'An error occurred'}</p>
-                        {#if $errorMessage.details}
-                            <p class="text-sm">{$errorMessage.details}</p>
-                        {/if}
-                        {#if $errorMessage.code}
-                            <div class="text-xs bg-background/50 p-2 rounded">
-                                <p><span class="font-mono">Code:</span> {$errorMessage.code}</p>
-                                {#if $errorMessage.requestId}
-                                    <p><span class="font-mono">Request ID:</span> {$errorMessage.requestId}</p>
-                                {/if}
-                                {#if $errorMessage.timestamp}
-                                    <p><span class="font-mono">Time:</span> {new Date($errorMessage.timestamp).toLocaleString()}</p>
-                                {/if}
-                            </div>
-                        {/if}
-                    </div>
-                </AlertDescription>
-            </Alert>
-        {/if}
-        
-        <!-- Debug message state (hidden in production) -->
-        <div class="hidden">
-            <p>Debug message state:</p>
-            <pre>{JSON.stringify($errorMessage, null, 2)}</pre>
-        </div>
-        
         <FormContainer method="POST" action="?/save" {enhance} novalidate on:submit={() => {
-            console.log('Form submitted to ?/save');
-            // Set a loading message
-            $errorMessage = {
-                type: 'info',
-                text: 'Processing your request...',
-            };
+            
         }}>
+            <!-- Error display using the reusable component with matching width -->
+            {#if $errorMessage}
+                    <ErrorAlert message={$errorMessage} className="max-w-5xl" />
+                
+                    <!-- Debug message state (hidden in production) -->
+                    <div class="hidden">
+                        <p>Debug message state:</p>
+                        <pre>{JSON.stringify($errorMessage, null, 2)}</pre>
+                    </div>
+                
+            {/if}
+            
             <FormCard title="User Information">
                 <FormRow columns={2}>
                         <FormField id="email" label="Email" error={$errors.email}>
