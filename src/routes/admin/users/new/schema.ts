@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const userSchema = z.object({
+export const createUserSchema = z.object({
     email: z.string().email('Please enter a valid email address'),
     name: z.string().min(1, 'Name is required').optional(),
     role: z.enum(['ADMIN', 'USER'] as const, {
@@ -12,4 +12,4 @@ export const userSchema = z.object({
     password: z.string().min(8, 'Password must be at least 8 characters').optional()
 });
 
-export type UserSchema = typeof userSchema;
+export type CreateUserSchema = typeof createUserSchema;

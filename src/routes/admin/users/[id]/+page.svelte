@@ -4,29 +4,41 @@
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
-    import { Label } from "$lib/components/ui/label";
     import * as Select from "$lib/components/ui/select/index.js";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
+    import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
-    import { formatDate } from "$lib/utils";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+    import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
+    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
+    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
+    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
+    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
 
     export let data: PageData;
     const { user } = data;
+    const title = "Edit User";
 
-    const { form, errors, enhance } = superForm(data.form, {
+    // Define breadcrumbs for this page
+    const pageCrumbs = [
+        ["Admin", "/admin"],
+        ["Users", "/admin/users"],
+        user?.email || "Edit User",
+    ];
+
+    const { form, errors, enhance, submitting } = superForm(data.form, {
         onResult: async ({ result }) => {
-            if (result.type === 'success') {
-                toast.success('User updated successfully');
+            if (result.type === "success") {
+                toast.success("User updated successfully");
                 try {
-                    await goto('/admin/users');
+                    await goto("/admin/users");
                 } catch (error) {
-                    console.error('Navigation error:', error);
-                    toast.error('Failed to redirect. Please try again.');
+                    console.error("Navigation error:", error);
+                    toast.error("Failed to redirect. Please try again.");
                 }
             }
         },
@@ -34,98 +46,108 @@
             toast.error(err.message);
         }
     });
-    
-    // Define breadcrumbs for this page
-    const pageCrumbs = [
-        ["Admin", "/admin"],
-        ["Users", "/admin/users"],
-        "User"
-    ];
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
-    <PageHeader title="User">
-        <svelte:fragment slot="action">
-            <!-- No action button needed for this page -->
-        </svelte:fragment>
-    </PageHeader>
+    <PageHeader {title} />
 
-            <div class="grid gap-6">
-                <!-- User Info Card -->
-                <Card>
-                    <CardHeader>
-                        <CardTitle>User Information</CardTitle>
-                        <CardDescription>Basic user details and status</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <form method="POST" use:enhance class="space-y-4">
-                            <!-- Email -->
-                            <div class="space-y-2">
-                                <Label for="email">Email</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    name="email"
-                                    placeholder="Enter email address"
-                                    bind:value={$form.email}
-                                />
-                                {#if $errors.email}
-                                    <span class="text-sm text-destructive">{$errors.email}</span>
-                                {/if}
-                            </div>
+    <PageContent>
+        <!-- User Info Card -->
+        <FormCard
+            {title}
+            description="Edit details for this user account"
+            loading={$submitting}
+            footerSlot={user}
+        >
+            <FormContainer {enhance} action="?/save">
+                <!-- Two-column layout for shorter fields -->
+                <FormRow columns={2}>
+                    <!-- Email -->
+                    <FormField
+                        id="email"
+                        label="Email"
+                        error={$errors.email}
+                    >
+                        <Input
+                            id="email"
+                            type="email"
+                            name="email"
+                            bind:value={$form.email}
+                            placeholder="Enter email address"
+                        />
+                    </FormField>
 
-                            <!-- Role -->
-                            <div class="space-y-2">
-                                <Label for="role">Role</Label>
-                                <EnhancedSelect
-                                    value={$form.role}
-                                    name="role"
-                                    placeholder="Select a role"
-                                    labelText="Role"
-                                    portal={null}
-                                    on:change={(e) => $form.role = e.detail}
-                                >
-                                    <Select.Item value="ADMIN">Admin</Select.Item>
-                                    <Select.Item value="USER">User</Select.Item>
-                                </EnhancedSelect>
-                                {#if $errors.role}
-                                    <span class="text-sm text-destructive">{$errors.role}</span>
-                                {/if}
-                            </div>
+                    <!-- Name -->
+                    <FormField
+                        id="name"
+                        label="Name"
+                        error={$errors.name}
+                    >
+                        <Input
+                            id="name"
+                            name="name"
+                            bind:value={$form.name}
+                            placeholder="Enter full name"
+                        />
+                    </FormField>
+                </FormRow>
 
-                            <!-- Submit Button -->
-                            <div class="flex justify-end gap-4">
-                                <Button
-                                    variant="outline"
-                                    type="button"
-                                    on:click={() => goto('/admin/users')}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button type="submit">
-                                    Save Changes
-                                </Button>
-                            </div>
-                        </form>
+                <!-- Role -->
+                <FormField id="role" label="Role" error={$errors.role}>
+                    <EnhancedSelect
+                        value={$form.role}
+                        name="role"
+                        placeholder="Select a role"
+                        labelText="Role"
+                        portal={null}
+                        on:change={(e) => ($form.role = e.detail)}
+                    >
+                        <Select.Item value="ADMIN">Admin</Select.Item>
+                        <Select.Item value="USER">User</Select.Item>
+                    </EnhancedSelect>
+                </FormField>
 
-                        <!-- <div class="mt-6 space-y-4">
-                            <div class="flex justify-between text-sm">
-                                <span class="text-muted-foreground">Created</span>
-                                <span>{formatDate(user.createdAt)}</span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-muted-foreground">Last Updated</span>
-                                <span>{formatDate(user.updatedAt)}</span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-muted-foreground">System Role</span>
-                                <Badge variant={user.systemRole === 'ADMIN' ? 'default' : 'secondary'}>
-                                    {user.systemRole}
-                                </Badge>
-                            </div>
-                        </div> -->
-                    </CardContent>
-                </Card>
-            </div>
+                <!-- Status -->
+                <FormField id="status" label="Status" error={$errors.status}>
+                    <EnhancedSelect
+                        value={$form.status}
+                        name="status"
+                        placeholder="Select status"
+                        labelText="Status"
+                        portal={null}
+                        on:change={(e) => ($form.status = e.detail)}
+                    >
+                        <Select.Item value="ACTIVE">Active</Select.Item>
+                        <Select.Item value="INACTIVE">Inactive</Select.Item>
+                        <Select.Item value="SUSPENDED">Suspended</Select.Item>
+                    </EnhancedSelect>
+                </FormField>
 
+                <!-- Submit Button -->
+                <FormRow columns={1} alignItems="end">
+                    <FormActions>
+                        <Button
+                            variant="outline"
+                            type="button"
+                            on:click={() => goto('/admin/users')}
+                        >
+                            Cancel
+                        </Button>
+                        <Button type="submit">Save Changes</Button>
+                    </FormActions>
+                </FormRow>
+            </FormContainer>
+
+            <svelte:fragment slot="footer">
+                {#if user}
+                    <MetadataFooter
+                        items={[
+                            { label: "Created", date: user.createdAt },
+                            { label: "Last Updated", date: user.updatedAt },
+                        ]}
+                    />
+                {/if}
+            </svelte:fragment>
+        </FormCard>
+    </PageContent>
 </PageContainer>
