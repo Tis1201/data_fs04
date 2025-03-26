@@ -8,7 +8,7 @@
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
-    import { Pencil, Trash, UserCheck, UserX } from "lucide-svelte";
+    import { Pencil, Trash, UserCheck, UserX, Key } from "lucide-svelte";
     import type { User } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
@@ -172,6 +172,11 @@
                         label: "Edit",
                         icon: Pencil,
                         onClick: () => goto(`/admin/users/${record.id}`)
+                    },
+                    {
+                        label: "View Sessions",
+                        icon: Key,
+                        onClick: () => goto(`/admin/users/${record.id}/sessions`)
                     },
                     {
                         label: isTogglingStatus && userToToggle?.id === record.id 
