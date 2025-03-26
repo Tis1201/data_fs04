@@ -138,14 +138,14 @@
                 </FormField>
                 
                 <!-- Roles String (Additional Roles) -->
-                <FormField id="rolesString" label="Additional Roles" error={$errors.rolesString} description="Comma-separated list of additional roles">
+                <!-- <FormField id="rolesString" label="Additional Roles" error={$errors.rolesString} description="Comma-separated list of additional roles">
                     <Input
                         id="rolesString"
                         name="rolesString"
                         bind:value={$form.rolesString}
                         placeholder="role1,role2,role3"
                     />
-                </FormField>
+                </FormField> -->
 
                 <!-- Submit Button -->
                 <FormRow columns={1} alignItems="end">
