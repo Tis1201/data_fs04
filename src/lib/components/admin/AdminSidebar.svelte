@@ -115,7 +115,7 @@
                 { href: "/admin/settings/general", label: "General", icon: Settings2 },
                 { href: "/admin/users", label: "Users", icon: Users },
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
-                { href: "/admin/api-keys", label: "API Keys", icon: Key },
+                { href: "/admin/settings/api_keys", label: "API Keys", icon: Key },
                 { href: "/admin/settings/webhook", label: "Webhook", icon: Link2Icon },
                 { href: "/admin/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle },    
             ],  

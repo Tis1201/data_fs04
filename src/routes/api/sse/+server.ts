@@ -48,13 +48,11 @@ export const GET: RequestHandler = async ({ request, cookies, locals }) => {
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*', // Allow cross-origin requests
+            'Connection': 'keep-alive'
         }
     });
 };
 
-// Broadcast message endpoint - requires authentication
 export const POST: RequestHandler = async ({ request, cookies }) => {
     // Check for API key in request headers
     const apiKey = extractApiKey(request);
@@ -78,11 +76,37 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
         // Log the broadcast with user info based on auth method
         const authMethod = auth.authMethod;
         const userIdentifier = authMethod === 'session' ? auth.user.email : `api-key-user-${auth.userId}`;
-        logger.debug('SSE message broadcast', { event, authMethod, userIdentifier });
+        
+        logger.debug('SSE message broadcast', { 
+            event, 
+            authMethod, 
+            userIdentifier,
+            userInfo: authMethod === 'apiKey' ? auth.userInfo : {
+                email: auth.user.email,
+                name: auth.user.name
+            }
+        });
         
         return json({ success: true });
     } catch (error) {
-        logger.error('Error broadcasting SSE message', { error });
-        return json({ error: 'Invalid request' }, { status: 400 });
+        logger.error('Error broadcasting SSE message', { 
+            error: {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            },
+            timestamp: new Date().toISOString()
+        });
+        
+        // Return detailed error information in development
+        const errorResponse = {
+            error: error.message,
+            details: process.env.NODE_ENV === 'development' ? {
+                stack: error.stack,
+                name: error.name
+            } : null
+        };
+        
+        return json(errorResponse, { status: 400 });
     }
 };

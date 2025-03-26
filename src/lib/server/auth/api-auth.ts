@@ -1,7 +1,7 @@
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 import { lucia } from './lucia';
-import { getUserIdFromApiKey, validateApiKey } from './api-key-utils';
+import { getUserIdFromApiKey, validateApiKey, getUserInfoFromApiKey } from './api-key-utils';
 
 /**
  * Authentication method types
@@ -19,7 +19,10 @@ export async function validateApiAuth(cookies: Cookies, requireAdmin = false, ap
     // Try API key authentication if provided
     if (apiKey) {
         const isValid = await validateApiKey(apiKey);
-        if (!isValid) {
+        const userId = isValid ? await getUserIdFromApiKey(apiKey) : null;
+        const userInfo = isValid ? await getUserInfoFromApiKey(apiKey) : null;
+        
+        if (!isValid || !userId) {
             return {
                 valid: false,
                 authMethod: 'apiKey' as AuthMethod,
@@ -27,22 +30,11 @@ export async function validateApiAuth(cookies: Cookies, requireAdmin = false, ap
             };
         }
 
-        // API key is valid, get associated user
-        const userId = await getUserIdFromApiKey(apiKey);
-        if (!userId) {
-            return {
-                valid: false,
-                authMethod: 'apiKey' as AuthMethod,
-                response: json({ error: 'Invalid API key' }, { status: 403 })
-            };
-        }
-
-        // For now, we don't check admin role for API key auth
-        // This could be enhanced to check user roles if needed
         return {
             valid: true,
             authMethod: 'apiKey' as AuthMethod,
-            userId
+            userId,
+            userInfo
         };
     }
 
@@ -58,20 +50,11 @@ export async function validateApiAuth(cookies: Cookies, requireAdmin = false, ap
 
     // Validate session
     const { session, user } = await lucia.validateSession(sessionId);
-    if (!session) {
+    if (!session || (requireAdmin && user.systemRole !== 'ADMIN')) {
         return {
             valid: false,
             authMethod: 'session' as AuthMethod,
-            response: json({ error: 'Unauthorized' }, { status: 401 })
-        };
-    }
-
-    // Check admin role if required
-    if (requireAdmin && user.systemRole !== 'ADMIN') {
-        return {
-            valid: false,
-            authMethod: 'session' as AuthMethod,
-            response: json({ error: 'Forbidden' }, { status: 403 })
+            response: json({ error: requireAdmin ? 'Forbidden' : 'Unauthorized' }, { status: requireAdmin ? 403 : 401 })
         };
     }
 
@@ -89,12 +72,9 @@ export async function validateApiAuth(cookies: Cookies, requireAdmin = false, ap
  * @returns The API key if found, undefined otherwise
  */
 export function extractApiKey(request: Request): string | undefined {
-    // Check for API key in Authorization header (Bearer token)
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-        return authHeader.substring(7);
-    }
-    
-    // Check for API key in custom header
-    return request.headers.get('X-API-Key') || undefined;
+    // Prioritize X-API-Key header for simplicity
+    return request.headers.get('X-API-Key') || 
+           (request.headers.get('Authorization')?.startsWith('Bearer ') ? 
+            request.headers.get('Authorization')?.substring(7) : 
+            undefined);
 }
