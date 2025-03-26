@@ -71,20 +71,40 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             return json({ error: 'Event name is required' }, { status: 400 });
         }
         
-        sseManager.broadcast(event, data || {});
+        // Get sender information
+        const sender = auth.authMethod === 'apiKey' ? auth.userInfo : {
+            email: auth.user.email,
+            name: auth.user.name
+        };
         
-        // Log the broadcast with user info based on auth method
-        const authMethod = auth.authMethod;
-        const userIdentifier = authMethod === 'session' ? auth.user.email : `api-key-user-${auth.userId}`;
+        // Parse data if it's a string that looks like JSON
+        let parsedData = data;
+        if (typeof data === 'string') {
+            try {
+                parsedData = JSON.parse(data);
+            } catch {
+                // If parsing fails, keep it as a string
+                parsedData = { content: data };
+            }
+        }
+
+        // Format the message with event name and metadata
+        const messageData = {
+            event,
+            data: parsedData,
+            sender,
+            timestamp: new Date().toISOString()
+        };
         
+        // Broadcast using the custom event name
+        sseManager.broadcast('message', messageData);
+        
+        // Log the broadcast with user info
         logger.debug('SSE message broadcast', { 
             event, 
-            authMethod, 
-            userIdentifier,
-            userInfo: authMethod === 'apiKey' ? auth.userInfo : {
-                email: auth.user.email,
-                name: auth.user.name
-            }
+            authMethod: auth.authMethod, 
+            userIdentifier: auth.authMethod === 'session' ? auth.user.email : `api-key-user-${auth.userId}`,
+            sender
         });
         
         return json({ success: true });
