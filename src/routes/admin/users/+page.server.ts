@@ -42,7 +42,7 @@ export const load = restrict(
             meta: result.meta
         };
     },
-    ['admin'] // Only allow admin role to access this route
+    ['ADMIN'] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 /*******************************************************************************************
@@ -103,7 +103,7 @@ export const actions = {
                 });
             }
         },
-        ['admin'] // Only allow admin role to create users
+        ['ADMIN'] // Only allow admin role to create users
     ),
     
     /*******************************************************************************************
@@ -165,7 +165,7 @@ export const actions = {
                 return fail(500, { error: 'Failed to update user status' });
             }
         },
-        ['admin'] // Only allow admin role to toggle user status
+        ['ADMIN'] // Only allow admin role to toggle user status
     ),
 
     /**
@@ -229,6 +229,6 @@ export const actions = {
                 });
             }
         },
-        ['admin'] // Only allow admin role to delete users
+        ['ADMIN'] // Only allow admin role to delete users
     )
 };

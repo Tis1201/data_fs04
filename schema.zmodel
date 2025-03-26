@@ -33,7 +33,7 @@ model User {
   whatsappAccounts WhatsAppAccount[]
   
   // Authorization rules
-  @@allow('all', contains(auth().rolesString, 'admin'))  // Admin can do everything
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   @@allow('read', auth() != null)  // Authenticated users can read
   @@allow('create', true)  // Anyone can create (signup)
   @@allow('update', auth().id == id)  // Users can update their own data

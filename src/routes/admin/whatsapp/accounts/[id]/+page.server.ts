@@ -43,7 +43,7 @@ export const load = restrict(
             throw error(500, 'Failed to load WhatsApp account');
         }
     },
-    ['admin'] // Only allow admin role to access this route
+    ['ADMIN'] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 /**
@@ -101,6 +101,6 @@ export const actions = {
                 });
             }
         },
-        ['admin'] // Only allow admin role to save accounts
+        ['ADMIN'] // Only allow admin role to save accounts
     )
 };

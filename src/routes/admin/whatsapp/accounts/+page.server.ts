@@ -28,7 +28,7 @@ export const load = restrict(
             meta: result.meta
         };
     },
-    ['admin'] // Only allow admin role to access this route
+    ['ADMIN'] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 /*******************************************************************************************
@@ -52,7 +52,7 @@ export const actions = {
             // Use the reusable deleteRecord function
             return deleteRecord(locals, 'whatsAppAccount', id);
         },
-        ['admin'] // Only allow admin role to delete accounts
+        ['ADMIN'] // Only allow admin role to delete accounts
     )
 };
 

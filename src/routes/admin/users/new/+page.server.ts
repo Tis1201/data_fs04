@@ -124,6 +124,6 @@ export const actions = {
                 });
             }
         },
-        ['admin'] // Only allow admin role to create users
+        ['ADMIN'] // Only allow admin role to create users
     )
 };

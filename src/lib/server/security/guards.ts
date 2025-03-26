@@ -15,7 +15,7 @@ export type RouteHandler<T> = (event: RequestEvent) => Promise<T>;
  */
 export function restrict<T>(
   handler: RouteHandler<T>,
-  allowedRoles: string[] = ['admin']
+  allowedRoles: string[] = ['ADMIN']
 ): RouteHandler<T> {
   return async (event: RequestEvent) => {
     const auth = await event.locals.auth.validate();
@@ -24,7 +24,9 @@ export function restrict<T>(
       throw error(401, 'Unauthorized');
     }
     
-    if (!allowedRoles.includes(auth.user.rolesString)) {
+    if (!auth.user.systemRole || !allowedRoles.includes(auth.user.systemRole)) {
+      console.log('systemRole', auth.user.systemRole, !auth.user.systemRole , !allowedRoles.includes(auth.user.systemRole));
+      console.log('Unauthorized access attempt: ', auth.user.systemRole, allowedRoles); 
       throw error(403, 'Forbidden');
     }
     

@@ -13,7 +13,6 @@ export const load: PageServerLoad = async ({ locals }) => {
         select: {
             id: true,
             email: true,
-            rolesString: true,
             systemRole: true
         }
     });
@@ -22,7 +21,7 @@ export const load: PageServerLoad = async ({ locals }) => {
         throw redirect(302, '/auth/login');
     }
 
-    if (!user.rolesString.includes('admin')) {
+    if (!user.systemRole || user.systemRole !== 'ADMIN') {
         throw redirect(302, '/');
     }
 

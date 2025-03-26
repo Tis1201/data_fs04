@@ -120,7 +120,7 @@ export const actions: Actions = {
                 });
             }
         },
-        ['admin'] // Only allow admin role to update users
+        ['ADMIN'] // Only allow admin role to update users
     ),
 
     

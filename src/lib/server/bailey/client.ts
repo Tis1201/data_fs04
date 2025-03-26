@@ -63,7 +63,6 @@ export async function initializeClientsFromDatabase(): Promise<void> {
         // Get prisma client with admin privileges
         const prisma = getEnhancedPrisma({
             id: 'system',
-            rolesString: 'admin',
             systemRole: 'ADMIN'
         });
         
@@ -120,7 +119,6 @@ export async function initializeClientsFromDatabase(): Promise<void> {
                 try {
                     const prisma = getEnhancedPrisma({
                         id: 'system',
-                        rolesString: 'admin',
                         systemRole: 'ADMIN'
                     });
                     
@@ -354,7 +352,6 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
                         try {
                             const prisma = getEnhancedPrisma({
                                 id: 'system',
-                                rolesString: 'admin',
                                 systemRole: 'ADMIN'
                             });
                             await prisma.whatsAppAccount.update({
@@ -373,7 +370,6 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
                         try {
                             const prisma = getEnhancedPrisma({
                                 id: 'system',
-                                rolesString: 'admin',
                                 systemRole: 'ADMIN'
                             });
                             await prisma.whatsAppAccount.update({
@@ -559,7 +555,6 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
                         try {
                             const prisma = getEnhancedPrisma({
                                 id: 'system',
-                                rolesString: 'admin',
                                 systemRole: 'ADMIN'
                             });
                             await prisma.whatsAppAccount.update({
