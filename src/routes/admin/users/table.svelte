@@ -5,10 +5,11 @@
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
     import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
+import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/PasswordUpdateDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
-    import { Pencil, Trash, UserCheck, UserX, Key } from "lucide-svelte";
+    import { Pencil, Trash, UserCheck, UserX, Key, KeyRound } from "lucide-svelte";
     import type { User } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
@@ -53,6 +54,10 @@
     let isTogglingStatus = false;
     let statusToggleForm: HTMLFormElement;
     
+    // State for password update dialog
+    let passwordUpdateDialogOpen = false;
+    let userToUpdatePassword: User | null = null;
+    
     // Function to prepare for status toggle
     function prepareToggleStatus(user: User) {
         userToToggle = user;
@@ -62,6 +67,12 @@
                 statusToggleForm.requestSubmit();
             }
         }, 0);
+    }
+    
+    // Function to open password update dialog
+    function openPasswordUpdateDialog(user: User) {
+        userToUpdatePassword = user;
+        passwordUpdateDialogOpen = true;
     }
 
     // Stores for filters and table state
@@ -179,6 +190,11 @@
                         onClick: () => goto(`/admin/users/${record.id}/sessions`)
                     },
                     {
+                        label: "Update Password",
+                        icon: KeyRound,
+                        onClick: () => openPasswordUpdateDialog(record)
+                    },
+                    {
                         label: isTogglingStatus && userToToggle?.id === record.id 
                             ? "Updating..." 
                             : (record.status === 'ACTIVE' ? "Deactivate" : "Activate"),
@@ -210,6 +226,16 @@
 </script>
 
 <div class="space-y-4">
+    <!-- Password Update Dialog -->
+    <PasswordUpdateDialog
+        bind:open={passwordUpdateDialogOpen}
+        bind:user={userToUpdatePassword}
+        onSuccess={() => {
+            // Refresh data if needed after password update
+            goto($page.url.pathname, { invalidateAll: true });
+        }}
+    />
+    
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
         {state}

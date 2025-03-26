@@ -6,6 +6,7 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { randomBytes } from 'crypto';
+import { hash } from '@node-rs/argon2';
 
 function generateSecureTempPassword(): string {
     const bytes = randomBytes(16); // 16 bytes = 128 bits
@@ -72,6 +73,10 @@ export const actions = {
                 const tempPassword = form.data.password || 
                     generateSecureTempPassword();
                 
+                // Hash the password using @node-rs/argon2
+                const hashedPassword = await hash(tempPassword);
+                logger.debug('Password hashed successfully', { passwordLength: tempPassword.length });
+                
                 const newUser = await prisma.user.create({
                     data: {
                         email: form.data.email,
@@ -79,8 +84,15 @@ export const actions = {
                         systemRole: form.data.role,
                         status: form.data.status,
                         rolesString: form.data.role.toLowerCase(),
-                        password: tempPassword // Always provide a password
+                        password: hashedPassword // Store the hashed password
                     }
+                });
+                
+                // Log the created user (without password)
+                logger.debug('User created with hashed password', {
+                    userId: newUser.id,
+                    email: newUser.email,
+                    role: newUser.systemRole
                 });
                 
                 console.log(`User created successfully: ${newUser.id}`);

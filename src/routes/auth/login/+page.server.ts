@@ -87,19 +87,45 @@ export const actions: Actions = {
                 });
             }
 
-            // Create session
-            const session = await lucia.createSession(user.id, {});
-            const sessionCookie = lucia.createSessionCookie(session.id);
-            cookies.set(sessionCookie.name, sessionCookie.value, {
-                path: ".",
-                ...sessionCookie.attributes
-            });
-
-            logger.info('User logged in successfully', { 
+            // Log user details before creating session
+            logger.debug('User details before creating session', { 
                 userId: user.id,
                 email: form.data.email,
-                role: user.systemRole
+                role: user.systemRole,
+                status: await authPrisma.user.findUnique({
+                    where: { id: user.id },
+                    select: { status: true }
+                }).then(u => u?.status),
+                hasRolesString: !!user.rolesString
             });
+            
+            try {
+                // Create session
+                const session = await lucia.createSession(user.id, {});
+                const sessionCookie = lucia.createSessionCookie(session.id);
+                cookies.set(sessionCookie.name, sessionCookie.value, {
+                    path: ".",
+                    ...sessionCookie.attributes
+                });
+
+                logger.info('User logged in successfully', { 
+                    userId: user.id,
+                    email: form.data.email,
+                    role: user.systemRole
+                });
+            } catch (sessionError) {
+                // Log detailed session creation error
+                logger.error('Session creation error', { 
+                    error: sessionError,
+                    errorName: sessionError.name,
+                    errorMessage: sessionError.message,
+                    errorStack: sessionError.stack,
+                    userId: user.id,
+                    role: user.systemRole
+                });
+                
+                throw sessionError;
+            }
 
             // Return success with redirect path
             return {
@@ -108,11 +134,20 @@ export const actions: Actions = {
             };
 
         } catch (e) {
-            logger.error('Login error', { error: e });
+            // Enhanced error logging
+            logger.error('Login error', { 
+                error: e,
+                errorName: e.name,
+                errorMessage: e.message,
+                errorStack: e.stack,
+                errorCode: e.code,
+                email: form.data.email
+            });
+            
             return fail(500, {
                 form: {
                     ...form,
-                    errors: { _errors: ['An error occurred during login'] }
+                    errors: { _errors: ['An error occurred during login: ' + (e.message || e.code || 'Unknown error')] }
                 }
             });
         }

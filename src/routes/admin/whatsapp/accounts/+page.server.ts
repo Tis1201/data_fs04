@@ -54,5 +54,6 @@ export const actions = {
         },
         ['ADMIN'] // Only allow admin role to delete accounts
     )
+    
 };
 

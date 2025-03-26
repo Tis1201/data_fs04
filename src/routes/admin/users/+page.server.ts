@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import type { UserStatus } from '@prisma/client';
 import { error, fail, json } from '@sveltejs/kit';
+import { z } from 'zod';
 import { generateId } from 'lucia';
 import { hash } from '@node-rs/argon2';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -50,6 +51,11 @@ export const load = restrict(
  *  Actions Block
  * 
  *******************************************************************************************/
+// Schema for password validation
+const passwordSchema = z.object({
+    password: z.string().min(8, "Password must be at least 8 characters")
+});
+
 export const actions = {
     /*******************************************************************************************
      * Create
@@ -230,5 +236,73 @@ export const actions = {
             }
         },
         ['ADMIN'] // Only allow admin role to delete users
+    ),
+    
+    /*******************************************************************************************
+     * Update Password
+     ******************************************************************************************/
+    updatePassword: restrict(
+        async ({ request, locals }) => {
+            try {
+                const data = await request.formData();
+                const userId = data.get('userId')?.toString();
+                const password = data.get('password')?.toString();
+                
+                if (!userId) {
+                    return fail(400, { success: false, message: 'User ID is required' });
+                }
+                
+                // Validate password
+                const result = passwordSchema.safeParse({ password });
+                if (!result.success) {
+                    return fail(400, { 
+                        success: false, 
+                        message: 'Invalid password format',
+                        errors: result.error.flatten() 
+                    });
+                }
+                
+                // Get the Zenstack-enhanced Prisma client from locals
+                const prisma = locals.prisma;
+                
+                // Check if the user exists
+                const user = await prisma.user.findUnique({
+                    where: { id: userId }
+                });
+                
+                if (!user) {
+                    return fail(404, { success: false, message: 'User not found' });
+                }
+                
+                // Hash the password using @node-rs/argon2
+                const hashedPassword = await hash(password);
+                logger.debug('Password hashed successfully for update', { 
+                    userId,
+                    passwordLength: password.length 
+                });
+                
+                // Update the user's password
+                await prisma.user.update({
+                    where: { id: userId },
+                    data: { password: hashedPassword }
+                });
+                
+                logger.info('User password updated successfully', { 
+                    userId,
+                    email: user.email
+                });
+                
+                return { 
+                    success: true, 
+                    message: 'Password updated successfully'
+                };
+            } catch (err) {
+                logger.error('Error updating user password', { 
+                    error: err 
+                });
+                return fail(500, { success: false, message: 'Failed to update user password' });
+            }
+        },
+        ['ADMIN'] // Only allow admin role to update passwords
     )
 };
