@@ -7,6 +7,7 @@ import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { randomBytes } from 'crypto';
 import { hash } from '@node-rs/argon2';
+import { SystemRole } from '../schema';
 
 function generateSecureTempPassword(): string {
     const bytes = randomBytes(16); // 16 bytes = 128 bits
@@ -136,6 +137,6 @@ export const actions = {
                 });
             }
         },
-        ['ADMIN'] // Only allow admin role to create users
+        [SystemRole.ADMIN] // Only allow admin role to create users
     )
 };

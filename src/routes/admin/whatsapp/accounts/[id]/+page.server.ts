@@ -4,6 +4,7 @@ import { whatsappAccountSchema, createForm } from './schema';
 import { superValidate } from 'sveltekit-superforms/server';
 import { restrict } from '$lib/server/security/guards';
 import { zod } from 'sveltekit-superforms/adapters';
+import { SystemRole } from '../../../users/schema';
 
 /**
  * Load WhatsApp account data for viewing/editing
@@ -43,7 +44,7 @@ export const load = restrict(
             throw error(500, 'Failed to load WhatsApp account');
         }
     },
-    ['ADMIN'] // Only allow admin role to access this route
+    [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 /**
@@ -101,6 +102,6 @@ export const actions = {
                 });
             }
         },
-        ['ADMIN'] // Only allow admin role to save accounts
+        [SystemRole.ADMIN] // Only allow admin role to save accounts
     )
 };

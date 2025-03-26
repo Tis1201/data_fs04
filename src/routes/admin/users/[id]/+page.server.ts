@@ -2,18 +2,15 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { superValidate } from 'sveltekit-superforms/server';
-import { userEditSchema } from './schema';
+import { SYSTEM_ROLES, userEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
+import { SystemRole } from '../schema';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
-    const auth = await locals.auth.validate();
-    if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
-        throw error(403, 'Not authorized to view or edit users');
-    }
-    
-    try {
+export const load = restrict(
+    async ({ params, locals }) => {
+        try {
         // Load existing user
         const user = await locals.prisma.user.findUnique({
             where: { id: params.id },
@@ -49,11 +46,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
             form,
             user
         };
-    } catch (e) {
-        logger.error('Error loading user:', e);
-        throw error(500, 'Failed to load user');
-    }
-};
+        } catch (e) {
+            logger.error('Error loading user:', e);
+            throw error(500, 'Failed to load user');
+        }
+    },
+    [SystemRole.ADMIN] // Only allow admin role to access this route
+) satisfies PageServerLoad;
 
 export const actions: Actions = {
     /**
@@ -120,7 +119,7 @@ export const actions: Actions = {
                 });
             }
         },
-        ['ADMIN'] // Only allow admin role to update users
+        [SystemRole.ADMIN] // Only allow admin role to update users
     ),
 
     

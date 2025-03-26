@@ -11,6 +11,7 @@ import type { Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
+import { SystemRole } from './schema';
 
 // Define table options for Users
 const table_options = {
@@ -43,7 +44,7 @@ export const load = restrict(
             meta: result.meta
         };
     },
-    ['ADMIN'] // Only allow admin role to access this route
+    [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 /*******************************************************************************************
@@ -109,7 +110,7 @@ export const actions = {
                 });
             }
         },
-        ['ADMIN'] // Only allow admin role to create users
+        [SystemRole.ADMIN] // Only allow admin role to create users
     ),
     
     /*******************************************************************************************
@@ -171,7 +172,7 @@ export const actions = {
                 return fail(500, { error: 'Failed to update user status' });
             }
         },
-        ['ADMIN'] // Only allow admin role to toggle user status
+        [SystemRole.ADMIN] // Only allow admin role to toggle user status
     ),
 
     /**
@@ -235,7 +236,7 @@ export const actions = {
                 });
             }
         },
-        ['ADMIN'] // Only allow admin role to delete users
+        [SystemRole.ADMIN] // Only allow admin role to delete users
     ),
     
     /*******************************************************************************************
@@ -303,6 +304,6 @@ export const actions = {
                 return fail(500, { success: false, message: 'Failed to update user password' });
             }
         },
-        ['ADMIN'] // Only allow admin role to update passwords
+        [SystemRole.ADMIN] // Only allow admin role to update passwords
     )
 };
