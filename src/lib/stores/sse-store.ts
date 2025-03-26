@@ -1,7 +1,9 @@
 import { writable } from 'svelte/store';
 
 export type SSEMessage = {
+    id: string;
     event: string;
+    content?: string;
     data: any;
     timestamp: string;
     sender?: {

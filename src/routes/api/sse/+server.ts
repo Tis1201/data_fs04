@@ -77,20 +77,24 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             name: auth.user.name
         };
         
-        // Parse data if it's a string that looks like JSON
+        // Handle string messages directly as content
         let parsedData = data;
+        let content: string | undefined;
+
         if (typeof data === 'string') {
-            try {
-                parsedData = JSON.parse(data);
-            } catch {
-                // If parsing fails, keep it as a string
-                parsedData = { content: data };
+            content = data;
+            parsedData = { content: data };
+        } else if (typeof data === 'object' && data !== null) {
+            content = data.content;
+            if (!content && typeof data.data === 'string') {
+                content = data.data;
             }
         }
 
         // Format the message with event name and metadata
         const messageData = {
             event,
+            content,
             data: parsedData,
             sender,
             timestamp: new Date().toISOString()

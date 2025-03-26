@@ -6,7 +6,9 @@
     import { sseMessages, type SSEMessage } from '$lib/stores/sse-store';
     import { Badge } from "$lib/components/ui/badge";
     import { Skeleton } from "$lib/components/ui/skeleton";
-    
+    import { Button } from "$lib/components/ui/button";
+    import { ChevronDown, ChevronUp } from "lucide-svelte";
+
     const pageCrumbs = [
         ["Admin", "/admin"],
         "Debug",
@@ -16,6 +18,16 @@
     let connected = false;
     let error: string | null = null;
     let eventSource: EventSource | null = null;
+    let expandedMessages = new Set<string>();
+
+    function toggleMessage(messageId: string) {
+        if (expandedMessages.has(messageId)) {
+            expandedMessages.delete(messageId);
+        } else {
+            expandedMessages.add(messageId);
+        }
+        expandedMessages = expandedMessages; // Trigger reactivity
+    }
 
     onMount(() => {
         connectSSE();
@@ -43,12 +55,20 @@
                 console.error('SSE error:', e);
             };
 
-            // Handle all messages regardless of event name
             const handleEvent = (e: MessageEvent) => {
                 try {
                     const data = JSON.parse(e.data);
+                    let content: string | undefined;
+                    if (typeof data === 'string') {
+                        content = data;
+                    } else if (data?.content) {
+                        content = data.content;
+                    }
+
                     const message: SSEMessage = {
+                        id: crypto.randomUUID(),
                         event: e.type === 'message' ? data.event || 'message' : e.type,
+                        content,
                         data,
                         timestamp: data.timestamp || new Date().toISOString(),
                         sender: data.sender
@@ -60,7 +80,6 @@
                 }
             };
 
-            // Listen for all incoming events
             eventSource.onmessage = handleEvent;
             eventSource.addEventListener('connected', handleEvent);
 
@@ -106,30 +125,49 @@
                     </div>
                 {:else}
                     {#each $sseMessages as message}
-                        <div class="border rounded-lg p-4">
-                            <div class="flex justify-between items-start gap-4">
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <Badge variant="outline">
-                                        {message.event}
-                                    </Badge>
-                                    {#if message.sender}
-                                        <Badge variant="secondary">
-                                            {message.sender.name || message.sender.email}
+                        <div class="border rounded-lg overflow-hidden">
+                            <div class="p-4 space-y-2">
+                                <div class="flex justify-between items-start gap-4">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <Badge variant="outline">
+                                            {message.event}
                                         </Badge>
-                                    {/if}
+                                        {#if message.sender}
+                                            <Badge variant="secondary">
+                                                {message.sender.name || message.sender.email}
+                                            </Badge>
+                                        {/if}
+                                        <div class="text-sm text-muted-foreground">
+                                            {new Date(message.timestamp).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <Button 
+                                        variant="ghost" 
+                                        size="icon"
+                                        on:click={() => toggleMessage(message.id)}
+                                    >
+                                        {#if expandedMessages.has(message.id)}
+                                            <ChevronUp class="h-4 w-4" />
+                                        {:else}
+                                            <ChevronDown class="h-4 w-4" />
+                                        {/if}
+                                    </Button>
                                 </div>
-                                <div class="text-sm text-muted-foreground whitespace-nowrap">
-                                    {new Date(message.timestamp).toLocaleString()}
-                                </div>
+
+                                {#if message.content}
+                                    <div class="text-sm font-mono bg-muted rounded p-2">
+                                        {message.content}
+                                    </div>
+                                {/if}
                             </div>
-                            
-                            <div class="mt-4">
-                                <div class="bg-muted rounded-md">
-                                    <pre class="p-4 overflow-x-auto text-sm font-mono leading-relaxed">
+
+                            {#if expandedMessages.has(message.id)}
+                                <div class="border-t bg-muted">
+                                    <pre class="p-4 text-sm font-mono leading-relaxed overflow-x-auto">
                                         <code>{JSON.stringify(message.data, null, 4)}</code>
                                     </pre>
                                 </div>
-                            </div>
+                            {/if}
                         </div>
                     {:else}
                         <div class="text-center text-muted-foreground py-8">
