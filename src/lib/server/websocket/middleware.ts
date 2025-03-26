@@ -1,8 +1,8 @@
 import type { Handle } from "@sveltejs/kit";
-import { GlobalThisWSS, type ExtendedGlobal, type ExtendedWebSocket, startupWebsocketServer, wssInitialized } from "$lib/server/webSocketUtils";
+import { GlobalThisWSS, type ExtendedGlobal, type ExtendedWebSocket, startupWebsocketServer, wssInitialized } from "$lib/server/websocket/WebSocketUtils";
 import { building } from "$app/environment";
 import { nanoid } from 'nanoid';
-import { WEBRTC_MESSAGE_TYPES, handleWebRTCMessage, leaveRoom } from '$lib/server/webrtcSignalingUtils';
+import { WebSocketManager } from './WebSocketManager';
 import { validateApiKey, getUserIdFromApiKey, getUserInfoFromApiKey } from '$lib/server/auth/api-key-utils';
 
 export const websocketMiddleware: Handle = async ({ event, resolve }) => {
@@ -77,50 +77,20 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                         }
                     }));
 
+                    // Get WebSocket manager instance
+                    const manager = WebSocketManager.getInstance(wss);
+
                     // Set up message handling after authentication
                     ws.on('message', (message: string) => {
-                        try {
-                            const data = JSON.parse(message.toString());
-                            console.debug(`[wss:kit] message received from ${ws.socketId}:`, data);
-                            
-                            // Handle WebRTC signaling messages
-                            if (data.type === 'webrtc' && data.data && data.data.type && WEBRTC_MESSAGE_TYPES.includes(data.data.type)) {
-                                // Pass the actual WebRTC message data to the handler
-                                handleWebRTCMessage(data.data, ws, wss);
-                                return;
-                            } else if (data.type && WEBRTC_MESSAGE_TYPES.includes(data.type)) {
-                                // For backward compatibility, also handle direct WebRTC messages
-                                handleWebRTCMessage(data, ws, wss);
-                                return;
-                            }
-                            
-                            // Handle WhatsApp messages
-                            if (data.type === 'whatsapp') {
-                                // Forward to all clients for now
-                                // In a real implementation, you'd only forward to relevant clients
-                                wss.clients.forEach(client => {
-                                    if (client.readyState === WebSocket.OPEN) {
-                                        client.send(JSON.stringify(data));
-                                    }
-                                });
-                                return;
-                            }
-                            
-                            // Echo the message back
-                            ws.send(JSON.stringify({ type: 'echo', data }));
-                        } catch (error) {
-                            console.error(`[wss:kit] error processing message:`, error);
-                        }
+                        manager.handleMessage(message.toString(), ws);
                     });
 
                     ws.on('error', (error) => {
-                        console.error(`[wss:kit] client error (${ws.socketId}):`, error);
+                        manager.handleClientError(ws, error);
                     });
                     
                     ws.on('close', () => {
-                        console.info(`[wss:kit] client disconnected (${ws.socketId}) - User: ${ws.userId}`);
-                        // Clean up WebRTC rooms when client disconnects
-                        leaveRoom(ws.socketId);
+                        manager.handleClientDisconnect(ws);
                     });
 
                 } catch (error) {

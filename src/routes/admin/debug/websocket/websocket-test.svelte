@@ -5,7 +5,7 @@
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Trash2, Send, Zap, Key, RefreshCw } from 'lucide-svelte';
-    import { socketStore } from '$lib/stores/socket-store';
+    import { socketStore } from '$lib/stores/websocket-store';
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
     import { Label } from "$lib/components/ui/label";
     import { Skeleton } from "$lib/components/ui/skeleton";

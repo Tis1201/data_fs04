@@ -5,7 +5,7 @@
     import { Trash2, Send } from 'lucide-svelte';
     import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
     import { initWebRTCClient, webrtcEvents, webrtcStatus, clearEvents, sendWebRTCMessage, sendDataChannelMessage, videoStream } from '$lib/utils/webrtc/webrtc-client';
-    import { socketStore } from '$lib/stores/socket-store';
+    import { socketStore } from '$lib/stores/websocket-store';
     import { get } from 'svelte/store';
   
     let unsubscribe;

@@ -4,7 +4,7 @@ import { nanoid } from 'nanoid';
 import type { Server, WebSocket as WebSocketBase } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
-import { WEBRTC_MESSAGE_TYPES, handleWebRTCMessage, leaveRoom } from './webrtcSignalingUtils';
+import { WEBRTC_MESSAGE_TYPES, handleWebRTCMessage, leaveRoom } from '../webrtc/WebrtcSignalingUtils';
 
 export const GlobalThisWSS = Symbol.for('fs01.wss');
 

@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { GlobalThisWSS, type ExtendedGlobal } from '$lib/server/webSocketUtils';
-import { handleWebRTCMessage } from '$lib/server/webrtcSignalingUtils';
+import { GlobalThisWSS, type ExtendedGlobal } from '$lib/server/websocket/WebSocketUtils';
+import { handleWebRTCMessage } from '$lib/server/webrtc/WebrtcSignalingUtils';
 
 /**
  * Handle WebRTC signaling via HTTP POST

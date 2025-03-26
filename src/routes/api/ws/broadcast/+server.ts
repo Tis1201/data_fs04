@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { GlobalThisWSS, type ExtendedGlobal } from '$lib/server/webSocketUtils';
+import { GlobalThisWSS, type ExtendedGlobal } from '$lib/server/websocket/WebSocketUtils';
 
 export const POST = (async ({ request }) => {
     try {

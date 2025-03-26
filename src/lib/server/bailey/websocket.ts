@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
-import type { ExtendedWebSocket, ExtendedWebSocketServer } from '../webSocketUtils';
-import { GlobalThisWSS } from '../webSocketUtils';
+import type { ExtendedWebSocket, ExtendedWebSocketServer } from '../websocket/WebSocketUtils';
+import { GlobalThisWSS } from '../websocket/WebSocketUtils';
 
 /**
  * WebSocket server for WhatsApp communication
