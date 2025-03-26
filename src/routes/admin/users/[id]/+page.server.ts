@@ -2,29 +2,27 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { superValidate } from 'sveltekit-superforms/server';
-import { userSchema } from '$lib/schemas/user';
+import { userEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
+import { restrict } from '$lib/server/security/guards';
 
-export const load: PageServerLoad = async ({ params, parent }) => {
-    const parentData = await parent();
-    if (!parentData?.user) {
-        throw error(401, "Unauthorized");
+export const load: PageServerLoad = async ({ params, locals }) => {
+    const auth = await locals.auth.validate();
+    if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
+        throw error(403, 'Not authorized to view or edit users');
     }
-
+    
     try {
-        const prisma = getEnhancedPrisma({
-            id: parentData.user.id,
-            rolesString: parentData.user.rolesString,
-            systemRole: parentData.user.systemRole
-        });
-
-        const user = await prisma.user.findUnique({
+        // Load existing user
+        const user = await locals.prisma.user.findUnique({
             where: { id: params.id },
             select: {
                 id: true,
                 email: true,
+                name: true,
                 systemRole: true,
+                status: true,
                 rolesString: true,
                 createdAt: true,
                 updatedAt: true
@@ -37,10 +35,14 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 
         const form = await superValidate(
             {
+                id: user.id,
                 email: user.email,
-                role: user.systemRole
+                name: user.name || "",
+                systemRole: user.systemRole,
+                status: user.status || "ACTIVE",
+                rolesString: user.rolesString || ""
             }, 
-            zod(userSchema)
+            zod(userEditSchema)
         );
 
         return {
@@ -54,46 +56,72 @@ export const load: PageServerLoad = async ({ params, parent }) => {
 };
 
 export const actions: Actions = {
-    default: async ({ request, params, parent }) => {
-        const parentData = await parent();
-        if (!parentData?.user) {
-            throw error(401, "Unauthorized");
-        }
+    /**
+     * Update user data
+     */
+    save: restrict(
+        async ({ request, params, locals }) => {
+            const id = params.id;
+            const form = await superValidate(request, zod(userEditSchema));
+            logger.debug('Update user form data:', form);
 
-        const form = await superValidate(request, zod(userSchema));
-        logger.debug('Update user form data:', form);
+            if (!form.valid) {
+                return fail(400, { form });
+            }
 
-        if (!form.valid) {
-            return fail(400, { form });
-        }
+            try {
+                // Start a transaction to ensure data consistency
+                return await locals.prisma.$transaction(async (tx) => {
+                    // First check if user exists
+                    const existingUser = await tx.user.findUnique({
+                        where: { id }
+                    });
+                    
+                    if (!existingUser) {
+                        return fail(404, {
+                            form,
+                            error: 'User not found'
+                        });
+                    }
+                    
+                    // Prepare update data
+                    const updateData: Record<string, any> = {
+                        email: form.data.email,
+                        name: form.data.name || null,
+                        systemRole: form.data.systemRole,
+                        status: form.data.status,
+                        rolesString: form.data.rolesString
+                    };
+                    
+                    // Only update password if provided
+                    if (form.data.password) {
+                        // In a real app, you would hash the password here
+                        updateData.password = form.data.password;
+                    }
+                    
+                    // Update user
+                    await tx.user.update({
+                        where: { id },
+                        data: updateData
+                    });
+                    
+                    logger.info('User updated successfully:', { userId: id });
+                    
+                    return {
+                        form,
+                        success: true
+                    };
+                });
+            } catch (e) {
+                logger.error('Error updating user:', e);
+                return fail(500, {
+                    form,
+                    error: 'Failed to update user'
+                });
+            }
+        },
+        ['ADMIN'] // Only allow admin role to update users
+    ),
 
-        try {
-            const prisma = getEnhancedPrisma({
-                id: parentData.user.id,
-                rolesString: parentData.user.rolesString
-            });
-
-            const user = await prisma.user.update({
-                where: { id: params.id },
-                data: {
-                    email: form.data.email,
-                    systemRole: form.data.role,
-                    rolesString: form.data.role.toLowerCase()
-                }
-            });
-
-            logger.info('User updated successfully:', { userId: user.id });
-            return {
-                form,
-                success: true
-            };
-
-        } catch (e) {
-            logger.error('Error updating user:', e);
-            return fail(500, {
-                form,
-                message: 'Failed to update user'
-            });
-        }
-    }
+    
 };

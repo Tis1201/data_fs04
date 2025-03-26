@@ -1,31 +1,57 @@
 <script lang="ts">
-    import { page } from "$app/stores";
     import { goto } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
-    import { Label } from "$lib/components/ui/label";
-    import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
-    import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
-    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
+    import * as Select from "$lib/components/ui/select/index.js";
+    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
-    import { formatDate } from "$lib/utils";
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import { Clock } from "lucide-svelte";
+    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+    import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
+    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
+    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
+    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
+    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
+    import { SYSTEM_ROLES, USER_STATUSES } from "./schema";
 
     export let data: PageData;
     const { user } = data;
+    const title = "Edit User";
 
-    const { form, errors, enhance } = superForm(data.form, {
+    // Define breadcrumbs for this page
+    const pageCrumbs = [
+        ["Admin", "/admin"],
+        ["Users", "/admin/users"],
+        user?.email || "Edit User",
+    ];
+    
+    // Get status badge variant based on status value
+    const getStatusVariant = (status: string) => {
+        switch (status) {
+            case 'ACTIVE': return 'success';
+            case 'INACTIVE': return 'secondary';
+            case 'SUSPENDED': return 'destructive';
+            default: return 'outline';
+        }
+    };
+
+    const { form, errors, enhance, submitting } = superForm(data.form, {
         onResult: async ({ result }) => {
-            if (result.type === 'success') {
-                toast.success('User updated successfully');
+            if (result.type === "success") {
+                toast.success("User updated successfully");
                 try {
-                    await goto('/admin/users');
+                    await goto("/admin/users");
                 } catch (error) {
-                    console.error('Navigation error:', error);
-                    toast.error('Failed to redirect. Please try again.');
+                    console.error("Navigation error:", error);
+                    toast.error("Failed to redirect. Please try again.");
                 }
             }
         },
@@ -35,97 +61,146 @@
     });
 </script>
 
-<div class="space-y-4 p-2">
-    <Breadcrumb>
-        <BreadcrumbList>
-            <BreadcrumbItem>
-                <a href="/admin" class="text-sm font-medium underline-offset-4 hover:underline">Admin</a>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-                <a href="/admin/users" class="text-sm font-medium underline-offset-4 hover:underline">Users</a>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-                <BreadcrumbPage>{user.email}</BreadcrumbPage>
-            </BreadcrumbItem>
-        </BreadcrumbList>
-    </Breadcrumb>
+<PageContainer crumbs={pageCrumbs}>
+    <PageHeader {title} />
 
-            <div class="grid gap-6">
-                <!-- User Info Card -->
-                <Card>
-                    <CardHeader>
-                        <CardTitle>User Information</CardTitle>
-                        <CardDescription>Basic user details and status</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <form method="POST" use:enhance class="space-y-4">
-                            <!-- Email -->
-                            <div class="space-y-2">
-                                <Label for="email">Email</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    name="email"
-                                    placeholder="Enter email address"
-                                    bind:value={$form.email}
-                                />
-                                {#if $errors.email}
-                                    <span class="text-sm text-destructive">{$errors.email}</span>
-                                {/if}
-                            </div>
+    <PageContent>
+        <!-- User Info Card -->
+        <FormCard
+            {title}
+            description="Edit details for this user account"
+            loading={$submitting}
+            footerSlot={user}
+        >
+            <FormContainer {enhance} action="?/save">
+                <!-- Two-column layout for shorter fields -->
+                <FormRow columns={2}>
+                    <!-- Email -->
+                    <FormField
+                        id="email"
+                        label="Email"
+                        error={$errors.email}
+                    >
+                        <Input
+                            id="email"
+                            type="email"
+                            name="email"
+                            bind:value={$form.email}
+                            placeholder="Enter email address"
+                        />
+                    </FormField>
 
-                            <!-- Role -->
-                            <div class="space-y-2">
-                                <Label for="role">Role</Label>
-                                <Select bind:value={$form.role}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a role" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="ADMIN">Admin</SelectItem>
-                                        <SelectItem value="USER">User</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                {#if $errors.role}
-                                    <span class="text-sm text-destructive">{$errors.role}</span>
-                                {/if}
-                            </div>
+                    <!-- Name -->
+                    <FormField
+                        id="name"
+                        label="Name"
+                        error={$errors.name}
+                    >
+                        <Input
+                            id="name"
+                            name="name"
+                            bind:value={$form.name}
+                            placeholder="Enter full name"
+                        />
+                    </FormField>
+                </FormRow>
 
-                            <!-- Submit Button -->
-                            <div class="flex justify-end gap-4">
-                                <Button
-                                    variant="outline"
-                                    type="button"
-                                    on:click={() => goto('/admin/users')}
-                                >
-                                    Cancel
-                                </Button>
-                                <Button type="submit">
-                                    Save Changes
-                                </Button>
-                            </div>
-                        </form>
+                <!-- System Role -->
+                <FormField id="systemRole" label="System Role" error={$errors.systemRole}>
+                    <EnhancedSelect
+                        value={$form.systemRole}
+                        name="systemRole"
+                        placeholder="Select a system role"
+                        labelText="System Role"
+                        portal={null}
+                        on:change={(e) => ($form.systemRole = e.detail)}
+                    >
+                        {#each SYSTEM_ROLES as role}
+                            <Select.Item value={role}>{role}</Select.Item>
+                        {/each}
+                    </EnhancedSelect>
+                </FormField>
 
-                        <!-- <div class="mt-6 space-y-4">
-                            <div class="flex justify-between text-sm">
-                                <span class="text-muted-foreground">Created</span>
-                                <span>{formatDate(user.createdAt)}</span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-muted-foreground">Last Updated</span>
-                                <span>{formatDate(user.updatedAt)}</span>
-                            </div>
-                            <div class="flex justify-between text-sm">
-                                <span class="text-muted-foreground">System Role</span>
-                                <Badge variant={user.systemRole === 'ADMIN' ? 'default' : 'secondary'}>
-                                    {user.systemRole}
-                                </Badge>
-                            </div>
-                        </div> -->
-                    </CardContent>
-                </Card>
-            </div>
+                <!-- Status -->
+                <FormField id="status" label="Status" error={$errors.status}>
+                    <EnhancedSelect
+                        value={$form.status}
+                        name="status"
+                        placeholder="Select status"
+                        labelText="Status"
+                        portal={null}
+                        on:change={(e) => ($form.status = e.detail)}
+                    >
+                        {#each USER_STATUSES as status}
+                            <Select.Item value={status}>{status}</Select.Item>
+                        {/each}
+                    </EnhancedSelect>
+                </FormField>
+                
+                <!-- Roles String (Additional Roles) -->
+                <!-- <FormField id="rolesString" label="Additional Roles" error={$errors.rolesString} description="Comma-separated list of additional roles">
+                    <Input
+                        id="rolesString"
+                        name="rolesString"
+                        bind:value={$form.rolesString}
+                        placeholder="role1,role2,role3"
+                    />
+                </FormField> -->
 
-</div>
+                <!-- Submit Button -->
+                <FormRow columns={1} alignItems="end">
+                    <FormActions>
+                        <Button
+                            variant="outline"
+                            type="button"
+                            on:click={() => goto('/admin/users')}
+                        >
+                            Cancel
+                        </Button>
+                        <Button type="submit">Save Changes</Button>
+                    </FormActions>
+                </FormRow>
+            </FormContainer>
+
+            <svelte:fragment slot="footer">
+                {#if user}
+                    <div class="mt-4 pt-3 border-t border-muted">
+                        <div class="flex items-center text-xs text-muted-foreground">
+                            <Clock size={12} class="mr-1.5" />
+                            <div class="flex items-center">
+                                <span class="font-medium">ID:</span>
+                                <span class="ml-1">{user.id}</span>
+                                <span class="mx-2">•</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="font-medium">Created:</span>
+                                <span class="ml-1">
+                                    <RelativeDate 
+                                        date={user.createdAt} 
+                                        format="relative" 
+                                        showTooltip={true} 
+                                        useHoverCard={true} 
+                                        iconSize={0}
+                                    />
+                                </span>
+                                <span class="mx-2">•</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="font-medium">Updated:</span>
+                                <span class="ml-1">
+                                    <RelativeDate 
+                                        date={user.updatedAt} 
+                                        format="relative" 
+                                        showTooltip={true} 
+                                        useHoverCard={true} 
+                                        iconSize={0}
+                                    />
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                {/if}
+            </svelte:fragment>
+        </FormCard>
+    </PageContent>
+</PageContainer>

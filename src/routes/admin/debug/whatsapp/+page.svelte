@@ -112,6 +112,7 @@
                 const data = await response.json();
                 if (data.status === 'success' && data.account) {
                     accountStatus = data.account.client_status || 'disconnected';
+                    console.log(`Fetched account status: ${accountStatus} for account ${accountId}`);
                 } else {
                     accountStatus = 'error';
                 }
@@ -314,7 +315,7 @@
                     console.log('[WhatsApp Debug] WebSocket not open, reconnecting...');
                     connectWebSocket();
                 }
-            }, 30000); // Check every 30 seconds
+            }, 5000); // Check every 5 seconds for more responsive UI updates
             
             return () => {
                 console.log('[WhatsApp Debug] Component unmounting, cleaning up...');

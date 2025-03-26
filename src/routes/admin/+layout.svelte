@@ -56,7 +56,7 @@
                 </div>
             </div>
         </header>
-        <main class="flex-1 p-2">
+        <main class="flex-1 p-2 overflow-y-auto">
             <slot />
         </main>
     </div>

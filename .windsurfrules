@@ -3,6 +3,8 @@ Do not change any UI elements unless i tell you so
 Minimize Changes to existing code to prevent unwanted side effects
 Be a good team player, understand your teammates' needs and work together to ensure smooth and efficient code updates
 Always use Zenstack instead of pure Prisma
+Always use Actions instead of API unless API is for external integrations
+Always reuse components
 Always use shadcn-svelte if available instead of custom or other UI frameworks
 Do not create API endpoints just for testing purpose, this sucks
 Use Zod and Superform together for form handling with Zenstack at the backend
