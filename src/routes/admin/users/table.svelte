@@ -5,7 +5,8 @@
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
     import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
-import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/PasswordUpdateDialog.svelte";
+    import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
+    import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/PasswordUpdateDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
@@ -52,7 +53,7 @@ import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog
     // User to be toggled (for status change)
     let userToToggle: User | null = null;
     let isTogglingStatus = false;
-    let statusToggleForm: HTMLFormElement;
+    let statusToggleDialogOpen = false;
     
     // State for password update dialog
     let passwordUpdateDialogOpen = false;
@@ -61,12 +62,7 @@ import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog
     // Function to prepare for status toggle
     function prepareToggleStatus(user: User) {
         userToToggle = user;
-        // Use setTimeout to allow the form to be created in the DOM
-        setTimeout(() => {
-            if (statusToggleForm) {
-                statusToggleForm.requestSubmit();
-            }
-        }, 0);
+        statusToggleDialogOpen = true;
     }
     
     // Function to open password update dialog
@@ -245,53 +241,42 @@ import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog
         }}
     />
     
-    <!-- Hidden form for status toggle -->
-    {#if userToToggle}
-        <form
-            bind:this={statusToggleForm}
-            method="POST"
-            action="?/toggleStatus"
-            use:enhance={({ formData }) => {
-                isTogglingStatus = true;
+    <!-- Status Toggle Dialog -->
+    <RecordUpdateDialog
+        bind:open={statusToggleDialogOpen}
+        action="?/toggleStatus"
+        bind:record={userToToggle}
+        bind:isProcessing={isTogglingStatus}
+        onSuccess={(result) => {
+            // Update the user status in the local data without page refresh
+            if (userToToggle) {
+                const newStatus = userToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
                 
-                return async ({ result, update }) => {
-                    isTogglingStatus = false;
-                    
-                    if (result.type === 'success') {
-                        // Update the user status in the local data without page refresh
-                        const newStatus = userToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-                        
-                        // Find and update the user in the records array
-                        const index = props.records.findIndex(r => r.id === userToToggle.id);
-                        if (index !== -1) {
-                            props.records[index].status = newStatus;
-                            // Force a UI update
-                            props = { ...props };
-                        }
-                        
-                        toast.success(`User ${newStatus === 'ACTIVE' ? 'activated' : 'deactivated'} successfully`);
-                        
-                        // Reset the userToToggle
-                        userToToggle = null;
-                        
-                        // Don't update the page from the server
-                        return;
-                    }
-                    
-                    if (result.type === 'failure') {
-                        toast.error(`Failed to update user status: ${result.data?.error || 'Unknown error'}`);
-                    }
-                    
-                    // Reset the userToToggle
-                    userToToggle = null;
-                };
-            }}
-        >
-            <input type="hidden" name="id" value={userToToggle.id} />
-            <input type="hidden" name="status" value={userToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'} />
-            <button type="submit" class="hidden">Submit</button>
-        </form>
-    {/if}
+                // Find and update the user in the records array
+                const index = props.records.findIndex(r => r.id === userToToggle.id);
+                if (index !== -1) {
+                    props.records[index].status = newStatus;
+                    // Force a UI update
+                    props = { ...props };
+                }
+                
+                toast.success(`User ${newStatus === 'ACTIVE' ? 'activated' : 'deactivated'} successfully`);
+                
+                // Reset the userToToggle and close dialog
+                userToToggle = null;
+                statusToggleDialogOpen = false;
+            }
+        }}
+        onError={(result) => {
+            toast.error(`Failed to update user status: ${result.data?.error || 'Unknown error'}`);
+            userToToggle = null;
+            statusToggleDialogOpen = false;
+        }}
+    >
+        <input type="hidden" name="id" value={userToToggle?.id || ''} />
+        <input type="hidden" name="status" value={userToToggle?.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'} />
+        <button type="submit" class="hidden">Submit</button>
+    </RecordUpdateDialog>
     {#if props.loading}
         <LoadingSkeleton />
     {:else}
