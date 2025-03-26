@@ -16,7 +16,7 @@
     import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
     import { superForm } from 'sveltekit-superforms/client';
     import { toast } from 'svelte-sonner';
-    import { socketStore } from '$lib/stores/socket-store';
+    import { socketStore } from '$lib/stores/websocket-store';
 
     export let data: PageData;
     
