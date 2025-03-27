@@ -127,7 +127,19 @@ This document outlines the best practices for deploying the FS04 Web Application
 
 ## Production Best Practices
 
-1. **Environment Variables**:
+1. **Database Initialization**:
+   - When setting up a fresh database, run migrations and seed the database with initial data:
+     ```bash
+     RUN_MIGRATIONS=true RUN_SEED=true ./start.sh
+     ```
+   - This will:
+     - Apply all database migrations
+     - Create an admin user (email: admin@example.com, password: admin123)
+     - Generate and display an API key for WebSocket testing
+   - **Important**: Save the generated API key as it will not be displayed again
+   - Change the default admin password after the first login
+
+2. **Environment Variables**:
    - Never commit `.env` files to version control
    - Use different environment variables for development and production
    - Store sensitive information in a secure vault service
