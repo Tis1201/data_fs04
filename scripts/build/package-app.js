@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, '..');
+const rootDir = path.resolve(__dirname, '../..');
 const zipFilePath = path.resolve(rootDir, 'fs04_web_deploy.zip');
 
 async function packageApp() {
@@ -43,7 +43,7 @@ async function packageApp() {
   
   // Add start.sh script
   console.log('Adding start.sh script...');
-  archive.file(path.resolve(rootDir, 'scripts/start.sh'), { name: 'start.sh' });
+  archive.file(path.resolve(rootDir, 'scripts/build/start.sh'), { name: 'start.sh' });
   
   // No need to add standalone WebSocket utilities - they're in the build directory
   console.log('WebSocket utilities are included in the build directory');
@@ -67,7 +67,7 @@ async function packageApp() {
   console.log('Adding ZenStack schema...');
   archive.file(path.resolve(rootDir, 'schema.zmodel'), { name: 'schema.zmodel' });
   
-  // Add Prisma schema and migrations
+  // Add Prisma schema, migrations, and seed script
   if (fs.existsSync(path.resolve(rootDir, 'prisma/schema.prisma'))) {
     archive.file(path.resolve(rootDir, 'prisma/schema.prisma'), { name: 'prisma/schema.prisma' });
     
@@ -76,6 +76,13 @@ async function packageApp() {
     if (fs.existsSync(migrationsDir)) {
       console.log('Adding Prisma migrations directory...');
       archive.directory(migrationsDir, 'prisma/migrations');
+    }
+    
+    // Add Prisma seed script
+    const seedPath = path.resolve(rootDir, 'prisma/seed.ts');
+    if (fs.existsSync(seedPath)) {
+      console.log('Adding Prisma seed script...');
+      archive.file(seedPath, { name: 'prisma/seed.ts' });
     }
   }
   

@@ -22,6 +22,12 @@ npx prisma generate
 if [ "$RUN_MIGRATIONS" = "true" ]; then
   echo "Running database migrations..."
   npx prisma migrate deploy
+  
+  # Optional: Run seed script after migrations if needed
+  if [ "$RUN_SEED" = "true" ]; then
+    echo "Running database seed script..."
+    npx ts-node prisma/seed.ts
+  fi
 fi
 
 # Set production environment
