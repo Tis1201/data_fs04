@@ -155,6 +155,156 @@ The application uses a robust security system built around three main components
    - Benefits:
      - Prevents layout shifts
      - Provides subtle loading animation
+     - Shows content structure before data loads
+     - Improves perceived performance
+     - Creates a smoother, more professional user experience
+
+## WebSocket Implementation
+
+The application includes a WebSocket server for real-time communication:
+
+### Development Mode
+
+In development mode, the WebSocket server is automatically attached to the Vite dev server:
+
+1. WebSocket initialization happens in `src/lib/server/websocket/WebSocketUtils.ts`
+2. Client connections are managed through `src/lib/stores/websocket-store.ts`
+3. To use WebSockets in a component:
+   ```svelte
+   import { socketStore } from '$lib/stores/websocket-store';
+   
+   // Connect to WebSocket
+   socketStore.connect();
+   
+   // Send a message
+   socketStore.send({ type: 'message', content: 'Hello' });
+   
+   // Listen for messages
+   $: messages = $socketStore.messages;
+   ```
+
+### Production Mode
+
+In production, a custom server handles both HTTP and WebSocket connections:
+
+1. **Build Process**:
+   ```bash
+   # Build the application with ZenStack support
+   npm run build
+   
+   # Start the production server
+   npm run prodServer
+   ```
+
+2. **Custom Server**:
+   - `prodServer.ts` creates an HTTP server with the SvelteKit handler
+   - Attaches WebSocket server to the same HTTP server
+   - Handles WebSocket upgrade requests
+
+3. **ZenStack Integration**:
+   - Custom build process copies ZenStack files to the production build
+   - Ensures ZenStack's enhance function is available in production
+
+## Deployment
+
+### Production Deployment
+
+To deploy the application to a production server:
+
+1. **Prerequisites**:
+   - Node.js 18+ installed on the server
+   - PostgreSQL database accessible
+   - Environment variables configured
+
+2. **Deployment Steps**:
+   ```bash
+   # Clone the repository
+   git clone <repository-url>
+   cd fs04_web
+   
+   # Install dependencies
+   npm install
+   
+   # Generate Prisma client and ZenStack files
+   npx prisma generate
+   npx zenstack generate
+   
+   # Build the application
+   npm run build
+   
+   # Start the production server
+   npm run prodServer
+   ```
+
+3. **Environment Variables**:
+   - `DATABASE_URL`: PostgreSQL connection string
+   - `PORT`: Server port (defaults to 3000)
+   - `NODE_ENV`: Set to 'production'
+
+4. **Using Process Managers**:
+   For production deployments, use a process manager like PM2:
+   ```bash
+   # Install PM2
+   npm install -g pm2
+   
+   # Start the application with PM2
+   pm2 start npm --name "fs04_web" -- run prodServer
+   
+   # Ensure it starts on system reboot
+   pm2 startup
+   pm2 save
+   ```
+
+### Packaging for Deployment
+
+To package the application for deployment as a zip file:
+
+1. **Build and Package**:
+   ```bash
+   # Build the application
+   npm run build
+   
+   # Create a deployment package
+   mkdir -p deploy
+   cp -r build package.json package-lock.json .env.example prodServer.ts deploy/
+   cp -r node_modules/.zenstack deploy/node_modules/.zenstack
+   cp -r node_modules/@zenstackhq deploy/node_modules/@zenstackhq
+   cp -r node_modules/@prisma deploy/node_modules/@prisma
+   
+   # Create a zip file
+   cd deploy
+   zip -r ../fs04_web_deploy.zip .
+   cd ..
+   ```
+
+2. **Server-Side Deployment**:
+   ```bash
+   # On the server
+   mkdir -p app
+   cd app
+   
+   # Unzip the deployment package
+   unzip fs04_web_deploy.zip -d .
+   
+   # Install production dependencies
+   npm install --production
+   
+   # Set up environment variables
+   cp .env.example .env
+   # Edit .env with your production settings
+   nano .env
+   
+   # Start the production server
+   NODE_ENV=production npm run prodServer
+   # Or with PM2
+   pm2 start npm --name "fs04_web" -- run prodServer
+   ```
+
+3. **Important Notes**:
+   - The package includes only the necessary files for production
+   - ZenStack and Prisma files are pre-generated and included
+   - No need to run `zenstack generate` or `prisma generate` on the server
+   - Environment variables must be configured on the server
      - Shows content structure
      - Improves perceived performance
    - Example:

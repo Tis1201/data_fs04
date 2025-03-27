@@ -87,70 +87,83 @@ const createSocketStore = () => {
     const host = window.location.host;
     const url = `${protocol}//${host}${WS_URL_PATH}${queryParams ? '?' + queryParams : ''}`;
     console.log(`[SocketStore] Connecting to ${url}`);
-    const ws = new WebSocket(url);
-    socket = ws;
-    
-    ws.onopen = () => {
-      console.log('[SocketStore] WebSocket opened');
-      const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
+    try {
+      const ws = new WebSocket(url);
+      socket = ws;
+      
+      ws.onopen = () => {
+        console.log('[SocketStore] WebSocket opened');
+        const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
+        set({
+          status: 'OPEN',
+          error: null,
+          socket: { id: socketId, readyState: ws.readyState, url },
+          messages: []
+        });
+        addMessage({
+          type: 'system',
+          content: 'Connected to WebSocket server',
+          data: { timestamp: new Date().toISOString(), socketId }
+        });
+        pingInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, PING_INTERVAL);
+      };
+        ws.onmessage = (event) => {
+        console.log('[SocketStore] Received:', event.data);
+        try {
+          const message = JSON.parse(event.data);
+
+          if (message.type === 'echo' && message.data.type === 'ping') {
+            console.log('[SocketStore] Ignoring ping');
+            return;
+          }
+
+          addMessage(message);
+          dispatchMessage(message);
+        } catch (error) {
+          console.error('[SocketStore] Error parsing message:', error);
+        }
+      };
+      
+      ws.onclose = (event) => {
+        console.log('[SocketStore] WebSocket closed', event);
+        addMessage({
+          type: 'system',
+          content: 'Disconnected from WebSocket server',
+          data: { timestamp: new Date().toISOString(), reason: event.reason || 'Connection closed', code: event.code }
+        });
+        set({ status: 'CLOSED', error: null, socket: null, messages: [] });
+        if (pingInterval) {
+          clearInterval(pingInterval);
+          pingInterval = null;
+        }
+      };
+      
+      ws.onerror = (event) => {
+        console.error('[SocketStore] WebSocket error', event);
+        addMessage({
+          type: 'error',
+          content: 'WebSocket error',
+          data: { timestamp: new Date().toISOString(), message: 'Connection error' }
+        });
+        update(state => ({ ...state, error: new Error('WebSocket connection error') }));
+      };
+    } catch (error) {
+      console.error('[SocketStore] Connection error:', error);
       set({
-        status: 'OPEN',
-        error: null,
-        socket: { id: socketId, readyState: ws.readyState, url },
-        messages: []
+        status: 'CLOSED',
+        error: error instanceof Error ? error : new Error('Failed to connect to WebSocket server'),
+        socket: null,
+        messages: [{
+          type: 'error',
+          content: 'Failed to connect to WebSocket server',
+          data: { timestamp: new Date().toISOString(), message: error?.message || 'Connection failed' }
+        }]
       });
-      addMessage({
-        type: 'system',
-        content: 'Connected to WebSocket server',
-        data: { timestamp: new Date().toISOString(), socketId }
-      });
-      pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, PING_INTERVAL);
-    };
-    
-    ws.onmessage = (event) => {
-      console.log('[SocketStore] Received:', event.data);
-      try {
-        const message = JSON.parse(event.data);
-
-        if (message.type === 'echo' && message.data.type === 'ping') {
-          console.log('[SocketStore] Ignoring ping');
-          return;
-        }
-
-        addMessage(message);
-        dispatchMessage(message);
-      } catch (error) {
-        console.error('[SocketStore] Error parsing message:', error);
-      }
-    };
-    
-    ws.onclose = (event) => {
-      console.log('[SocketStore] WebSocket closed', event);
-      addMessage({
-        type: 'system',
-        content: 'Disconnected from WebSocket server',
-        data: { timestamp: new Date().toISOString(), reason: event.reason || 'Connection closed', code: event.code }
-      });
-      set({ status: 'CLOSED', error: null, socket: null, messages: [] });
-      if (pingInterval) {
-        clearInterval(pingInterval);
-        pingInterval = null;
-      }
-    };
-    
-    ws.onerror = (event) => {
-      console.error('[SocketStore] WebSocket error', event);
-      addMessage({
-        type: 'error',
-        content: 'WebSocket error',
-        data: { timestamp: new Date().toISOString(), message: 'Connection error' }
-      });
-      update(state => ({ ...state, error: new Error('WebSocket connection error') }));
-    };
+    }
   };
   
   // Disconnect from WebSocket
