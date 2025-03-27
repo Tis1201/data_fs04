@@ -116,6 +116,7 @@ model WebhookEndPoint{
   expiresAt DateTime?
   lastUsedAt DateTime?
   createdBy     String
+  hourlyMetrics WebhookHourlyMetric[]
   
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   //@allow('read,update,delete', auth().id == userId)  // Users can manage their own webhook endpoints
@@ -123,4 +124,16 @@ model WebhookEndPoint{
 
   @@index([name])
   @@index([description])
+}
+
+model WebhookHourlyMetric {
+  id String @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  webhookId String
+  webhook WebhookEndPoint @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  count Int @default(0)
+  hourOfDay DateTime @default(now())
+  
+  @@unique([webhookId, hourOfDay])
 }
