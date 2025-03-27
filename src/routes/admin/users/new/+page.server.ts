@@ -67,7 +67,7 @@ export const actions = {
 
             try {
                 // Get the Zenstack-enhanced Prisma client from locals
-                prisma = locals.prisma;
+                const prisma = locals.prisma;
                 
                 // Create the user with Zenstack (handles permissions automatically)
                 // Generate a secure temporary password if none provided
