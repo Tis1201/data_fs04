@@ -18,6 +18,8 @@ npx zenstack generate
 echo "Generating Prisma client..."
 npx prisma generate
 
+cp seed.ts prisma/
+
 # Optional: Run database migrations if needed
 if [ "$RUN_MIGRATIONS" = "true" ]; then
   echo "Running database migrations..."
@@ -26,7 +28,14 @@ if [ "$RUN_MIGRATIONS" = "true" ]; then
   # Optional: Run seed script after migrations if needed
   if [ "$RUN_SEED" = "true" ]; then
     echo "Running database seed script..."
-    npx ts-node prisma/seed.ts
+    # Check if seed.ts exists before running
+    if [ -f "seed.ts" ]; then
+      echo "Found seed.ts file, running with tsx..."
+      npx tsx seed.ts
+    else
+      echo "Error: seed.ts file not found in prisma directory!"
+      ls -la prisma/
+    fi
   fi
 fi
 
