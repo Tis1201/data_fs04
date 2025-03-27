@@ -41,6 +41,10 @@ async function packageApp() {
   // Add production server file
   archive.file(path.resolve(rootDir, 'prodServer.js'), { name: 'prodServer.js' });
   
+  // Add start.sh script
+  console.log('Adding start.sh script...');
+  archive.file(path.resolve(rootDir, 'scripts/start.sh'), { name: 'start.sh' });
+  
   // No need to add standalone WebSocket utilities - they're in the build directory
   console.log('WebSocket utilities are included in the build directory');
   
@@ -56,33 +60,31 @@ async function packageApp() {
   if (!packageJsonContent.dependencies.nanoid) {
     packageJsonContent.dependencies.nanoid = '^4.0.0';
   }
+  // Note: We don't need to create a root node_modules directory
+  // All necessary dependencies are already in build/node_modules
   
   // Add ZenStack schema
   console.log('Adding ZenStack schema...');
   archive.file(path.resolve(rootDir, 'schema.zmodel'), { name: 'schema.zmodel' });
   
-  // Add Prisma schema
+  // Add Prisma schema and migrations
   if (fs.existsSync(path.resolve(rootDir, 'prisma/schema.prisma'))) {
     archive.file(path.resolve(rootDir, 'prisma/schema.prisma'), { name: 'prisma/schema.prisma' });
+    
+    // Add Prisma migrations directory if it exists
+    const migrationsDir = path.resolve(rootDir, 'prisma/migrations');
+    if (fs.existsSync(migrationsDir)) {
+      console.log('Adding Prisma migrations directory...');
+      archive.directory(migrationsDir, 'prisma/migrations');
+    }
   }
   
-  // Add generated ZenStack files
-  if (fs.existsSync(path.resolve(rootDir, 'node_modules/.zenstack'))) {
-    archive.directory(path.resolve(rootDir, 'node_modules/.zenstack'), 'node_modules/.zenstack');
-  }
+  // ZenStack files are already copied to build/node_modules by the copy-zenstack-files.js script
+  // No need to duplicate them in the root node_modules
+  console.log('ZenStack files are already included in build/node_modules');
   
-  // Add WhatsApp auth directory if it exists
-  const whatsappAuthDir = path.resolve(rootDir, 'whatsapp-auth');
-  if (fs.existsSync(whatsappAuthDir)) {
-    console.log('Adding WhatsApp auth directory...');
-    archive.directory(whatsappAuthDir, 'whatsapp-auth');
-  } else {
-    // Create empty WhatsApp auth directory
-    console.log('Creating empty WhatsApp auth directory...');
-    fs.ensureDirSync(path.resolve(rootDir, 'tmp-whatsapp-auth'));
-    archive.directory(path.resolve(rootDir, 'tmp-whatsapp-auth'), 'whatsapp-auth');
-    fs.removeSync(path.resolve(rootDir, 'tmp-whatsapp-auth'));
-  }
+  // WhatsApp auth directory is not needed
+  console.log('Skipping WhatsApp auth directory - not needed for deployment');
   
   // Add environment files
   if (fs.existsSync(path.resolve(rootDir, '.env.example'))) {
@@ -117,13 +119,13 @@ async function packageApp() {
    nano .env
    \`\`\`
 
-3. Install dependencies:
+3. Install dependencies (REQUIRED):
    \`\`\`bash
    # Make sure you're using Node.js 18+ (use nvm if needed)
    node -v
    # If needed: nvm use 18 (or higher)
    
-   # Install dependencies
+   # Install dependencies - THIS STEP IS REQUIRED
    npm install
    \`\`\`
 
