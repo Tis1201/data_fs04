@@ -1,6 +1,6 @@
 /// <reference types="lucia" />
 import type { PrismaClient } from '@prisma/client';
-import type { ExtendedWebSocketServer } from '$lib/server/webSocketUtils';
+import type { ExtendedWebSocketServer } from '$lib/server/websocket/WebSocketUtils';
 
 declare global {
 	namespace App {

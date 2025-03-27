@@ -2,6 +2,7 @@ import type { PageServerLoad } from './$types';
 import { json } from '@sveltejs/kit';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { restrict } from '$lib/server/security/guards';
+import { SystemRole } from '../../users/schema';
 
 // Define table options for WhatsApp accounts
 const table_options = {
@@ -28,7 +29,7 @@ export const load = restrict(
             meta: result.meta
         };
     },
-    ['ADMIN'] // Only allow admin role to access this route
+    [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 /*******************************************************************************************

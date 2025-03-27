@@ -11,7 +11,7 @@ import type { Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
-import { SystemRole } from './schema';
+import { SystemRole } from '../../users/schema';
 
 // Define table options for Users
 const table_options = {

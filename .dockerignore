@@ -1,0 +1,71 @@
+# Node modules and dependencies
+node_modules
+npm-debug.log
+**/node_modules
+**/.npm
+.npm
+
+# Build output
+build
+.svelte-kit
+**/.svelte-kit
+**/.vercel
+**/.output
+
+# Development files
+.git
+.github
+.gitignore
+.env
+.env.*
+!.env.example
+prisma/dev.db
+prisma/*.db
+prisma/*.db-journal
+.cache
+**/.cache
+.DS_Store
+**/.DS_Store
+.editorconfig
+.eslintrc
+.eslintignore
+.prettierrc
+.prettierignore
+README.md
+CHANGELOG.md
+LICENSE
+
+# Docker files
+docker
+Dockerfile
+.dockerignore
+
+# Test files
+tests
+coverage
+.nyc_output
+**/__tests__
+**/*.test.js
+**/*.spec.js
+**/*.test.ts
+**/*.spec.ts
+playwright.config.ts
+vitest.config.ts
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary files
+.DS_Store
+*.log
+*.tmp
+*.temp
+
+# WhatsApp auth directory (as mentioned in package-app.js)
+whatsapp-auth

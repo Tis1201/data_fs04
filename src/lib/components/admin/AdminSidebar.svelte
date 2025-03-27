@@ -38,7 +38,19 @@
 
         Link2,
 
-        Link2Icon
+        Link2Icon,
+
+        Mail,
+
+        Settings2,
+
+        Signal,
+
+        BellDot
+
+
+
+
 
 
 
@@ -80,40 +92,34 @@
 
     const mainMenuItems: MenuItem[] = [
         { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
-        { href: "/admin/users", label: "Users", icon: Users },
         // { href: "/admin/streams", label: "Streams", icon: Cctv },
         // { href: "/admin/apps", label: "Apps", icon: Codepen },
         // { href: "/admin/connections", label: "Connections", icon: Cable },
         // { href: "/admin/screens", label: "Screens", icon: Tv },
         // { href: "/admin/mosaic", label: "Mosaic", icon: LayoutGrid },
-        { href: "/admin/api-keys", label: "API Keys", icon: Key },
-        { label: "Webhook", icon: Link,
-          subItems: [
-                    { href: "/admin/webhook/endpoints", label: "Endpoints", icon: Link2Icon },
-                    
-                ],
-
-        },
-        { label: "Whatsapp", icon: MessageCircle,
-          subItems: [
-                    { href: "/admin/whatsapp/accounts", label: "Accounts", icon: Users },
-                    
-                ],
-
-        },
         {
             label: "Debug",
             icon: BugOff,
             subItems: [
-                { href: "/admin/debug/vpu", label: "VPU", icon: Video },
-                { href: "/admin/debug/npu", label: "NPU", icon: Cpu },
+                // { href: "/admin/debug/vpu", label: "VPU", icon: Video },
+                // { href: "/admin/debug/npu", label: "NPU", icon: Cpu },
+                { href: "/admin/debug/sse", label: "SSE", icon: BellDot },
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap },
                 { href: "/admin/debug/stream", label: "WebRTC", icon: Network },
                 { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
             ],
         },
         
-        { href: "/admin/settings", label: "Settings", icon: Settings },
+        { label: "Settings", icon: Settings, 
+            subItems: [
+                { href: "/admin/settings/general", label: "General", icon: Settings2 },
+                { href: "/admin/users", label: "Users", icon: Users },
+                { href: "/admin/settings/email", label: "Email", icon: Mail },
+                { href: "/admin/settings/api_keys", label: "API Keys", icon: Key },
+                { href: "/admin/settings/webhook", label: "Webhook", icon: Link2Icon },
+                { href: "/admin/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle },    
+            ],  
+        },
         { href: "/admin/monitor", label: "Monitor", icon: Activity },
     ];
 

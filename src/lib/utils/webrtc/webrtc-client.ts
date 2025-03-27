@@ -4,7 +4,7 @@
  */
 import { writable, type Writable } from 'svelte/store';
 import { browser } from '$app/environment';
-import { socketStore, onSocketEvent } from '$lib/stores/socket-store';
+import { socketStore, onSocketEvent } from '$lib/stores/websocket-store';
 import { get } from 'svelte/store';
 
 // Types and stores

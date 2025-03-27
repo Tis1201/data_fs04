@@ -1,4 +1,4 @@
-import type { ExtendedWebSocket, ExtendedWebSocketServer } from './webSocketUtils';
+import type { ExtendedWebSocket, ExtendedWebSocketServer } from '../websocket/WebSocketUtils';
 
 // Message types
 export type WebRTCMessageType =

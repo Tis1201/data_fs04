@@ -3,6 +3,7 @@
     import { Button } from '$lib/components/ui/button';
     import { Input } from '$lib/components/ui/input';
     import { Label } from '$lib/components/ui/label';
+    import { PasswordInput } from '$lib/components/ui/password-input';
     import {Checkbox} from '$lib/components/ui/checkbox';
     import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
     import type { PageData } from './$types';
@@ -107,17 +108,15 @@
                             <Label for="password" class="text-sm font-medium text-[#44218d]">Password</Label>
                            
                         </div>
-                        <Input
+                        <PasswordInput
                             id="password"
-                            type="password"
                             name="password"
                             bind:value={$form.password}
-                            class={cn(
-                                'bg-white border-[#44218d]/20 focus:border-[#44218d]/40 focus:ring-[#44218d]/5',
-                                $errors.password && 'border-red-500'
-                            )}
+                            placeholder="Enter password"
+                            aria-invalid={$errors.password ? 'true' : undefined}
                             disabled={$submitting}
                             autocomplete="current-password"
+                            class="bg-white border-[#44218d]/20 focus:border-[#44218d]/40 focus:ring-[#44218d]/5"
                         />
                         {#if $errors.password}
                             <p class="text-sm text-red-500">{$errors.password}</p>
@@ -125,7 +124,7 @@
                     </div>
 
                     <div class="flex items-center justify-between">
-                        <div class="flex items-center space-x-2">
+                        <!-- <div class="flex items-center space-x-2">
                             <Checkbox
                                 id="remember"
                                 name="remember"
@@ -133,15 +132,15 @@
                                 class="border-[#44218d]/20 data-[state=checked]:bg-[#44218d] data-[state=checked]:border-[#44218d]"
                             />
                             <Label for="remember" class="text-sm font-medium text-[#44218d]/90 select-none">Remember me</Label>
-                        </div>
-                        <Button 
+                        </div> -->
+                        <!-- <Button 
                             type="button" 
                             variant="link" 
                             href="/reset-password" 
                             class="text-sm font-medium text-[#44218d]/90 hover:text-[#44218d]"
                         >
                             Forgot password?
-                        </Button>
+                        </Button> -->
                     </div>
 
                     <Button

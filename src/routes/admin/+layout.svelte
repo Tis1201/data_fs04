@@ -32,6 +32,7 @@
                             class="absolute right-0 top-full mt-1 w-56 rounded-md border bg-white shadow-lg"
                             transition:fly={{ y: -5, duration: 150 }}
                             role="menu"
+                            tabindex="0"
                             on:mouseleave={() => showMenu = false}
                         >
                             <div class="p-2">

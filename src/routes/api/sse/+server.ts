@@ -48,13 +48,11 @@ export const GET: RequestHandler = async ({ request, cookies, locals }) => {
         headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*', // Allow cross-origin requests
+            'Connection': 'keep-alive'
         }
     });
 };
 
-// Broadcast message endpoint - requires authentication
 export const POST: RequestHandler = async ({ request, cookies }) => {
     // Check for API key in request headers
     const apiKey = extractApiKey(request);
@@ -73,16 +71,66 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
             return json({ error: 'Event name is required' }, { status: 400 });
         }
         
-        sseManager.broadcast(event, data || {});
+        // Get sender information
+        const sender = auth.authMethod === 'apiKey' ? auth.userInfo : {
+            email: auth.user.email,
+            name: auth.user.name
+        };
         
-        // Log the broadcast with user info based on auth method
-        const authMethod = auth.authMethod;
-        const userIdentifier = authMethod === 'session' ? auth.user.email : `api-key-user-${auth.userId}`;
-        logger.debug('SSE message broadcast', { event, authMethod, userIdentifier });
+        // Handle string messages directly as content
+        let parsedData = data;
+        let content: string | undefined;
+
+        if (typeof data === 'string') {
+            content = data;
+            parsedData = { content: data };
+        } else if (typeof data === 'object' && data !== null) {
+            content = data.content;
+            if (!content && typeof data.data === 'string') {
+                content = data.data;
+            }
+        }
+
+        // Format the message with event name and metadata
+        const messageData = {
+            event,
+            content,
+            data: parsedData,
+            sender,
+            timestamp: new Date().toISOString()
+        };
+        
+        // Broadcast using the custom event name
+        sseManager.broadcast('message', messageData);
+        
+        // Log the broadcast with user info
+        logger.debug('SSE message broadcast', { 
+            event, 
+            authMethod: auth.authMethod, 
+            userIdentifier: auth.authMethod === 'session' ? auth.user.email : `api-key-user-${auth.userId}`,
+            sender
+        });
         
         return json({ success: true });
     } catch (error) {
-        logger.error('Error broadcasting SSE message', { error });
-        return json({ error: 'Invalid request' }, { status: 400 });
+        logger.error('Error broadcasting SSE message', { 
+            error: {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            },
+            timestamp: new Date().toISOString()
+        });
+        
+        // Return detailed error information in development
+        const errorResponse = {
+            error: error.message,
+            details: process.env.NODE_ENV === 'development' ? {
+                stack: error.stack,
+                name: error.name
+            } : null
+        };
+        
+        return json(errorResponse, { status: 400 });
     }
 };

@@ -12,7 +12,7 @@ export async function validateApiKey(key: string): Promise<boolean> {
         const apiKey = await prisma.apiKey.findFirst({
             where: {
                 key,
-                
+                active: true
             }
         });
         
@@ -35,16 +35,56 @@ export async function getUserIdFromApiKey(key: string): Promise<string | null> {
         const apiKey = await prisma.apiKey.findFirst({
             where: {
                 key,
-                
+                active: true
             },
             select: {
-                userId: true
+                userId: true,
+                user: {
+                    select: {
+                        email: true,
+                        name: true
+                    }
+                }
             }
         });
         
         return apiKey?.userId || null;
     } catch (error) {
         console.error('Error getting user from API key:', error);
+        return null;
+    }
+}
+
+/**
+ * Get user information associated with an API key
+ * @param key The API key
+ * @returns User information if the API key is valid, null otherwise
+ */
+export async function getUserInfoFromApiKey(key: string): Promise<{
+    email: string;
+    name: string | null;
+} | null> {
+    if (!key) return null;
+    
+    try {
+        const apiKey = await prisma.apiKey.findFirst({
+            where: {
+                key,
+                active: true
+            },
+            select: {
+                user: {
+                    select: {
+                        email: true,
+                        name: true
+                    }
+                }
+            }
+        });
+        
+        return apiKey?.user || null;
+    } catch (error) {
+        console.error('Error getting user info from API key:', error);
         return null;
     }
 }
