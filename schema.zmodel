@@ -117,6 +117,7 @@ model WebhookEndPoint{
   lastUsedAt DateTime?
   createdBy     String
   hourlyMetrics WebhookHourlyMetric[]
+  status String @default("ACTIVE")
   
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   //@allow('read,update,delete', auth().id == userId)  // Users can manage their own webhook endpoints

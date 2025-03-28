@@ -13,7 +13,7 @@
     import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
     import { Alert, AlertDescription } from "$lib/components/ui/alert";
     import { zodClient } from 'sveltekit-superforms/adapters';
-    import QRCodeScanner from "$lib/components/whatsapp/QRCodeScanner.svelte";
+    import QRCodeScanner from "$lib/components/ui_components_sveltekit/whatsapp/QRCodeScanner.svelte";
     import { whatsAppStore } from "$lib/stores/whatsapp-store";
     import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
 

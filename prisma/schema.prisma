@@ -92,6 +92,7 @@ model WebhookEndPoint {
   lastUsedAt    DateTime?
   createdBy     String
   hourlyMetrics WebhookHourlyMetric[]
+  status        String                @default("ACTIVE")
 
   @@index([name])
   @@index([description])
