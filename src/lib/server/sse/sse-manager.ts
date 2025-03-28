@@ -57,6 +57,7 @@ export class SSEManager {
 
         for (const [userId, controller] of this.clients.entries()) {
             try {
+                console.log('Broadcasting to user:', { userId, event, data });
                 controller.enqueue(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
             } catch (error) {
                 logger.error('Failed to broadcast SSE message:', { userId, event, error });

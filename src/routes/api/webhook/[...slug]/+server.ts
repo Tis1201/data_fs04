@@ -1,17 +1,29 @@
-// take any path after /api/webhook and return a 200
+// Process webhooks with valid postfixes from the database
 import { json } from '@sveltejs/kit';
-import { validateApiAuth } from '$lib/server/auth/api-auth';
 import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
 
-export const POST = async ({ request, cookies }) => {
-    // Extract API key from request headers
-    const apiKey = request.headers.get('X-API-Key');
-
-    // Validate the API key
-    const auth = await validateApiAuth(cookies, false, apiKey);
-    if (!auth.valid) {
-        return auth.response;
+export const POST = async ({ request, params, locals }) => {
+    const { prisma } = locals;
+    // Extract the postfix from the URL path
+    const postfix = params.slug;
+    
+    if (!postfix) {
+        logger.warn('Webhook request received without postfix');
+        return json({ error: 'Invalid webhook endpoint' }, { status: 404 });
+    }
+    
+    // Check if the webhook endpoint exists in the database
+    const webhookEndpoint = await prisma.WebhookEndPoint.findFirst({
+        where: {
+            postfix,
+            status: 'ACTIVE' // Only process webhooks for active endpoints
+        }
+    });
+    
+    if (!webhookEndpoint) {
+        logger.warn('Webhook request received with invalid postfix', { postfix });
+        return json({ error: 'Invalid webhook endpoint' }, { status: 404 });
     }
 
     try {
@@ -37,8 +49,16 @@ export const POST = async ({ request, cookies }) => {
             params: paramsObj,
             body,
             path: new URL(request.url).pathname,
-            method: request.method
+            method: request.method,
+            webhookId: webhookEndpoint.id,
+            webhookName: webhookEndpoint.name
         };
+        
+        // Update the lastUsedAt timestamp for the webhook
+        await prisma.WebhookEndPoint.update({
+            where: { id: webhookEndpoint.id },
+            data: { lastUsedAt: new Date() }
+        });
         
         // Log webhook data
         logger.info('Webhook received', { webhookData });
