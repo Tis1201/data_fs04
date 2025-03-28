@@ -82,6 +82,7 @@
 
             eventSource.onmessage = handleEvent;
             eventSource.addEventListener('connected', handleEvent);
+            eventSource.addEventListener('webhook', handleEvent); // Listen for webhook events
 
         } catch (err) {
             error = err.message;
@@ -92,9 +93,9 @@
 
 <PageContainer crumbs={pageCrumbs}>
     <PageHeader title="SSE Debug">
-        <svelte:fragment slot="description">
+        <!-- <svelte:fragment slot="description">
             View real-time Server-Sent Events
-        </svelte:fragment>
+        </svelte:fragment> -->
         <svelte:fragment slot="action">
             <Badge variant={connected ? "success" : "destructive"}>
                 {connected ? "Connected" : "Disconnected"}

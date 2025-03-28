@@ -1,0 +1,48 @@
+# FS04 Web Application Docker Compose Configuration
+version: '3.8'
+services:
+  fs04-web-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - SEED=true
+    volumes:
+      # Mount .env file for environment variables
+      - ../.env:/app/.env:ro
+      # Mount the entire prisma directory for development
+      - ../docker/prisma:/app/prisma
+    expose:
+      - "3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - fs04-web-app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  prisma:
+    external: true
+  db_data:
+    external: true
