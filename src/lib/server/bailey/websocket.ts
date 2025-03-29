@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import type { ExtendedWebSocket, ExtendedWebSocketServer } from '../websocket/WebSocketUtils';
 import { GlobalThisWSS } from '../websocket/WebSocketUtils';
+import { logger } from '$lib/server/logger';
 
 /**
  * WebSocket server for WhatsApp communication
@@ -12,7 +13,7 @@ export class WebSocketServer {
     static broadcast(message: any): void {
         const wss = (globalThis as any)[GlobalThisWSS] as ExtendedWebSocketServer;
         if (!wss) {
-            console.error('[wss:whatsapp] WebSocket server not initialized');
+            logger.error('[wss:whatsapp] WebSocket server not initialized');
             return;
         }
         
@@ -29,7 +30,7 @@ export class WebSocketServer {
     static sendToClient(socketId: string, message: any): boolean {
         const wss = (globalThis as any)[GlobalThisWSS] as ExtendedWebSocketServer;
         if (!wss) {
-            console.error('[wss:whatsapp] WebSocket server not initialized');
+            logger.error('[wss:whatsapp] WebSocket server not initialized');
             return false;
         }
         
@@ -50,7 +51,7 @@ export class WebSocketServer {
     static sendToUser(userId: string, message: any): boolean {
         const wss = (globalThis as any)[GlobalThisWSS] as ExtendedWebSocketServer;
         if (!wss) {
-            console.error('[wss:whatsapp] WebSocket server not initialized');
+            logger.error('[wss:whatsapp] WebSocket server not initialized');
             return false;
         }
         

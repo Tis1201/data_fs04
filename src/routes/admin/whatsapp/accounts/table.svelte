@@ -136,6 +136,7 @@
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
         {state}
+        actionName="deleteAccount"
         onConfirm={() => {
             // Refresh the page to update the account list
             window.location.reload();

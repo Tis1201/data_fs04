@@ -55,12 +55,16 @@ const createWhatsAppStore = () => {
         const messageHandler = (message: any) => {
             if (message.type === 'whatsapp') {
                 if (message.action === 'qrCode') {
-                    update(state => ({ 
-                        ...state, 
-                        qrCode: message.data.qrCode,
-                        error: null,
-                        connectionStatus: 'connecting'
-                    }));
+                    console.log('Received QR code from WebSocket:', message.data.qrCode ? `${message.data.qrCode.substring(0, 20)}...` : 'null');
+                    update(state => {
+                        console.log('Updating WhatsApp store with QR code');
+                        return { 
+                            ...state, 
+                            qrCode: message.data.qrCode,
+                            error: null,
+                            connectionStatus: 'connecting'
+                        };
+                    });
                 } else if (message.action === 'pairingCode') {
                     update(state => ({ 
                         ...state, 
@@ -149,16 +153,31 @@ const createWhatsAppStore = () => {
             // We'll just make the HTTP request to initiate the connection
             // and let the WebSocket handler update the store
             
-            // Also send via HTTP for redundancy
-            await fetch('/api/whatsapp/auth', {
+            // Use SvelteKit form action instead of API
+            const formData = new FormData();
+            formData.append('phoneNumber', phoneNumber);
+            formData.append('accountId', accountId);
+            
+            const response = await fetch('/admin/whatsapp/accounts?/requestQRCode', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'requestQR',
-                    phoneNumber,
-                    accountId
-                })
+                body: formData
             });
+            
+            // Check if the response is successful
+            if (response.ok) {
+                const result = await response.json();
+                
+                // If the server returned a QR code directly, update the store
+                if (result.qrCode) {
+                    console.log('Received QR code directly from server action');
+                    update(state => ({
+                        ...state,
+                        qrCode: result.qrCode,
+                        clientId: result.clientId,
+                        connectionStatus: 'connecting'
+                    }));
+                }
+            }
         } catch (error) {
             console.error('Failed to request QR code:', error);
             update(state => ({ 
@@ -232,15 +251,14 @@ const createWhatsAppStore = () => {
                 }, 5000);
             }, 1000);
             
-            // Also send via HTTP for redundancy
-            await fetch('/api/whatsapp/auth', {
+            // Use SvelteKit form action instead of API
+            const formData = new FormData();
+            formData.append('phoneNumber', phoneNumber.replace(/\D/g, ''));
+            formData.append('accountId', accountId);
+            
+            await fetch('/admin/whatsapp/accounts?/requestPairingCode', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'requestPairingCode',
-                    phoneNumber: phoneNumber.replace(/\D/g, ''),
-                    accountId
-                })
+                body: formData
             });
         } catch (error) {
             console.error('Failed to request pairing code:', error);
