@@ -10,6 +10,7 @@ import path from 'path';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { logger } from '$lib/server/logger';
 
+
 // Type definitions
 export type WhatsAppClient = ReturnType<typeof makeWASocket>;
 export type WhatsAppClientState = 'connecting' | 'connected' | 'authenticated' | 'disconnected';
@@ -325,7 +326,7 @@ async function startClient(clientId: string, phoneNumber?: string, accountId?: s
             
             // Prevent QR code from being logged to console
             // This is a workaround since some QR codes still appear even with printQRInTerminal: false
-            console.log('QR code generated - check the web UI to scan it');
+            logger.debug('QR code generated - check the web UI to scan it');
             // Suppress the actual QR code from being printed
             
             // Broadcast to all connected clients via WebSocketServer

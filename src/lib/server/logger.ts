@@ -44,48 +44,6 @@ const consoleInfo = console.info;
 
 // Create a custom logger function that includes the calling file information
 const createLogger = (defaultFilePath: string = 'unknown') => {
-    const winstonLogger = winston.createLogger({
-        level: dev ? 'debug' : 'info',
-        format: winston.format.combine(
-            winston.format.timestamp({
-                format: 'YYYY-MM-DD HH:mm:ss'
-            }),
-            winston.format.printf(({ level, message, timestamp, filePath, lineNumber, ...rest }) => {
-                // Use provided file path or default
-                const fileInfo = filePath ? `${filePath}${lineNumber ? `:${lineNumber}` : ''}` : defaultFilePath;
-                
-                // Format: date | time | file | level : message
-                let logMessage = `${timestamp} | ${fileInfo} | ${level.toUpperCase()} : ${message}`;
-                
-                // Add any additional data as a simple string if present
-                if (Object.keys(rest).length > 0) {
-                    const details = Object.entries(rest)
-                        .map(([key, value]) => {
-                            if (value && typeof value === 'object') {
-                                return `${key}=${JSON.stringify(value)}`;
-                            }
-                            return `${key}=${value}`;
-                        })
-                        .join(' ');
-                    
-                    if (details) {
-                        logMessage += ` | ${details}`;
-                    }
-                }
-                
-                return logMessage;
-            })
-        ),
-        transports: [
-            new winston.transports.Console({
-                format: winston.format.combine(
-                    winston.format.colorize(),
-                    winston.format.simple()
-                )
-            })
-        ]
-    });
-
     // Helper to extract caller information
     const getCallerInfo = () => {
         const err = new Error();
@@ -109,39 +67,66 @@ const createLogger = (defaultFilePath: string = 'unknown') => {
         return { filePath: defaultFilePath };
     };
 
-    // Return enhanced logger with automatic caller detection and direct console output
+    // Create a custom format for the Winston logger
+    const customFormat = winston.format.printf(({ level, message, timestamp, meta }) => {
+        const callerInfo = meta || {};
+        const fileInfo = callerInfo.filePath ? `${callerInfo.filePath}${callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : ''}` : defaultFilePath;
+        
+        // Format based on log level
+        let formattedMessage = '';
+        const ts = timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19);
+        
+        switch(level) {
+            case 'debug':
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkBlue}[DEBUG]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                break;
+            case 'info':
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkGreen}[INFO]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                break;
+            case 'warn':
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.yellow}[WARN]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                break;
+            case 'error':
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkRed}[ERROR]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                break;
+            default:
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkGreen}[${level.toUpperCase()}]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+        }
+        
+        return formattedMessage;
+    });
+
+    // Create Winston logger with custom format
+    const winstonLogger = winston.createLogger({
+        level: dev ? 'debug' : 'info',
+        format: winston.format.combine(
+            winston.format.timestamp({
+                format: 'YYYY-MM-DD HH:mm:ss'
+            }),
+            customFormat
+        ),
+        transports: [
+            new winston.transports.Console()
+        ]
+    });
+
+    // Return enhanced logger with automatic caller detection
     return {
         debug: (message: string, meta: Record<string, any> = {}) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.debug(message, { ...callerInfo, ...meta });
-            // Log Guru style formatting
-            const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-            const fileInfo = callerInfo.filePath + (callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : '');
-            consoleLog(`${colors.gray}${timestamp}${colors.reset} ${colors.darkBlue}[DEBUG]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`);
+            winstonLogger.debug(message, { meta: { ...callerInfo, ...meta } });
         },
         info: (message: string, meta: Record<string, any> = {}) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.info(message, { ...callerInfo, ...meta });
-            // Log Guru style formatting
-            const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-            const fileInfo = callerInfo.filePath + (callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : '');
-            consoleInfo(`${colors.gray}${timestamp}${colors.reset} ${colors.darkGreen}[INFO]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`);
+            winstonLogger.info(message, { meta: { ...callerInfo, ...meta } });
         },
         warn: (message: string, meta: Record<string, any> = {}) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.warn(message, { ...callerInfo, ...meta });
-            // Log Guru style formatting
-            const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-            const fileInfo = callerInfo.filePath + (callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : '');
-            consoleWarn(`${colors.gray}${timestamp}${colors.reset} ${colors.yellow}[WARN]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`);
+            winstonLogger.warn(message, { meta: { ...callerInfo, ...meta } });
         },
         error: (message: string, meta: Record<string, any> = {}) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.error(message, { ...callerInfo, ...meta });
-            // Log Guru style formatting
-            const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-            const fileInfo = callerInfo.filePath + (callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : '');
-            consoleError(`${colors.gray}${timestamp}${colors.reset} ${colors.darkRed}[ERROR]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`);
+            winstonLogger.error(message, { meta: { ...callerInfo, ...meta } });
         }
     };
 };

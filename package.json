@@ -30,8 +30,8 @@
 		"maildev": "maildev --smtp 1025 --web 1080",
 		"dev:all": "concurrently \"npm run dev\" \"npm run maildev\"",
 		"start:socket": "node socket.js",
-		"preview": "vite preview",
-		"start": "NODE_ENV=production node build",
+		"preview:dev": "vite preview",
+		"start:prod": "NODE_ENV=production node build",
 		"prodServer": "NODE_ENV=production node prodServer.js",
 		"package": "npm run build && node scripts/build/package-app.js"
 	},

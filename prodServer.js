@@ -19,7 +19,7 @@ const handler = (req, res) => {
   
   // Only set strict CSP for non-WebSocket requests
   if (req.headers.upgrade !== 'websocket') {
-    res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;");
   }
   
   // Skip CSRF checks for WebSocket connections and non-mutating methods
