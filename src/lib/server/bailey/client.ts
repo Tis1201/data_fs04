@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import { getEnhancedPrisma } from '$lib/server/prisma';
+import { logger } from '$lib/server/logger';
 
 // Type definitions
 export type WhatsAppClient = ReturnType<typeof makeWASocket>;
@@ -43,13 +44,12 @@ if (!fs.existsSync(AUTH_DIR)) {
  * but with improved handling.
  */
 export async function initializeClientsFromDatabase(): Promise<void> {
-    // Use console.error for more visibility in the logs
-    console.error('=== INITIALIZING WHATSAPP CLIENTS FROM DATABASE ===');
-    console.error(`Auth directory path: ${AUTH_DIR}`);
+    logger.info('INITIALIZING WHATSAPP CLIENTS FROM DATABASE');
+    logger.info(`Auth directory path: ${AUTH_DIR}`);
     
     // Check if auth directory exists
     if (!fs.existsSync(AUTH_DIR)) {
-        console.error('Auth directory does not exist, creating it...');
+        logger.warn('Auth directory does not exist, creating it...');
         fs.mkdirSync(AUTH_DIR, { recursive: true });
     }
     
@@ -57,7 +57,7 @@ export async function initializeClientsFromDatabase(): Promise<void> {
     const authDirs = fs.readdirSync(AUTH_DIR).filter(dir => 
         fs.statSync(path.join(AUTH_DIR, dir)).isDirectory() && !dir.startsWith('pending_')
     );
-    console.error(`Found ${authDirs.length} auth directories: ${authDirs.join(', ')}`);
+    logger.info(`Found ${authDirs.length} auth directories: ${authDirs.join(', ')}`);
     
     try {
         // Get prisma client with admin privileges
@@ -68,7 +68,7 @@ export async function initializeClientsFromDatabase(): Promise<void> {
         
         // Get all WhatsApp accounts
         const accounts = await prisma.whatsAppAccount.findMany();
-        console.error(`Found ${accounts.length} total WhatsApp accounts in database`);
+        logger.info(`Found ${accounts.length} total WhatsApp accounts in database`);
         
         // Filter accounts with valid client IDs (non-pending)
         const validAccounts = accounts.filter(account => 
@@ -76,21 +76,21 @@ export async function initializeClientsFromDatabase(): Promise<void> {
             !account.client_id.startsWith('pending_')
         );
         
-        console.error(`Found ${validAccounts.length} WhatsApp accounts with valid client IDs to restore`);
+        logger.info(`Found ${validAccounts.length} WhatsApp accounts with valid client IDs to restore`);
         
         // Check for accounts with pending IDs
         const pendingAccounts = accounts.filter(account => 
             account.client_id && 
             account.client_id.startsWith('pending_')
         );
-        console.error(`Found ${pendingAccounts.length} WhatsApp accounts with pending client IDs (will be skipped)`);
+        logger.info(`Found ${pendingAccounts.length} WhatsApp accounts with pending client IDs (will be skipped)`);
         
         // Check for auth directories without matching accounts
         const orphanedDirs = authDirs.filter(dir => 
             !validAccounts.some(account => account.client_id === dir)
         );
         if (orphanedDirs.length > 0) {
-            console.error(`Warning: Found ${orphanedDirs.length} auth directories without matching accounts: ${orphanedDirs.join(', ')}`);
+            logger.warn(`Found ${orphanedDirs.length} auth directories without matching accounts: ${orphanedDirs.join(', ')}`);
         }
         
         // Initialize each client
@@ -100,20 +100,20 @@ export async function initializeClientsFromDatabase(): Promise<void> {
             // Create the auth directory for this client if it doesn't exist
             const clientAuthDir = path.join(AUTH_DIR, account.client_id);
             if (!fs.existsSync(clientAuthDir)) {
-                console.log(`Auth directory for client ${account.client_id} not found, skipping`);
+                logger.warn(`Auth directory for client ${account.client_id} not found, skipping`);
                 continue;
             }
             
             // Check auth directory contents
             const authFiles = fs.readdirSync(clientAuthDir);
-            console.log(`Auth directory for client ${account.client_id} contains ${authFiles.length} files/directories`);
+            logger.debug(`Auth directory for client ${account.client_id} contains ${authFiles.length} files/directories`);
             
-            console.log(`Restoring WhatsApp client for account ${account.id} with client ID ${account.client_id}`);
+            logger.info(`Restoring WhatsApp client for account ${account.id} with client ID ${account.client_id}`);
             
             // Initialize the client
             try {
                 await startClient(account.client_id, account.phoneNumber, account.id);
-                console.log(`Successfully restored client ${account.client_id}`);
+                logger.info(`Successfully restored client ${account.client_id}`);
                 
                 // Update the database status to connected after successful restoration
                 try {
@@ -127,16 +127,16 @@ export async function initializeClientsFromDatabase(): Promise<void> {
                         data: { client_status: 'connected' }
                     });
                     
-                    console.log(`Updated database status to connected for account ${account.id}`);
+                    logger.info(`Updated database status to connected for account ${account.id}`);
                 } catch (dbError) {
-                    console.error(`Failed to update client status in database:`, dbError);
+                    logger.error(`Failed to update client status in database`, { error: dbError });
                 }
             } catch (error) {
-                console.error(`Failed to restore client ${account.client_id}:`, error);
+                logger.error(`Failed to restore client ${account.client_id}`, { error });
             }
         }
     } catch (error) {
-        console.error('Failed to initialize clients from database:', error);
+        logger.error('Failed to initialize clients from database', { error });
     }
 }
 
