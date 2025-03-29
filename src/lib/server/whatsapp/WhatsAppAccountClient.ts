@@ -47,6 +47,8 @@ export class WhatsAppAccountClient extends EventEmitter {
     private socket: any; // Baileys socket
     private state: WhatsAppClientState = 'disconnected';
     private qrCode: string | null = null;
+    private qrCodeTimestamp: number = 0;
+    private qrCodeRefreshTimer: NodeJS.Timeout | null = null;
     private phoneNumber?: string;
     private accountId?: string;
     private authDir: string;
@@ -167,8 +169,12 @@ export class WhatsAppAccountClient extends EventEmitter {
         // Handle QR code updates
         if (qr) {
             this.qrCode = qr;
+            this.qrCodeTimestamp = Date.now();
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
             this.emit('qr', qr);
+            
+            // Set up a timer to check for QR code expiration
+            this.setupQrCodeRefreshTimer();
         }
         
         // Handle connection state changes
@@ -469,10 +475,38 @@ export class WhatsAppAccountClient extends EventEmitter {
     }
     
     /**
+     * Set up a timer to check for QR code expiration
+     */
+    private setupQrCodeRefreshTimer(): void {
+        // Clear any existing timer
+        if (this.qrCodeRefreshTimer) {
+            clearTimeout(this.qrCodeRefreshTimer);
+            this.qrCodeRefreshTimer = null;
+        }
+        
+        // Set up a new timer to check for QR code expiration
+        this.qrCodeRefreshTimer = setTimeout(() => {
+            // If we're still in connecting state and the QR code is older than 25 seconds
+            if (this.state === 'connecting' && this.qrCode && Date.now() - this.qrCodeTimestamp > 25000) {
+                logger.info(`QR code for client ${this.id} may have expired, forcing reconnect...`);
+                
+                // Force a reconnect to get a new QR code
+                this.connect();
+            }
+        }, 30000); // Check after 30 seconds
+    }
+    
+    /**
      * Disconnect the client
      */
     async disconnect(): Promise<boolean> {
         try {
+            // Clear QR code refresh timer
+            if (this.qrCodeRefreshTimer) {
+                clearTimeout(this.qrCodeRefreshTimer);
+                this.qrCodeRefreshTimer = null;
+            }
+            
             if (!this.socket) {
                 return true; // Already disconnected
             }

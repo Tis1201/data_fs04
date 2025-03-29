@@ -42,41 +42,35 @@ export class WhatsAppAccountManager extends EventEmitter {
             // Store the client
             this.clients.set(clientId, client);
             
-            // Set up event listeners
+            // Set up minimal event listeners for internal management
             client.on('qr', (qrCode: string) => {
                 qrCodeResolve(qrCode);
+                // Still emit on manager for backward compatibility
                 this.emit('qr', clientId, qrCode);
             });
             
             client.on('state', (state: WhatsAppClientState) => {
-                this.emit('state', clientId, state);
-                
                 // Update database status if needed
                 if (accountId) {
                     this.updateAccountStatus(accountId, state, clientId);
                 }
-            });
-            
-            client.on('connected', (info: any) => {
-                this.emit('connected', clientId, info);
-            });
-            
-            client.on('message', (message: WhatsAppMessage) => {
-                this.emit('message', clientId, message);
-            });
-            
-            client.on('error', (error: any) => {
-                this.emit('error', clientId, error);
+                // Still emit on manager for backward compatibility
+                this.emit('state', clientId, state);
             });
             
             client.on('logout', () => {
-                this.emit('logout', clientId);
-                
                 // Update database status if needed
                 if (accountId) {
                     this.updateAccountStatus(accountId, 'disconnected');
                 }
+                // Still emit on manager for backward compatibility
+                this.emit('logout', clientId);
             });
+            
+            // Forward other events for backward compatibility
+            client.on('connected', (info: any) => this.emit('connected', clientId, info));
+            client.on('message', (message: WhatsAppMessage) => this.emit('message', clientId, message));
+            client.on('error', (error: any) => this.emit('error', clientId, error));
             
             // Connect the client
             await client.connect();
