@@ -101,8 +101,10 @@ export class WhatsAppAccountClient extends EventEmitter {
                 this.socket = null;
             }
             
+            // Update and emit the connecting state
             this.state = 'connecting';
             this.emit('state', this.state);
+            logger.info(`Client ${this.id} state changed to connecting`);
             
             // Get auth state for this client
             const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
@@ -141,6 +143,25 @@ export class WhatsAppAccountClient extends EventEmitter {
             // Handle chats
             this.socket.ev.on('chats.upsert', this.handleChatsUpsert.bind(this));
             this.socket.ev.on('chats.update', this.handleChatsUpdate.bind(this));
+            
+            // Check if we're restoring a session by examining if auth files exist
+            const authFiles = fs.readdirSync(this.authDir);
+            const hasAuthFiles = authFiles.length > 0 && authFiles.some(file => file.includes('creds'));
+            
+            if (hasAuthFiles) {
+                logger.info(`Restoring session for WhatsApp client ${this.id}`);
+                
+                // If we have a creds file, we might already be authenticated
+                // We'll wait a short time to see if we connect without needing a QR code
+                setTimeout(() => {
+                    // If we're still in connecting state after the timeout, we might need a QR code
+                    if (this.state === 'connecting') {
+                        logger.info(`Session restoration pending for client ${this.id}, waiting for QR code or connection...`);
+                        // Re-emit the connecting state to ensure listeners are notified
+                        this.emit('state', this.state);
+                    }
+                }, 3000); // Wait 3 seconds to see if we connect automatically
+            }
             
             logger.info(`WhatsApp client ${this.id} initialized and connecting...`);
         } catch (error) {
@@ -182,12 +203,17 @@ export class WhatsAppAccountClient extends EventEmitter {
             switch (connection) {
                 case 'connecting':
                     this.state = 'connecting';
+                    // Explicitly emit state event for connecting
+                    this.emit('state', this.state);
                     break;
                     
                 case 'open':
                     this.state = 'connected';
                     this.reconnectCount = 0; // Reset reconnect count on successful connection
                     logger.info(`Client ${this.id} connected successfully`);
+                    
+                    // Emit connected event with user info
+                    this.emit('state', 'connected');
                     
                     // Get connected user info
                     if (this.socket?.user) {
@@ -228,10 +254,14 @@ export class WhatsAppAccountClient extends EventEmitter {
                     } else if (statusCode === DisconnectReason.loggedOut) {
                         logger.info(`Client ${this.id} logged out`);
                         this.state = 'disconnected';
+                        // Emit both logout and state events
                         this.emit('logout');
+                        this.emit('state', this.state);
                     } else {
                         logger.warn(`Client ${this.id} disconnected with status code ${statusCode}`);
                         this.state = 'disconnected';
+                        // Emit the state event immediately for this case
+                        this.emit('state', this.state);
                         
                         // Attempt reconnection if enabled
                         if (this.autoReconnect && this.reconnectCount < this.maxReconnectAttempts) {
@@ -243,7 +273,10 @@ export class WhatsAppAccountClient extends EventEmitter {
                     break;
             }
             
-            this.emit('state', this.state);
+            // Only emit state event at the end if we haven't already emitted it for specific cases
+            if (connection !== 'connecting' && connection !== 'open' && connection !== 'close') {
+                this.emit('state', this.state);
+            }
         }
     }
     

@@ -1,9 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '$lib/server/logger';
-import { WhatsAppAccountClient } from './WhatsAppAccountClient';
+import { WhatsAppAccountClient, AUTH_DIR } from './WhatsAppAccountClient';
 import type { WhatsAppClientState } from './WhatsAppAccountClient';
 import type { WhatsAppMessage } from './WhatsAppAccountClient';
 import EventEmitter from 'events';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * WhatsApp Account Manager
@@ -19,67 +21,173 @@ export class WhatsAppAccountManager extends EventEmitter {
     }
     
     /**
-     * Create a new WhatsApp client
+     * Helper method to create a new client
+     * @param clientId Client ID to use
+     * @param phoneNumber Optional phone number
+     * @param accountId Optional account ID for database reference
+     * @returns Client info with restored=false
+     */
+    private async createNewClient(clientId: string, phoneNumber?: string, accountId?: string): Promise<{ clientId: string, qrCodePromise: Promise<string>, restored: boolean }> {
+        // Create a promise to get the QR code
+        let qrCodeResolve: (value: string) => void;
+        const qrCodePromise = new Promise<string>((resolve) => {
+            qrCodeResolve = resolve;
+        });
+        
+        // Create a new client instance
+        const client = new WhatsAppAccountClient(clientId, phoneNumber, accountId);
+        
+        // Store the client
+        this.clients.set(clientId, client);
+        
+        // Set up event listeners
+        this.setupClientEventListeners(client, clientId, accountId, qrCodeResolve);
+        
+        // Connect the client
+        await client.connect();
+        
+        return { clientId, qrCodePromise, restored: false };
+    }
+    
+    /**
+     * Create a new WhatsApp client with a generated ID
      * @param phoneNumber Optional phone number
      * @param accountId Optional account ID for database reference
      * @returns Client ID and QR code promise
      */
     async createClient(phoneNumber?: string, accountId?: string): Promise<{ clientId: string, qrCodePromise: Promise<string> }> {
+        // Simply call restoreOrCreateClient with null sessionId to create a new client
+        const result = await this.restoreOrCreateClient(null, phoneNumber, accountId);
+        return { clientId: result.clientId, qrCodePromise: result.qrCodePromise };
+    }
+    
+    /**
+     * Check if a session exists for the given session ID
+     * @param sessionId Session ID to check
+     * @returns True if session exists, false otherwise
+     */
+    sessionExists(sessionId: string): boolean {
+        const sessionDir = path.join(AUTH_DIR, sessionId);
+        return fs.existsSync(sessionDir) && fs.readdirSync(sessionDir).length > 0;
+    }
+    
+    /**
+     * Restore or create a client based on session ID
+     * @param sessionId Optional session ID to restore. If null/undefined, a new client will be created
+     * @param phoneNumber Optional phone number
+     * @param accountId Optional account ID for database reference
+     * @returns Client ID and QR code promise
+     */
+    async restoreOrCreateClient(sessionId?: string | null, phoneNumber?: string, accountId?: string): Promise<{ clientId: string, qrCodePromise: Promise<string>, restored: boolean }> {
         try {
-            // Create a unique ID for this client instance
-            const clientId = uuidv4();
-            logger.info(`Creating new WhatsApp client with ID ${clientId}`);
+            // If sessionId is null or undefined, generate a new ID
+            if (!sessionId) {
+                const newClientId = uuidv4();
+                logger.info(`Creating new WhatsApp client with generated ID ${newClientId}`);
+                return await this.createNewClient(newClientId, phoneNumber, accountId);
+            }
             
-            // Create a promise to get the QR code
-            let qrCodeResolve: (value: string) => void;
-            const qrCodePromise = new Promise<string>((resolve) => {
-                qrCodeResolve = resolve;
-            });
-            
-            // Create a new client instance
-            const client = new WhatsAppAccountClient(clientId, phoneNumber, accountId);
-            
-            // Store the client
-            this.clients.set(clientId, client);
-            
-            // Set up minimal event listeners for internal management
-            client.on('qr', (qrCode: string) => {
-                qrCodeResolve(qrCode);
-                // Still emit on manager for backward compatibility
-                this.emit('qr', clientId, qrCode);
-            });
-            
-            client.on('state', (state: WhatsAppClientState) => {
-                // Update database status if needed
-                if (accountId) {
-                    this.updateAccountStatus(accountId, state, clientId);
+            // Check if this client is already in memory
+            if (this.clients.has(sessionId)) {
+                logger.info(`Client with session ID ${sessionId} is already active in memory`);
+                const client = this.clients.get(sessionId)!;
+                
+                // Create a promise to get the QR code if needed
+                let qrCodeResolve: (value: string) => void;
+                const qrCodePromise = new Promise<string>((resolve) => {
+                    // If client is already connected, resolve with empty string
+                    if (client.getState() === 'connected') {
+                        resolve('');
+                    } else {
+                        // Set up one-time QR code listener
+                        client.once('qr', (qrCode: string) => {
+                            resolve(qrCode);
+                        });
+                    }
+                });
+                
+                // If client is disconnected, reconnect it
+                if (client.getState() === 'disconnected') {
+                    await client.connect();
                 }
-                // Still emit on manager for backward compatibility
-                this.emit('state', clientId, state);
-            });
+                
+                return { clientId: sessionId, qrCodePromise, restored: true };
+            }
             
-            client.on('logout', () => {
-                // Update database status if needed
-                if (accountId) {
-                    this.updateAccountStatus(accountId, 'disconnected');
-                }
-                // Still emit on manager for backward compatibility
-                this.emit('logout', clientId);
-            });
+            // Check if session directory exists on disk
+            if (this.sessionExists(sessionId)) {
+                logger.info(`Restoring WhatsApp client from existing session ${sessionId}`);
+                
+                // Create a new client with the existing session ID
+                const client = new WhatsAppAccountClient(sessionId, phoneNumber, accountId);
+                
+                // Store the client
+                this.clients.set(sessionId, client);
+                
+                // Create a promise to get the QR code if needed
+                let qrCodeResolve: (value: string) => void;
+                const qrCodePromise = new Promise<string>((resolve) => {
+                    // Set up one-time QR code listener in case reconnection requires a new QR code
+                    client.once('qr', (qrCode: string) => {
+                        resolve(qrCode);
+                    });
+                    
+                    // If connection succeeds without needing a QR code, resolve with empty string
+                    client.once('connected', () => {
+                        resolve('');
+                    });
+                });
+                
+                // Set up event listeners
+                this.setupClientEventListeners(client, sessionId, accountId);
+                
+                // Connect the client
+                await client.connect();
+                
+                return { clientId: sessionId, qrCodePromise, restored: true };
+            }
             
-            // Forward other events for backward compatibility
-            client.on('connected', (info: any) => this.emit('connected', clientId, info));
-            client.on('message', (message: WhatsAppMessage) => this.emit('message', clientId, message));
-            client.on('error', (error: any) => this.emit('error', clientId, error));
-            
-            // Connect the client
-            await client.connect();
-            
-            return { clientId, qrCodePromise };
+            // If session doesn't exist, create a new client with the specified session ID
+            logger.info(`Creating new WhatsApp client with session ID ${sessionId}`);
+            return await this.createNewClient(sessionId, phoneNumber, accountId);
         } catch (error) {
-            logger.error(`Error creating WhatsApp client: ${error}`);
+            logger.error(`Error restoring or creating WhatsApp client: ${error}`);
             throw error;
         }
+    }
+    
+    /**
+     * Set up event listeners for a client
+     * @param client The client to set up listeners for
+     * @param clientId The client ID
+     * @param accountId Optional account ID
+     * @param qrCodeResolve Optional QR code resolve function
+     */
+    private setupClientEventListeners(client: WhatsAppAccountClient, clientId: string, accountId?: string, qrCodeResolve?: (value: string) => void) {
+        // Set up QR code listener only for the QR code promise resolution
+        if (qrCodeResolve) {
+            client.once('qr', (qrCode: string) => {
+                qrCodeResolve(qrCode);
+            });
+        }
+        
+        // Set up state listener only for database updates
+        client.on('state', (state: WhatsAppClientState) => {
+            // Update database status if needed
+            if (accountId) {
+                this.updateAccountStatus(accountId, state, clientId);
+            }
+        });
+        
+        // Set up logout listener only for database updates
+        client.on('logout', () => {
+            // Update database status if needed
+            if (accountId) {
+                this.updateAccountStatus(accountId, 'disconnected');
+            }
+        });
+        
+        // No need to forward events - clients should emit their own events directly
     }
     
     /**

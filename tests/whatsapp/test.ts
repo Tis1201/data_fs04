@@ -15,9 +15,26 @@ async function main() {
     const phoneNumber = '6597350605'; // Replace with your actual phone number
     const accountId = 'test-account-1';
     
-    // Create a new WhatsApp client
-    console.info('Creating WhatsApp client...');
-    const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient(phoneNumber, accountId);
+    // Session ID to restore (or null to create a new one)
+    const sessionId = '3c7a96e4-cc38-4319-8d7a-ab9dacb8213f';
+    
+    // Check if session exists and restore or create a new client
+    console.info('Checking for existing session...');
+    const sessionExists = whatsAppAccountManager.sessionExists(sessionId);
+    console.info(sessionExists ? `Found existing session: ${sessionId}` : `No existing session found for ID: ${sessionId}`);
+    
+    console.info('Restoring or creating WhatsApp client...');
+    const { clientId, qrCodePromise, restored } = await whatsAppAccountManager.restoreOrCreateClient(
+      sessionId,
+      phoneNumber, 
+      accountId
+    );
+    
+    if (restored) {
+      console.info(`Restored existing WhatsApp client with ID: ${clientId}`);
+    } else {
+      console.info(`Created new WhatsApp client with ID: ${clientId}`);
+    }
     
     console.info(`WhatsApp client created with ID: ${clientId}`);
     console.info('Waiting for QR code...');
@@ -30,6 +47,8 @@ async function main() {
     
     // Set up QR code refresh handling
     let lastQrCode = '';
+    
+    // Set up event listeners directly on the client
     client.on('qr', (qrCode) => {
       // Only display if it's a new QR code
       if (qrCode !== lastQrCode) {
@@ -49,36 +68,54 @@ async function main() {
     
     // Client instance already obtained above
     
-    // Set up event listeners directly on the client
+    // Set up event listeners for state changes directly on client
     client.on('state', (state) => {
       console.info(`Client state changed: ${state}`);
+
+      if (state === 'connecting') {
+        console.info('Client is connecting...');
+      }
+
+      if (state === 'disconnected') {
+        console.info('Client disconnected');
+      }
       
       if (state === 'connected') {
         console.info('Client connected successfully!');
-        
-        // Get client info
-        const clientInfo = client.getInfo();
-        console.info('Client info:', clientInfo);
-        
-        // Save client ID to a file for future reference
-        const clientInfoDir = path.join(process.cwd(), 'whatsapp-client-info');
-        if (!fs.existsSync(clientInfoDir)) {
-          fs.mkdirSync(clientInfoDir, { recursive: true });
-        }
-        
-        const clientInfoFile = path.join(clientInfoDir, `${phoneNumber}.json`);
-        fs.writeFileSync(
-          clientInfoFile, 
-          JSON.stringify({
-            clientId: clientInfo.id,
-            phoneNumber: clientInfo.phoneNumber,
-            accountId: clientInfo.accountId,
-            lastConnected: new Date().toISOString()
-          }, null, 2)
-        );
-        
-        console.info(`Client info saved to ${clientInfoFile}`);
       }
+    });
+    
+    // Listen for logout events
+    client.on('logout', () => {
+      console.info('Client logged out');
+    });
+    
+    // Listen for connected events and handle client info
+    client.on('connected', (info) => {
+      console.info('Client connected event received:', info);
+      
+      // Get client info
+      const clientInfo = client.getInfo();
+      console.info('Client info:', clientInfo);
+      
+      // Save client ID to a file for future reference
+      const clientInfoDir = path.join(process.cwd(), 'whatsapp-client-info');
+      if (!fs.existsSync(clientInfoDir)) {
+        fs.mkdirSync(clientInfoDir, { recursive: true });
+      }
+      
+      const clientInfoFile = path.join(clientInfoDir, `${phoneNumber}.json`);
+      fs.writeFileSync(
+        clientInfoFile, 
+        JSON.stringify({
+          clientId: clientInfo.id,
+          phoneNumber: clientInfo.phoneNumber,
+          accountId: clientInfo.accountId,
+          lastConnected: new Date().toISOString()
+        }, null, 2)
+      );
+      
+      console.info(`Client info saved to ${clientInfoFile}`);
     });
     
     client.on('message', (message) => {
