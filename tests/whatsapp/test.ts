@@ -17,12 +17,18 @@ async function main() {
     const accountId = 'test-account-1';
     
     // Session ID to restore (or null to create a new one)
-    const sessionId = '3c7a96e4-cc38-4319-8d7a-ab9dacb8213f';
+    const sessionId = '2cb27ab4-00c3-4b93-8628-e46ed27c1f48';
+    // const sessionId = null;
     
     // Check if session exists and restore or create a new client
     console.info('Checking for existing session...');
-    const sessionExists = whatsAppAccountManager.sessionExists(sessionId);
-    console.info(sessionExists ? `Found existing session: ${sessionId}` : `No existing session found for ID: ${sessionId}`);
+    let sessionExists = false;
+    if (sessionId) {
+      sessionExists = whatsAppAccountManager.sessionExists(sessionId);
+      console.info(sessionExists ? `Found existing session: ${sessionId}` : `No existing session found for ID: ${sessionId}`);
+    } else {
+      console.info('No session ID provided, will create a new client');
+    }
     
     console.info('Restoring or creating WhatsApp client...');
     const { clientId, qrCodePromise, restored } = await whatsAppAccountManager.restoreOrCreateClient(
