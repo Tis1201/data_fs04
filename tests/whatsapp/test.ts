@@ -1,5 +1,6 @@
 //Node App to hello world using baileys
 import { whatsAppAccountManager } from '../../src/lib/server/whatsapp/WhatsAppAccountManager';
+import { WhatsAppAccountClient } from '../../src/lib/server/whatsapp/WhatsAppAccountClient';
 import qrcode from 'qrcode-terminal';
 import fs from 'fs';
 import path from 'path';
@@ -48,83 +49,16 @@ async function main() {
     // Set up QR code refresh handling
     let lastQrCode = '';
     
-    // Set up event listeners directly on the client
-    client.on('qr', (qrCode) => {
-      // Only display if it's a new QR code
-      if (qrCode !== lastQrCode) {
-        lastQrCode = qrCode;
-        console.log('\nNew QR code received. Scan this QR code with your WhatsApp app:\n');
-        qrcode.generate(qrCode, { small: true });
-      }
-    });
+    // Set up all event listeners directly on the WhatsAppAccountClient instance
+    setupClientEventListeners(client, phoneNumber);
     
     // Wait for the initial QR code
     const initialQrCode = await qrCodePromise;
     lastQrCode = initialQrCode;
     
-    // We don't need to display the QR code here again as it will be displayed by the event handler above
+    // We don't need to display the QR code here again as it will be displayed by the event handler
     
     console.info('\nWaiting for connection...');
-    
-    // Client instance already obtained above
-    
-    // Set up event listeners for state changes directly on client
-    client.on('state', (state) => {
-      console.info(`Client state changed: ${state}`);
-
-      if (state === 'connecting') {
-        console.info('Client is connecting...');
-      }
-
-      if (state === 'disconnected') {
-        console.info('Client disconnected');
-      }
-      
-      if (state === 'connected') {
-        console.info('Client connected successfully!');
-      }
-    });
-    
-    // Listen for logout events
-    client.on('logout', () => {
-      console.info('Client logged out');
-    });
-    
-    // Listen for connected events and handle client info
-    client.on('connected', (info) => {
-      console.info('Client connected event received:', info);
-      
-      // Get client info
-      const clientInfo = client.getInfo();
-      console.info('Client info:', clientInfo);
-      
-      // Save client ID to a file for future reference
-      const clientInfoDir = path.join(process.cwd(), 'whatsapp-client-info');
-      if (!fs.existsSync(clientInfoDir)) {
-        fs.mkdirSync(clientInfoDir, { recursive: true });
-      }
-      
-      const clientInfoFile = path.join(clientInfoDir, `${phoneNumber}.json`);
-      fs.writeFileSync(
-        clientInfoFile, 
-        JSON.stringify({
-          clientId: clientInfo.id,
-          phoneNumber: clientInfo.phoneNumber,
-          accountId: clientInfo.accountId,
-          lastConnected: new Date().toISOString()
-        }, null, 2)
-      );
-      
-      console.info(`Client info saved to ${clientInfoFile}`);
-    });
-    
-    client.on('message', (message) => {
-      console.info(`New message from ${message.from}: ${message.content}`);
-    });
-    
-    client.on('error', (error) => {
-      console.error(`Client error: ${error}`);
-    });
     
     // Keep the process running to maintain the connection
     process.stdin.resume();
@@ -136,4 +70,82 @@ async function main() {
 }
 
 // Run the main function
+/**
+ * Set up all event listeners for a WhatsAppAccountClient instance
+ * @param client The WhatsAppAccountClient instance
+ * @param phoneNumber The phone number for this client
+ */
+function setupClientEventListeners(client: WhatsAppAccountClient, phoneNumber: string): void {
+  // Set up QR code event listener
+  let lastQrCode = '';
+  client.on('qr', (qrCode) => {
+    // Only display if it's a new QR code
+    if (qrCode !== lastQrCode) {
+      lastQrCode = qrCode;
+      console.log('\nNew QR code received. Scan this QR code with your WhatsApp app:\n');
+      qrcode.generate(qrCode, { small: true });
+    }
+  });
+  
+  // Set up state change event listener
+  client.on('state', (state) => {
+    console.info(`=== Client state changed: ${state}`);
+
+    if (state === 'connecting') {
+      console.info('=== Client is connecting...');
+    }
+
+    if (state === 'disconnected') {
+      console.info('=== Client disconnected');
+    }
+    
+    if (state === 'connected') {
+      console.info('=== Client connected successfully!');
+    }
+  });
+  
+  // Listen for logout events
+  client.on('logout', () => {
+    console.info('Client logged out');
+  });
+  
+  // Listen for connected events and handle client info
+  client.on('connected', (info) => {
+    console.info('Client connected event received:', info);
+    
+    // Get client info
+    const clientInfo = client.getInfo();
+    console.info('Client info:', clientInfo);
+    
+    // Save client ID to a file for future reference
+    const clientInfoDir = path.join(process.cwd(), 'whatsapp-client-info');
+    if (!fs.existsSync(clientInfoDir)) {
+      fs.mkdirSync(clientInfoDir, { recursive: true });
+    }
+    
+    const clientInfoFile = path.join(clientInfoDir, `${phoneNumber}.json`);
+    fs.writeFileSync(
+      clientInfoFile, 
+      JSON.stringify({
+        clientId: clientInfo.id,
+        phoneNumber: clientInfo.phoneNumber,
+        accountId: clientInfo.accountId,
+        lastConnected: new Date().toISOString()
+      }, null, 2)
+    );
+    
+    console.info(`Client info saved to ${clientInfoFile}`);
+  });
+  
+  // Listen for message events
+  client.on('message', (message) => {
+    console.info(`New message from ${message.from}: ${message.content}`);
+  });
+  
+  // Listen for error events
+  client.on('error', (error) => {
+    console.error(`Client error: ${error}`);
+  });
+}
+
 main().catch((error) => console.error(`Unhandled error: ${error}`));
