@@ -162,11 +162,31 @@ function setupClientEventListeners(client: WhatsAppAccountClient, clientId?: str
   
   // Listen for message events
   client.on('message', (message) => {
+    // Display basic message info
     console.info(`New message from ${message.from}: ${message.content}`);
+    
+    // Display special message types more clearly
+    if (message.type === 'deleted') {
+      console.info(`This message is a deletion notification`);
+    } else if (message.type === 'reaction') {
+      console.info(`This message is a reaction: ${message.content}`);
+    }
+    
+    // Display reply context if this is a reply
+    if (message.isReply) {
+      console.info(`This message is a reply to: "${message.replyToMessage}"`);
+      console.info(`Original message ID: ${message.replyToMessageId}`);
+      console.info(`Original sender: ${message.replyToParticipant}`);
+    }
     
     // Handle media messages - demonstrate optional download
     if (['image', 'video', 'audio', 'document'].includes(message.type)) {
       console.info(`Received media message of type: ${message.type}`);
+      
+      // Display caption if present
+      if (message.caption) {
+        console.info(`Caption: "${message.caption}"`);
+      }
       
       // Example: Only download images and documents automatically
       if (['image', 'document'].includes(message.type)) {
@@ -192,6 +212,11 @@ function setupClientEventListeners(client: WhatsAppAccountClient, clientId?: str
   client.on('media', ({ message, path }) => {
     console.info(`Media from ${message.from} downloaded successfully to: ${path}`);
     console.info(`Media type: ${message.type}, File name: ${message.fileName || path.split('/').pop()}`);
+    
+    // Display caption if present
+    if (message.caption) {
+      console.info(`Caption: "${message.caption}"`);
+    }
   });
   
   // Example function to download media later when needed

@@ -34,13 +34,18 @@ export interface WhatsAppMessage {
     content: string;
     timestamp: number;
     isFromMe: boolean;
-    type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'unknown';
+    type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'contact' | 'reaction' | 'deleted' | 'unknown';
     // Additional fields for specific message types
     mediaUrl?: string;
     caption?: string;
     fileName?: string;
     fileSize?: number;
     mimetype?: string;
+    // Reply context
+    isReply?: boolean;
+    replyToMessageId?: string;
+    replyToMessage?: string;
+    replyToParticipant?: string;
 }
 
 /**
@@ -331,10 +336,12 @@ export class WhatsAppAccountClient extends EventEmitter {
                     
                     // Only emit if it's not a notification or if it's a meaningful notification
                     if (!isNotification || formattedMessage.content !== '[Notification]') {
-                        // Store the raw message for potential later download
-                        if (['image', 'video', 'audio', 'document'].includes(formattedMessage.type)) {
-                            // Store the original message reference in a property for later download if needed
-                            (formattedMessage as any)._rawMessage = message;
+                        // Store the raw message for all message types for debugging and download purposes
+                        (formattedMessage as any)._rawMessage = message;
+                        
+                        // For unknown message types, log the raw message in debug mode
+                        if (formattedMessage.type === 'unknown' || formattedMessage.type === 'deleted' || formattedMessage.type === 'reaction') {
+                            logger.debug(`Special message type detected: ${formattedMessage.type}. Raw message: ${JSON.stringify(message, null, 2)}`);
                         }
                         
                         this.emit('message', formattedMessage);
@@ -371,6 +378,12 @@ export class WhatsAppAccountClient extends EventEmitter {
             let fileName = '';
             let fileSize = 0;
             let mimetype = '';
+            
+            // Initialize reply context variables
+            let isReply = false;
+            let replyToMessageId = '';
+            let replyToMessage = '';
+            let replyToParticipant = '';
             
             // Check if there's actual message content
             const messageContent = rawMessage.message;
@@ -413,6 +426,37 @@ export class WhatsAppAccountClient extends EventEmitter {
                 else if (messageContent.extendedTextMessage) {
                     content = messageContent.extendedTextMessage.text || '';
                     type = 'text';
+                    
+                    // Check if this is a reply to another message
+                    if (messageContent.extendedTextMessage.contextInfo?.quotedMessage) {
+                        const quotedMessage = messageContent.extendedTextMessage.contextInfo.quotedMessage;
+                        const quotedParticipant = messageContent.extendedTextMessage.contextInfo.participant;
+                        const quotedStanzaId = messageContent.extendedTextMessage.contextInfo.stanzaId;
+                        
+                        // Extract the content of the quoted message
+                        let quotedContent = '';
+                        if (quotedMessage.conversation) {
+                            quotedContent = quotedMessage.conversation;
+                        } else if (quotedMessage.extendedTextMessage) {
+                            quotedContent = quotedMessage.extendedTextMessage.text;
+                        } else if (quotedMessage.imageMessage) {
+                            quotedContent = quotedMessage.imageMessage.caption || '[Image]';
+                        } else if (quotedMessage.videoMessage) {
+                            quotedContent = quotedMessage.videoMessage.caption || '[Video]';
+                        } else if (quotedMessage.audioMessage) {
+                            quotedContent = '[Audio]';
+                        } else if (quotedMessage.documentMessage) {
+                            quotedContent = quotedMessage.documentMessage.fileName || '[Document]';
+                        } else {
+                            quotedContent = '[Unknown message type]';
+                        }
+                        
+                        // Add reply context to the message
+                        isReply = true;
+                        replyToMessageId = quotedStanzaId;
+                        replyToMessage = quotedContent;
+                        replyToParticipant = quotedParticipant;
+                    }
                 }
                 // Image message
                 else if (messageContent.imageMessage) {
@@ -448,6 +492,25 @@ export class WhatsAppAccountClient extends EventEmitter {
                     mediaUrl = ''; // Would need to download and save
                     mimetype = messageContent.documentMessage.mimetype;
                     fileSize = messageContent.documentMessage.fileLength;
+                    caption = messageContent.documentMessage.caption || '';
+                }
+                // Document with caption message (newer format)
+                else if (messageContent.documentWithCaptionMessage) {
+                    // Extract the document message from the container
+                    const docMessage = messageContent.documentWithCaptionMessage.message?.documentMessage;
+                    if (docMessage) {
+                        type = 'document';
+                        fileName = docMessage.fileName || '';
+                        content = fileName || '[Document]';
+                        mediaUrl = ''; // Would need to download and save
+                        mimetype = docMessage.mimetype;
+                        fileSize = docMessage.fileLength;
+                        caption = docMessage.caption || '';
+                    } else {
+                        // Fallback if structure is unexpected
+                        type = 'document';
+                        content = '[Document with caption]';
+                    }
                 }
                 // Location message
                 else if (messageContent.locationMessage) {
@@ -472,8 +535,53 @@ export class WhatsAppAccountClient extends EventEmitter {
                 // Unknown message type - log the content for debugging
                 else {
                     logger.debug(`Unknown message type: ${JSON.stringify(messageContent)}`);
-                    content = '[Unknown message type]';
+                    
+                    // Try to determine if this is a deleted message
+                    if (messageContent.protocolMessage && messageContent.protocolMessage.type === 0) {
+                        content = '[Message deleted]';
+                        type = 'deleted';
+                    } 
+                    // Try to determine if this is a reaction
+                    else if (messageContent.reactionMessage) {
+                        content = `[Reaction: ${messageContent.reactionMessage.text || ''}]`;
+                        type = 'reaction';
+                    }
+                    // Other unknown types
+                    else {
+                        content = '[Unknown message type]';
+                    }
                 }
+            }
+            
+            // Check for reply context in other message types too
+            if (messageContent && messageContent.contextInfo?.quotedMessage) {
+                const quotedMessage = messageContent.contextInfo.quotedMessage;
+                const quotedParticipant = messageContent.contextInfo.participant;
+                const quotedStanzaId = messageContent.contextInfo.stanzaId;
+                
+                // Extract the content of the quoted message
+                let quotedContent = '';
+                if (quotedMessage.conversation) {
+                    quotedContent = quotedMessage.conversation;
+                } else if (quotedMessage.extendedTextMessage) {
+                    quotedContent = quotedMessage.extendedTextMessage.text;
+                } else if (quotedMessage.imageMessage) {
+                    quotedContent = quotedMessage.imageMessage.caption || '[Image]';
+                } else if (quotedMessage.videoMessage) {
+                    quotedContent = quotedMessage.videoMessage.caption || '[Video]';
+                } else if (quotedMessage.audioMessage) {
+                    quotedContent = '[Audio]';
+                } else if (quotedMessage.documentMessage) {
+                    quotedContent = quotedMessage.documentMessage.fileName || '[Document]';
+                } else {
+                    quotedContent = '[Unknown message type]';
+                }
+                
+                // Add reply context to the message
+                isReply = true;
+                replyToMessageId = quotedStanzaId;
+                replyToMessage = quotedContent;
+                replyToParticipant = quotedParticipant;
             }
             
             return {
@@ -488,7 +596,11 @@ export class WhatsAppAccountClient extends EventEmitter {
                 caption,
                 fileName,
                 fileSize,
-                mimetype
+                mimetype,
+                isReply,
+                replyToMessageId,
+                replyToMessage,
+                replyToParticipant
             };
         } catch (error) {
             logger.error(`Error formatting message: ${error}`);
