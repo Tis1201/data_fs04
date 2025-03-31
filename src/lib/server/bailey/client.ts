@@ -14,7 +14,7 @@ import { sendQrCode, sendConnectionStatus, sendError, sendPhoneInfo } from './ut
 const { makeWASocket, fetchLatestBaileysVersion, useMultiFileAuthState, DisconnectReason } = baileys;
 
 // Define the auth directory
-export const AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
+export const AUTH_DIR = path.join(process.cwd(), 'tests/whatsapp/sessions');
 
 // Ensure auth directory exists
 if (!fs.existsSync(AUTH_DIR)) {

@@ -5,15 +5,21 @@ import { Boom } from '@hapi/boom';
 import { pino } from 'pino';
 import { logger } from '$lib/server/logger';
 import EventEmitter from 'events';
+import crypto from 'crypto';
 
-const { makeWASocket, fetchLatestBaileysVersion, useMultiFileAuthState, DisconnectReason } = baileys;
+const { makeWASocket, fetchLatestBaileysVersion, useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = baileys;
 
-// Define the auth directory
-export const AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
+// Define the default auth directory
+export const DEFAULT_AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
 
-// Ensure auth directory exists
-if (!fs.existsSync(AUTH_DIR)) {
-    fs.mkdirSync(AUTH_DIR, { recursive: true });
+// Define the default media directory
+export const DEFAULT_MEDIA_DIR = path.join(process.cwd(), 'whatsapp-media');
+
+// Helper function to ensure a directory exists
+function ensureDirectoryExists(dir: string): void {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
 }
 
 // Define client state type
@@ -52,6 +58,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     private phoneNumber?: string;
     private accountId?: string;
     private authDir: string;
+    private mediaDir: string;
     private pushName?: string;
     private autoReconnect: boolean = true;
     private reconnectCount: number = 0;
@@ -63,18 +70,37 @@ export class WhatsAppAccountClient extends EventEmitter {
      * @param id Unique client ID
      * @param phoneNumber Optional phone number
      * @param accountId Optional account ID for database reference
+     * @param options Optional configuration options
      */
-    constructor(id: string, phoneNumber?: string, accountId?: string) {
+    constructor(id: string, phoneNumber?: string, accountId?: string, options?: { authDir?: string, mediaDir?: string }) {
         super();
         this.id = id;
         this.phoneNumber = phoneNumber;
         this.accountId = accountId;
-        this.authDir = path.join(AUTH_DIR, id);
         
-        // Ensure client auth directory exists
-        if (!fs.existsSync(this.authDir)) {
-            fs.mkdirSync(this.authDir, { recursive: true });
+        // Use custom directories if provided, otherwise use defaults
+        const baseAuthDir = options?.authDir || DEFAULT_AUTH_DIR;
+        const baseMediaDir = options?.mediaDir || DEFAULT_MEDIA_DIR;
+        
+        // Ensure base directories exist only if they are going to be used
+        if (!options?.authDir && baseAuthDir === DEFAULT_AUTH_DIR) {
+            ensureDirectoryExists(DEFAULT_AUTH_DIR);
+        } else if (options?.authDir) {
+            ensureDirectoryExists(options.authDir);
         }
+        
+        if (!options?.mediaDir && baseMediaDir === DEFAULT_MEDIA_DIR) {
+            ensureDirectoryExists(DEFAULT_MEDIA_DIR);
+        } else if (options?.mediaDir) {
+            ensureDirectoryExists(options.mediaDir);
+        }
+        
+        this.authDir = path.join(baseAuthDir, id);
+        this.mediaDir = path.join(baseMediaDir, id);
+        
+        // Ensure client directories exist
+        ensureDirectoryExists(this.authDir);
+        ensureDirectoryExists(this.mediaDir);
         
         logger.info(`Created WhatsApp client instance with ID: ${id}`);
     }
@@ -305,6 +331,12 @@ export class WhatsAppAccountClient extends EventEmitter {
                     
                     // Only emit if it's not a notification or if it's a meaningful notification
                     if (!isNotification || formattedMessage.content !== '[Notification]') {
+                        // Store the raw message for potential later download
+                        if (['image', 'video', 'audio', 'document'].includes(formattedMessage.type)) {
+                            // Store the original message reference in a property for later download if needed
+                            (formattedMessage as any)._rawMessage = message;
+                        }
+                        
                         this.emit('message', formattedMessage);
                     }
                 }
@@ -613,6 +645,101 @@ export class WhatsAppAccountClient extends EventEmitter {
         } catch (error) {
             logger.error(`Error generating pairing code: ${error}`);
             this.emit('error', error);
+            return null;
+        }
+    }
+    
+    /**
+     * Download media from a message
+     * @param message The formatted message object or message ID
+     * @returns Promise resolving to the path of the downloaded media file or null if download failed
+     */
+    async downloadMedia(message: WhatsAppMessage | string): Promise<string | null> {
+        try {
+            if (!this.socket || this.state !== 'connected') {
+                throw new Error('Client not connected');
+            }
+            
+            // Handle different input types
+            let formattedMessage: WhatsAppMessage;
+            let rawMessage: any;
+            
+            if (typeof message === 'string') {
+                throw new Error('Message ID-based download not implemented yet');
+                // Future implementation: lookup message by ID in a cache or database
+            } else {
+                formattedMessage = message;
+                // Get the raw message from the _rawMessage property
+                rawMessage = (formattedMessage as any)._rawMessage;
+                
+                if (!rawMessage) {
+                    throw new Error('Raw message data not available for download');
+                }
+            }
+            
+            if (!['image', 'video', 'audio', 'document'].includes(formattedMessage.type)) {
+                throw new Error(`Message type ${formattedMessage.type} does not contain downloadable media`);
+            }
+            
+            // Use the client's media directory
+            ensureDirectoryExists(this.mediaDir);
+            
+            // Generate a unique filename based on message ID and timestamp
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const hash = crypto.createHash('md5').update(formattedMessage.id).digest('hex').substring(0, 8);
+            
+            // Determine file extension based on mimetype or default to type
+            let extension = '';
+            if (formattedMessage.mimetype) {
+                const mimeExtension = formattedMessage.mimetype.split('/').pop();
+                extension = mimeExtension || formattedMessage.type;
+            } else {
+                extension = formattedMessage.type;
+            }
+            
+            // Use original filename if available (for documents)
+            let filename = '';
+            if (formattedMessage.type === 'document' && formattedMessage.fileName) {
+                // Extract extension from original filename if possible
+                const originalExt = path.extname(formattedMessage.fileName);
+                const originalName = path.basename(formattedMessage.fileName, originalExt);
+                filename = `${originalName}_${hash}_${timestamp}${originalExt || `.${extension}`}`;
+            } else {
+                filename = `${formattedMessage.type}_${hash}_${timestamp}.${extension}`;
+            }
+            
+            // Sanitize filename to remove invalid characters
+            filename = filename.replace(/[\\/:*?"<>|]/g, '_');
+            
+            // Full path to save the media
+            const mediaPath = path.join(this.mediaDir, filename);
+            
+            // Download the media
+            logger.info(`Downloading media from message ${formattedMessage.id}...`);
+            const buffer = await downloadMediaMessage(
+                rawMessage,
+                'buffer',
+                {},
+                { 
+                    logger: logger,
+                    reuploadRequest: this.socket.updateMediaMessage
+                }
+            );
+            
+            // Save the buffer to file
+            fs.writeFileSync(mediaPath, buffer);
+            logger.info(`Media saved to ${mediaPath}`);
+            
+            // Update the message's mediaUrl property
+            formattedMessage.mediaUrl = path.join(this.id, filename);
+            
+            // Emit a media event
+            this.emit('media', { message: formattedMessage, path: formattedMessage.mediaUrl });
+            
+            // Return the relative path (from MEDIA_DIR)
+            return formattedMessage.mediaUrl;
+        } catch (error) {
+            logger.error(`Error downloading media: ${error}`);
             return null;
         }
     }

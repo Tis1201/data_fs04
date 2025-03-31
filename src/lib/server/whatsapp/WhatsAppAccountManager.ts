@@ -1,11 +1,19 @@
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '$lib/server/logger';
-import { WhatsAppAccountClient, AUTH_DIR } from './WhatsAppAccountClient';
+import { WhatsAppAccountClient, DEFAULT_AUTH_DIR, DEFAULT_MEDIA_DIR } from './WhatsAppAccountClient';
 import type { WhatsAppClientState } from './WhatsAppAccountClient';
 import type { WhatsAppMessage } from './WhatsAppAccountClient';
 import EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
+
+/**
+ * Options for WhatsApp Account Manager
+ */
+export interface WhatsAppManagerOptions {
+    authDir?: string;
+    mediaDir?: string;
+}
 
 /**
  * WhatsApp Account Manager
@@ -14,9 +22,11 @@ import path from 'path';
 export class WhatsAppAccountManager extends EventEmitter {
     // Store for all WhatsApp clients
     private clients = new Map<string, WhatsAppAccountClient>();
+    private options: WhatsAppManagerOptions;
     
-    constructor() {
+    constructor(options?: WhatsAppManagerOptions) {
         super();
+        this.options = options || {};
         logger.info('WhatsApp Account Manager initialized');
     }
     
@@ -27,15 +37,21 @@ export class WhatsAppAccountManager extends EventEmitter {
      * @param accountId Optional account ID for database reference
      * @returns Client info with restored=false
      */
-    private async createNewClient(clientId: string, phoneNumber?: string, accountId?: string): Promise<{ clientId: string, qrCodePromise: Promise<string>, restored: boolean }> {
+    private async createNewClient(clientId: string, phoneNumber?: string, accountId?: string, options?: WhatsAppManagerOptions): Promise<{ clientId: string, qrCodePromise: Promise<string>, restored: boolean }> {
         // Create a promise to get the QR code
         let qrCodeResolve: (value: string) => void;
         const qrCodePromise = new Promise<string>((resolve) => {
             qrCodeResolve = resolve;
         });
         
+        // Merge manager options with client-specific options
+        const clientOptions = {
+            authDir: options?.authDir || this.options.authDir,
+            mediaDir: options?.mediaDir || this.options.mediaDir
+        };
+        
         // Create a new client instance
-        const client = new WhatsAppAccountClient(clientId, phoneNumber, accountId);
+        const client = new WhatsAppAccountClient(clientId, phoneNumber, accountId, clientOptions);
         
         // Store the client
         this.clients.set(clientId, client);
@@ -55,9 +71,9 @@ export class WhatsAppAccountManager extends EventEmitter {
      * @param accountId Optional account ID for database reference
      * @returns Client ID and QR code promise
      */
-    async createClient(phoneNumber?: string, accountId?: string): Promise<{ clientId: string, qrCodePromise: Promise<string> }> {
+    async createClient(phoneNumber?: string, accountId?: string, options?: WhatsAppManagerOptions): Promise<{ clientId: string, qrCodePromise: Promise<string> }> {
         // Simply call restoreOrCreateClient with null sessionId to create a new client
-        const result = await this.restoreOrCreateClient(null, phoneNumber, accountId);
+        const result = await this.restoreOrCreateClient(null, phoneNumber, accountId, options);
         return { clientId: result.clientId, qrCodePromise: result.qrCodePromise };
     }
     
@@ -67,7 +83,9 @@ export class WhatsAppAccountManager extends EventEmitter {
      * @returns True if session exists, false otherwise
      */
     sessionExists(sessionId: string): boolean {
-        const sessionDir = path.join(AUTH_DIR, sessionId);
+        // Use the custom auth directory if specified, otherwise use the default
+        const baseAuthDir = this.options.authDir || DEFAULT_AUTH_DIR;
+        const sessionDir = path.join(baseAuthDir, sessionId);
         return fs.existsSync(sessionDir) && fs.readdirSync(sessionDir).length > 0;
     }
     
@@ -118,8 +136,14 @@ export class WhatsAppAccountManager extends EventEmitter {
             if (this.sessionExists(sessionId)) {
                 logger.info(`Restoring WhatsApp client from existing session ${sessionId}`);
                 
-                // Create a new client with the existing session ID
-                const client = new WhatsAppAccountClient(sessionId, phoneNumber, accountId);
+                // Merge manager options with client-specific options
+                const clientOptions = {
+                    authDir: this.options.authDir,
+                    mediaDir: this.options.mediaDir
+                };
+                
+                // Create a new client with the existing session ID and custom options
+                const client = new WhatsAppAccountClient(sessionId, phoneNumber, accountId, clientOptions);
                 
                 // Store the client
                 this.clients.set(sessionId, client);
