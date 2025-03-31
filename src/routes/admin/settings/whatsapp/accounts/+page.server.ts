@@ -2,10 +2,9 @@ import type { PageServerLoad, Actions } from './$types';
 import { json, fail } from '@sveltejs/kit';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../users/schema';
+import { SystemRole } from '../../../users/schema';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import type { WhatsAppAccountClient } from '$lib/server/whatsapp/WhatsAppAccountClient';
-import { setupClientEventListeners } from '$lib/server/whatsapp/utils';
 import { logger } from '$lib/server/logger';
 import WebSocket from 'ws';
 
@@ -102,7 +101,7 @@ export const actions = {
                     }
                     
                     // Set up event listeners for the client
-                    setupClientEventListeners(client, socket, clientId);
+                    // setupClientEventListeners(client, socket, clientId);
                     
                     // The QR code will be sent via WebSocket
                     logger.info(`WhatsApp client created with ID ${clientId}`);
@@ -178,4 +177,3 @@ export const actions = {
     )
     
 };
-

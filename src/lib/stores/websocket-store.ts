@@ -82,14 +82,28 @@ const createSocketStore = () => {
   
   // Connect to the WebSocket
   const connect = (queryParams = '') => {
+    // If we already have a socket, close it first
+    if (socket && socket.readyState !== WebSocket.CLOSED) {
+      console.log('[SocketStore] Closing existing connection before reconnecting...');
+      socket.close();
+    }
+    
     console.log('[SocketStore] Connecting...');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const url = `${protocol}//${host}${WS_URL_PATH}${queryParams ? '?' + queryParams : ''}`;
     console.log(`[SocketStore] Connecting to ${url}`);
+    
     try {
       const ws = new WebSocket(url);
       socket = ws;
+      
+      // Update state to connecting
+      update(state => ({
+        ...state,
+        status: 'CONNECTING',
+        error: null
+      }));
       
       ws.onopen = () => {
         console.log('[SocketStore] WebSocket opened');
@@ -105,20 +119,43 @@ const createSocketStore = () => {
           content: 'Connected to WebSocket server',
           data: { timestamp: new Date().toISOString(), socketId }
         });
+        
+        // Send an initial message to register the client
+        ws.send(JSON.stringify({ type: 'register', data: { clientType: 'web' } }));
+        
+        // Setup ping interval
+        if (pingInterval) clearInterval(pingInterval);
         pingInterval = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'ping' }));
           }
         }, PING_INTERVAL);
       };
-        ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
         console.log('[SocketStore] Received:', event.data);
         try {
           const message = JSON.parse(event.data);
 
-          if (message.type === 'echo' && message.data.type === 'ping') {
+          if (message.type === 'echo' && message.data?.type === 'ping') {
             console.log('[SocketStore] Ignoring ping');
             return;
+          }
+          
+          // Log all non-ping messages for debugging
+          console.log('[SocketStore] Processing message:', message);
+          
+          // Update socket status if it's a welcome message
+          if (message.type === 'welcome') {
+            console.log('[SocketStore] Received welcome message:', message);
+            update(state => ({
+              ...state,
+              socket: { 
+                ...state.socket, 
+                id: message.data?.socketId || state.socket?.id,
+                userId: message.data?.userId,
+                role: message.data?.role
+              }
+            }));
           }
 
           addMessage(message);
@@ -135,11 +172,24 @@ const createSocketStore = () => {
           content: 'Disconnected from WebSocket server',
           data: { timestamp: new Date().toISOString(), reason: event.reason || 'Connection closed', code: event.code }
         });
-        set({ status: 'CLOSED', error: null, socket: null, messages: [] });
+        
+        update(state => ({
+          ...state,
+          status: 'CLOSED',
+          error: null,
+          socket: null
+        }));
+        
         if (pingInterval) {
           clearInterval(pingInterval);
           pingInterval = null;
         }
+        
+        // Attempt to reconnect after a delay
+        setTimeout(() => {
+          console.log('[SocketStore] Attempting to reconnect...');
+          connect(queryParams);
+        }, RECONNECT_INTERVAL);
       };
       
       ws.onerror = (event) => {
@@ -184,19 +234,38 @@ const createSocketStore = () => {
   
   // Send a message through the WebSocket
   const send = (eventOrMessage: string | WebSocketMessage, data?: any) => {
-    if (!socket) {
-      console.error('[SocketStore] Cannot send: Socket not connected');
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.error('[SocketStore] Cannot send: Socket not connected or not open', {
+        socket: socket ? 'exists' : 'null',
+        readyState: socket ? socket.readyState : 'N/A'
+      });
+      
+      // Attempt to reconnect if socket is closed
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
+        console.log('[SocketStore] Attempting to reconnect before sending message...');
+        connect('');
+        // Queue this message to be sent after reconnection
+        setTimeout(() => {
+          send(eventOrMessage, data);
+        }, 1000);
+      }
       return;
     }
+    
     let message: WebSocketMessage;
     if (typeof eventOrMessage === 'object') {
       message = eventOrMessage;
     } else {
       message = { type: eventOrMessage, data: data || {}, timestamp: new Date().toISOString() };
     }
+    
     console.log('[SocketStore] Sending:', message);
-    socket.send(JSON.stringify(message));
-    addMessage({ ...message, timestamp: new Date().toISOString() });
+    try {
+      socket.send(JSON.stringify(message));
+      addMessage({ ...message, timestamp: new Date().toISOString() });
+    } catch (error) {
+      console.error('[SocketStore] Error sending message:', error);
+    }
   };
   
   const clearMessages = () => {

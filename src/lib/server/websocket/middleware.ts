@@ -78,8 +78,12 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                         }
                     }));
 
-                    // Get WebSocket manager instance
-                    const manager = WebSocketManager.getInstance(wss);
+                    // Get WebSocket manager instance and add this client
+                    const manager = WebSocketManager.getInstance();
+                    manager.addClient(ws);
+                    
+                    // Log the client count after adding
+                    logger.info(`[wss:kit] client added to manager, total clients: ${manager.getClientCount()}`);
 
                     // Set up message handling after authentication
                     ws.on('message', (message: string) => {

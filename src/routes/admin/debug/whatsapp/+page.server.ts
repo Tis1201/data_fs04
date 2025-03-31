@@ -1,6 +1,5 @@
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import type { PageServerLoad } from './$types';
-import { getWhatsAppClient, sendWhatsAppMessage } from '$lib/server/bailey/client';
 import { fail, type Actions } from '@sveltejs/kit';
 import { z } from 'zod';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -98,19 +97,19 @@ export const actions: Actions = {
             }
 
             // Send the message
-            const result = await sendWhatsAppMessage(account.client_id, formattedRecipient, message);
+            // const result = await sendWhatsAppMessage(account.client_id, formattedRecipient, message);
             
-            if (result) {
-                return { 
-                    form,
-                    success: true 
-                };
-            } else {
-                return fail(500, { 
-                    form,
-                    error: 'Failed to send message' 
-                });
-            }
+            // if (result) {
+            //     return { 
+            //         form,
+            //         success: true 
+            //     };
+            // } else {
+            //     return fail(500, { 
+            //         form,
+            //         error: 'Failed to send message' 
+            //     });
+            // }
         } catch (error) {
             console.error('Error sending WhatsApp message:', error);
             return fail(500, { 

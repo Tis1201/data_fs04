@@ -1,188 +1,76 @@
-//Node App to hello world using baileys
-import { WhatsAppAccountClient } from '../../src/lib/server/whatsapp/WhatsAppAccountClient';
-import qrcode from 'qrcode-terminal';
+import { qrcode } from 'qrcode-terminal';
+import { logger } from '$lib/server/logger';
+import { WhatsAppAccountClient, DEFAULT_AUTH_DIR, DEFAULT_MEDIA_DIR } from '$lib/server/whatsapp/WhatsAppAccountClient';
+import type { WhatsAppClientState } from '$lib/server/whatsapp/WhatsAppAccountClient';
+import type { WhatsAppMessage } from '$lib/server/whatsapp/WhatsAppAccountClient';
+import EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
+import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 
 // Define custom directories for this test
 const TEST_AUTH_DIR = path.join(process.cwd(), 'tests/whatsapp/workings/sessions');
 const TEST_MEDIA_DIR = path.join(process.cwd(), 'tests/whatsapp/workings/media');
 
 // Ensure test directories exist
-if (!fs.existsSync(TEST_AUTH_DIR)) {
-  fs.mkdirSync(TEST_AUTH_DIR, { recursive: true });
-}
+fs.mkdirSync(TEST_AUTH_DIR, { recursive: true });
+fs.mkdirSync(TEST_MEDIA_DIR, { recursive: true });
 
-if (!fs.existsSync(TEST_MEDIA_DIR)) {
-  fs.mkdirSync(TEST_MEDIA_DIR, { recursive: true });
-}
-
-/**
- * Simple test script to create a WhatsApp client and display the QR code
- */
 async function main() {
-  console.info('Hello World! Starting WhatsApp client test...');
-  
-  try {
-    // Use null to create a new session or provide an existing session ID
-    const sessionId = 'f538295d-44ef-4f4a-af0e-f589fe62ae83'; // Change to a specific ID to restore an existing session
-    
-    // Create a unique client ID based on the session ID
-    const clientId = sessionId ? sessionId : crypto.randomUUID();
-    
-    // Create a WhatsApp client directly
-    console.info('Creating WhatsApp client...');
-    const client = new WhatsAppAccountClient(
-      clientId,
-      undefined,
-      undefined,
-      {
-        authDir: TEST_AUTH_DIR,
-        mediaDir: TEST_MEDIA_DIR
-      }
-    );
-    
-    // Set up event listeners
-    setupClientEventListeners(client);
-    
-    // Start the client
-    await client.connect();
-    
-    console.info('Waiting for connection...');
-    
-    // Keep the process running to maintain the connection
-    process.stdin.resume();
-    console.info('Press Ctrl+C to exit');
-    
-  } catch (error) {
-    console.error(`Error in main function: ${error}`);
-  }
-}
+    console.info('Hello World! Starting WhatsApp client test...');
 
-/**
- * Set up all event listeners for a WhatsAppAccountClient instance
- * @param client The WhatsAppAccountClient instance
- */
-function setupClientEventListeners(client: WhatsAppAccountClient): void {
-  // Set up QR code event listener
-  let lastQrCode = '';
-  client.on('qr', (qrCode) => {
-    // Only display if it's a new QR code
-    if (qrCode !== lastQrCode) {
-      lastQrCode = qrCode;
-      console.log('\nNew QR code received. Scan this QR code with your WhatsApp app:\n');
-      qrcode.generate(qrCode, { small: true });
-    }
-  });
-  
-  // Set up state change event listener
-  client.on('state', (state) => {
-    console.info(`=== Client state changed: ${state}`);
+    try {
+        // Create a WhatsApp client directly
+        console.info('Creating WhatsApp client...');
+        const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient(undefined, undefined, {
+            authDir: TEST_AUTH_DIR,
+            mediaDir: TEST_MEDIA_DIR
+        });
 
-    if (state === 'connecting') {
-      console.info('=== Client is connecting...');
-    }
-
-    if (state === 'disconnected') {
-      console.info('=== Client disconnected');
-    }
-    
-    if (state === 'connected') {
-      console.info('=== Client connected successfully!');
-    }
-  });
-  
-  // Listen for logout events
-  client.on('logout', () => {
-    console.info('Client logged out');
-  });
-  
-  // Listen for connected events and handle client info
-  client.on('connected', (info) => {
-    console.info('Client connected event received:', info);
-    
-    // Get client info
-    const clientInfo = client.getInfo();
-    console.info('Client info:', clientInfo);
-  });
-  
-  // Listen for message events
-  client.on('message', (message) => {
-    // Display basic message info
-    console.info(`New message from ${message.from}: ${message.content}`);
-    
-    // Display special message types more clearly
-    if (message.type === 'deleted') {
-      console.info(`This message is a deletion notification`);
-    } else if (message.type === 'reaction') {
-      console.info(`This message is a reaction: ${message.content}`);
-    }
-    
-    // Display reply context if this is a reply
-    if (message.isReply) {
-      console.info(`This message is a reply to: "${message.replyToMessage}"`);
-      console.info(`Original message ID: ${message.replyToMessageId}`);
-      console.info(`Original sender: ${message.replyToParticipant}`);
-    }
-    
-    // Handle media messages - demonstrate optional download
-    if (['image', 'video', 'audio', 'document'].includes(message.type)) {
-      console.info(`Received media message of type: ${message.type}`);
-      
-      // Display caption if present
-      if (message.caption) {
-        console.info(`Caption: "${message.caption}"`);
-      }
-      
-      // Example: Only download images and documents automatically
-      if (['image', 'document'].includes(message.type)) {
-        console.info('Downloading media content...');
-        client.downloadMedia(message)
-          .then(mediaPath => {
-            if (mediaPath) {
-              console.info(`Media downloaded successfully to: ${mediaPath}`);
-            } else {
-              console.error('Failed to download media');
-            }
-          })
-          .catch(err => console.error(`Error downloading media: ${err}`));
-      } else {
-        console.info('Media available for download but not automatically downloaded');
-        // Example: You could provide a function to download on demand
-        // downloadMediaLater(message);
-      }
-    }
-  });
-  
-  // Listen for media download events
-  client.on('media', ({ message, path }) => {
-    console.info(`Media from ${message.from} downloaded successfully to: ${path}`);
-    console.info(`Media type: ${message.type}, File name: ${message.fileName || path.split('/').pop()}`);
-    
-    // Display caption if present
-    if (message.caption) {
-      console.info(`Caption: "${message.caption}"`);
-    }
-  });
-  
-  // Example function to download media later when needed
-  function downloadMediaLater(message: any) {
-    // This could be triggered by a user action or other event
-    console.info('Downloading media on demand...');
-    client.downloadMedia(message)
-      .then(mediaPath => {
-        if (mediaPath) {
-          console.info(`Media downloaded on demand to: ${mediaPath}`);
+        // Wait for QR code
+        const qrCode = await qrCodePromise;
+        if (qrCode) {
+            console.info('Displaying QR code...');
+            qrcode.generate(qrCode, { small: true });
         }
-      })
-      .catch(err => console.error(`Error downloading media on demand: ${err}`));
-  }
-  
-  // Listen for error events
-  client.on('error', (error) => {
-    console.error(`Client error: ${error}`);
-  });
+
+        // Set up event listeners
+        whatsAppAccountManager.on('qr', (clientId, qrCode) => {
+            console.info(`New QR code for client ${clientId}:`);
+            qrcode.generate(qrCode, { small: true });
+        });
+
+        whatsAppAccountManager.on('state', (clientId, state) => {
+            console.info(`Client ${clientId} state changed to: ${state}`);
+        });
+
+        whatsAppAccountManager.on('message', (clientId, message) => {
+            console.info(`New message from ${message.from}: ${message.content}`);
+            console.info('Message details:', message);
+        });
+
+        // Wait for connection
+        console.info('Waiting for connection...');
+        await new Promise(resolve => setTimeout(resolve, 10000));
+
+        // Send a test message
+        console.info('Sending test message...');
+        const messageId = await whatsAppAccountManager.sendMessage(clientId, '6597350605@s.whatsapp.net', 'Hello from test!');
+        console.info(`Message sent with ID: ${messageId}`);
+
+        // Wait for a bit to see if message is received
+        console.info('Waiting for messages...');
+        await new Promise(resolve => setTimeout(resolve, 30000));
+
+        // Disconnect the client
+        console.info('Disconnecting client...');
+        await whatsAppAccountManager.disconnectClient(clientId);
+
+        console.info('Test completed!');
+    } catch (error) {
+        console.error('Error in main function:', error);
+    }
 }
 
-main().catch((error) => console.error(`Unhandled error: ${error}`));
+// Run the test
+main();

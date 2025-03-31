@@ -31,9 +31,10 @@ const createWhatsAppStore = () => {
         });
         return {
             subscribe,
-            requestQRCode: () => {},
             requestPairingCode: () => {},
-            reset: () => {}
+            reset: () => {},
+            setAccountId: () => {},
+            setConnectionStatus: () => {}
         };
     }
     
@@ -53,18 +54,66 @@ const createWhatsAppStore = () => {
         if (!browser) return;
         
         const messageHandler = (message: any) => {
-            // Handle messages from the new WhatsAppAccountManager implementation
-            if (message.type === 'whatsapp_qr') {
-                console.log('Received QR code from WebSocket:', message.data.qrCode ? `${message.data.qrCode.substring(0, 20)}...` : 'null');
-                update(state => {
-                    console.log('Updating WhatsApp store with QR code');
-                    return { 
-                        ...state, 
-                        qrCode: message.data.qrCode,
-                        clientId: message.data.clientId,
-                        error: null,
-                        connectionStatus: 'connecting'
-                    };
+            console.log('Received message from WebSocket:', message);
+            
+            // Extract the QR code from different message formats
+            let qrCode = null;
+            let clientId = null;
+            let accountId = null;
+            
+            // Handle different message formats
+            if (message.type === 'whatsapp' && message.action === 'qrCode' && message.data) {
+                // New format with action
+                qrCode = message.data.qrCode;
+                clientId = message.data.clientId;
+                accountId = message.data.accountId;
+                console.log('Extracted QR code from whatsapp/qrCode format');
+            } else if (message.type === 'whatsapp_qr' && message.data) {
+                // Old format with specific type
+                qrCode = message.data.qrCode;
+                clientId = message.data.clientId;
+                accountId = message.data.accountId;
+                console.log('Extracted QR code from whatsapp_qr format');
+            } else if (message.type === 'message' && message.data && message.data.qrCode) {
+                // Generic message format
+                qrCode = message.data.qrCode;
+                clientId = message.data.clientId;
+                accountId = message.data.accountId;
+                console.log('Extracted QR code from generic message format');
+            }
+            
+            // If we found a QR code, update the store
+            if (qrCode) {
+                console.log('Received QR code from WebSocket:', {
+                    qrCodeLength: qrCode.length,
+                    qrCodePreview: qrCode.substring(0, 20) + '...',
+                    clientId,
+                    accountId
+                });
+                
+                // Extract QR code data for debugging
+                console.log('QR code data:', qrCode);
+                
+                // Force update the store with the new QR code
+                const newState = {
+                    qrCode,
+                    clientId: clientId || null,
+                    accountId: accountId || null,
+                    connectionStatus: 'connecting',
+                    error: null,
+                    pairingCode: null,
+                    phoneNumber: null,
+                    pushName: null
+                };
+                
+                // Update the store
+                set(newState);
+                
+                console.log('Store updated with QR code, new state:', {
+                    qrCodeLength: newState.qrCode.length,
+                    clientId: newState.clientId,
+                    accountId: newState.accountId,
+                    connectionStatus: newState.connectionStatus
                 });
             } else if (message.type === 'whatsapp_state') {
                 update(state => {
@@ -155,95 +204,14 @@ const createWhatsAppStore = () => {
         setupSocketListener();
     }
     
-    // Request QR code from server
-    const requestQRCode = async (phoneNumber: string, accountId: string) => {
-        if (!browser) return;
-        
-        update(state => ({ 
-            ...state, 
-            phoneNumber,
-            accountId,
-            connectionStatus: 'connecting',
-            error: null
-        }));
-        
-        try {
-            // First ensure WebSocket is connected
-            if (socketStore.status !== 'OPEN') {
-                socketStore.connect();
-                
-                // Wait for connection to establish
-                await new Promise<void>((resolve) => {
-                    // Initialize with a no-op function to prevent null/undefined errors
-                    let unsubscribe = () => {};
-                    
-                    const timeoutId = setTimeout(() => {
-                        unsubscribe();
-                        resolve();
-                    }, 3000);
-                    
-                    // Store the returned unsubscribe function
-                    const unsub = socketStore.subscribe(($socket) => {
-                        if ($socket && $socket.status === 'OPEN') {
-                            clearTimeout(timeoutId);
-                            unsub();
-                            resolve();
-                        }
-                    });
-                    
-                    // Safely assign the unsubscribe function
-                    if (typeof unsub === 'function') {
-                        unsubscribe = unsub;
-                    }
-                });
-            }
-            
-            // The real QR code will come from the WebSocket server
-            // We'll just make the HTTP request to initiate the connection
-            // and let the WebSocket handler update the store
-            
-            // Use SvelteKit form action instead of API
-            const formData = new FormData();
-            formData.append('phoneNumber', phoneNumber);
-            formData.append('accountId', accountId);
-            
-            const response = await fetch('/admin/whatsapp/accounts?/requestQRCode', {
-                method: 'POST',
-                body: formData
-            });
-            
-            // Check if the response is successful
-            if (response.ok) {
-                const result = await response.json();
-                
-                // If the server returned a QR code directly, update the store
-                if (result.qrCode) {
-                    console.log('Received QR code directly from server action');
-                    update(state => ({
-                        ...state,
-                        qrCode: result.qrCode,
-                        clientId: result.clientId,
-                        connectionStatus: 'connecting'
-                    }));
-                }
-            }
-        } catch (error) {
-            console.error('Failed to request QR code:', error);
-            update(state => ({ 
-                ...state, 
-                error: 'Failed to request QR code. Please try again.',
-                connectionStatus: 'disconnected'
-            }));
-        }
-    };
+    // This method has been removed as we now handle QR code requests directly via WebSocket in the QRCodeDisplay component
     
     // Request pairing code from server
-    const requestPairingCode = async (phoneNumber: string, accountId: string) => {
+    const requestPairingCode = async (accountId: string) => {
         if (!browser) return;
         
         update(state => ({ 
             ...state, 
-            phoneNumber,
             accountId,
             connectionStatus: 'connecting',
             error: null
@@ -327,15 +295,40 @@ const createWhatsAppStore = () => {
             connectionStatus: 'disconnected',
             error: null,
             accountId: null,
-            phoneNumber: null
+            phoneNumber: null,
+            pushName: null,
+            clientId: null
         });
+        
+        console.log('WhatsApp store reset');
+    };
+    
+    // Set account ID without making API calls
+    const setAccountId = (accountId: string) => {
+        update(state => ({
+            ...state,
+            accountId
+        }));
+        
+        console.log(`Set account ID in WhatsApp store: ${accountId}`);
+    };
+    
+    // Set connection status without making API calls
+    const setConnectionStatus = (status: ConnectionStatus) => {
+        update(state => ({
+            ...state,
+            connectionStatus: status
+        }));
+        
+        console.log(`Set connection status in WhatsApp store: ${status}`);
     };
     
     return {
         subscribe,
-        requestQRCode,
         requestPairingCode,
-        reset
+        reset,
+        setAccountId,
+        setConnectionStatus
     };
 };
 

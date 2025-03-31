@@ -117,7 +117,7 @@
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
                 { href: "/admin/settings/api_keys", label: "API Keys", icon: Key },
                 { href: "/admin/settings/webhook", label: "Webhook", icon: Link2Icon },
-                { href: "/admin/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle },    
+                { href: "/admin/settings/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle },    
             ],  
         },
         { href: "/admin/monitor", label: "Monitor", icon: Activity },
