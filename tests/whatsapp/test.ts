@@ -1,9 +1,9 @@
 //Node App to hello world using baileys
-import { WhatsAppAccountManager } from '../../src/lib/server/whatsapp/WhatsAppAccountManager';
 import { WhatsAppAccountClient } from '../../src/lib/server/whatsapp/WhatsAppAccountClient';
 import qrcode from 'qrcode-terminal';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 
 // Define custom directories for this test
 const TEST_AUTH_DIR = path.join(process.cwd(), 'tests/whatsapp/workings/sessions');
@@ -24,63 +24,32 @@ if (!fs.existsSync(TEST_MEDIA_DIR)) {
 async function main() {
   console.info('Hello World! Starting WhatsApp client test...');
   
-  // Create a WhatsApp account manager with custom directories
-  const whatsAppAccountManager = new WhatsAppAccountManager({
-    authDir: TEST_AUTH_DIR,
-    mediaDir: TEST_MEDIA_DIR
-  });
-  
   try {
+    // Use null to create a new session or provide an existing session ID
+    const sessionId = 'f538295d-44ef-4f4a-af0e-f589fe62ae83'; // Change to a specific ID to restore an existing session
     
-    // Use null to create a new session in the custom directory
-    // const sessionId = null;
-    const sessionId = '34545f39-af8b-4950-9bad-8496740639e1'
+    // Create a unique client ID based on the session ID
+    const clientId = sessionId ? sessionId : crypto.randomUUID();
     
-    // Check if session exists and restore or create a new client
-    console.info('Checking for existing session...');
-    let sessionExists = false;
-    if (sessionId) {
-      // Check if session directory exists in our custom auth directory
-      const sessionDir = path.join(TEST_AUTH_DIR, sessionId);
-      sessionExists = fs.existsSync(sessionDir) && fs.readdirSync(sessionDir).length > 0;
-      console.info(sessionExists ? `Found existing session: ${sessionId}` : `No existing session found for ID: ${sessionId}`);
-    } else {
-      console.info('No session ID provided, will create a new client');
-    }
-    
-    console.info('Restoring or creating WhatsApp client...');
-    const { clientId, qrCodePromise, restored } = await whatsAppAccountManager.restoreOrCreateClient(
-      sessionId
+    // Create a WhatsApp client directly
+    console.info('Creating WhatsApp client...');
+    const client = new WhatsAppAccountClient(
+      clientId,
+      undefined,
+      undefined,
+      {
+        authDir: TEST_AUTH_DIR,
+        mediaDir: TEST_MEDIA_DIR
+      }
     );
     
-    if (restored) {
-      console.info(`Restored existing WhatsApp client with ID: ${clientId}`);
-    } else {
-      console.info(`Created new WhatsApp client with ID: ${clientId}`);
-    }
+    // Set up event listeners
+    setupClientEventListeners(client);
     
-    console.info(`WhatsApp client created with ID: ${clientId}`);
-    console.info('Waiting for QR code...');
+    // Start the client
+    await client.connect();
     
-    // Get the client instance immediately to set up QR code handling
-    const client = whatsAppAccountManager.getClient(clientId);
-    if (!client) {
-      throw new Error(`Failed to get client with ID: ${clientId}`);
-    }
-    
-    // Set up QR code refresh handling
-    let lastQrCode = '';
-    
-    // Set up all event listeners directly on the WhatsAppAccountClient instance
-    setupClientEventListeners(client, clientId);
-    
-    // Wait for the initial QR code
-    const initialQrCode = await qrCodePromise;
-    lastQrCode = initialQrCode;
-    
-    // We don't need to display the QR code here again as it will be displayed by the event handler
-    
-    console.info('\nWaiting for connection...');
+    console.info('Waiting for connection...');
     
     // Keep the process running to maintain the connection
     process.stdin.resume();
@@ -91,13 +60,11 @@ async function main() {
   }
 }
 
-// Run the main function
 /**
  * Set up all event listeners for a WhatsAppAccountClient instance
  * @param client The WhatsAppAccountClient instance
- * @param clientId Optional client ID for logging purposes
  */
-function setupClientEventListeners(client: WhatsAppAccountClient, clientId?: string): void {
+function setupClientEventListeners(client: WhatsAppAccountClient): void {
   // Set up QR code event listener
   let lastQrCode = '';
   client.on('qr', (qrCode) => {
@@ -138,26 +105,6 @@ function setupClientEventListeners(client: WhatsAppAccountClient, clientId?: str
     // Get client info
     const clientInfo = client.getInfo();
     console.info('Client info:', clientInfo);
-    
-    // // Save client ID to a file for future reference
-    // const clientInfoDir = path.join(process.cwd(), 'whatsapp-client-info');
-    // if (!fs.existsSync(clientInfoDir)) {
-    //   fs.mkdirSync(clientInfoDir, { recursive: true });
-    // }
-    
-    // Get phone number from client info or use client ID if not available
-    // const clientInfoFile = path.join(clientInfoDir, `${clientInfo.phoneNumber || clientId}.json`);
-    // fs.writeFileSync(
-    //   clientInfoFile, 
-    //   JSON.stringify({
-    //     clientId: clientInfo.id,
-    //     phoneNumber: clientInfo.phoneNumber,
-    //     accountId: clientInfo.accountId,
-    //     lastConnected: new Date().toISOString()
-    //   }, null, 2)
-    // );
-    
-    // console.info(`Client info saved to ${clientInfoFile}`);
   });
   
   // Listen for message events

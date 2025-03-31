@@ -334,17 +334,23 @@ export class WhatsAppAccountClient extends EventEmitter {
                         (formattedMessage.content.includes('Status:') || 
                          formattedMessage.content === '[Notification]');
                     
+                    // Check if this is a history sync notification
+                    const isHistorySync = message.message?.protocolMessage?.type === 'HISTORY_SYNC_NOTIFICATION';
+                    
                     // Only emit if it's not a notification or if it's a meaningful notification
                     if (!isNotification || formattedMessage.content !== '[Notification]') {
                         // Store the raw message for all message types for debugging and download purposes
                         (formattedMessage as any)._rawMessage = message;
                         
                         // For unknown message types, log the raw message in debug mode
-                        if (formattedMessage.type === 'unknown' || formattedMessage.type === 'deleted' || formattedMessage.type === 'reaction') {
+                        if (formattedMessage.type === 'unknown' || formattedMessage.type === 'deleted' || formattedMessage.type === 'reaction' || isHistorySync) {
                             logger.debug(`Special message type detected: ${formattedMessage.type}. Raw message: ${JSON.stringify(message, null, 2)}`);
                         }
                         
-                        this.emit('message', formattedMessage);
+                        // Only emit non-history sync messages
+                        if (!isHistorySync) {
+                            this.emit('message', formattedMessage);
+                        }
                     }
                 }
             } catch (error) {
