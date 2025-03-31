@@ -53,9 +53,58 @@ const createWhatsAppStore = () => {
         if (!browser) return;
         
         const messageHandler = (message: any) => {
-            if (message.type === 'whatsapp') {
+            // Handle messages from the new WhatsAppAccountManager implementation
+            if (message.type === 'whatsapp_qr') {
+                console.log('Received QR code from WebSocket:', message.data.qrCode ? `${message.data.qrCode.substring(0, 20)}...` : 'null');
+                update(state => {
+                    console.log('Updating WhatsApp store with QR code');
+                    return { 
+                        ...state, 
+                        qrCode: message.data.qrCode,
+                        clientId: message.data.clientId,
+                        error: null,
+                        connectionStatus: 'connecting'
+                    };
+                });
+            } else if (message.type === 'whatsapp_state') {
+                update(state => {
+                    // Log the received message for debugging
+                    console.log('Received WhatsApp state message:', message.data);
+                    
+                    // Map the state to our connection status
+                    let connectionStatus: ConnectionStatus = 'disconnected';
+                    if (message.data.state === 'connecting') connectionStatus = 'connecting';
+                    if (message.data.state === 'connected') connectionStatus = 'connected';
+                    if (message.data.state === 'authenticated') connectionStatus = 'authenticated';
+                    
+                    return { 
+                        ...state, 
+                        connectionStatus,
+                        clientId: message.data.clientId
+                    };
+                });
+            } else if (message.type === 'whatsapp_connected') {
+                update(state => {
+                    // Log the received message for debugging
+                    console.log('Received WhatsApp connected message:', message.data);
+                    
+                    return { 
+                        ...state, 
+                        connectionStatus: 'authenticated',
+                        clientId: message.data.clientId,
+                        phoneNumber: message.data.info?.phoneNumber,
+                        pushName: message.data.info?.pushName
+                    };
+                });
+            } else if (message.type === 'whatsapp_message') {
+                // Just log message events for now
+                console.log('Received WhatsApp message:', message.data);
+            }
+            
+            // Also handle the old format for backward compatibility
+            else if (message.type === 'whatsapp') {
                 if (message.action === 'qrCode') {
-                    console.log('Received QR code from WebSocket:', message.data.qrCode ? `${message.data.qrCode.substring(0, 20)}...` : 'null');
+                    console.log('Received QR code from WebSocket (old format):', message.data.qrCode ? `${message.data.qrCode.substring(0, 20)}...` : 'null');
                     update(state => {
                         console.log('Updating WhatsApp store with QR code');
                         return { 
@@ -74,7 +123,7 @@ const createWhatsAppStore = () => {
                 } else if (message.action === 'connectionStatus') {
                     update(state => {
                         // Log the received message for debugging
-                        console.log('Received connectionStatus message:', message.data);
+                        console.log('Received connectionStatus message (old format):', message.data);
                         
                         return { 
                             ...state, 

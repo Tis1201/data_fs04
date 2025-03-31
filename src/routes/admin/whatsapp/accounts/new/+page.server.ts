@@ -5,29 +5,23 @@ import { superValidate, message } from 'sveltekit-superforms/server';
 import { createWhatsAppAccountSchema } from '$lib/schemas/whatsapp-account';
 import { zod } from 'sveltekit-superforms/adapters';
 import { v4 as uuidv4 } from 'uuid';
+import { restrict } from '$lib/server/security/guards';
+import { SystemRole } from '../../../users/schema';
 
-
-
-
-
-export const load = (async ({ locals }) => {
-    const auth = await locals.auth.validate();
-    if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
-        throw error(403, 'Not authorized to create WhatsApp accounts');
-    }
-    
-    console.log(auth.user);
-    
-    // Initialize the form with the schema and defaults
-    const form = await superValidate(zod(createWhatsAppAccountSchema), {
-        defaults: {
-            phoneNumber: '',
-            description: ''
-        }
-    });
-    
-    return { form };
-}) satisfies PageServerLoad;
+export const load = restrict(
+    async ({ locals }) => {
+        // Initialize the form with the schema and defaults
+        const form = await superValidate(zod(createWhatsAppAccountSchema), {
+            defaults: {
+                phoneNumber: '',
+                description: ''
+            }
+        });
+        
+        return { form };
+    },
+    [SystemRole.ADMIN] // Only allow admin role to access this route
+) satisfies PageServerLoad;
 
 export const actions: Actions = {
     default: async ({ request, locals }) => {

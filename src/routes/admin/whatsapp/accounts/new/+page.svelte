@@ -84,10 +84,10 @@
     }
     
     function handleAuthenticated(event: CustomEvent) {
-        // Use the real phone information from Baileys
+        // Use the real phone information from the WhatsApp client
         const phoneNumber = event.detail?.phoneNumber || $whatsAppStore.phoneNumber || '';
         const pushName = event.detail?.pushName || $whatsAppStore.pushName || 'Unknown';
-        const clientId = $whatsAppStore.clientId || '';
+        const clientId = event.detail?.clientId || $whatsAppStore.clientId || '';
         
         whatsAppInfo = {
             phoneNumber: phoneNumber,
@@ -202,6 +202,12 @@
                     on:authenticated={handleAuthenticated}
                     on:error={handleError}
                 />
+                
+                {#if $whatsAppStore.qrCode}
+                    <div class="mt-4 p-4 border rounded-md bg-muted/50">
+                        <p class="text-sm text-muted-foreground mb-2">Scan this QR code with your WhatsApp app to connect</p>
+                    </div>
+                {/if}
                 
                 <div class="flex justify-end mt-6">
                     <Button 
