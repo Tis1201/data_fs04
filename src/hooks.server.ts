@@ -5,18 +5,29 @@ import { building } from "$app/environment";
 import { initializeClientsFromDatabase } from "$lib/server/bailey/client";
 import { websocketMiddleware } from "$lib/server/websocket/middleware";
 import { authMiddleware } from "$lib/server/auth/middleware";
+import { logger } from "$lib/server/logger";
 
 // Initialize WhatsApp clients on server startup (not during build)
+// Use a self-executing async function to avoid blocking the main thread
 if (!building) {
-    console.error('=== STARTING WHATSAPP CLIENT INITIALIZATION FROM HOOKS ===');
-    // Use setTimeout to ensure this runs after the server has fully started
-    setTimeout(() => {
-        console.error('=== DELAYED WHATSAPP CLIENT INITIALIZATION ===');
-        initializeClientsFromDatabase().catch(error => {
-            console.error('Failed to initialize WhatsApp clients:', error);
-        });
-    }, 1000);
-}
+    logger.info('STARTING WHATSAPP CLIENT INITIALIZATION FROM HOOKS');
+    
+    // Use a non-blocking approach with Promise
+    (async () => {
+        try {
+            // Delay initialization without blocking
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
+            // Run the initialization in the background
+            initializeClientsFromDatabase().catch(error => {
+                logger.error('Failed to initialize WhatsApp clients', { error: error.message, stack: error.stack });
+            });
+        } catch (error) {
+            logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
+        }
+    })();
+} 
 
 // Combine middleware functions
 export const handle: Handle = async ({ event, resolve }) => {

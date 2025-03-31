@@ -5,6 +5,7 @@ import type { Server, WebSocket as WebSocketBase } from 'ws';
 import type { IncomingMessage } from 'http';
 import type { Duplex } from 'stream';
 import { WEBRTC_MESSAGE_TYPES, handleWebRTCMessage, leaveRoom } from '../webrtc/WebrtcSignalingUtils';
+import { logger } from '../logger';
 
 export const GlobalThisWSS = Symbol.for('fs01.wss');
 
@@ -39,13 +40,13 @@ export const onHttpServerUpgrade = (req: IncomingMessage, sock: Duplex, head: Bu
 
     const wss = (globalThis as ExtendedGlobal)[GlobalThisWSS];
     if (!wss) {
-        console.error('[wss:global] WebSocket server not initialized');
+        logger.error('[wss:global] WebSocket server not initialized');
         sock.destroy();
         return;
     }
 
     wss.handleUpgrade(req, sock, head, (ws) => {
-        console.debug('[handleUpgrade] creating new connection');
+        logger.debug('[handleUpgrade] creating new connection');
         wss.emit('connection', ws, req);
     });
 };
@@ -56,5 +57,5 @@ export function startupWebsocketServer() {
     createWSSGlobalInstance();
     wssInitialized = true;
     
-    console.debug('WebSocket server initialized');
+    logger.debug('WebSocket server initialized');
 }

@@ -1,8 +1,10 @@
-import type { PageServerLoad } from './$types';
-import { json } from '@sveltejs/kit';
+import type { PageServerLoad, Actions } from './$types';
+import { json, fail } from '@sveltejs/kit';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../users/schema';
+import { createWhatsAppClient, generatePairingCode, getWhatsAppClient } from '$lib/server/bailey/manager';
+import { logger } from '$lib/server/logger';
 
 // Define table options for WhatsApp accounts
 const table_options = {
@@ -54,6 +56,109 @@ export const actions = {
             return deleteRecord(locals, 'whatsAppAccount', id);
         },
         ['ADMIN'] // Only allow admin role to delete accounts
+    ),
+    
+    /*******************************************************************************************
+     * Request QR Code
+     ******************************************************************************************/
+    requestQRCode: restrict(
+        async ({ request, locals }) => {
+            try {
+                const formData = await request.formData();
+                const phoneNumber = formData.get('phoneNumber')?.toString();
+                const accountId = formData.get('accountId')?.toString();
+
+                if (!phoneNumber || !accountId) {
+                    return fail(400, { error: 'Phone number and account ID are required' });
+                }
+
+                // Get the WebSocket connection for this client
+                if (!locals.wss) {
+                    return fail(500, { error: 'WebSocket server not available' });
+                }
+                
+                // Find the WebSocket connection for this client
+                const socket = Array.from(locals.wss.clients).find(client => {
+                    // In a real implementation, you'd match the client by session ID or user ID
+                    // For now, we'll just use the first available socket
+                    return client.readyState === 1; // OPEN
+                });
+                
+                if (!socket) {
+                    return fail(400, { error: 'No active WebSocket connection found' });
+                }
+                
+                try {
+                    // Use the new createWhatsAppClient function from manager.ts
+                    const clientId = await createWhatsAppClient(phoneNumber, accountId, socket);
+                    
+                    // The QR code will be sent via WebSocket by the manager
+                    logger.info(`WhatsApp client created with ID ${clientId}`);
+                    
+                    // Return success with the client ID
+                    return { success: true, clientId };
+                } catch (error) {
+                    logger.error('Failed to initialize WhatsApp client:', { error });
+                    return fail(500, { error: 'Failed to initialize WhatsApp client' });
+                }
+            } catch (error) {
+                logger.error('Error in requestQRCode action:', { error });
+                return fail(500, { error: 'An unexpected error occurred' });
+            }
+        },
+        ['ADMIN'] // Only allow admin role to request QR code
+    ),
+    
+    /*******************************************************************************************
+     * Request Pairing Code
+     ******************************************************************************************/
+    requestPairingCode: restrict(
+        async ({ request, locals }) => {
+            try {
+                const formData = await request.formData();
+                const phoneNumber = formData.get('phoneNumber')?.toString();
+                const accountId = formData.get('accountId')?.toString();
+
+                if (!phoneNumber || !accountId) {
+                    return fail(400, { error: 'Phone number and account ID are required' });
+                }
+
+                // Get the WebSocket connection for this client
+                if (!locals.wss) {
+                    return fail(500, { error: 'WebSocket server not available' });
+                }
+                
+                // Find the WebSocket connection for this client
+                const socket = Array.from(locals.wss.clients).find(client => {
+                    // In a real implementation, you'd match the client by session ID or user ID
+                    // For now, we'll just use the first available socket
+                    return client.readyState === 1; // OPEN
+                });
+                
+                if (!socket) {
+                    return fail(400, { error: 'No active WebSocket connection found' });
+                }
+                
+                // Get the WhatsApp client
+                const client = await getWhatsAppClient(accountId);
+                if (!client) {
+                    return fail(404, { error: 'WhatsApp client not found' });
+                }
+                
+                // Generate a pairing code
+                try {
+                    const code = await generatePairingCode(client.id, phoneNumber);
+                    return { success: true, code };
+                } catch (error) {
+                    logger.error('Failed to generate pairing code:', { error });
+                    return fail(500, { error: 'Failed to generate pairing code' });
+                }
+            } catch (error) {
+                logger.error('Error in requestPairingCode action:', { error });
+                return fail(500, { error: 'An unexpected error occurred' });
+            }
+        },
+        ['ADMIN'] // Only allow admin role to request pairing code
     )
     
 };

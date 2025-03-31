@@ -4,6 +4,7 @@ import { building } from "$app/environment";
 import { nanoid } from 'nanoid';
 import { WebSocketManager } from './WebSocketManager';
 import { validateApiKey, getUserIdFromApiKey, getUserInfoFromApiKey } from '$lib/server/auth/api-key-utils';
+import { logger } from "../logger";
 
 export const websocketMiddleware: Handle = async ({ event, resolve }) => {
     // Skip WebSocket initialization for auth routes
@@ -21,7 +22,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                 try {
                     // Assign socket ID first
                     ws.socketId = nanoid();
-                    console.debug(`[wss:kit] assigned socket ID: ${ws.socketId}`);
+                    logger.debug(`[wss:kit] assigned socket ID: ${ws.socketId}`);
 
                     // Get API key from query parameters (for non-session auth)
                     const url = new URL(request.url, 'http://localhost');
@@ -31,7 +32,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                     if (apiKey) {
                         const isValid = await validateApiKey(apiKey);
                         if (!isValid) {
-                            console.warn('[wss:kit] invalid API key');
+                            logger.warn('[wss:kit] invalid API key');
                             ws.close(1008, 'Invalid API key');
                             return;
                         }
@@ -42,28 +43,28 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                         ]);
 
                         if (!userId || !userInfo) {
-                            console.warn('[wss:kit] invalid API key - no user info');
+                            logger.warn('[wss:kit] invalid API key - no user info');
                             ws.close(1008, 'Invalid API key');
                             return;
                         }
 
                         ws.userId = userId;
                         ws.userRole = userInfo.systemRole;
-                        console.info(`[wss:kit] client connected via API key (${ws.socketId}) - User: ${ws.userId}, Role: ${ws.userRole}`);
+                        logger.info(`[wss:kit] client connected via API key (${ws.socketId}) - User: ${ws.userId}, Role: ${ws.userRole}`);
                     } else {
                         // Get session info from auth middleware
                         const auth = event.locals.auth;
                         const sessionData = await auth.validate();
                         
                         if (!sessionData?.user) {
-                            console.warn('[wss:kit] no valid session');
+                            logger.warn('[wss:kit] no valid session');
                             ws.close(1008, 'Authentication required');
                             return;
                         }
                         
                         ws.userId = sessionData.user.id;
                         ws.userRole = sessionData.user.systemRole;
-                        console.info(`[wss:kit] client connected via session (${ws.socketId}) - User: ${ws.userId}, Role: ${ws.userRole}`);
+                        logger.info(`[wss:kit] client connected via session (${ws.socketId}) - User: ${ws.userId}, Role: ${ws.userRole}`);
                     }
                       
                     ws.send(JSON.stringify({
@@ -94,7 +95,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                     });
 
                 } catch (error) {
-                    console.error('[wss:kit] authentication error:', error);
+                    logger.error('[wss:kit] authentication error:', error);
                     ws.close(1008, 'Authentication failed');
                 }
             });
