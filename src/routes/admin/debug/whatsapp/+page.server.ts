@@ -4,6 +4,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import { z } from 'zod';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
+import { whatsAppAccountManager as whatsAppManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 
 const messageSchema = z.object({
     accountId: z.string().min(1, 'Account ID is required'),
@@ -114,6 +115,45 @@ export const actions: Actions = {
             console.error('Error sending WhatsApp message:', error);
             return fail(500, { 
                 form,
+                error: error instanceof Error ? error.message : 'Unknown error' 
+            });
+        }
+    },
+    
+    getClientStatus: async ({ request, locals }) => {
+        const session = await locals.auth.validate();
+        if (!session) {
+            return fail(401, { message: 'Unauthorized' });
+        }
+        
+        const data = await request.formData();
+        const clientId = data.get('clientId')?.toString();
+        
+        if (!clientId) {
+            return fail(400, { error: 'Client ID is required' });
+        }
+        
+        try {
+            // Get the client info directly from the WhatsAppAccountManager
+            const clientInfo = whatsAppManager.getClientInfo(clientId);
+            
+            if (!clientInfo) {
+                return fail(404, { error: 'Client not found' });
+            }
+            
+            // Return the real-time status
+            return {
+                success: true,
+                clientInfo: {
+                    id: clientId,
+                    state: clientInfo.state,
+                    pushName: clientInfo.pushName,
+                    phoneNumber: clientInfo.phoneNumber
+                }
+            };
+        } catch (error) {
+            console.error('Error getting client status:', error);
+            return fail(500, { 
                 error: error instanceof Error ? error.message : 'Unknown error' 
             });
         }

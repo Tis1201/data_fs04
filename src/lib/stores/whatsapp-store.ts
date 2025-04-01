@@ -57,7 +57,8 @@ const createWhatsAppStore = () => {
             requestPairingCode: () => {},
             reset: () => {},
             setAccountId: () => {},
-            setConnectionStatus: () => {}
+            setConnectionStatus: () => {},
+            setClientId: () => {}
         };
     }
     
@@ -448,6 +449,16 @@ const createWhatsAppStore = () => {
         console.log(`Set connection status in WhatsApp store: ${status}`);
     };
     
+    // Set client ID without making API calls
+    const setClientId = (clientId: string) => {
+        update(state => ({
+            ...state,
+            clientId
+        }));
+        
+        console.log(`Set client ID in WhatsApp store: ${clientId}`);
+    };
+    
     // Store the current state
     let currentState: WhatsAppState = {
         qrCode: null,
@@ -471,6 +482,7 @@ const createWhatsAppStore = () => {
         reset,
         setAccountId,
         setConnectionStatus,
+        setClientId,
         // Add a method to get the current state
         getState: () => currentState
     };
