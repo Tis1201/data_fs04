@@ -31,6 +31,7 @@ model User {
   keys          Key[]
   apiKeys       ApiKey[]
   whatsappAccounts WhatsAppAccount[]
+  listeners     ListenerEndpoint[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
@@ -100,7 +101,8 @@ model WhatsAppAccount {
   description   String
   createdBy     String
   user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  
+  listeners     ListenerWhatsAppAccount[]
+
   @@allow('all', auth().systemRole == 'ADMIN') 
   @@index([createdBy])
 }
@@ -118,7 +120,8 @@ model WebhookEndPoint{
   createdBy     String
   hourlyMetrics WebhookHourlyMetric[]
   status String @default("ACTIVE")
-  
+  listeners     ListenerWebhookEndpoint[] // Many-to-many relation to listeners
+
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   //@allow('read,update,delete', auth().id == userId)  // Users can manage their own webhook endpoints
   @@allow('create', auth() != null)  // Authenticated users can create webhook endpoints
@@ -137,4 +140,69 @@ model WebhookHourlyMetric {
   hourOfDay DateTime @default(now())
   
   @@unique([webhookId, hourOfDay])
+}
+
+model ListenerEndpoint {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  name        String
+  description String?
+
+  postfix String // appends to the back of http://localhost/api/listen/{postfix}
+  
+
+  status      String   @default("ACTIVE")
+  expiresAt   DateTime?
+  lastSeenAt  DateTime @default(now())
+  
+  // User who owns this listener
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Many-to-many relationships for webhook endpoints and WhatsApp accounts
+  webhookEndpoints ListenerWebhookEndpoint[]
+  whatsappAccounts ListenerWhatsAppAccount[]
+  
+  listenToAll Boolean  @default(true) // If true, listen to all events regardless of specific endpoints
+  
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  @@allow('read,update,delete', auth().id == userId)  // Users can manage their own listeners
+  @@allow('create', auth() != null)  // Authenticated users can create listeners
+
+  @@index([userId])
+}
+
+// Junction table for ListenerEndpoint to WebhookEndPoint many-to-many relationship
+model ListenerWebhookEndpoint {
+  id String @id @default(cuid())
+  
+  listenerId String
+  listener ListenerEndpoint @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  
+  webhookEndpointId String
+  webhookEndpoint WebhookEndPoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([listenerId, webhookEndpointId])
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+}
+
+// Junction table for ListenerEndpoint to WhatsAppAccount many-to-many relationship
+model ListenerWhatsAppAccount {
+  id String @id @default(cuid())
+  
+  listenerId String
+  listener ListenerEndpoint @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  
+  whatsappAccountId String
+  whatsappAccount WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([listenerId, whatsappAccountId])
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
 }

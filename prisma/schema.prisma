@@ -13,19 +13,20 @@ generator client {
 }
 
 model User {
-  id               String            @id() @default(cuid())
+  id               String             @id() @default(cuid())
   name             String?
-  status           String            @default("ACTIVE")
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt()
-  email            String            @unique()
+  status           String             @default("ACTIVE")
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt()
+  email            String             @unique()
   password         String
-  rolesString      String            @default("")
-  systemRole       String            @default("USER")
+  rolesString      String             @default("")
+  systemRole       String             @default("USER")
   sessions         Session[]
   keys             Key[]
   apiKeys          ApiKey[]
   whatsappAccounts WhatsAppAccount[]
+  listeners        ListenerEndpoint[]
 }
 
 model Session {
@@ -66,33 +67,35 @@ model ApiKey {
 }
 
 model WhatsAppAccount {
-  id            String   @id() @default(cuid())
-  client_id     String   @unique()
-  client_status String   @default("disconnected")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt()
+  id            String                    @id() @default(cuid())
+  client_id     String                    @unique()
+  client_status String                    @default("disconnected")
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt()
   phoneNumber   String
   name          String?
   description   String
   createdBy     String
-  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  user          User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  listeners     ListenerWhatsAppAccount[]
 
   @@index([createdBy])
 }
 
 model WebhookEndPoint {
-  id            String                @id() @default(cuid())
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt()
+  id            String                    @id() @default(cuid())
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt()
   postfix       String
   name          String
   description   String?
-  active        Boolean               @default(true)
+  active        Boolean                   @default(true)
   expiresAt     DateTime?
   lastUsedAt    DateTime?
   createdBy     String
   hourlyMetrics WebhookHourlyMetric[]
-  status        String                @default("ACTIVE")
+  status        String                    @default("ACTIVE")
+  listeners     ListenerWebhookEndpoint[]
 
   @@index([name])
   @@index([description])
@@ -108,4 +111,45 @@ model WebhookHourlyMetric {
   hourOfDay DateTime        @default(now())
 
   @@unique([webhookId, hourOfDay])
+}
+
+model ListenerEndpoint {
+  id               String                    @id() @default(cuid())
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt()
+  name             String
+  description      String?
+  postfix          String
+  status           String                    @default("ACTIVE")
+  expiresAt        DateTime?
+  lastSeenAt       DateTime                  @default(now())
+  userId           String
+  user             User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webhookEndpoints ListenerWebhookEndpoint[]
+  whatsappAccounts ListenerWhatsAppAccount[]
+  listenToAll      Boolean                   @default(true)
+
+  @@index([userId])
+}
+
+model ListenerWebhookEndpoint {
+  id                String           @id() @default(cuid())
+  listenerId        String
+  listener          ListenerEndpoint @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  webhookEndpointId String
+  webhookEndpoint   WebhookEndPoint  @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+  createdAt         DateTime         @default(now())
+
+  @@unique([listenerId, webhookEndpointId])
+}
+
+model ListenerWhatsAppAccount {
+  id                String           @id() @default(cuid())
+  listenerId        String
+  listener          ListenerEndpoint @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  whatsappAccountId String
+  whatsappAccount   WhatsAppAccount  @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  createdAt         DateTime         @default(now())
+
+  @@unique([listenerId, whatsappAccountId])
 }
