@@ -19,8 +19,11 @@ if (!building) {
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
-            // No need to explicitly initialize the WhatsAppAccountManager
-            // It's already initialized as a singleton
+            
+            // Initialize WhatsApp clients from database
+            logger.info('Loading WhatsApp clients from database...');
+            await whatsAppAccountManager.initializeClientsFromDatabase();
+            
             logger.info('WhatsAppAccountManager is ready');
         } catch (error) {
             logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });

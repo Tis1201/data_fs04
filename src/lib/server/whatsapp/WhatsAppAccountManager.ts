@@ -7,6 +7,7 @@ import EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
 import { wsManager } from '../websocket/WebSocketManager';
+import { getEnhancedPrisma } from '$lib/server/prisma';
 
 /**
  * Options for WhatsApp Account Manager
@@ -389,17 +390,56 @@ export class WhatsAppAccountManager extends EventEmitter {
     
     /**
      * Initialize clients from database
-     * This is a placeholder method - implement actual database loading as needed
+     * Loads all WhatsApp accounts with active status and reconnects them
      */
     async initializeClientsFromDatabase(): Promise<void> {
         logger.info('Initializing WhatsApp clients from database');
         
         try {
-            // TODO: Implement actual database query
-            // Example: const accounts = await db.whatsappAccounts.findMany({ where: { status: 'connected' } });
+            // Get the Prisma client
+            const prisma = getEnhancedPrisma();
             
-            // For now, just log that no clients were loaded
-            logger.info('No clients loaded from database (not implemented)');
+            // Find all WhatsApp accounts that were previously connected
+            // const accounts = await prisma.whatsAppAccount.findMany({
+            //     where: {
+            //         client_status: {
+            //             in: ['connected', 'authenticated']
+            //         }
+            //     }
+            // });
+
+            const accounts = await prisma.whatsAppAccount.findMany();
+            
+            logger.info(`Found ${accounts.length} WhatsApp accounts to initialize`);
+            
+            // Initialize each account
+            for (const account of accounts) {
+                try {
+                    // Create a new client with the stored client_id
+                    const client = new WhatsAppAccountClient(account.client_id);
+                    
+                    // Set the account ID for the client
+                    await client.setAccountId(account.id);
+                    
+                    // Add the client to our clients map
+                    this.clients.set(account.client_id, client);
+                    
+                    // Connect the client (this will attempt to reconnect)
+                    await client.connect();
+                    
+                    logger.info(`Initialized WhatsApp client for account ${account.id} (${account.description})`);
+                } catch (clientError) {
+                    logger.error(`Failed to initialize WhatsApp client for account ${account.id}: ${clientError}`);
+                    
+                    // Update the account status to disconnected since initialization failed
+                    await prisma.whatsAppAccount.update({
+                        where: { id: account.id },
+                        data: { client_status: 'disconnected' }
+                    });
+                }
+            }
+            
+            logger.info(`Successfully initialized ${this.clients.size} WhatsApp clients`);
         } catch (error) {
             logger.error(`Error initializing clients from database: ${error}`);
         }
