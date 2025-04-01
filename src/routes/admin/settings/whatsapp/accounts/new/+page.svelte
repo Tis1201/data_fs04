@@ -343,14 +343,14 @@
                     
                 <div class="mt-4 flex flex-col gap-2">
                     <!-- Request new QR code button -->
-                    <Button 
+                    <!-- <Button 
                         variant="outline" 
                         size="sm"
                         on:click={requestNewQRCode}
                     >
                         <RefreshCw class="h-4 w-4 mr-2" />
                         Request New QR Code
-                    </Button>
+                    </Button> -->
                     
                     <!-- Manual next step button as fallback -->
                     {#if $formWhatsAppState.connectionStatus === 'connected' || $formWhatsAppState.connectionStatus === 'authenticated'}
@@ -379,18 +379,13 @@
             <!-- Step 3: Success Page -->
             <FormCard title="Account Created Successfully" description="Your WhatsApp account has been created successfully.">
                 <div class="space-y-6">
-                    <div class="flex items-center gap-4">
-                        <CheckCircle class="h-6 w-6 text-green-500" />
-                        <div>
-                            <p class="font-medium">Account Created</p>
-                            <p class="text-sm text-muted-foreground">Your WhatsApp account has been created successfully.</p>
-                        </div>
-                    </div>
                     
                     <div class="bg-muted/40 p-4 rounded-lg border border-muted">
                         <h4 class="text-sm font-medium mb-2">Account Details</h4>
                         <div class="space-y-2">
+                            <CheckCircle class="h-6 w-6 text-green-500" />
                             <div>
+
                                 <p class="text-xs text-muted-foreground">Description</p>
                                 {#if createdAccount?.description}
                                     <p class="text-sm">{createdAccount.description}</p>
