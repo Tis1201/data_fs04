@@ -100,7 +100,8 @@ export const actions: Actions = {
             if (client) {
                 await client.setAccountId(account.id);
             }
-            
+
+            // Return the form object with success and account data
             return { 
                 form: message(form, 'WhatsApp account created successfully!', { status: 'success' }),
                 account
@@ -108,7 +109,7 @@ export const actions: Actions = {
         } catch (err) {
             console.error('Error creating WhatsApp account:', err);
             return fail(500, { 
-                form: message(form, 'Failed to create WhatsApp account. Please try again.', { status: 'error' })
+                form: message(form, 'Failed to create WhatsApp account. Please try again.', { status: 'error' }) 
             });
         }
     },
@@ -126,4 +127,4 @@ export const actions: Actions = {
             return fail(500, { error: 'Failed to request QR code' });
         }
     }
-};
+} satisfies Actions;

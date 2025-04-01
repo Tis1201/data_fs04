@@ -162,6 +162,7 @@
         debugMode: true,
         action: '?/createAccount',
         onSuccess: (result) => {
+            // Only move to success page if we have account data
             if (result.data?.account) {
                 createdAccount = {
                     id: result.data.account.id,
@@ -172,6 +173,9 @@
                 currentStep = 3;
                 toast.success("WhatsApp account created successfully");
             }
+        },
+        onError: (result) => {
+            toast.error(result.form?.message || 'Failed to create WhatsApp account');
         }
     });
 
