@@ -311,6 +311,31 @@ export class WhatsAppAccountManager extends EventEmitter {
             }
             wsManager.broadcast({ type: 'whatsapp_logout', data: { clientId } });
         });
+        
+        // Handle conflict events (session replaced)
+        client.on('conflict', () => {
+            logger.warn(`Client ${clientId} reported conflict: session replaced by another connection`);
+            
+            // Update account status to disconnected
+            if (accountId) {
+                this.updateAccountStatus(accountId, 'disconnected');
+            }
+            
+            // Broadcast conflict message to the web UI
+            wsManager.broadcast({ 
+                type: 'whatsapp_error', 
+                data: { 
+                    clientId, 
+                    error: 'conflict', 
+                    message: 'WhatsApp session replaced by another connection. This typically happens when the same account is logged in elsewhere.'
+                } 
+            });
+            
+            // Remove the client from the manager to prevent reconnection attempts
+            this.clients.delete(clientId);
+            
+            logger.info(`Client ${clientId} removed from manager due to conflict`);
+        });
 
         // Forward message events to the web UI.
         client.on('message', (message: WhatsAppMessage) => {

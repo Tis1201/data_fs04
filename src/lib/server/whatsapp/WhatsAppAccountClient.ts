@@ -284,6 +284,14 @@ export class WhatsAppAccountClient extends EventEmitter {
                     
                 case 'close':
                     const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+                    const errorData = (lastDisconnect?.error as Boom)?.data;
+                    
+                    // Check if this is a conflict error (session replaced)
+                    const isConflictError = 
+                        statusCode === 440 && 
+                        errorData?.tag === 'stream:error' && 
+                        errorData?.content?.[0]?.tag === 'conflict' &&
+                        errorData?.content?.[0]?.attrs?.type === 'replaced';
                     
                     // Check if we need to reconnect
                     if (statusCode === DisconnectReason.restartRequired) {
@@ -301,6 +309,20 @@ export class WhatsAppAccountClient extends EventEmitter {
                         // Emit both logout and state events
                         this.emit('logout');
                         this.emit('state', this.state);
+                    } else if (isConflictError) {
+                        // Handle conflict error (session replaced)
+                        logger.warn(`Client ${this.id} disconnected due to conflict: session replaced by another connection`);
+                        logger.warn(`This typically happens when the same WhatsApp account is logged in elsewhere`);
+                        
+                        // Set state to disconnected
+                        this.state = 'disconnected';
+                        this.emit('state', this.state);
+                        
+                        // Emit a special conflict event that can be handled by the manager
+                        this.emit('conflict');
+                        
+                        // Don't automatically reconnect for conflict errors
+                        this.autoReconnect = false;
                     } else {
                         logger.warn(`Client ${this.id} disconnected with status code ${statusCode}`);
                         this.state = 'disconnected';
@@ -725,6 +747,32 @@ export class WhatsAppAccountClient extends EventEmitter {
             logger.error(`Error disconnecting client ${this.id}: ${error}`);
             this.emit('error', error);
             return false;
+        }
+    }
+    
+    /**
+     * Clear authentication files to force a new login
+     * This is used when a conflict error occurs (session replaced)
+     */
+    clearAuthFiles(): void {
+        try {
+            if (fs.existsSync(this.authDir)) {
+                logger.info(`Clearing auth files for client ${this.id} due to conflict error`);
+                
+                // Read all files in the auth directory
+                const files = fs.readdirSync(this.authDir);
+                
+                // Delete each file
+                for (const file of files) {
+                    const filePath = path.join(this.authDir, file);
+                    fs.unlinkSync(filePath);
+                    logger.debug(`Deleted auth file: ${filePath}`);
+                }
+                
+                logger.info(`Auth files cleared for client ${this.id}`);
+            }
+        } catch (error) {
+            logger.error(`Error clearing auth files for client ${this.id}: ${error}`);
         }
     }
     
