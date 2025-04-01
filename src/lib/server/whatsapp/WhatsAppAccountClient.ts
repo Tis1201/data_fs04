@@ -344,7 +344,9 @@ export class WhatsAppAccountClient extends EventEmitter {
                         
                         // For unknown message types, log the raw message in debug mode
                         if (formattedMessage.type === 'unknown' || formattedMessage.type === 'deleted' || formattedMessage.type === 'reaction' || isHistorySync) {
-                            logger.debug(`Special message type detected: ${formattedMessage.type}. Raw message: ${JSON.stringify(message, null, 2)}`);
+                            // logger.debug(`Special message type detected: ${formattedMessage.type}. Raw message: ${JSON.stringify(message, null, 2)}`);
+                            logger.debug(`Special message type detected: ${formattedMessage.type}`);
+                       
                         }
                         
                         // Only emit non-history sync messages
@@ -746,6 +748,29 @@ export class WhatsAppAccountClient extends EventEmitter {
             pushName: this.pushName,
             qrCode: this.qrCode ? `${this.qrCode.substring(0, 20)}...` : null
         };
+    }
+    
+    /**
+     * Get push name (display name) of the WhatsApp account
+     */
+    getPushName(): string | undefined {
+        return this.pushName;
+    }
+    
+    /**
+     * Get phone number of the WhatsApp account
+     */
+    getPhoneNumber(): string | undefined {
+        return this.phoneNumber;
+    }
+    
+    /**
+     * Set the account ID for this client
+     * @param accountId The database account ID to associate with this client
+     */
+    setAccountId(accountId: string): void {
+        this.accountId = accountId;
+        logger.info(`Set account ID ${accountId} for client ${this.id}`);
     }
     
     /**

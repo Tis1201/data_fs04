@@ -18,27 +18,28 @@ export const load = restrict(
             }
         });
         
-        // Generate a temporary client ID for the QR code scanner
-        const tempClientId = `temp-${uuidv4()}`;
-        
         try {
             // Create a new WhatsApp client directly in the load function
             // This will trigger QR code generation which will be sent via WebSocket
-            const client = await whatsAppAccountManager.createClient(undefined, undefined, {
-                clientId: tempClientId
-            });
+            // Let Baileys generate the client ID
+            const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient();
             
-            console.log(`Created WhatsApp client with ID ${tempClientId} during page load`);
+            console.log(`Created WhatsApp client with ID ${clientId} during page load`);
+            
+            return { 
+                form,
+                clientId
+            };
         } catch (error) {
             console.error('Error creating WhatsApp client during page load:', error);
             // We don't throw here to allow the page to load even if client creation fails
             // The user can request a new QR code from the UI
+            
+            return { 
+                form,
+                clientId: null
+            };
         }
-        
-        return { 
-            form,
-            tempClientId
-        };
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
@@ -103,13 +104,8 @@ export const actions: Actions = {
     // Action to request a new QR code
     requestQRCode: async ({ locals }) => {
         try {
-            // Generate a new client ID for this session
-            const clientId = `temp-${uuidv4()}`;
-            
-            // Create a new WhatsApp client
-            await whatsAppAccountManager.createClient(undefined, undefined, {
-                clientId
-            });
+            // Create a new WhatsApp client and let Baileys generate the client ID
+            const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient();
             
             console.log(`Created new WhatsApp client with ID ${clientId} via requestQRCode action`);
             return { success: true, clientId };

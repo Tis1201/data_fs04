@@ -128,10 +128,20 @@ const createWhatsAppStore = () => {
                     
                     console.log('Connection status detected:', connectionStatus);
                     
+                    // Extract pushName and phoneNumber if available
+                    const pushName = message.data.pushName || state.pushName;
+                    const phoneNumber = message.data.phoneNumber || state.phoneNumber;
+                    
+                    if (pushName || phoneNumber) {
+                        console.log('Client info received:', { pushName, phoneNumber });
+                    }
+                    
                     return { 
                         ...state, 
                         connectionStatus,
-                        clientId: message.data.clientId
+                        clientId: message.data.clientId,
+                        pushName: pushName || state.pushName,
+                        phoneNumber: phoneNumber || state.phoneNumber
                     };
                 });
                 

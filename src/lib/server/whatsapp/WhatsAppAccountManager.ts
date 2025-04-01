@@ -40,9 +40,9 @@ export class WhatsAppAccountManager extends EventEmitter {
      */
     private async createNewClient(clientId: string, phoneNumber?: string, accountId?: string, options?: WhatsAppManagerOptions): Promise<{ clientId: string, qrCodePromise: Promise<string>, restored: boolean }> {
         // Create a promise to get the QR code
-        let qrCodeResolve: (value: string) => void;
+        let qrCodeResolve: (value: string) => void; 
         const qrCodePromise = new Promise<string>((resolve) => {
-            qrCodeResolve = resolve;
+            qrCodeResolve = resolve; 
         });
         
         // Merge manager options with client-specific options
@@ -282,10 +282,23 @@ export class WhatsAppAccountManager extends EventEmitter {
                 this.updateAccountStatus(accountId, state, clientId);
             }
             
-            // Broadcast state update to web UI
+            logger.debug(`Number of whatsappclients: ${this.clients.size}`)
+            
+            // Get client info including pushName and phoneNumber
+            const pushName = client.getPushName();
+            const phoneNumber = client.getPhoneNumber();
+            
+            logger.debug(`Client info for ${clientId}: pushName=${pushName}, phoneNumber=${phoneNumber}`);
+
+            // Broadcast state update to web UI with additional info
             wsManager.broadcast({
                 type: 'whatsapp_state',
-                data: { clientId, state }
+                data: { 
+                    clientId, 
+                    state,
+                    pushName,
+                    phoneNumber
+                }
             });
         });
         
