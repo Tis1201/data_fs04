@@ -341,12 +341,31 @@ const createWhatsAppStore = () => {
         console.log(`Set connection status in WhatsApp store: ${status}`);
     };
     
+    // Store the current state
+    let currentState: WhatsAppState = {
+        qrCode: null,
+        pairingCode: null,
+        connectionStatus: 'disconnected',
+        error: null,
+        accountId: null,
+        phoneNumber: null,
+        pushName: null,
+        clientId: null
+    };
+    
+    // Update the current state when the store changes
+    subscribe(state => {
+        currentState = state;
+    });
+    
     return {
         subscribe,
         requestPairingCode,
         reset,
         setAccountId,
-        setConnectionStatus
+        setConnectionStatus,
+        // Add a method to get the current state
+        getState: () => currentState
     };
 };
 

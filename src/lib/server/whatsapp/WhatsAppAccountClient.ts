@@ -253,7 +253,7 @@ export class WhatsAppAccountClient extends EventEmitter {
                         // Extract phone number from user ID if not already set
                         if (!this.phoneNumber && this.socket.user.id) {
                             // User ID format is typically like "1234567890:12@s.whatsapp.net"
-                            const match = this.socket.user.id.match(/^(\d+):/); 
+                            const match = this.socket.user.id.match(/^(\d+):/);
                             if (match && match[1]) {
                                 this.phoneNumber = match[1];
                                 logger.info(`Extracted phone number from user ID: ${this.phoneNumber}`);
@@ -261,11 +261,17 @@ export class WhatsAppAccountClient extends EventEmitter {
                         }
                         
                         logger.info(`Connected as ${this.pushName} (${this.socket.user.id})`);
+                        
+                        // Emit connected event with user info
                         this.emit('connected', {
                             id: this.socket.user.id,
                             name: this.pushName,
                             phoneNumber: this.phoneNumber
                         });
+                        
+                        // Emit an additional state update with the user info
+                        // This ensures the pushName and phoneNumber are included in the state update
+                        this.emit('state', this.state);
                     }
                     break;
                     

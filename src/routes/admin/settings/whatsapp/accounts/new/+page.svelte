@@ -79,13 +79,21 @@
             storeClientId: $store.clientId,
             formClientId: $formState.clientId,
             storeQrCode: $store.qrCode ? 'present' : 'null',
-            storeConnectionStatus: $store.connectionStatus
+            storeConnectionStatus: $store.connectionStatus,
+            storePushName: $store.pushName,
+            storePhoneNumber: $store.phoneNumber
         });
         
         // Update our form state when the store's client ID matches our form's client ID
         formState.update($state => {
             // If the store has our client ID, update our state
             if ($store.clientId === $state.clientId) {
+                console.log('Updating form state with client data:', {
+                    clientId: $store.clientId,
+                    pushName: $store.pushName,
+                    phoneNumber: $store.phoneNumber
+                });
+                
                 return {
                     ...$state,
                     connectionStatus: $store.connectionStatus,
@@ -118,25 +126,32 @@
         if (currentStep === 1) {
             console.log('Advancing to step 2');
             
-            // Pre-fill the form with the data from the connected client
-            const pushName = $formWhatsAppState.pushName || 'Unknown';
-            const phoneNumber = $formWhatsAppState.phoneNumber || '';
-            
-            console.log('WhatsApp client info:', {
-                pushName,
-                phoneNumber,
-                clientId: $formClientId
-            });
-            
-            // Update form values directly
-            $form.description = `WhatsApp Account - ${pushName}`;
-            $form.client_id = $formClientId;
-            $form.name = pushName;
-            $form.phoneNumber = phoneNumber;
-            
-            // Move to account details step
-            currentStep = 2;
-            toast.success('WhatsApp connected successfully!');
+            // Force a delay to ensure we have the latest data from the WebSocket
+            setTimeout(() => {
+                // Get the latest data from the WhatsApp store
+                const latestStoreData = whatsAppStore.getState();
+                console.log('Latest WhatsApp store data:', latestStoreData);
+                
+                // Pre-fill the form with the data from the connected client
+                const pushName = $formWhatsAppState.pushName || latestStoreData.pushName || 'Unknown';
+                const phoneNumber = $formWhatsAppState.phoneNumber || latestStoreData.phoneNumber || '';
+                
+                console.log('WhatsApp client info for form:', {
+                    pushName,
+                    phoneNumber,
+                    clientId: $formClientId
+                });
+                
+                // Update form values directly
+                $form.description = `WhatsApp Account - ${pushName}`;
+                $form.client_id = $formClientId;
+                $form.name = pushName;
+                $form.phoneNumber = phoneNumber;
+                
+                // Move to account details step
+                currentStep = 2;
+                toast.success('WhatsApp connected successfully!');
+            }, 500); // Short delay to ensure we have the latest data
         }
     }
     
@@ -379,6 +394,19 @@
                                 disabled
                                 aria-invalid={$errors.client_id ? 'true' : undefined}
                                 {...$constraints.client_id}
+                            />
+                        </FormField>
+                    </FormRow>
+                    
+                    <FormRow columns={1}>
+                        <FormField id="name" label="Display Name" error={$errors.name}>
+                            <Input
+                                id="name"
+                                name="name"
+                                bind:value={$form.name}
+                                placeholder="Display name from WhatsApp"
+                                aria-invalid={$errors.name ? 'true' : undefined}
+                                {...$constraints.name}
                             />
                         </FormField>
                     </FormRow>

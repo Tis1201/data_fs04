@@ -288,7 +288,7 @@ export class WhatsAppAccountManager extends EventEmitter {
             const pushName = client.getPushName();
             const phoneNumber = client.getPhoneNumber();
             
-            logger.debug(`Client info for ${clientId}: pushName=${pushName}, phoneNumber=${phoneNumber}`);
+            logger.info(`Client state update for ${clientId}: state=${state}, pushName=${pushName}, phoneNumber=${phoneNumber}`);
 
             // Broadcast state update to web UI with additional info
             wsManager.broadcast({
@@ -298,6 +298,23 @@ export class WhatsAppAccountManager extends EventEmitter {
                     state,
                     pushName,
                     phoneNumber
+                }
+            });
+        });
+        
+        // Set up connected listener to ensure we capture user info
+        client.on('connected', (userInfo: any) => {
+            logger.info(`Client ${clientId} connected with user info:`, userInfo);
+            
+            // Broadcast an additional state update with the user info
+            // This ensures the pushName and phoneNumber are always included
+            wsManager.broadcast({
+                type: 'whatsapp_state',
+                data: { 
+                    clientId, 
+                    state: 'connected',
+                    pushName: userInfo.name,
+                    phoneNumber: userInfo.phoneNumber
                 }
             });
         });

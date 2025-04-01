@@ -74,17 +74,28 @@ export const actions: Actions = {
                 });
             }
             
+            // Get client info from WhatsApp manager
+            const client = whatsAppAccountManager.getClient(form.data.client_id);
+            const clientInfo = client ? client.getInfo() : null;
+            
+            console.log('Client info for database:', {
+                clientId: form.data.client_id,
+                phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber,
+                name: form.data.name || clientInfo?.pushName
+            });
+            
             // Create the WhatsApp account in the database
             const account = await prisma.whatsAppAccount.create({
                 data: {
                     description: form.data.description,
                     clientId: form.data.client_id,
-                    userId: auth.user.id
+                    userId: auth.user.id,
+                    phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber || 'Unknown',
+                    name: form.data.name || clientInfo?.pushName
                 }
             });
             
-            // Get the client instance and update its account ID
-            const client = whatsAppAccountManager.getClient(form.data.client_id);
+            // Update the client's account ID
             if (client) {
                 await client.setAccountId(account.id);
             }
