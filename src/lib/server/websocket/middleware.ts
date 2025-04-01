@@ -99,6 +99,8 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                     });
 
                 } catch (error) {
+                    console.log("--------------------------------------------");
+                    console.log(error);
                     logger.error('[wss:kit] authentication error:', error);
                     ws.close(1008, 'Authentication failed');
                 }
