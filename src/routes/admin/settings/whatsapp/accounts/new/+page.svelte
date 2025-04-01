@@ -42,7 +42,40 @@
     
     // Use the tempClientId from the server
     let tempClientId = data.tempClientId;
-
+    
+    // Log WhatsApp store changes for debugging
+    $: console.log('WhatsApp store state changed:', {
+        connectionStatus: $whatsAppStore.connectionStatus,
+        clientId: $whatsAppStore.clientId,
+        qrCode: $whatsAppStore.qrCode ? 'present' : 'null',
+        currentStep
+    });
+    
+    // Directly watch the WhatsApp store connection status
+    $: if ($whatsAppStore.connectionStatus === 'connected' || $whatsAppStore.connectionStatus === 'authenticated') {
+        console.log('Connected status detected in store:', $whatsAppStore.connectionStatus);
+        
+        if (currentStep === 1) {
+            console.log('Advancing to step 2');
+            
+            // Pre-fill the form with the data from WhatsApp
+            const pushName = $whatsAppStore.pushName || 'Unknown';
+            const phoneNumber = $whatsAppStore.phoneNumber || '';
+            const clientId = $whatsAppStore.clientId || '';
+            
+            // Update form values directly
+            $form.description = `WhatsApp Account - ${pushName}`;
+            $form.client_id = clientId;
+            $form.name = pushName;
+            $form.phoneNumber = phoneNumber;
+            
+            // Move to account details step
+            currentStep = 2;
+            toast.success('WhatsApp connected successfully!');
+        }
+    }
+    
+    
     // Create a form handler with standardized error handling
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
         validateOnInput: true,
@@ -68,18 +101,14 @@
         const clientId = event.detail?.clientId || $whatsAppStore.clientId || '';
 
         // Update form with WhatsApp info
-        form.data.description = `WhatsApp Account - ${pushName}`;
-        form.data.client_id = clientId;
+        $form.description = `WhatsApp Account - ${pushName}`;
+        $form.client_id = clientId;
 
         // Move to account details step
         currentStep = 2;
     }
     
-    // Handle QR code refresh request from QRCodeDisplay
-    function handleRefreshQRCode(event: CustomEvent) {
-        console.log('Refresh QR code requested:', event.detail);
-        handleQRCodeRequest(); // Reuse existing function
-    }
+    
     
     // Handle pairing code request from QRCodeDisplay
     function handlePairingCodeRequest(event: CustomEvent) {
@@ -129,61 +158,27 @@
         }
     }
 
-    // Handle QR code request
-    function handleQRCodeRequest() {
-        try {
-            // Reset the WhatsApp store to clear any previous state
-            whatsAppStore.reset();
-            
-            // Generate a new temporary client ID
-            tempClientId = `temp-${crypto.randomUUID()}`;
-            
-            // Set the account ID in the store
-            whatsAppStore.setAccountId(tempClientId);
-            
-            // Set the store to connecting state
-            whatsAppStore.setConnectionStatus('connecting');
-            
-            // The QR code will be automatically requested via WebSocket
-            // when the QRCodeDisplay component is mounted with the new tempClientId
-            
-            // Show loading state while waiting for QR code via WebSocket
-            toast.success('Requesting new QR code...');
-            
-            // Send a WebSocket message to request a QR code
-            import('$lib/stores/websocket-store').then(({ socketStore }) => {
-                // Ensure WebSocket is connected
-                if (socketStore.status !== 'OPEN') {
-                    socketStore.connect();
-                }
-                
-                // Send the request via WebSocket
-                socketStore.send({
-                    type: 'whatsapp',
-                    action: 'requestQRCode',
-                    data: {
-                        accountId: tempClientId
-                    }
-                });
-                
-                console.log('QR code request sent via WebSocket');
-            });
-        } catch (error) {
-            console.error('Error requesting QR code:', error);
-            toast.error('Failed to request QR code. Please try again.');
-        }
-    }
+
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
     <PageHeader title={title} />
 
     <PageContent>
+        
+        {$whatsAppStore.connectionStatus}
+
         {#if currentStep === 1}
             <!-- QR Code Display Step -->
             <FormCard title="Connect WhatsApp" description="Scan the QR code with your WhatsApp app to connect this account.">
                 <!-- Simple QR code display -->
                 <div class="flex flex-col items-center justify-center space-y-4 p-4">
+                    <!-- Debug info for connection status -->
+                    <div class="text-xs text-muted-foreground mb-2 p-2 bg-muted/30 rounded w-full">
+                        <p>Connection status: <span class="font-medium">{$whatsAppStore.connectionStatus}</span></p>
+                        <p>Client ID: <span class="font-medium">{$whatsAppStore.clientId || 'Not connected'}</span></p>
+                    </div>
+                    
                     {#if $whatsAppStore.qrCode}
                         <!-- Show QR code when available -->
                         <div class="w-64 h-64 border border-border rounded-md overflow-hidden flex items-center justify-center bg-white">
@@ -230,15 +225,21 @@
                     {/if}
                 </div>
                     
-                <div class="mt-4">
-                    <Button 
-                        variant="outline" 
-                        on:click={handleQRCodeRequest}
-                        disabled={$whatsAppStore.connectionStatus === 'connecting'}
-                    >
-                        <RefreshCw class="h-4 w-4 mr-2" />
-                        Request New QR Code
-                    </Button>
+                <div class="mt-4 flex flex-col gap-2">
+                    
+                    
+                    <!-- Manual next step button as fallback -->
+                    {#if $whatsAppStore.connectionStatus === 'connected' || $whatsAppStore.connectionStatus === 'authenticated'}
+                        <Button 
+                            variant="default"
+                            on:click={checkConnectionAndAdvance}
+                        >
+                            <CheckCircle class="h-4 w-4 mr-2" />
+                            Continue to Account Details
+                        </Button>
+                    {/if}
+                    
+                    
                 </div>
             </FormCard>
         {:else if currentStep === 2}
@@ -253,35 +254,40 @@
                 <FormCard title="Account Details" description="Enter account information.">
                     <FormRow columns={1}>
                         <FormField id="description" label="Description" error={$errors.description}>
-                            {#if form.data.description}
-                                <Textarea
-                                    id="description"
-                                    name="description"
-                                    bind:value={$form.description}
-                                    placeholder="Describe this WhatsApp account"
-                                    aria-invalid={$errors.description ? 'true' : undefined}
-                                    {...$constraints.description}
-                                />
-                            {:else}
-                                <Skeleton class="h-24 w-full" />
-                            {/if}
+                            <Textarea
+                                id="description"
+                                name="description"
+                                bind:value={$form.description}
+                                placeholder="Describe this WhatsApp account"
+                                aria-invalid={$errors.description ? 'true' : undefined}
+                                {...$constraints.description}
+                            />
                         </FormField>
                     </FormRow>
                     
                     <FormRow columns={1}>
                         <FormField id="client_id" label="Client ID" error={$errors.client_id}>
-                            {#if form.data.client_id}
-                                <Input
-                                    id="client_id"
-                                    name="client_id"
-                                    bind:value={$form.client_id}
-                                    disabled
-                                    aria-invalid={$errors.client_id ? 'true' : undefined}
-                                    {...$constraints.client_id}
-                                />
-                            {:else}
-                                <Skeleton class="h-10 w-full" />
-                            {/if}
+                            <Input
+                                id="client_id"
+                                name="client_id"
+                                bind:value={$form.client_id}
+                                disabled
+                                aria-invalid={$errors.client_id ? 'true' : undefined}
+                                {...$constraints.client_id}
+                            />
+                        </FormField>
+                    </FormRow>
+                    
+                    <FormRow columns={1}>
+                        <FormField id="phoneNumber" label="Phone Number" error={$errors.phoneNumber}>
+                            <Input
+                                id="phoneNumber"
+                                name="phoneNumber"
+                                bind:value={$form.phoneNumber}
+                                placeholder="Phone number from WhatsApp"
+                                aria-invalid={$errors.phoneNumber ? 'true' : undefined}
+                                {...$constraints.phoneNumber}
+                            />
                         </FormField>
                     </FormRow>
 

@@ -126,12 +126,20 @@ const createWhatsAppStore = () => {
                     if (message.data.state === 'connected') connectionStatus = 'connected';
                     if (message.data.state === 'authenticated') connectionStatus = 'authenticated';
                     
+                    console.log('Connection status detected:', connectionStatus);
+                    
                     return { 
                         ...state, 
                         connectionStatus,
                         clientId: message.data.clientId
                     };
                 });
+                
+                // Force a UI update
+                setTimeout(() => {
+                    console.log('Checking connection status after timeout');
+                    update(state => ({ ...state }));
+                }, 1000);
             } else if (message.type === 'whatsapp_connected') {
                 update(state => {
                     // Log the received message for debugging
