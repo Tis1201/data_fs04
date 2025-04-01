@@ -1,13 +1,12 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
-// Constants
 const WS_URL_PATH = '/websocket';
-const RECONNECT_INTERVAL = 5000;
+const BASE_RECONNECT_INTERVAL = 1000;
+const MAX_RECONNECT_INTERVAL = 30000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const PING_INTERVAL = 30000; // 30 seconds
+const PING_INTERVAL = 30000;
 
-// Types
 type WebSocketStatus = 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'RECONNECTING';
 
 interface WebSocketMessage {
@@ -24,9 +23,8 @@ interface WebSocketState {
   messages: WebSocketMessage[];
 }
 
-// --- Socket Store ---
-
 const createSocketStore = () => {
+  // Return no-op store if not in browser.
   if (!browser) {
     const { subscribe } = writable<WebSocketState>({
       status: 'CLOSED',
@@ -43,116 +41,109 @@ const createSocketStore = () => {
       on: () => () => {}
     };
   }
-  
+
+  // Internal state and reactive store.
   const { subscribe, set, update } = writable<WebSocketState>({
     status: 'CONNECTING',
     error: null,
     socket: null,
     messages: []
   });
-  
-  // Message listeners
+
+  let socket: WebSocket | null = null;
+  let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let reconnectAttempts = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const messageListeners: Record<string, ((data: any) => void)[]> = {};
-  
-  // Helper to add a message to the store
+
+  // Append a message to the store.
   const addMessage = (message: WebSocketMessage) => {
-    update(state => ({ ...state, messages: [...(state.messages || []), message] }));
+    update(state => ({ ...state, messages: [...state.messages, message] }));
   };
-  
-  // Dispatch message to registered listeners
+
+  // Dispatch messages to registered listeners.
   const dispatchMessage = (message: WebSocketMessage) => {
     if (!message?.type) return;
-    const type = message.type;
-    const data = message.data || message;
-    messageListeners[type]?.forEach(listener => {
-      try {
-        listener(data);
-      } catch (error) {
-        console.error(`[SocketStore] Error in ${type} listener:`, error);
-      }
+    messageListeners[message.type]?.forEach(cb => {
+      try { cb(message.data || message); } catch (error) { console.error(`Listener error [${message.type}]:`, error); }
     });
-    messageListeners['message']?.forEach(listener => {
-      try {
-        listener(message);
-      } catch (error) {
-        console.error('[SocketStore] Error in message listener:', error);
-      }
+    messageListeners['message']?.forEach(cb => {
+      try { cb(message); } catch (error) { console.error('Listener error [message]:', error); }
     });
   };
-  
-  // Connect to the WebSocket
+
+  // Establish a WebSocket connection.
   const connect = (queryParams = '') => {
-    console.log('[SocketStore] Connecting...');
+    // Close any existing connection.
+    if (socket && socket.readyState !== WebSocket.CLOSED) socket.close();
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const url = `${protocol}//${host}${WS_URL_PATH}${queryParams ? '?' + queryParams : ''}`;
-    console.log(`[SocketStore] Connecting to ${url}`);
+
     try {
-      const ws = new WebSocket(url);
-      socket = ws;
-      
-      ws.onopen = () => {
-        console.log('[SocketStore] WebSocket opened');
+      socket = new WebSocket(url);
+      update(state => ({ ...state, status: 'CONNECTING', error: null }));
+
+      socket.onopen = () => {
+        reconnectAttempts = 0;
         const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
-        set({
-          status: 'OPEN',
-          error: null,
-          socket: { id: socketId, readyState: ws.readyState, url },
-          messages: []
-        });
-        addMessage({
-          type: 'system',
-          content: 'Connected to WebSocket server',
-          data: { timestamp: new Date().toISOString(), socketId }
-        });
+        set({ status: 'OPEN', error: null, socket: { id: socketId, readyState: socket!.readyState, url }, messages: [] });
+        addMessage({ type: 'system', content: 'Connected to WebSocket server', data: { timestamp: new Date().toISOString(), socketId } });
+        socket!.send(JSON.stringify({ type: 'register', data: { clientType: 'web' } }));
+        if (pingInterval) clearInterval(pingInterval);
         pingInterval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }));
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
           }
         }, PING_INTERVAL);
       };
-        ws.onmessage = (event) => {
-        console.log('[SocketStore] Received:', event.data);
+
+      socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-
-          if (message.type === 'echo' && message.data.type === 'ping') {
-            console.log('[SocketStore] Ignoring ping');
-            return;
+          if (message.type === 'echo' && message.data?.type === 'ping') return;
+          if (message.type === 'welcome') {
+            update(state => ({
+              ...state,
+              socket: { 
+                ...state.socket, 
+                id: message.data?.socketId || state.socket?.id, 
+                userId: message.data?.userId, 
+                role: message.data?.role 
+              }
+            }));
           }
-
           addMessage(message);
           dispatchMessage(message);
         } catch (error) {
-          console.error('[SocketStore] Error parsing message:', error);
+          console.error('Message parse error:', error);
         }
       };
-      
-      ws.onclose = (event) => {
-        console.log('[SocketStore] WebSocket closed', event);
-        addMessage({
-          type: 'system',
-          content: 'Disconnected from WebSocket server',
-          data: { timestamp: new Date().toISOString(), reason: event.reason || 'Connection closed', code: event.code }
-        });
-        set({ status: 'CLOSED', error: null, socket: null, messages: [] });
-        if (pingInterval) {
-          clearInterval(pingInterval);
-          pingInterval = null;
+
+      socket.onclose = (event) => {
+        addMessage({ type: 'system', content: 'Disconnected from WebSocket server', data: { timestamp: new Date().toISOString(), reason: event.reason || 'Connection closed', code: event.code } });
+        update(state => ({ ...state, status: 'CLOSED', socket: null }));
+        if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
+        // Exponential backoff reconnection.
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttempts++;
+          const backoffTime = Math.min(BASE_RECONNECT_INTERVAL * Math.pow(2, reconnectAttempts - 1) + Math.random() * 1000, MAX_RECONNECT_INTERVAL);
+          reconnectTimer = setTimeout(() => {
+            update(state => ({ ...state, status: 'RECONNECTING' }));
+            connect(queryParams);
+          }, backoffTime);
+        } else {
+          update(state => ({ ...state, error: new Error('Maximum reconnection attempts reached') }));
         }
       };
-      
-      ws.onerror = (event) => {
-        console.error('[SocketStore] WebSocket error', event);
-        addMessage({
-          type: 'error',
-          content: 'WebSocket error',
-          data: { timestamp: new Date().toISOString(), message: 'Connection error' }
-        });
+
+      socket.onerror = () => {
+        addMessage({ type: 'error', content: 'WebSocket error', data: { timestamp: new Date().toISOString(), message: 'Connection error' } });
         update(state => ({ ...state, error: new Error('WebSocket connection error') }));
       };
     } catch (error) {
-      console.error('[SocketStore] Connection error:', error);
       set({
         status: 'CLOSED',
         error: error instanceof Error ? error : new Error('Failed to connect to WebSocket server'),
@@ -165,85 +156,71 @@ const createSocketStore = () => {
       });
     }
   };
-  
-  // Disconnect from WebSocket
+
+  // Cleanly disconnect the WebSocket.
   const disconnect = () => {
-    console.log('[SocketStore] Disconnecting...');
-    if (socket) {
-      if (socket instanceof WebSocket) {
-        socket.close();
-      }
-      socket = null;
-    }
-    if (pingInterval) {
-      clearInterval(pingInterval);
-      pingInterval = null;
-    }
+    if (socket) { socket.close(); socket = null; }
+    if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    reconnectAttempts = 0;
     set({ status: 'CLOSED', error: null, socket: null, messages: [] });
   };
-  
-  // Send a message through the WebSocket
+
+  // Send a message; if not connected, attempt reconnect and resend.
   const send = (eventOrMessage: string | WebSocketMessage, data?: any) => {
-    if (!socket) {
-      console.error('[SocketStore] Cannot send: Socket not connected');
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
+        connect('');
+        setTimeout(() => send(eventOrMessage, data), 1000);
+      }
       return;
     }
-    let message: WebSocketMessage;
-    if (typeof eventOrMessage === 'object') {
-      message = eventOrMessage;
-    } else {
-      message = { type: eventOrMessage, data: data || {}, timestamp: new Date().toISOString() };
+    const message: WebSocketMessage = typeof eventOrMessage === 'object'
+      ? eventOrMessage
+      : { type: eventOrMessage, data: data || {}, timestamp: new Date().toISOString() };
+    try {
+      socket.send(JSON.stringify(message));
+      addMessage({ ...message, timestamp: new Date().toISOString() });
+    } catch (error) {
+      console.error('Send error:', error);
     }
-    console.log('[SocketStore] Sending:', message);
-    socket.send(JSON.stringify(message));
-    addMessage({ ...message, timestamp: new Date().toISOString() });
   };
-  
-  const clearMessages = () => {
-    update(state => ({ ...state, messages: [] }));
-  };
-  
+
+  const clearMessages = () => update(state => ({ ...state, messages: [] }));
+
+  // Register a listener for specific events.
   const on = (event: string, callback: (data: any) => void) => {
-    console.log(`[SocketStore] Registering listener for ${event} events`);
     if (!messageListeners[event]) messageListeners[event] = [];
     messageListeners[event].push(callback);
     return () => {
       messageListeners[event] = messageListeners[event].filter(cb => cb !== callback);
-      if (messageListeners[event].length === 0) delete messageListeners[event];
+      if (!messageListeners[event].length) delete messageListeners[event];
     };
   };
-  
-  // Add status getter for direct access to current status
+
+  // Retrieve the current status.
   const getStatus = () => {
     let currentStatus: WebSocketStatus = 'CLOSED';
-    // Get the current status from the store
-    const unsubscribe = subscribe(state => {
-      currentStatus = state.status;
-    });
+    const unsubscribe = subscribe(state => { currentStatus = state.status; });
     unsubscribe();
     return currentStatus;
   };
 
-  // Connect on initialization
+  // Auto-connect on initialization.
   connect();
-  
-  // Return the store interface with properly typed subscribe method
+
   return {
-    subscribe,  // This is the Svelte store subscribe method that returns an unsubscribe function
+    subscribe,
     connect,
     disconnect,
     send,
     clearMessages,
     on,
-    // Add a getter for the current status
     get status() {
       return getStatus();
     }
   };
 };
-
-let socket: WebSocket | null = null;
-let pingInterval: ReturnType<typeof setInterval> | null = null;
 
 export const socketStore = createSocketStore();
 export const onSocketEvent = (event: string, callback: (data: any) => void) => socketStore.on(event, callback);

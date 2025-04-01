@@ -1,16 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { getWhatsAppClient, sendWhatsAppMessage } from '$lib/server/bailey/client';
+import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
+import { apiGuard } from '$lib/server/security/api-guard';
 
 /**
  * Send a WhatsApp message
  */
-export const POST: RequestHandler = async ({ request, locals }) => {
-    // Validate authentication
-    const auth = await locals.auth.validate();
-    if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
-        return json({ success: false, error: 'Not authorized' }, { status: 403 });
-    }
+export const POST: RequestHandler = apiGuard(['ADMIN'], async ({ request, locals }) => {
     
     try {
         const body = await request.json();
@@ -24,7 +20,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         }
         
         // Check if client exists
-        const client = getWhatsAppClient(clientId);
+        const client = whatsAppAccountManager.getClient(clientId);
         if (!client) {
             return json({ 
                 success: false, 
@@ -33,7 +29,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         }
         
         // Send the message
-        const success = await sendWhatsAppMessage(clientId, to, message);
+        const success = await client.sendTextMessage(to, message);
         
         if (success) {
             return json({ success: true, message: 'Message sent successfully' });
@@ -55,12 +51,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 /**
  * Get WhatsApp client status
  */
-export const GET: RequestHandler = async ({ url, locals }) => {
-    // Validate authentication
-    const auth = await locals.auth.validate();
-    if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
-        return json({ success: false, error: 'Not authorized' }, { status: 403 });
-    }
+export const GET: RequestHandler = apiGuard(['ADMIN'], async ({ url, locals }) => {
     
     try {
         const clientId = url.searchParams.get('clientId');
@@ -73,7 +64,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         }
         
         // Check if client exists and get its state
-        const client = getWhatsAppClient(clientId);
+        const client = whatsAppAccountManager.getClient(clientId);
         if (!client) {
             return json({ 
                 success: false, 

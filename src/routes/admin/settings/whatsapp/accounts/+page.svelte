@@ -33,7 +33,7 @@
             <ActionButton
                 label="New Account"
                 icon={Plus}
-                onClick={() => goto('/admin/whatsapp/accounts/new')}
+                onClick={() => goto('/admin/settings/whatsapp/accounts/new')}
             />
         </svelte:fragment>
     </PageHeader>

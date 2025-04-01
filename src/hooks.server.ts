@@ -2,7 +2,7 @@ import { lucia } from "$lib/server/auth/lucia";
 import type { Handle } from "@sveltejs/kit";
 import prisma from "$lib/server/prisma";
 import { building } from "$app/environment";
-import { initializeClientsFromDatabase } from "$lib/server/bailey/client";
+import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
 import { websocketMiddleware } from "$lib/server/websocket/middleware";
 import { authMiddleware } from "$lib/server/auth/middleware";
 import { logger } from "$lib/server/logger";
@@ -19,10 +19,12 @@ if (!building) {
             await new Promise(resolve => setTimeout(resolve, 1000));
             
             logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
-            // Run the initialization in the background
-            initializeClientsFromDatabase().catch(error => {
-                logger.error('Failed to initialize WhatsApp clients', { error: error.message, stack: error.stack });
-            });
+            
+            // Initialize WhatsApp clients from database
+            logger.info('Loading WhatsApp clients from database...');
+            await whatsAppAccountManager.initializeClientsFromDatabase();
+            
+            logger.info('WhatsAppAccountManager is ready');
         } catch (error) {
             logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
         }

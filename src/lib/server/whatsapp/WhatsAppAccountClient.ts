@@ -23,7 +23,7 @@ function ensureDirectoryExists(dir: string): void {
 }
 
 // Define client state type
-export type WhatsAppClientState = 'disconnected' | 'connecting' | 'connected' | 'authenticated';
+export type WhatsAppClientState = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'awaiting_scan';
 export { WhatsAppClientState };
 
 // Define message types
@@ -69,6 +69,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     private reconnectCount: number = 0;
     private maxReconnectAttempts: number = 5;
     private reconnectDelay: number = 3000; // 3 seconds
+    private createdAt: number = Date.now(); // Timestamp when client was created
     
     /**
      * Create a new WhatsApp Account Client
@@ -222,8 +223,14 @@ export class WhatsAppAccountClient extends EventEmitter {
         if (qr) {
             this.qrCode = qr;
             this.qrCodeTimestamp = Date.now();
+            
+            // Update state to awaiting_scan when QR code is generated
+            this.state = 'awaiting_scan';
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
+            
+            // Emit both QR code and state events
             this.emit('qr', qr);
+            this.emit('state', this.state);
             
             // Set up a timer to check for QR code expiration
             this.setupQrCodeRefreshTimer();
@@ -253,7 +260,7 @@ export class WhatsAppAccountClient extends EventEmitter {
                         // Extract phone number from user ID if not already set
                         if (!this.phoneNumber && this.socket.user.id) {
                             // User ID format is typically like "1234567890:12@s.whatsapp.net"
-                            const match = this.socket.user.id.match(/^(\d+):/); 
+                            const match = this.socket.user.id.match(/^(\d+):/);
                             if (match && match[1]) {
                                 this.phoneNumber = match[1];
                                 logger.info(`Extracted phone number from user ID: ${this.phoneNumber}`);
@@ -261,16 +268,30 @@ export class WhatsAppAccountClient extends EventEmitter {
                         }
                         
                         logger.info(`Connected as ${this.pushName} (${this.socket.user.id})`);
+                        
+                        // Emit connected event with user info
                         this.emit('connected', {
                             id: this.socket.user.id,
                             name: this.pushName,
                             phoneNumber: this.phoneNumber
                         });
+                        
+                        // Emit an additional state update with the user info
+                        // This ensures the pushName and phoneNumber are included in the state update
+                        this.emit('state', this.state);
                     }
                     break;
                     
                 case 'close':
                     const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+                    const errorData = (lastDisconnect?.error as Boom)?.data;
+                    
+                    // Check if this is a conflict error (session replaced)
+                    const isConflictError = 
+                        statusCode === 440 && 
+                        errorData?.tag === 'stream:error' && 
+                        errorData?.content?.[0]?.tag === 'conflict' &&
+                        errorData?.content?.[0]?.attrs?.type === 'replaced';
                     
                     // Check if we need to reconnect
                     if (statusCode === DisconnectReason.restartRequired) {
@@ -288,6 +309,20 @@ export class WhatsAppAccountClient extends EventEmitter {
                         // Emit both logout and state events
                         this.emit('logout');
                         this.emit('state', this.state);
+                    } else if (isConflictError) {
+                        // Handle conflict error (session replaced)
+                        logger.warn(`Client ${this.id} disconnected due to conflict: session replaced by another connection`);
+                        logger.warn(`This typically happens when the same WhatsApp account is logged in elsewhere`);
+                        
+                        // Set state to disconnected
+                        this.state = 'disconnected';
+                        this.emit('state', this.state);
+                        
+                        // Emit a special conflict event that can be handled by the manager
+                        this.emit('conflict');
+                        
+                        // Don't automatically reconnect for conflict errors
+                        this.autoReconnect = false;
                     } else {
                         logger.warn(`Client ${this.id} disconnected with status code ${statusCode}`);
                         this.state = 'disconnected';
@@ -334,17 +369,25 @@ export class WhatsAppAccountClient extends EventEmitter {
                         (formattedMessage.content.includes('Status:') || 
                          formattedMessage.content === '[Notification]');
                     
+                    // Check if this is a history sync notification
+                    const isHistorySync = message.message?.protocolMessage?.type === 'HISTORY_SYNC_NOTIFICATION';
+                    
                     // Only emit if it's not a notification or if it's a meaningful notification
                     if (!isNotification || formattedMessage.content !== '[Notification]') {
                         // Store the raw message for all message types for debugging and download purposes
                         (formattedMessage as any)._rawMessage = message;
                         
                         // For unknown message types, log the raw message in debug mode
-                        if (formattedMessage.type === 'unknown' || formattedMessage.type === 'deleted' || formattedMessage.type === 'reaction') {
-                            logger.debug(`Special message type detected: ${formattedMessage.type}. Raw message: ${JSON.stringify(message, null, 2)}`);
+                        if (formattedMessage.type === 'unknown' || formattedMessage.type === 'deleted' || formattedMessage.type === 'reaction' || isHistorySync) {
+                            // logger.debug(`Special message type detected: ${formattedMessage.type}. Raw message: ${JSON.stringify(message, null, 2)}`);
+                            logger.debug(`Special message type detected: ${formattedMessage.type}`);
+                       
                         }
                         
-                        this.emit('message', formattedMessage);
+                        // Only emit non-history sync messages
+                        if (!isHistorySync) {
+                            this.emit('message', formattedMessage);
+                        }
                     }
                 }
             } catch (error) {
@@ -708,6 +751,32 @@ export class WhatsAppAccountClient extends EventEmitter {
     }
     
     /**
+     * Clear authentication files to force a new login
+     * This is used when a conflict error occurs (session replaced)
+     */
+    clearAuthFiles(): void {
+        try {
+            if (fs.existsSync(this.authDir)) {
+                logger.info(`Clearing auth files for client ${this.id} due to conflict error`);
+                
+                // Read all files in the auth directory
+                const files = fs.readdirSync(this.authDir);
+                
+                // Delete each file
+                for (const file of files) {
+                    const filePath = path.join(this.authDir, file);
+                    fs.unlinkSync(filePath);
+                    logger.debug(`Deleted auth file: ${filePath}`);
+                }
+                
+                logger.info(`Auth files cleared for client ${this.id}`);
+            }
+        } catch (error) {
+            logger.error(`Error clearing auth files for client ${this.id}: ${error}`);
+        }
+    }
+    
+    /**
      * Get the current client state
      */
     getState(): WhatsAppClientState {
@@ -729,6 +798,13 @@ export class WhatsAppAccountClient extends EventEmitter {
     }
     
     /**
+     * Get the client creation timestamp
+     */
+    getCreatedAt(): number {
+        return this.createdAt;
+    }
+    
+    /**
      * Get client info
      */
     getInfo(): any {
@@ -740,6 +816,29 @@ export class WhatsAppAccountClient extends EventEmitter {
             pushName: this.pushName,
             qrCode: this.qrCode ? `${this.qrCode.substring(0, 20)}...` : null
         };
+    }
+    
+    /**
+     * Get push name (display name) of the WhatsApp account
+     */
+    getPushName(): string | undefined {
+        return this.pushName;
+    }
+    
+    /**
+     * Get phone number of the WhatsApp account
+     */
+    getPhoneNumber(): string | undefined {
+        return this.phoneNumber;
+    }
+    
+    /**
+     * Set the account ID for this client
+     * @param accountId The database account ID to associate with this client
+     */
+    setAccountId(accountId: string): void {
+        this.accountId = accountId;
+        logger.info(`Set account ID ${accountId} for client ${this.id}`);
     }
     
     /**
