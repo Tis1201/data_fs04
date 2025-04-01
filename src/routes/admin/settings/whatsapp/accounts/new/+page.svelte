@@ -15,6 +15,7 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import AccountForm from "./form.svelte";
     import QRCodeDisplay from "$lib/components/ui_components_sveltekit/whatsapp/QRCodeDisplay.svelte";
     import { whatsAppStore } from "$lib/stores/whatsapp-store";
     import type { ConnectionStatus } from "$lib/stores/whatsapp-store";
@@ -159,6 +160,7 @@
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
         validateOnInput: true,
         debugMode: true,
+        action: '?/createAccount',
         onSuccess: (result) => {
             if (result.data?.account) {
                 createdAccount = {
@@ -282,7 +284,7 @@
 
     <PageContent>
         
-        {$formWhatsAppState.connectionStatus}
+        <!-- {$formWhatsAppState.connectionStatus} -->
 
         {#if currentStep === 1}
             <!-- QR Code Display Step -->
@@ -363,90 +365,16 @@
                 </div>
             </FormCard>
         {:else if currentStep === 2}
-            <!-- Step 2: Account Details -->
-            <FormContainer 
-                method="POST" 
-                action="?/default" 
-                {enhance} 
-                novalidate 
+            <!-- Step 2: Account Details - Using the extracted form component -->
+            <AccountForm 
+                form={$form}
+                errors={$errors}
+                enhance={enhance}
+                submitting={$submitting}
+                constraints={$constraints}
                 errorMessage={$errorMessage}
-            >
-                <FormCard title="Account Details" description="Enter account information.">
-                    <FormRow columns={1}>
-                        <FormField id="description" label="Description" error={$errors.description}>
-                            <Textarea
-                                id="description"
-                                name="description"
-                                bind:value={$form.description}
-                                placeholder="Describe this WhatsApp account"
-                                aria-invalid={$errors.description ? 'true' : undefined}
-                                {...$constraints.description}
-                            />
-                        </FormField>
-                    </FormRow>
-                    
-                    <FormRow columns={1}>
-                        <FormField id="client_id" label="Client ID" error={$errors.client_id}>
-                            <Input
-                                id="client_id"
-                                name="client_id"
-                                bind:value={$form.client_id}
-                                disabled
-                                aria-invalid={$errors.client_id ? 'true' : undefined}
-                                {...$constraints.client_id}
-                            />
-                        </FormField>
-                    </FormRow>
-                    
-                    <FormRow columns={1}>
-                        <FormField id="name" label="Display Name" error={$errors.name}>
-                            <Input
-                                id="name"
-                                name="name"
-                                bind:value={$form.name}
-                                placeholder="Display name from WhatsApp"
-                                aria-invalid={$errors.name ? 'true' : undefined}
-                                {...$constraints.name}
-                            />
-                        </FormField>
-                    </FormRow>
-                    
-                    <FormRow columns={1}>
-                        <FormField id="phoneNumber" label="Phone Number" error={$errors.phoneNumber}>
-                            <Input
-                                id="phoneNumber"
-                                name="phoneNumber"
-                                bind:value={$form.phoneNumber}
-                                placeholder="Phone number from WhatsApp"
-                                aria-invalid={$errors.phoneNumber ? 'true' : undefined}
-                                {...$constraints.phoneNumber}
-                            />
-                        </FormField>
-                    </FormRow>
-
-                    <FormActions>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            on:click={() => currentStep = 1}
-                            disabled={$submitting}
-                        >
-                            Back
-                        </Button>
-                        <Button type="submit" disabled={$submitting} class="min-w-[120px] relative">
-                            {#if $submitting}
-                                <span class="absolute inset-0 flex items-center justify-center">
-                                    <Skeleton class="h-4 w-20" />
-                                </span>
-                                <span class="opacity-0">Create Account</span>
-                            {:else}
-                                <Plus class="h-4 w-4 mr-2" />
-                                Create Account
-                            {/if}
-                        </Button>
-                    </FormActions>
-                </FormCard>
-            </FormContainer>
+                on:goBack={() => currentStep = 1}
+            />
         {:else if currentStep === 3}
             <!-- Step 3: Success Page -->
             <FormCard title="Account Created Successfully" description="Your WhatsApp account has been created successfully.">

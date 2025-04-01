@@ -46,7 +46,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     // Main action for creating a WhatsApp account
-    default: async ({ request, locals }) => {
+    createAccount: async ({ request, locals }) => {
         const auth = await locals.auth.validate();
         if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
             throw error(403, 'Not authorized to create WhatsApp accounts');
@@ -64,7 +64,8 @@ export const actions: Actions = {
             const prisma = locals.prisma;
             
             // Log user info for debugging
-            console.log(auth.user);
+            console.log('User info:', auth.user);
+            console.log('Form data received:', form.data);
             
             // Create the WhatsApp account with the client_id from the form
             // The client_id should have been set in the frontend when the WebSocket connection was authenticated
@@ -88,8 +89,8 @@ export const actions: Actions = {
             const account = await prisma.whatsAppAccount.create({
                 data: {
                     description: form.data.description,
-                    clientId: form.data.client_id,
-                    userId: auth.user.id,
+                    client_id: form.data.client_id, // Match the field name in the schema
+                    createdBy: auth.user.id, // Field is named createdBy in the schema, not userId
                     phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber || 'Unknown',
                     name: form.data.name || clientInfo?.pushName
                 }
