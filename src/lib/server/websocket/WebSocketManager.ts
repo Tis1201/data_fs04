@@ -190,6 +190,23 @@ export class WebSocketManager {
             logger.info(`[wss:manager] handling WhatsApp message: ${data.action}`);
             
             switch (data.action) {
+                case 'testMessage':
+                    logger.info(`[wss:manager] Received test message request: ${data.data?.message || 'No message content'}`);
+                    
+                    // Send a test message using the WhatsAppAccountManager
+                    whatsAppAccountManager.sendTestMessage(data.data?.message || 'Test message');
+                    
+                    // Also send a direct response to the client
+                    ws.send(JSON.stringify({
+                        type: 'whatsapp',
+                        action: 'testMessageResponse',
+                        data: {
+                            message: 'Test message received and broadcast',
+                            timestamp: Date.now()
+                        }
+                    }));
+                    break;
+                    
                 case 'requestQRCode':
                     const accountId = data.data?.accountId;
                     logger.info(`[wss:manager] QR code requested for account: ${accountId || 'new account'}`);

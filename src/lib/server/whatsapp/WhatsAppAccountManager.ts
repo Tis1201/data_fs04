@@ -382,6 +382,42 @@ export class WhatsAppAccountManager extends EventEmitter {
     }
     
     /**
+     * Send a test message for debugging purposes
+     * @param clientId Client ID
+     */
+    async sendTestMessage(clientId: string): Promise<void> {
+        const client = this.getClient(clientId);
+        if (!client) {
+            logger.error(`Client ${clientId} not found`);
+            return;
+        }
+        
+        // Create a test message
+        const testMessage = {
+            id: `test-${Date.now()}`,
+            from: 'test-sender@s.whatsapp.net',
+            to: 'test-recipient@s.whatsapp.net',
+            content: 'This is a test message from debug page',
+            timestamp: Date.now(),
+            isFromMe: false,
+            type: 'text' as const
+        };
+        
+        logger.info(`Sending test message for client ${clientId}`);
+        
+        // Emit the message event on the client
+        client.emit('message', testMessage);
+        
+        // Also directly broadcast the message via WebSocket for debugging
+        wsManager.broadcast({
+            type: 'whatsapp_message',
+            data: { clientId, message: testMessage }
+        });
+        
+        logger.info(`Test message sent for client ${clientId}`);
+    }
+    
+    /**
      * Update account status in database
      * This is a placeholder method - implement actual database updates as needed
      */
@@ -429,6 +465,10 @@ export class WhatsAppAccountManager extends EventEmitter {
                     
                     // Add the client to our clients map
                     this.clients.set(account.client_id, client);
+                    
+                    // Set up event listeners for the client before connecting
+                    // This is crucial for message broadcasting to work correctly
+                    this.setupClientEventListeners(client, account.client_id, account.id);
                     
                     // Connect the client (this will attempt to reconnect)
                     await client.connect();

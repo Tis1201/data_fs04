@@ -3,7 +3,8 @@ import { writable } from 'svelte/store';
 
 // Constants
 const WS_URL_PATH = '/websocket';
-const RECONNECT_INTERVAL = 5000;
+const BASE_RECONNECT_INTERVAL = 1000; // Start with 1 second
+const MAX_RECONNECT_INTERVAL = 30000; // Max 30 seconds between attempts
 const MAX_RECONNECT_ATTEMPTS = 5;
 const PING_INTERVAL = 30000; // 30 seconds
 
@@ -80,12 +81,22 @@ const createSocketStore = () => {
     });
   };
   
+  // Track reconnection attempts
+  let reconnectAttempts = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  
   // Connect to the WebSocket
   const connect = (queryParams = '') => {
     // If we already have a socket, close it first
     if (socket && socket.readyState !== WebSocket.CLOSED) {
       console.log('[SocketStore] Closing existing connection before reconnecting...');
       socket.close();
+    }
+    
+    // Clear any existing reconnect timer
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
     
     console.log('[SocketStore] Connecting...');
@@ -108,6 +119,10 @@ const createSocketStore = () => {
       ws.onopen = () => {
         console.log('[SocketStore] WebSocket opened');
         const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
+        
+        // Reset reconnection attempts on successful connection
+        reconnectAttempts = 0;
+        
         set({
           status: 'OPEN',
           error: null,
@@ -185,11 +200,33 @@ const createSocketStore = () => {
           pingInterval = null;
         }
         
-        // Attempt to reconnect after a delay
-        setTimeout(() => {
-          console.log('[SocketStore] Attempting to reconnect...');
-          connect(queryParams);
-        }, RECONNECT_INTERVAL);
+        // Implement exponential backoff for reconnection
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttempts++;
+          
+          // Calculate backoff time with exponential increase and jitter
+          const backoffTime = Math.min(
+            BASE_RECONNECT_INTERVAL * Math.pow(2, reconnectAttempts - 1) + Math.random() * 1000,
+            MAX_RECONNECT_INTERVAL
+          );
+          
+          console.log(`[SocketStore] Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${backoffTime}ms`);
+          
+          // Attempt to reconnect after calculated delay
+          reconnectTimer = setTimeout(() => {
+            console.log('[SocketStore] Attempting to reconnect...');
+            update(state => ({ ...state, status: 'RECONNECTING' }));
+            connect(queryParams);
+          }, backoffTime);
+        } else {
+          console.log('[SocketStore] Maximum reconnection attempts reached. Giving up.');
+          // Don't try to reconnect automatically anymore, user must manually reconnect
+          update(state => ({
+            ...state,
+            status: 'CLOSED',
+            error: new Error('Maximum reconnection attempts reached')
+          }));
+        }
       };
       
       ws.onerror = (event) => {
@@ -229,6 +266,16 @@ const createSocketStore = () => {
       clearInterval(pingInterval);
       pingInterval = null;
     }
+    
+    // Clear any reconnection timer
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    
+    // Reset reconnection attempts
+    reconnectAttempts = 0;
+    
     set({ status: 'CLOSED', error: null, socket: null, messages: [] });
   };
   

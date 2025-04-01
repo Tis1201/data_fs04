@@ -5,6 +5,27 @@ import { socketStore } from './websocket-store';
 // Types
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'awaiting_scan';
 
+export interface WhatsAppMessage {
+    id: string;
+    from: string;
+    to: string;
+    content: string;
+    timestamp: number;
+    isFromMe: boolean;
+    type: string;
+    mediaUrl?: string;
+    caption?: string;
+    fileName?: string;
+    fileSize?: number;
+    mimetype?: string;
+    isReply?: boolean;
+    replyToMessageId?: string;
+    replyToMessage?: string;
+    replyToParticipant?: string;
+    clientId?: string;
+    accountId?: string;
+}
+
 export interface WhatsAppState {
     qrCode: string | null;
     pairingCode: string | null;
@@ -14,6 +35,7 @@ export interface WhatsAppState {
     phoneNumber: string | null;
     pushName: string | null;
     clientId: string | null;
+    messages: WhatsAppMessage[];
 }
 
 // Create WhatsApp store
@@ -27,7 +49,8 @@ const createWhatsAppStore = () => {
             accountId: null,
             phoneNumber: null,
             pushName: null,
-            clientId: null
+            clientId: null,
+            messages: []
         });
         return {
             subscribe,
@@ -46,12 +69,28 @@ const createWhatsAppStore = () => {
         accountId: null,
         phoneNumber: null,
         pushName: null,
-        clientId: null
+        clientId: null,
+        messages: []
     });
     
     // Initialize WebSocket listener
     const setupSocketListener = () => {
         if (!browser) return;
+        
+        // Subscribe to all messages for debugging
+        socketStore.on('message', (message: any) => {
+            console.log('DEBUG: Received raw message from WebSocket:', message);
+        });
+        
+        // Subscribe to whatsapp_message type specifically
+        socketStore.on('whatsapp_message', (data: any) => {
+            console.log('DEBUG: Received whatsapp_message event:', data);
+        });
+        
+        // Subscribe to whatsapp type
+        socketStore.on('whatsapp', (data: any) => {
+            console.log('DEBUG: Received whatsapp event:', data);
+        });
         
         const messageHandler = (message: any) => {
             console.log('Received message from WebSocket:', message);
@@ -103,7 +142,8 @@ const createWhatsAppStore = () => {
                     error: null,
                     pairingCode: null,
                     phoneNumber: null,
-                    pushName: null
+                    pushName: null,
+                    messages: []
                 };
                 
                 // Update the store
@@ -164,9 +204,75 @@ const createWhatsAppStore = () => {
                         pushName: message.data.info?.pushName
                     };
                 });
-            } else if (message.type === 'whatsapp_message') {
-                // Just log message events for now
+            } else if (message.type === 'whatsapp_message' || (message.type === 'whatsapp' && message.action === 'message')) {
+                // Handle message events and store them
                 console.log('Received WhatsApp message:', message.data);
+                
+                try {
+                    // Validate message data structure
+                    if (!message.data || !message.data.message) {
+                        console.error('Invalid message data format:', message);
+                        return;
+                    }
+                    
+                    const messageData = message.data.message;
+                    
+                    update(state => {
+                        try {
+                            // Create a new message object
+                            const newMessage: WhatsAppMessage = {
+                                id: messageData.id || messageData.messageId || crypto.randomUUID(),
+                                from: messageData.from || messageData.sender || 'Unknown',
+                                to: messageData.to || messageData.recipient || '',
+                                content: messageData.content || messageData.body || '',
+                                timestamp: messageData.timestamp || Date.now(),
+                                isFromMe: messageData.isFromMe || false,
+                                type: messageData.type || 'text',
+                                mediaUrl: messageData.mediaUrl || '',
+                                caption: messageData.caption || '',
+                                fileName: messageData.fileName || '',
+                                fileSize: messageData.fileSize || 0,
+                                mimetype: messageData.mimetype || '',
+                                isReply: messageData.isReply || false,
+                                replyToMessageId: messageData.replyToMessageId || '',
+                                replyToMessage: messageData.replyToMessage || '',
+                                replyToParticipant: messageData.replyToParticipant || '',
+                                clientId: message.data.clientId || state.clientId,
+                                accountId: messageData.accountId || state.accountId
+                            };
+                            
+                            console.log('Processing message:', newMessage.id);
+                            
+                            // Check if we already have this message (avoid duplicates)
+                            const messageExists = state.messages?.some(msg => msg.id === newMessage.id) || false;
+                            if (messageExists) {
+                                console.log('Message already exists in store, skipping:', newMessage.id);
+                                return state;
+                            }
+                            
+                            console.log('Adding new message to store:', newMessage.id);
+                            
+                            // Add the new message to the state
+                            const messages = [...(state.messages || []), newMessage];
+                            
+                            // Limit the number of messages to prevent memory issues
+                            const MAX_MESSAGES = 100;
+                            if (messages.length > MAX_MESSAGES) {
+                                messages.shift();
+                            }
+                            
+                            return { 
+                                ...state, 
+                                messages
+                            };
+                        } catch (error) {
+                            console.error('Error processing message in store update:', error);
+                            return state;
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error processing WhatsApp message:', error);
+                }
             }
             
             // Also handle the old format for backward compatibility
