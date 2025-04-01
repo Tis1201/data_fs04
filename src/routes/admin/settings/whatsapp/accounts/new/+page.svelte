@@ -277,6 +277,21 @@
             throw err;
         }
     }
+    
+    // Get background color class based on connection status
+    function getStatusBgColor(status: ConnectionStatus): string {
+        switch (status) {
+            case 'awaiting_scan':
+                return 'bg-amber-50 border border-amber-200';
+            case 'connecting':
+                return 'bg-blue-50 border border-blue-200';
+            case 'connected':
+            case 'authenticated':
+                return 'bg-green-50 border border-green-200';
+            default:
+                return 'bg-red-50 border border-red-200';
+        }
+    }
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -291,10 +306,39 @@
             <FormCard title="Connect WhatsApp" description="Scan the QR code with your WhatsApp app to connect this account.">
                 <!-- Simple QR code display -->
                 <div class="flex flex-col items-center justify-center space-y-4 p-4">
-                    <!-- Debug info for connection status -->
-                    <div class="text-xs text-muted-foreground mb-2 p-2 bg-muted/30 rounded w-full">
-                        <p>Connection status: <span class="font-medium">{$formWhatsAppState.connectionStatus}</span></p>
-                        <p>Client ID: <span class="font-medium">{$formClientId || 'Not connected'}</span></p>
+                    <!-- Connection status display -->
+                    <div class="mb-4 p-3 rounded-md w-full flex items-center gap-2 {getStatusBgColor($formWhatsAppState.connectionStatus)}">
+                        {#if $formWhatsAppState.connectionStatus === 'awaiting_scan'}
+                            <QrCode class="h-5 w-5 text-amber-600" />
+                            <div>
+                                <p class="text-sm font-medium">Waiting for QR code scan</p>
+                                <p class="text-xs text-muted-foreground">Please scan the QR code with your WhatsApp app</p>
+                            </div>
+                        {:else if $formWhatsAppState.connectionStatus === 'connecting'}
+                            <RefreshCw class="h-5 w-5 text-blue-600 animate-spin" />
+                            <div>
+                                <p class="text-sm font-medium">Connecting</p>
+                                <p class="text-xs text-muted-foreground">Establishing connection to WhatsApp...</p>
+                            </div>
+                        {:else if $formWhatsAppState.connectionStatus === 'connected'}
+                            <CheckCircle class="h-5 w-5 text-green-600" />
+                            <div>
+                                <p class="text-sm font-medium">Connected</p>
+                                <p class="text-xs text-muted-foreground">WhatsApp connection established</p>
+                            </div>
+                        {:else if $formWhatsAppState.connectionStatus === 'authenticated'}
+                            <CheckCircle class="h-5 w-5 text-green-600" />
+                            <div>
+                                <p class="text-sm font-medium">Authenticated</p>
+                                <p class="text-xs text-muted-foreground">Successfully authenticated with WhatsApp</p>
+                            </div>
+                        {:else}
+                            <AlertTriangle class="h-5 w-5 text-red-600" />
+                            <div>
+                                <p class="text-sm font-medium">Disconnected</p>
+                                <p class="text-xs text-muted-foreground">Not connected to WhatsApp</p>
+                            </div>
+                        {/if}
                     </div>
                     
                     {#if $formWhatsAppState.qrCode}

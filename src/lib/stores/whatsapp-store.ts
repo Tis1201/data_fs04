@@ -3,7 +3,7 @@ import { writable } from 'svelte/store';
 import { socketStore } from './websocket-store';
 
 // Types
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'authenticated';
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'awaiting_scan';
 
 export interface WhatsAppState {
     qrCode: string | null;
@@ -125,6 +125,7 @@ const createWhatsAppStore = () => {
                     if (message.data.state === 'connecting') connectionStatus = 'connecting';
                     if (message.data.state === 'connected') connectionStatus = 'connected';
                     if (message.data.state === 'authenticated') connectionStatus = 'authenticated';
+                    if (message.data.state === 'awaiting_scan') connectionStatus = 'awaiting_scan';
                     
                     console.log('Connection status detected:', connectionStatus);
                     

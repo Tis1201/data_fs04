@@ -23,7 +23,7 @@ function ensureDirectoryExists(dir: string): void {
 }
 
 // Define client state type
-export type WhatsAppClientState = 'disconnected' | 'connecting' | 'connected' | 'authenticated';
+export type WhatsAppClientState = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'awaiting_scan';
 export { WhatsAppClientState };
 
 // Define message types
@@ -69,6 +69,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     private reconnectCount: number = 0;
     private maxReconnectAttempts: number = 5;
     private reconnectDelay: number = 3000; // 3 seconds
+    private createdAt: number = Date.now(); // Timestamp when client was created
     
     /**
      * Create a new WhatsApp Account Client
@@ -222,8 +223,14 @@ export class WhatsAppAccountClient extends EventEmitter {
         if (qr) {
             this.qrCode = qr;
             this.qrCodeTimestamp = Date.now();
+            
+            // Update state to awaiting_scan when QR code is generated
+            this.state = 'awaiting_scan';
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
+            
+            // Emit both QR code and state events
             this.emit('qr', qr);
+            this.emit('state', this.state);
             
             // Set up a timer to check for QR code expiration
             this.setupQrCodeRefreshTimer();
@@ -740,6 +747,13 @@ export class WhatsAppAccountClient extends EventEmitter {
      */
     getId(): string {
         return this.id;
+    }
+    
+    /**
+     * Get the client creation timestamp
+     */
+    getCreatedAt(): number {
+        return this.createdAt;
     }
     
     /**

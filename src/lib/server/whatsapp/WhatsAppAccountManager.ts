@@ -25,11 +25,17 @@ export class WhatsAppAccountManager extends EventEmitter {
     // Store for all WhatsApp clients
     private clients = new Map<string, WhatsAppAccountClient>();
     private options: WhatsAppManagerOptions;
+    private cleanupInterval: NodeJS.Timeout | null = null;
+    private readonly CLEANUP_INTERVAL_MS = 60000; // Run cleanup every minute
+    private readonly MAX_AWAITING_SCAN_MS = 300000; // 5 minutes
     
     constructor(options?: WhatsAppManagerOptions) {
         super();
         this.options = options || {};
         logger.info('WhatsApp Account Manager initialized');
+        
+        // Start the cleanup interval
+        this.startCleanupInterval();
     }
     
     /**
@@ -442,6 +448,74 @@ export class WhatsAppAccountManager extends EventEmitter {
             logger.info(`Successfully initialized ${this.clients.size} WhatsApp clients`);
         } catch (error) {
             logger.error(`Error initializing clients from database: ${error}`);
+        }
+    }
+    
+    /**
+     * Start the cleanup interval to remove stale clients
+     */
+    private startCleanupInterval(): void {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+        }
+        
+        this.cleanupInterval = setInterval(() => {
+            this.cleanupStaleClients();
+        }, this.CLEANUP_INTERVAL_MS);
+        
+        logger.info(`Started client cleanup interval (every ${this.CLEANUP_INTERVAL_MS / 1000} seconds)`);
+    }
+    
+    /**
+     * Stop the cleanup interval
+     */
+    private stopCleanupInterval(): void {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+            logger.info('Stopped client cleanup interval');
+        }
+    }
+    
+    /**
+     * Clean up stale clients that have been in awaiting_scan state for too long
+     */
+    private async cleanupStaleClients(): Promise<void> {
+        const now = Date.now();
+        const staleClientIds: string[] = [];
+        
+        // Find clients that have been in awaiting_scan state for too long
+        for (const [clientId, client] of this.clients.entries()) {
+            if (client.getState() === 'awaiting_scan') {
+                const createdAt = client.getCreatedAt();
+                const timeInState = now - createdAt;
+                
+                if (timeInState > this.MAX_AWAITING_SCAN_MS) {
+                    staleClientIds.push(clientId);
+                }
+            }
+        }
+        
+        // Remove stale clients
+        if (staleClientIds.length > 0) {
+            logger.info(`Found ${staleClientIds.length} stale clients to clean up`);
+            
+            for (const clientId of staleClientIds) {
+                try {
+                    const client = this.clients.get(clientId);
+                    if (client) {
+                        // Disconnect the client
+                        await client.disconnect();
+                        
+                        // Remove from our map
+                        this.clients.delete(clientId);
+                        
+                        logger.info(`Cleaned up stale client ${clientId} (in awaiting_scan state for too long)`);
+                    }
+                } catch (error) {
+                    logger.error(`Error cleaning up stale client ${clientId}: ${error}`);
+                }
+            }
         }
     }
 }
