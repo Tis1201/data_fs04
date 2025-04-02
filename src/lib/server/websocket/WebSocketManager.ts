@@ -178,6 +178,19 @@ export class WebSocketManager {
     }
 
     /**
+     * Get all WebSocket clients for a specific user
+     * @param userId - User ID to filter by
+     * @returns Array of WebSocket clients for the user
+     */
+    public getClientsByUserId(userId: string): ExtendedWebSocket[] {
+        logger.debug(`[WebSocketManager] Getting clients for user: ${userId}`);
+        
+        return Array.from(this.clients).filter(client => {
+            return client.userId === userId;
+        });
+    }
+
+    /**
      * Handle WhatsApp-related messages
      * @param data The message data
      * @param ws The WebSocket client
@@ -259,6 +272,71 @@ export class WebSocketManager {
      */
     getClients(): ExtendedWebSocket[] {
         return Array.from(this.clients);
+    }
+
+    /**
+     * Send a message to a single WebSocket client
+     * @param message The message to send
+     * @param socketId The socket ID of the client to send to
+     * @returns boolean indicating if the message was successfully sent
+     */
+    public unicast(message: any, socketId: string): boolean {
+        const client = Array.from(this.clients).find(ws => ws.socketId === socketId);
+        
+        if (!client) {
+            logger.warn(`[wss:manager] No client found with socketId: ${socketId}`);
+            return false;
+        }
+
+        try {
+            if (client.readyState === WebSocket.OPEN) {
+                logger.debug(`[wss:manager] unicasting message to ${socketId}`);
+                client.send(JSON.stringify(message));
+                return true;
+            }
+            logger.warn(`[wss:manager] Client ${socketId} not in OPEN state`);
+            return false;
+        } catch (error) {
+            logger.error(`[wss:manager] Error unicasting to client ${socketId}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Send a message to all WebSocket clients for a specific user
+     * @param message The message to send
+     * @param userId The user ID to send to
+     * @returns number of clients the message was successfully sent to
+     */
+    public sendToUser(message: any, userId: string): number {
+        const clients = this.getClientsByUserId(userId);
+        
+        if (clients.length === 0) {
+            logger.warn(`[wss:manager] No clients found for user: ${userId}`);
+            return 0;
+        }
+
+        let successCount = 0;
+        
+        clients.forEach((client) => {
+            try {
+                if (client.readyState === WebSocket.OPEN) {
+                    logger.debug(`[wss:manager] sending message to user ${userId}, socket ${client.socketId}`);
+                    client.send(JSON.stringify(message));
+                    successCount++;
+                } else {
+                    logger.warn(`[wss:manager] Client ${client.socketId} for user ${userId} not in OPEN state`);
+                }
+            } catch (error) {
+                logger.error(`[wss:manager] Error sending to user ${userId}, socket ${client.socketId}:`, error);
+            }
+        });
+
+        if (successCount === 0) {
+            logger.warn(`[wss:manager] No successful deliveries to user ${userId}`);
+        }
+
+        return successCount;
     }
 }
 
