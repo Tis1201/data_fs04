@@ -22,8 +22,8 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        ["WhatsApp", null],
-        "Accounts"
+        "Settings",
+        "Whatsapp"
     ];
 </script>
 

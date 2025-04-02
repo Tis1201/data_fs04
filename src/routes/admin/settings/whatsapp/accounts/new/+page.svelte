@@ -2,8 +2,6 @@
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
-    import { Input } from "$lib/components/ui/input";
-    import { Textarea } from "$lib/components/ui/textarea";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { ArrowLeft, RefreshCw, CheckCircle, Plus, QrCode, AlertTriangle } from "lucide-svelte";
     import QRCode from "qrcode";
@@ -11,12 +9,8 @@
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
-    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
-    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
-    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import AccountForm from "./form.svelte";
-    import QRCodeDisplay from "$lib/components/ui_components_sveltekit/whatsapp/QRCodeDisplay.svelte";
     import { whatsAppStore } from "$lib/stores/whatsapp-store";
     import type { ConnectionStatus } from "$lib/stores/whatsapp-store";
     import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
@@ -33,8 +27,8 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        ["Settings", "/admin/settings"],
-        ["WhatsApp Accounts", "/admin/settings/whatsapp/accounts"],
+        "Settings",
+        ["Whatsapp", "/admin/settings/whatsapp/accounts"],
         "New Account",
     ];
     

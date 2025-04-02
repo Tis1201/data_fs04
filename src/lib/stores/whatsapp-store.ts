@@ -80,21 +80,29 @@ const createWhatsAppStore = () => {
         
         // Subscribe to all messages for debugging
         socketStore.on('message', (message: any) => {
-            console.log('DEBUG: Received raw message from WebSocket:', message);
+            if (message.type !== 'pong') {
+                console.log('DEBUG: Received raw message from WebSocket:', message);
+            }
         });
         
         // Subscribe to whatsapp_message type specifically
         socketStore.on('whatsapp_message', (data: any) => {
-            console.log('DEBUG: Received whatsapp_message event:', data);
+            if (data.type !== 'pong') {
+                console.log('DEBUG: Received whatsapp_message event:', data);
+            }
         });
         
         // Subscribe to whatsapp type
         socketStore.on('whatsapp', (data: any) => {
-            console.log('DEBUG: Received whatsapp event:', data);
+            if (data.type !== 'pong') {
+                console.log('DEBUG: Received whatsapp event:', data);
+            }
         });
         
         const messageHandler = (message: any) => {
-            console.log('Received message from WebSocket:', message);
+            if (message.type !== 'pong') {
+                console.log('Received message from WebSocket:', message);
+            }
             
             // Extract the QR code from different message formats
             let qrCode = null;
@@ -157,6 +165,9 @@ const createWhatsAppStore = () => {
                     connectionStatus: newState.connectionStatus
                 });
             } else if (message.type === 'whatsapp_state') {
+                if (message.data.type === 'ping' || message.data.type === 'pong') {
+                    return;
+                }
                 update(state => {
                     // Log the received message for debugging
                     console.log('Received WhatsApp state message:', message.data);

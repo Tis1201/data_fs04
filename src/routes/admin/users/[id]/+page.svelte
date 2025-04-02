@@ -29,6 +29,7 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
+        "Settings",
         ["Users", "/admin/users"],
         user?.email || "Edit User",
     ];
