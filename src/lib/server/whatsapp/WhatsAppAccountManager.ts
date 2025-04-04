@@ -265,12 +265,24 @@ export class WhatsAppAccountManager extends EventEmitter {
 
         // Always broadcast QR codes to the web UI.
         client.on('qr', (qrCode: string) => {
+
             logger.info(`Broadcasting QR code for client ${clientId} via WebSocket`);
+
+            logger.info(`QR code broadcasted for user: ${ client.getCreatedBy()}`);
+
             wsManager.broadcast({
                 type: 'whatsapp',
                 action: 'qrCode',
                 data: { clientId, qrCode, accountId: accountId || null },
             });
+
+            // wsManager.sendToUser({ type: 'whatsapp',
+            //     action: 'qrCode',
+            //     data: { clientId, qrCode, accountId: accountId || null },
+            // }, locals.auth.id);
+
+
+
         });
 
         // Listen for state changes and update the database if needed.
@@ -434,6 +446,7 @@ export class WhatsAppAccountManager extends EventEmitter {
                 try {
                     const client = new WhatsAppAccountClient(account.client_id);
                     await client.setAccountId(account.id);
+                    await client.setCreatedBy(account.createdBy);
                     this.clients.set(account.client_id, client);
                     this.setupClientEventListeners(client, account.client_id, account.id);
                     await client.connect();

@@ -28,7 +28,7 @@ const handler = restrict(async ({ request, locals }) => {
         logger.debug(`Broadcasting message: ${message}, user: ${auth.user.id}`);
 
         const event_msg:EventData = {
-            type: EventType.SYSTEM_EVENT,
+            type: EventType.MESSAGE,
             destination: EventDestination.WEBSOCKET,
             scope: EventScope.USER,
             user_id: auth?.user?.id,

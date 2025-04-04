@@ -55,6 +55,7 @@ export interface WhatsAppMessage {
 export class WhatsAppAccountClient extends EventEmitter {
     // Client properties
     private id: string;
+    private createdBy?: string;
     private socket: any; // Baileys socket
     private state: WhatsAppClientState = 'disconnected';
     private qrCode: string | null = null;
@@ -81,6 +82,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     constructor(id: string, phoneNumber?: string, accountId?: string, options?: { authDir?: string, mediaDir?: string }) {
         super();
         this.id = id;
+        // this.createdBy = createdBy;
         this.phoneNumber = phoneNumber;
         this.accountId = accountId;
         
@@ -774,6 +776,14 @@ export class WhatsAppAccountClient extends EventEmitter {
         } catch (error) {
             logger.error(`Error clearing auth files for client ${this.id}: ${error}`);
         }
+    }
+
+    getCreatedBy(): string | undefined {
+        return this.createdBy;
+    }   
+
+    setCreatedBy(createdBy: string): void {
+        this.createdBy = createdBy;
     }
     
     /**

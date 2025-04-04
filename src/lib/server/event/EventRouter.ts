@@ -6,7 +6,8 @@ export enum EventType {
   WHATSAPP_MESSAGE = 'whatsapp:message',
   WHATSAPP_STATUS = 'whatsapp:status',
   WEBRTC_EVENT = 'webrtc:event',
-  SYSTEM_EVENT = 'system:event'
+  SYSTEM_EVENT = 'system:event',
+  MESSAGE = "message",
 }
 
 export enum EventDestination {
@@ -96,15 +97,12 @@ export class EventRouter extends EventEmitter {
 
     this.wsManager.sendToUser({
         type: event.type,
-        message: event.payload
-    
+        data: {message: event.payload}
     },event.user_id);
 
-    return true;
-      
+    return true;      
   }
 
-  
 
   /**
    * Helper to emit an event easily
