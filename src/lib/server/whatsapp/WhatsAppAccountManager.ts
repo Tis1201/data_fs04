@@ -7,6 +7,7 @@ import EventEmitter from 'events';
 import fs from 'fs';
 import path from 'path';
 import { wsManager } from '../websocket/WebSocketManager';
+import { eventRouter, EventType, EventScope, EventDestination } from '../event/EventRouter';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 
 /**
@@ -101,12 +102,30 @@ export class WhatsAppAccountManager extends EventEmitter {
      * @param options - Optional client-specific options.
      * @returns Client ID and QR code promise.
      */
+    /**
+     * Creates a new WhatsApp client with optional user ID association
+     * 
+     * @param phoneNumber Optional phone number
+     * @param accountId Optional account ID for database reference
+     * @param options Optional configuration options including createdBy user ID
+     * @returns Client ID and QR code promise
+     */
     async createClient(
         phoneNumber?: string,
         accountId?: string,
-        options?: WhatsAppManagerOptions
+        options?: WhatsAppManagerOptions & { createdBy?: string }
     ): Promise<{ clientId: string; qrCodePromise: Promise<string> }> {
         const result = await this.restoreOrCreateClient(null, phoneNumber, accountId, options);
+        
+        // If createdBy is provided, set it on the client
+        if (options?.createdBy && result.clientId) {
+            const client = this.getClient(result.clientId);
+            if (client) {
+                client.setCreatedBy(options.createdBy);
+                logger.info(`Associated WhatsApp client ${result.clientId} with user ${options.createdBy}`);
+            }
+        }
+        
         return { clientId: result.clientId, qrCodePromise: result.qrCodePromise };
     }
 
@@ -266,15 +285,25 @@ export class WhatsAppAccountManager extends EventEmitter {
         // Always broadcast QR codes to the web UI.
         client.on('qr', (qrCode: string) => {
 
-            logger.info(`Broadcasting QR code for client ${clientId} via WebSocket`);
-
-            logger.info(`QR code broadcasted for user: ${ client.getCreatedBy()}`);
-
-            wsManager.broadcast({
-                type: 'whatsapp',
-                action: 'qrCode',
-                data: { clientId, qrCode, accountId: accountId || null },
-            });
+            // Get the user ID who created this WhatsApp client
+            const userId = client.getCreatedBy();
+            
+            if (userId) {
+                logger.info(`Sending QR code for client ${clientId} to user ${userId}: ${qrCode}`);
+                
+                // Send QR code only to the specific user who created this client
+                eventRouter.sendPrivateMessage(
+                    userId,
+                    { 
+                        type: 'whatsapp',
+                        action: 'qrCode',
+                        data: { clientId, qrCode, accountId: accountId || null }
+                    },
+                    EventType.WHATSAPP_MESSAGE
+                );
+            } else {
+                logger.warn(`No user ID associated with client ${clientId}, QR code cannot be delivered`);
+            }
 
             // wsManager.sendToUser({ type: 'whatsapp',
             //     action: 'qrCode',

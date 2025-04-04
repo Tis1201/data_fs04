@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { GlobalThisWSS, type ExtendedGlobal } from '$lib/server/websocket/WebSocketUtils';
 import { restrict } from '$lib/server/security/guards';
+import { validateAndGetUserId } from '$lib/server/security/auth-utils';
 import { eventRouter, EventType } from '$lib/server/event';
 import { logger } from '$lib/server/logger';
 import { EventDestination, EventScope, type EventData } from '$lib/server/event/EventRouter';
@@ -9,15 +10,6 @@ import { EventDestination, EventScope, type EventData } from '$lib/server/event/
 // Restrict to admin users only
 const handler = restrict(async ({ request, locals }) => {
     try {
-        // Ensure auth is validated before proceeding
-        const auth = await locals.auth.validate();
-        
-        const wss = (globalThis as ExtendedGlobal)[GlobalThisWSS];
-        
-        if (!wss) {
-            return json({ success: false, error: 'WebSocket server not initialized' }, { status: 503 });
-        }
-
         const body = await request.json();
         const { message, type = 'broadcast' } = body;
 
@@ -25,20 +17,11 @@ const handler = restrict(async ({ request, locals }) => {
             return json({ success: false, error: 'Message is required' }, { status: 400 });
         }
 
-        logger.debug(`Broadcasting message: ${message}, user: ${auth.user.id}`);
-
-        const event_msg:EventData = {
-            type: EventType.MESSAGE,
-            destination: EventDestination.WEBSOCKET,
-            scope: EventScope.USER,
-            user_id: auth?.user?.id,
-            payload: message,
-            timestamp: Date.now()
-        };
-
-        logger.debug(`Routing event: ${JSON.stringify(event_msg)}`);
-
-        eventRouter.route(event_msg);
+        // Get user ID in one step - validates auth and gets ID
+        const userId = await validateAndGetUserId(locals);
+        
+        // Send the message to the user
+        eventRouter.route_private_ws(userId, message);
 
         return json({ 
             success: true, 

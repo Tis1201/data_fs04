@@ -3,500 +3,451 @@ import { writable } from 'svelte/store';
 import { socketStore } from './websocket-store';
 
 // Types
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'awaiting_scan';
+export type ConnectionStatus =
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'authenticated'
+  | 'awaiting_scan';
 
 export interface WhatsAppMessage {
-    id: string;
-    from: string;
-    to: string;
-    content: string;
-    timestamp: number;
-    isFromMe: boolean;
-    type: string;
-    mediaUrl?: string;
-    caption?: string;
-    fileName?: string;
-    fileSize?: number;
-    mimetype?: string;
-    isReply?: boolean;
-    replyToMessageId?: string;
-    replyToMessage?: string;
-    replyToParticipant?: string;
-    clientId?: string;
-    accountId?: string;
+  id: string;
+  from: string;
+  to: string;
+  content: string;
+  timestamp: number;
+  isFromMe: boolean;
+  type: string;
+  mediaUrl?: string;
+  caption?: string;
+  fileName?: string;
+  fileSize?: number;
+  mimetype?: string;
+  isReply?: boolean;
+  replyToMessageId?: string;
+  replyToMessage?: string;
+  replyToParticipant?: string;
+  clientId?: string;
+  accountId?: string;
 }
 
 export interface WhatsAppState {
-    qrCode: string | null;
-    pairingCode: string | null;
-    connectionStatus: ConnectionStatus;
-    error: string | null;
-    accountId: string | null;
-    phoneNumber: string | null;
-    pushName: string | null;
-    clientId: string | null;
-    messages: WhatsAppMessage[];
+  qrCode: string | null;
+  pairingCode: string | null;
+  connectionStatus: ConnectionStatus;
+  error: string | null;
+  accountId: string | null;
+  phoneNumber: string | null;
+  pushName: string | null;
+  clientId: string | null;
+  messages: WhatsAppMessage[];
 }
 
-// Create WhatsApp store
-const createWhatsAppStore = () => {
-    if (!browser) {
-        const { subscribe } = writable<WhatsAppState>({
-            qrCode: null,
-            pairingCode: null,
-            connectionStatus: 'disconnected',
-            error: null,
-            accountId: null,
-            phoneNumber: null,
-            pushName: null,
-            clientId: null,
-            messages: []
-        });
-        return {
-            subscribe,
-            requestPairingCode: () => {},
-            reset: () => {},
-            setAccountId: () => {},
-            setConnectionStatus: () => {},
-            setClientId: () => {}
-        };
-    }
-    
-    const { subscribe, set, update } = writable<WhatsAppState>({
-        qrCode: null,
-        pairingCode: null,
-        connectionStatus: 'disconnected',
-        error: null,
-        accountId: null,
-        phoneNumber: null,
-        pushName: null,
-        clientId: null,
-        messages: []
-    });
-    
-    // Initialize WebSocket listener
-    const setupSocketListener = () => {
-        if (!browser) return;
-        
-        // Subscribe to all messages for debugging
-        socketStore.on('message', (message: any) => {
-            if (message.type !== 'pong') {
-                console.log('DEBUG: Received raw message from WebSocket:', message);
-            }
-        });
-        
-        // Subscribe to whatsapp_message type specifically
-        socketStore.on('whatsapp_message', (data: any) => {
-            if (data.type !== 'pong') {
-                console.log('DEBUG: Received whatsapp_message event:', data);
-            }
-        });
-        
-        // Subscribe to whatsapp type
-        socketStore.on('whatsapp', (data: any) => {
-            if (data.type !== 'pong') {
-                console.log('DEBUG: Received whatsapp event:', data);
-            }
-        });
-        
-        const messageHandler = (message: any) => {
-            if (message.type !== 'pong') {
-                console.log('Received message from WebSocket:', message);
-            }
-            
-            // Extract the QR code from different message formats
-            let qrCode = null;
-            let clientId = null;
-            let accountId = null;
-            
-            // Handle different message formats
-            if (message.type === 'whatsapp' && message.action === 'qrCode' && message.data) {
-                // New format with action
-                qrCode = message.data.qrCode;
-                clientId = message.data.clientId;
-                accountId = message.data.accountId;
-                console.log('Extracted QR code from whatsapp/qrCode format');
-            } else if (message.type === 'whatsapp_qr' && message.data) {
-                // Old format with specific type
-                qrCode = message.data.qrCode;
-                clientId = message.data.clientId;
-                accountId = message.data.accountId;
-                console.log('Extracted QR code from whatsapp_qr format');
-            } else if (message.type === 'message' && message.data && message.data.qrCode) {
-                // Generic message format
-                qrCode = message.data.qrCode;
-                clientId = message.data.clientId;
-                accountId = message.data.accountId;
-                console.log('Extracted QR code from generic message format');
-            }
-            
-            // If we found a QR code, update the store
-            if (qrCode) {
-                console.log('Received QR code from WebSocket:', {
-                    qrCodeLength: qrCode.length,
-                    qrCodePreview: qrCode.substring(0, 20) + '...',
-                    clientId,
-                    accountId
-                });
-                
-                // Extract QR code data for debugging
-                console.log('QR code data:', qrCode);
-                
-                // Force update the store with the new QR code
-                const newState = {
-                    qrCode,
-                    clientId: clientId || null,
-                    accountId: accountId || null,
-                    connectionStatus: 'connecting',
-                    error: null,
-                    pairingCode: null,
-                    phoneNumber: null,
-                    pushName: null,
-                    messages: []
-                };
-                
-                // Update the store
-                set(newState);
-                
-                console.log('Store updated with QR code, new state:', {
-                    qrCodeLength: newState.qrCode.length,
-                    clientId: newState.clientId,
-                    accountId: newState.accountId,
-                    connectionStatus: newState.connectionStatus
-                });
-            } else if (message.type === 'whatsapp_state') {
-                if (message.data.type === 'ping' || message.data.type === 'pong') {
-                    return;
-                }
-                update(state => {
-                    // Log the received message for debugging
-                    console.log('Received WhatsApp state message:', message.data);
-                    
-                    // Map the state to our connection status
-                    let connectionStatus: ConnectionStatus = 'disconnected';
-                    if (message.data.state === 'connecting') connectionStatus = 'connecting';
-                    if (message.data.state === 'connected') connectionStatus = 'connected';
-                    if (message.data.state === 'authenticated') connectionStatus = 'authenticated';
-                    if (message.data.state === 'awaiting_scan') connectionStatus = 'awaiting_scan';
-                    
-                    console.log('Connection status detected:', connectionStatus);
-                    
-                    // Extract pushName and phoneNumber if available
-                    const pushName = message.data.pushName || state.pushName;
-                    const phoneNumber = message.data.phoneNumber || state.phoneNumber;
-                    
-                    if (pushName || phoneNumber) {
-                        console.log('Client info received:', { pushName, phoneNumber });
-                    }
-                    
-                    return { 
-                        ...state, 
-                        connectionStatus,
-                        clientId: message.data.clientId,
-                        pushName: pushName || state.pushName,
-                        phoneNumber: phoneNumber || state.phoneNumber
-                    };
-                });
-                
-                // Force a UI update
-                setTimeout(() => {
-                    console.log('Checking connection status after timeout');
-                    update(state => ({ ...state }));
-                }, 1000);
-            } else if (message.type === 'whatsapp_connected') {
-                update(state => {
-                    // Log the received message for debugging
-                    console.log('Received WhatsApp connected message:', message.data);
-                    
-                    return { 
-                        ...state, 
-                        connectionStatus: 'authenticated',
-                        clientId: message.data.clientId,
-                        phoneNumber: message.data.info?.phoneNumber,
-                        pushName: message.data.info?.pushName
-                    };
-                });
-            } else if (message.type === 'whatsapp_message' || (message.type === 'whatsapp' && message.action === 'message')) {
-                // Handle message events and store them
-                console.log('Received WhatsApp message:', message.data);
-                
-                try {
-                    // Validate message data structure
-                    if (!message.data || !message.data.message) {
-                        console.error('Invalid message data format:', message);
-                        return;
-                    }
-                    
-                    const messageData = message.data.message;
-                    
-                    update(state => {
-                        try {
-                            // Create a new message object
-                            const newMessage: WhatsAppMessage = {
-                                id: messageData.id || messageData.messageId || crypto.randomUUID(),
-                                from: messageData.from || messageData.sender || 'Unknown',
-                                to: messageData.to || messageData.recipient || '',
-                                content: messageData.content || messageData.body || '',
-                                timestamp: messageData.timestamp || Date.now(),
-                                isFromMe: messageData.isFromMe || false,
-                                type: messageData.type || 'text',
-                                mediaUrl: messageData.mediaUrl || '',
-                                caption: messageData.caption || '',
-                                fileName: messageData.fileName || '',
-                                fileSize: messageData.fileSize || 0,
-                                mimetype: messageData.mimetype || '',
-                                isReply: messageData.isReply || false,
-                                replyToMessageId: messageData.replyToMessageId || '',
-                                replyToMessage: messageData.replyToMessage || '',
-                                replyToParticipant: messageData.replyToParticipant || '',
-                                clientId: message.data.clientId || state.clientId,
-                                accountId: messageData.accountId || state.accountId
-                            };
-                            
-                            console.log('Processing message:', newMessage.id);
-                            
-                            // Check if we already have this message (avoid duplicates)
-                            const messageExists = state.messages?.some(msg => msg.id === newMessage.id) || false;
-                            if (messageExists) {
-                                console.log('Message already exists in store, skipping:', newMessage.id);
-                                return state;
-                            }
-                            
-                            console.log('Adding new message to store:', newMessage.id);
-                            
-                            // Add the new message to the state
-                            const messages = [...(state.messages || []), newMessage];
-                            
-                            // Limit the number of messages to prevent memory issues
-                            const MAX_MESSAGES = 100;
-                            if (messages.length > MAX_MESSAGES) {
-                                messages.shift();
-                            }
-                            
-                            return { 
-                                ...state, 
-                                messages
-                            };
-                        } catch (error) {
-                            console.error('Error processing message in store update:', error);
-                            return state;
-                        }
-                    });
-                } catch (error) {
-                    console.error('Error processing WhatsApp message:', error);
-                }
-            }
-            
-            // Also handle the old format for backward compatibility
-            else if (message.type === 'whatsapp') {
-                if (message.action === 'qrCode') {
-                    console.log('Received QR code from WebSocket (old format):', message.data.qrCode ? `${message.data.qrCode.substring(0, 20)}...` : 'null');
-                    update(state => {
-                        console.log('Updating WhatsApp store with QR code');
-                        return { 
-                            ...state, 
-                            qrCode: message.data.qrCode,
-                            error: null,
-                            connectionStatus: 'connecting'
-                        };
-                    });
-                } else if (message.action === 'pairingCode') {
-                    update(state => ({ 
-                        ...state, 
-                        pairingCode: message.data.code,
-                        error: null
-                    }));
-                } else if (message.action === 'connectionStatus') {
-                    update(state => {
-                        // Log the received message for debugging
-                        console.log('Received connectionStatus message (old format):', message.data);
-                        
-                        return { 
-                            ...state, 
-                            connectionStatus: message.data.status,
-                            // Store the client_id when it's available
-                            ...(message.data.clientId ? { clientId: message.data.clientId } : {})
-                        };
-                    });
-                } else if (message.action === 'error') {
-                    update(state => ({ 
-                        ...state, 
-                        error: message.data.message,
-                        connectionStatus: 'disconnected'
-                    }));
-                } else if (message.action === 'phoneInfo') {
-                    update(state => ({ 
-                        ...state, 
-                        phoneNumber: message.data.phoneNumber,
-                        pushName: message.data.pushName
-                    }));
-                }
-            }
-        };
-        
-        socketStore.on('message', messageHandler);
-    };
-    
-    if (browser) {
-        setupSocketListener();
-    }
-    
-    // This method has been removed as we now handle QR code requests directly via WebSocket in the QRCodeDisplay component
-    
-    // Request pairing code from server
-    const requestPairingCode = async (accountId: string) => {
-        if (!browser) return;
-        
-        update(state => ({ 
-            ...state, 
-            accountId,
-            connectionStatus: 'connecting',
-            error: null
-        }));
-        
-        try {
-            // First ensure WebSocket is connected
-            if (socketStore.status !== 'OPEN') {
-                socketStore.connect();
-                
-                // Wait for connection to establish
-                await new Promise<void>((resolve) => {
-                    // Initialize with a no-op function to prevent null/undefined errors
-                    let unsubscribe = () => {};
-                    
-                    const timeoutId = setTimeout(() => {
-                        unsubscribe();
-                        resolve();
-                    }, 3000);
-                    
-                    // Store the returned unsubscribe function
-                    const unsub = socketStore.subscribe(($socket) => {
-                        if ($socket && $socket.status === 'OPEN') {
-                            clearTimeout(timeoutId);
-                            unsub();
-                            resolve();
-                        }
-                    });
-                    
-                    // Safely assign the unsubscribe function
-                    if (typeof unsub === 'function') {
-                        unsubscribe = unsub;
-                    }
-                });
-            }
-            
-            // For demo purposes, simulate a pairing code response
-            // In production, this would come from the WebSocket server
-            setTimeout(() => {
-                update(state => ({
-                    ...state,
-                    pairingCode: '1234-5678',
-                    connectionStatus: 'connected',
-                    error: null
-                }));
-                
-                // After a short delay, simulate authentication success
-                setTimeout(() => {
-                    update(state => ({
-                        ...state,
-                        connectionStatus: 'authenticated',
-                        error: null
-                    }));
-                }, 5000);
-            }, 1000);
-            
-            // Use SvelteKit form action instead of API
-            const formData = new FormData();
-            formData.append('phoneNumber', phoneNumber.replace(/\D/g, ''));
-            formData.append('accountId', accountId);
-            
-            await fetch('/admin/whatsapp/accounts?/requestPairingCode', {
-                method: 'POST',
-                body: formData
-            });
-        } catch (error) {
-            console.error('Failed to request pairing code:', error);
-            update(state => ({ 
-                ...state, 
-                error: 'Failed to request pairing code. Please try again.',
-                connectionStatus: 'disconnected'
-            }));
-        }
-    };
-    
-    // Reset the store
-    const reset = () => {
-        set({
-            qrCode: null,
-            pairingCode: null,
-            connectionStatus: 'disconnected',
-            error: null,
-            accountId: null,
-            phoneNumber: null,
-            pushName: null,
-            clientId: null
-        });
-        
-        console.log('WhatsApp store reset');
-    };
-    
-    // Set account ID without making API calls
-    const setAccountId = (accountId: string) => {
-        update(state => ({
-            ...state,
-            accountId
-        }));
-        
-        console.log(`Set account ID in WhatsApp store: ${accountId}`);
-    };
-    
-    // Set connection status without making API calls
-    const setConnectionStatus = (status: ConnectionStatus) => {
-        update(state => ({
-            ...state,
-            connectionStatus: status
-        }));
-        
-        console.log(`Set connection status in WhatsApp store: ${status}`);
-    };
-    
-    // Set client ID without making API calls
-    const setClientId = (clientId: string) => {
-        update(state => ({
-            ...state,
-            clientId
-        }));
-        
-        console.log(`Set client ID in WhatsApp store: ${clientId}`);
-    };
-    
-    // Store the current state
-    let currentState: WhatsAppState = {
-        qrCode: null,
-        pairingCode: null,
-        connectionStatus: 'disconnected',
-        error: null,
-        accountId: null,
-        phoneNumber: null,
-        pushName: null,
-        clientId: null
-    };
-    
-    // Update the current state when the store changes
-    subscribe(state => {
-        currentState = state;
-    });
-    
+// Debug flag for logging (can be tied to environment settings)
+const DEBUG = true;
+
+/**
+ * Helper: Logs debug messages when DEBUG is true.
+ */
+function debugLog(...args: any[]) {
+  if (DEBUG) console.log(...args);
+}
+
+/**
+ * Extract QR code info from a message if available.
+ */
+function extractQRCodeData(message: any) {
+  if (
+    (message.type === 'whatsapp' && message.action === 'qrCode' && message.data) ||
+    (message.type === 'whatsapp_qr' && message.data) ||
+    (message.type === 'message' && message.data?.qrCode)
+  ) {
     return {
-        subscribe,
-        requestPairingCode,
-        reset,
-        setAccountId,
-        setConnectionStatus,
-        setClientId,
-        // Add a method to get the current state
-        getState: () => currentState
+      qrCode: message.data.qrCode,
+      clientId: message.data.clientId,
+      accountId: message.data.accountId
     };
+  }
+  return null;
+}
+
+/**
+ * Handle WhatsApp state messages.
+ */
+function handleWhatsAppStateMessage(
+  message: any,
+  update: (fn: (state: WhatsAppState) => WhatsAppState) => void,
+  currentState: WhatsAppState
+) {
+  if (message.data.type === 'ping' || message.data.type === 'pong') return;
+
+  let connectionStatus: ConnectionStatus = 'disconnected';
+  switch (message.data.state) {
+    case 'connecting':
+      connectionStatus = 'connecting';
+      break;
+    case 'connected':
+      connectionStatus = 'connected';
+      break;
+    case 'authenticated':
+      connectionStatus = 'authenticated';
+      break;
+    case 'awaiting_scan':
+      connectionStatus = 'awaiting_scan';
+      break;
+  }
+
+  const pushName = message.data.pushName || currentState.pushName;
+  const phoneNumber = message.data.phoneNumber || currentState.phoneNumber;
+
+  debugLog('WhatsApp state updated:', { connectionStatus, pushName, phoneNumber });
+
+  update((state) => ({
+    ...state,
+    connectionStatus,
+    clientId: message.data.clientId,
+    pushName,
+    phoneNumber
+  }));
+
+  // Force a UI update after a delay (if needed)
+  setTimeout(() => update((state) => ({ ...state })), 1000);
+}
+
+/**
+ * Process a connected message.
+ */
+function handleConnectedMessage(
+  message: any,
+  update: (fn: (state: WhatsAppState) => WhatsAppState) => void
+) {
+  debugLog('Received WhatsApp connected message:', message.data);
+  update((state) => ({
+    ...state,
+    connectionStatus: 'authenticated',
+    clientId: message.data.clientId,
+    phoneNumber: message.data.info?.phoneNumber,
+    pushName: message.data.info?.pushName
+  }));
+}
+
+/**
+ * Process a new WhatsApp chat message.
+ */
+function handleWhatsAppChatMessage(
+  message: any,
+  update: (fn: (state: WhatsAppState) => WhatsAppState) => void,
+  currentState: WhatsAppState
+) {
+  try {
+    if (!message.data || !message.data.message) {
+      console.error('Invalid message format:', message);
+      return;
+    }
+    const msgData = message.data.message;
+    const newMessage: WhatsAppMessage = {
+      id: msgData.id || msgData.messageId || crypto.randomUUID(),
+      from: msgData.from || msgData.sender || 'Unknown',
+      to: msgData.to || msgData.recipient || '',
+      content: msgData.content || msgData.body || '',
+      timestamp: msgData.timestamp || Date.now(),
+      isFromMe: msgData.isFromMe || false,
+      type: msgData.type || 'text',
+      mediaUrl: msgData.mediaUrl || '',
+      caption: msgData.caption || '',
+      fileName: msgData.fileName || '',
+      fileSize: msgData.fileSize || 0,
+      mimetype: msgData.mimetype || '',
+      isReply: msgData.isReply || false,
+      replyToMessageId: msgData.replyToMessageId || '',
+      replyToMessage: msgData.replyToMessage || '',
+      replyToParticipant: msgData.replyToParticipant || '',
+      clientId: message.data.clientId || currentState.clientId,
+      accountId: msgData.accountId || currentState.accountId
+    };
+
+    debugLog('Processing new WhatsApp chat message:', newMessage.id);
+    update((state) => {
+      // Prevent duplicate messages
+      if (state.messages.some((msg) => msg.id === newMessage.id)) {
+        debugLog('Message already exists, skipping:', newMessage.id);
+        return state;
+      }
+      const messages = [...(state.messages || []), newMessage];
+      // Limit messages to a maximum count
+      const MAX_MESSAGES = 100;
+      if (messages.length > MAX_MESSAGES) messages.shift();
+      return { ...state, messages };
+    });
+  } catch (error) {
+    console.error('Error processing WhatsApp chat message:', error);
+  }
+}
+
+/**
+ * Handle legacy (old format) messages.
+ */
+function handleLegacyMessage(
+  message: any,
+  update: (fn: (state: WhatsAppState) => WhatsAppState) => void
+) {
+  switch (message.action) {
+    case 'qrCode':
+      update((state) => ({
+        ...state,
+        qrCode: message.data.qrCode,
+        error: null,
+        connectionStatus: 'connecting'
+      }));
+      break;
+    case 'pairingCode':
+      update((state) => ({ ...state, pairingCode: message.data.code, error: null }));
+      break;
+    case 'connectionStatus':
+      update((state) => ({
+        ...state,
+        connectionStatus: message.data.status,
+        ...(message.data.clientId ? { clientId: message.data.clientId } : {})
+      }));
+      break;
+    case 'error':
+      update((state) => ({
+        ...state,
+        error: message.data.message,
+        connectionStatus: 'disconnected'
+      }));
+      break;
+    case 'phoneInfo':
+      update((state) => ({
+        ...state,
+        phoneNumber: message.data.phoneNumber,
+        pushName: message.data.pushName
+      }));
+      break;
+  }
+}
+
+/**
+ * Setup WebSocket listeners.
+ */
+function setupSocketListener(
+  update: (fn: (state: WhatsAppState) => WhatsAppState) => void,
+  set: (state: WhatsAppState) => void,
+  getCurrentState: () => WhatsAppState
+) {
+  if (!browser) return;
+
+  const messageHandler = (message: any) => {
+    if (message.type === 'pong') return;
+
+    // Check for QR code data
+    const qrData = extractQRCodeData(message);
+    if (qrData && qrData.qrCode) {
+      debugLog('QR code data received:', {
+        qrCodeLength: qrData.qrCode.length,
+        clientId: qrData.clientId,
+        accountId: qrData.accountId
+      });
+      set({
+        qrCode: qrData.qrCode,
+        clientId: qrData.clientId || null,
+        accountId: qrData.accountId || null,
+        connectionStatus: 'connecting',
+        error: null,
+        pairingCode: null,
+        phoneNumber: null,
+        pushName: null,
+        messages: []
+      });
+      return;
+    }
+
+    // Process different message types
+    switch (message.type) {
+      case 'whatsapp_state':
+        handleWhatsAppStateMessage(message, update, getCurrentState());
+        break;
+      case 'whatsapp_connected':
+        handleConnectedMessage(message, update);
+        break;
+      case 'whatsapp_message':
+        handleWhatsAppChatMessage(message, update, getCurrentState());
+        break;
+      case 'whatsapp':
+        // For legacy or combined message types
+        if (message.action === 'message') {
+          handleWhatsAppChatMessage(message, update, getCurrentState());
+        } else {
+          handleLegacyMessage(message, update);
+        }
+        break;
+      default:
+        debugLog('Unhandled message type:', message);
+    }
+  };
+
+  // Attach the handler to multiple event types for completeness
+  socketStore.on('message', messageHandler);
+  socketStore.on('whatsapp_message', messageHandler);
+  socketStore.on('whatsapp', messageHandler);
+}
+
+// Initial state definition
+let currentState: WhatsAppState = {
+  qrCode: null,
+  pairingCode: null,
+  connectionStatus: 'disconnected',
+  error: null,
+  accountId: null,
+  phoneNumber: null,
+  pushName: null,
+  clientId: null,
+  messages: []
 };
+
+function createWhatsAppStore() {
+  // For server-side environments, return a stub store
+  if (!browser) {
+    const { subscribe } = writable<WhatsAppState>(currentState);
+    return {
+      subscribe,
+      requestPairingCode: () => {},
+      reset: () => {},
+      setAccountId: () => {},
+      setConnectionStatus: () => {},
+      setClientId: () => {}
+    };
+  }
+
+  const { subscribe, set, update } = writable<WhatsAppState>({
+    qrCode: null,
+    pairingCode: null,
+    connectionStatus: 'disconnected',
+    error: null,
+    accountId: null,
+    phoneNumber: null,
+    pushName: null,
+    clientId: null,
+    messages: []
+  });
+
+  // Setup WebSocket listener with a getter for the current state
+  setupSocketListener(update, set, () => currentState);
+
+  /**
+   * Request pairing code and simulate connection flow.
+   */
+  const requestPairingCode = async (accountId: string, phoneNumber: string) => {
+    update((state) => ({
+      ...state,
+      accountId,
+      connectionStatus: 'connecting',
+      error: null
+    }));
+
+    try {
+      // Ensure WebSocket is connected
+      if (socketStore.status !== 'OPEN') {
+        socketStore.connect();
+        await new Promise<void>((resolve) => {
+          let unsubscribe = () => {};
+          const timeoutId = setTimeout(() => {
+            unsubscribe();
+            resolve();
+          }, 3000);
+          const unsub = socketStore.subscribe(($socket) => {
+            if ($socket && $socket.status === 'OPEN') {
+              clearTimeout(timeoutId);
+              unsub();
+              resolve();
+            }
+          });
+          if (typeof unsub === 'function') unsubscribe = unsub;
+        });
+      }
+
+      // Simulate pairing code response for demo purposes
+      setTimeout(() => {
+        update((state) => ({
+          ...state,
+          pairingCode: '1234-5678',
+          connectionStatus: 'connected',
+          error: null
+        }));
+
+        // Simulate successful authentication after delay
+        setTimeout(() => {
+          update((state) => ({
+            ...state,
+            connectionStatus: 'authenticated',
+            error: null
+          }));
+        }, 5000);
+      }, 1000);
+
+      // Use SvelteKit form action instead of API
+      const formData = new FormData();
+      formData.append('phoneNumber', phoneNumber.replace(/\D/g, ''));
+      formData.append('accountId', accountId);
+
+      await fetch('/admin/whatsapp/accounts?/requestPairingCode', {
+        method: 'POST',
+        body: formData
+      });
+    } catch (error) {
+      console.error('Failed to request pairing code:', error);
+      update((state) => ({
+        ...state,
+        error: 'Failed to request pairing code. Please try again.',
+        connectionStatus: 'disconnected'
+      }));
+    }
+  };
+
+  const reset = () => {
+    set({
+      qrCode: null,
+      pairingCode: null,
+      connectionStatus: 'disconnected',
+      error: null,
+      accountId: null,
+      phoneNumber: null,
+      pushName: null,
+      clientId: null,
+      messages: []
+    });
+    debugLog('WhatsApp store has been reset.');
+  };
+
+  const setAccountId = (accountId: string) => {
+    update((state) => ({ ...state, accountId }));
+    debugLog(`Account ID set: ${accountId}`);
+  };
+
+  const setConnectionStatus = (status: ConnectionStatus) => {
+    update((state) => ({ ...state, connectionStatus: status }));
+    debugLog(`Connection status set: ${status}`);
+  };
+
+  const setClientId = (clientId: string) => {
+    update((state) => ({ ...state, clientId }));
+    debugLog(`Client ID set: ${clientId}`);
+  };
+
+  // Keep the current state in sync
+  subscribe((state) => {
+    currentState = state;
+  });
+
+  return {
+    subscribe,
+    requestPairingCode,
+    reset,
+    setAccountId,
+    setConnectionStatus,
+    setClientId,
+    getState: () => currentState
+  };
+}
 
 export const whatsAppStore = createWhatsAppStore();
