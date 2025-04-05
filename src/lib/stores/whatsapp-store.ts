@@ -29,61 +29,30 @@ const initialState: WhatsAppState = {
 };
 
 function createWhatsAppStore() {
-
-  const { subscribe, set, update } = writable<WhatsAppState>(initialState);
+  const { subscribe, update } = writable<WhatsAppState>(initialState);
 
   if (browser) {
-    const messageHandler = (message: any) => {
-        handle_message(message, update);
-    };
+    socketStore.on('whatsapp', (message: any) => {
+      const { type, action, data } = message.message || {};
+      console.log(`Received message: ${type}, ${action}, ${data?.clientId}`, message.message);
 
-    socketStore.on('whatsapp', messageHandler);
-    // socketStore.on('whatsapp_message', messageHandler);
-    
+      if (action === 'qrCode' && data) {
+        const { qrCode, clientId, accountId } = data;
+        console.log('QR code received:', qrCode, clientId, accountId);
+        update(state => ({
+          ...state,
+          qrCode,
+          clientId,
+          connectionStatus: 'connecting',
+          accountId
+        }));
+      } else {
+        console.log('Unknown message action:', action);
+      }
+    });
   }
 
-  return {
-    subscribe,
-    update
-  };
-}
-
-function handle_message(message: any, update: (fn: (state: WhatsAppState) => WhatsAppState) => void) {
-    const ws_message        = message["message"];
-    const ws_message_type   = ws_message["type"];
-    const ws_message_action = ws_message["action"];
-    const ws_message_data   = ws_message["data"];
-    const client_id         = ws_message_data["clientId"];
-   
-    console.log('Received message:', ws_message_type, ws_message_action, client_id, JSON.stringify(ws_message));
-
-    switch (ws_message_action) {
-        case 'qrCode':
-            handleQRCodeMessage(message, update);
-            break;
-        default:
-            console.log('Unknown message action:', ws_message_action);
-            break;
-    }
-}
-
-function handleQRCodeMessage(message: any, update: (fn: (state: WhatsAppState) => WhatsAppState) => void) {
-    const ws_message = message["message"];
-    const ws_message_data = ws_message["data"];
-    const qrCode = ws_message_data["qrCode"];
-    const clientId = ws_message_data["clientId"];
-    const accountId = ws_message_data["accountId"];
-
-    console.log('QR code received:', qrCode, clientId, accountId);
-    
-    // Update the store with the new QR code data
-    update((state) => ({
-        ...state,
-        qrCode: qrCode,
-        clientId: clientId,
-        connectionStatus: 'connecting',
-        accountId: accountId
-    }));
+  return { subscribe, update };
 }
 
 export const whatsAppStore = createWhatsAppStore();
