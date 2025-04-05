@@ -123,21 +123,58 @@ function handleConnectionSuccess(client: any, logger: any): void {
 ********************************************************************************/
 function handleDisconnection(client: any, lastDisconnect: any, logger: any): void {
   try {
-    // Simply extract the error from the disconnect event.
+    // Extract the error from the disconnect event
     const error = lastDisconnect?.error;
+    
+    // Check if this is a restart required error first before logging
+    const statusCode = error?.output?.statusCode;
+    const errorData = error?.data;
+    const errorMessage = error?.output?.payload?.message;
+    
+    // Check for the specific restart required condition
+    const isRestartRequired = 
+        statusCode === 515 || 
+        (errorMessage && errorMessage.includes('restart required')) ||
+        (errorData?.tag === 'stream:error' && errorData?.attrs?.code === '515');
+    
+    if (isRestartRequired) {
+      logger.info(`Client ${client.id} needs restart (code: ${statusCode}), reconnecting immediately...`);
+      
+      // Don't emit the error for restart required - it's an expected part of the flow
+      // Just set state to connecting and reconnect
+      
+      try {
+        // Set the state to connecting before reconnecting
+        updateState(client, WhatsAppClientState.Connecting, logger);
+        
+        // Schedule the reconnection with a small delay
+        setTimeout(() => {
+          try {
+            client.connect();
+          } catch (connectErr) {
+            logger.error(`Error reconnecting client ${client.id} after restart required: ${connectErr}`);
+          }
+        }, 1000);
+      } catch (stateErr) {
+        logger.error(`Error updating state for client ${client.id}: ${stateErr}`);
+      }
+      
+      // Exit early to avoid setting state to disconnected
+      return;
+    }
+    
+    // For non-restart errors, log and emit the error
     logger.error(`Client ${client.id} disconnected with error: ${error}`);
-  
-    // Emit the error directly so that consumers get Bailey's error.
     client.emit('error', error);
-  
-    // Optionally, trigger reconnection if enabled.
+    
+    // For other disconnections, follow normal reconnection logic
     if (client.autoReconnect && client.reconnectCount < client.maxReconnectAttempts) {
       client.reconnectCount++;
       logger.info(`Reconnecting in ${client.reconnectDelay}ms (attempt ${client.reconnectCount}/${client.maxReconnectAttempts})...`);
       setTimeout(() => client.connect(), client.reconnectDelay);
     }
 
-    // Update state to disconnected
+    // Update state to disconnected for non-restart errors
     updateState(client, WhatsAppClientState.Disconnected, logger);
   } catch (err) {
     logger.error(`Error in handleDisconnection for client ${client.id}:`, err);
@@ -334,247 +371,260 @@ export class WhatsAppAccountClient extends EventEmitter {
     }
   }
 
+  private handleMessages(messagesUpsert: any): void {
+    // Only process notifications (as Bailey sends new messages as notifications)
+    if (messagesUpsert.type !== 'notify') return;
+    const messages = messagesUpsert.messages || [];
+    for (const message of messages) {
+      // Log the raw message for debugging if needed
+      logger.debug(`Received raw message: ${JSON.stringify(message)}`);
+      // Emit the raw message directly so that the caller receives Bailey's message as-is
+      this.emit('message', message);
+    }
+  }
+  
+
   /******************************************************************************** 
    * 
    * Handle messages
    * 
    ********************************************************************************/
-  private handleMessages(messagesUpsert: any): void {
-    if (messagesUpsert.type !== 'notify') return;
-    const messages = messagesUpsert.messages || [];
-    for (const message of messages) {
-      try {
-        const formatted = this.formatMessage(message);
-        if (!formatted) continue;
-        // Skip state sync messages
-        if (formatted.type === 'app_state_sync') continue;
-        const isNotification =
-          formatted.content.startsWith('[') &&
-          formatted.content.endsWith(']') &&
-          (formatted.content.includes('Status:') || formatted.content === '[Notification]');
-        const isHistorySync = message.message?.protocolMessage?.type === 'HISTORY_SYNC_NOTIFICATION';
-        if (!isNotification || formatted.content !== '[Notification]') {
-          (formatted as any)._rawMessage = message;
-          if (['unknown', 'deleted', 'reaction'].includes(formatted.type) || isHistorySync) {
-            logger.debug(`Special message type detected: ${formatted.type}`);
-          }
-          if (!isHistorySync) {
-            this.emit('message', formatted);
-          }
-        }
-      } catch (error) {
-        logger.error(`Error processing message: ${error}`);
-      }
-    }
-  }
+//   private handleMessages(messagesUpsert: any): void {
+//     if (messagesUpsert.type !== 'notify') return;
+//     const messages = messagesUpsert.messages || [];
+//     for (const message of messages) {
+//       try {
+//         const formatted = this.formatMessage(message);
+//         if (!formatted) continue;
+//         // Skip state sync messages
+//         if (formatted.type === 'app_state_sync') continue;
+//         const isNotification =
+//           formatted.content.startsWith('[') &&
+//           formatted.content.endsWith(']') &&
+//           (formatted.content.includes('Status:') || formatted.content === '[Notification]');
+//         const isHistorySync = message.message?.protocolMessage?.type === 'HISTORY_SYNC_NOTIFICATION';
+//         if (!isNotification || formatted.content !== '[Notification]') {
+//           (formatted as any)._rawMessage = message;
+//           if (['unknown', 'deleted', 'reaction'].includes(formatted.type) || isHistorySync) {
+//             logger.debug(`Special message type detected: ${formatted.type}`);
+//           }
+//           if (!isHistorySync) {
+//             this.emit('message', formatted);
+//           }
+//         }
+//       } catch (error) {
+//         logger.error(`Error processing message: ${error}`);
+//       }
+//     }
+//   }
 
-  private extractQuotedMessage(contextInfo: any): {
-    isReply: boolean;
-    replyToMessageId: string;
-    replyToMessage: string;
-    replyToParticipant: string;
-  } {
-    let replyToMessage = '';
-    if (contextInfo.quotedMessage.conversation) {
-      replyToMessage = contextInfo.quotedMessage.conversation;
-    } else if (contextInfo.quotedMessage.extendedTextMessage) {
-      replyToMessage = contextInfo.quotedMessage.extendedTextMessage.text;
-    } else if (contextInfo.quotedMessage.imageMessage) {
-      replyToMessage = contextInfo.quotedMessage.imageMessage.caption || '[Image]';
-    } else if (contextInfo.quotedMessage.videoMessage) {
-      replyToMessage = contextInfo.quotedMessage.videoMessage.caption || '[Video]';
-    } else if (contextInfo.quotedMessage.audioMessage) {
-      replyToMessage = '[Audio]';
-    } else if (contextInfo.quotedMessage.documentMessage) {
-      replyToMessage = contextInfo.quotedMessage.documentMessage.fileName || '[Document]';
-    } else {
-      replyToMessage = '[Unknown message type]';
-    }
-    return {
-      isReply: true,
-      replyToMessageId: contextInfo.stanzaId || '',
-      replyToMessage,
-      replyToParticipant: contextInfo.participant || ''
-    };
-  }
+//   private extractQuotedMessage(contextInfo: any): {
+//     isReply: boolean;
+//     replyToMessageId: string;
+//     replyToMessage: string;
+//     replyToParticipant: string;
+//   } {
+//     let replyToMessage = '';
+//     if (contextInfo.quotedMessage.conversation) {
+//       replyToMessage = contextInfo.quotedMessage.conversation;
+//     } else if (contextInfo.quotedMessage.extendedTextMessage) {
+//       replyToMessage = contextInfo.quotedMessage.extendedTextMessage.text;
+//     } else if (contextInfo.quotedMessage.imageMessage) {
+//       replyToMessage = contextInfo.quotedMessage.imageMessage.caption || '[Image]';
+//     } else if (contextInfo.quotedMessage.videoMessage) {
+//       replyToMessage = contextInfo.quotedMessage.videoMessage.caption || '[Video]';
+//     } else if (contextInfo.quotedMessage.audioMessage) {
+//       replyToMessage = '[Audio]';
+//     } else if (contextInfo.quotedMessage.documentMessage) {
+//       replyToMessage = contextInfo.quotedMessage.documentMessage.fileName || '[Document]';
+//     } else {
+//       replyToMessage = '[Unknown message type]';
+//     }
+//     return {
+//       isReply: true,
+//       replyToMessageId: contextInfo.stanzaId || '',
+//       replyToMessage,
+//       replyToParticipant: contextInfo.participant || ''
+//     };
+//   }
 
-  /******************************************************************************** 
-   * 
-   * Format message
-   * 
-   ********************************************************************************/    
-  private formatMessage(rawMessage: any): WhatsAppMessage | null {
-    // Early return for APP_STATE_SYNC_KEY_SHARE messages
-    const isAppStateSync =
-      rawMessage?.message?.protocolMessage?.type === 'APP_STATE_SYNC_KEY_SHARE' ||
-      rawMessage?.protocolMessage?.type === 'APP_STATE_SYNC_KEY_SHARE';
-    if (isAppStateSync) {
-      logger.debug('Detected APP_STATE_SYNC_KEY_SHARE message');
-      return {
-        id: rawMessage.key?.id || crypto.randomUUID(),
-        from: rawMessage.key?.fromMe ? 'me' : rawMessage.key?.remoteJid || 'unknown',
-        to: rawMessage.key?.fromMe ? rawMessage.key?.remoteJid : 'me',
-        content: '[State Sync Message]',
-        timestamp: Date.now(),
-        isFromMe: rawMessage.key?.fromMe || false,
-        type: 'app_state_sync'
-      };
-    }
-    try {
-      if (!rawMessage || !rawMessage.key) {
-        logger.debug(`Invalid message format: ${JSON.stringify(rawMessage)}`);
-        return null;
-      }
-      const { key } = rawMessage;
-      const messageId = key.id;
-      const fromMe = key.fromMe;
-      const from = fromMe ? (this.socket?.user?.id || 'me') : key.remoteJid;
-      const to = fromMe ? key.remoteJid : (this.socket?.user?.id || 'me');
-      const timestamp = rawMessage.messageTimestamp * 1000;
-      let content = '';
-      let type: WhatsAppMessage['type'] = 'unknown';
-      let mediaUrl = '';
-      let caption = '';
-      let fileName = '';
-      let fileSize = 0;
-      let mimetype = '';
-      let isReply = false,
-        replyToMessageId = '',
-        replyToMessage = '',
-        replyToParticipant = '';
-      const msgContent = rawMessage.message;
-      if (!msgContent || Object.keys(msgContent).length === 0) {
-        if (rawMessage.messageStubType) {
-          type = 'unknown';
-          content = `[Status: ${rawMessage.messageStubType}]`;
-          switch (rawMessage.messageStubType) {
-            case 1:
-              content = '[Status: Message revoked]';
-              break;
-            case 2:
-              content = '[Status: Group created]';
-              break;
-            case 3:
-              content = '[Status: Group settings updated]';
-              break;
-            case 4:
-              content = '[Status: Group participant added]';
-              break;
-            case 5:
-              content = '[Status: Group participant removed]';
-              break;
-            case 6:
-              content = '[Status: Group participant promoted]';
-              break;
-            case 7:
-              content = '[Status: Group participant demoted]';
-              break;
-            case 8:
-              content = '[Status: Group name updated]';
-              break;
-          }
-        } else {
-          content = '[Notification]';
-        }
-        logger.debug(`Status/notification message: ${content}`);
-      } else if (msgContent.conversation) {
-        content = msgContent.conversation;
-        type = 'text';
-      } else if (msgContent.extendedTextMessage) {
-        content = msgContent.extendedTextMessage.text || '';
-        type = 'text';
-        if (msgContent.extendedTextMessage.contextInfo?.quotedMessage) {
-          const quoted = msgContent.extendedTextMessage.contextInfo;
-          ({ isReply, replyToMessageId, replyToMessage, replyToParticipant } = this.extractQuotedMessage(quoted));
-        }
-      } else if (msgContent.imageMessage) {
-        type = 'image';
-        caption = msgContent.imageMessage.caption || '';
-        content = caption || '[Image]';
-        mimetype = msgContent.imageMessage.mimetype;
-        fileSize = msgContent.imageMessage.fileLength;
-      } else if (msgContent.videoMessage) {
-        type = 'video';
-        caption = msgContent.videoMessage.caption || '';
-        content = caption || '[Video]';
-        mimetype = msgContent.videoMessage.mimetype;
-        fileSize = msgContent.videoMessage.fileLength;
-      } else if (msgContent.audioMessage) {
-        type = 'audio';
-        content = '[Audio]';
-        mimetype = msgContent.audioMessage.mimetype;
-        fileSize = msgContent.audioMessage.fileLength;
-      } else if (msgContent.documentMessage) {
-        type = 'document';
-        fileName = msgContent.documentMessage.fileName || '';
-        content = fileName || '[Document]';
-        mimetype = msgContent.documentMessage.mimetype;
-        fileSize = msgContent.documentMessage.fileLength;
-        caption = msgContent.documentMessage.caption || '';
-      } else if (msgContent.documentWithCaptionMessage) {
-        const docMsg = msgContent.documentWithCaptionMessage.message?.documentMessage;
-        if (docMsg) {
-          type = 'document';
-          fileName = docMsg.fileName || '';
-          content = fileName || '[Document]';
-          mimetype = docMsg.mimetype;
-          fileSize = docMsg.fileLength;
-          caption = docMsg.caption || '';
-        } else {
-          type = 'document';
-          content = '[Document with caption]';
-        }
-      } else if (msgContent.locationMessage) {
-        type = 'location';
-        content = `[Location: ${msgContent.locationMessage.degreesLatitude},${msgContent.locationMessage.degreesLongitude}]`;
-      } else if (msgContent.contactMessage || msgContent.contactsArrayMessage) {
-        type = 'contact';
-        content = '[Contact]';
-      } else if (msgContent.stickerMessage) {
-        type = 'unknown';
-        content = '[Sticker]';
-      } else if (msgContent.reactionMessage) {
-        type = 'reaction';
-        content = `[Reaction: ${msgContent.reactionMessage.text || ''}]`;
-      } else {
-        logger.debug(`Unknown message type: ${JSON.stringify(msgContent)}`);
-        if (msgContent.protocolMessage && msgContent.protocolMessage.type === 0) {
-          content = '[Message deleted]';
-          type = 'deleted';
-        } else if (msgContent.reactionMessage) {
-          content = `[Reaction: ${msgContent.reactionMessage.text || ''}]`;
-          type = 'reaction';
-        } else {
-          content = '[Unknown message type]';
-        }
-      }
-      if (msgContent && msgContent.contextInfo?.quotedMessage) {
-        const quoted = msgContent.contextInfo;
-        ({ isReply, replyToMessageId, replyToMessage, replyToParticipant } = this.extractQuotedMessage(quoted));
-      }
-      return {
-        id: messageId,
-        from,
-        to,
-        content,
-        timestamp,
-        isFromMe,
-        type,
-        mediaUrl,
-        caption,
-        fileName,
-        fileSize,
-        mimetype,
-        isReply,
-        replyToMessageId,
-        replyToMessage,
-        replyToParticipant
-      };
-    } catch (error) {
-      logger.error(`Error formatting message: ${error}`);
-      return null;
-    }
-  }
+//   /******************************************************************************** 
+//    * 
+//    * Format message
+//    * 
+//    ********************************************************************************/    
+//   private formatMessage(rawMessage: any): WhatsAppMessage | null {
+//     // Early return for APP_STATE_SYNC_KEY_SHARE messages
+//     const isAppStateSync =
+//       rawMessage?.message?.protocolMessage?.type === 'APP_STATE_SYNC_KEY_SHARE' ||
+//       rawMessage?.protocolMessage?.type === 'APP_STATE_SYNC_KEY_SHARE';
+//     if (isAppStateSync) {
+//       logger.debug('Detected APP_STATE_SYNC_KEY_SHARE message');
+//       return {
+//         id: rawMessage.key?.id || crypto.randomUUID(),
+//         from: rawMessage.key?.fromMe ? 'me' : rawMessage.key?.remoteJid || 'unknown',
+//         to: rawMessage.key?.fromMe ? rawMessage.key?.remoteJid : 'me',
+//         content: '[State Sync Message]',
+//         timestamp: Date.now(),
+//         isFromMe: rawMessage.key?.fromMe || false,
+//         type: 'app_state_sync'
+//       };
+//     }
+//     try {
+//       if (!rawMessage || !rawMessage.key) {
+//         logger.debug(`Invalid message format: ${JSON.stringify(rawMessage)}`);
+//         return null;
+//       }
+//       const { key } = rawMessage;
+//       const messageId = key.id;
+//       const fromMe = key.fromMe;
+//       const from = fromMe ? (this.socket?.user?.id || 'me') : key.remoteJid;
+//       const to = fromMe ? key.remoteJid : (this.socket?.user?.id || 'me');
+//       const timestamp = rawMessage.messageTimestamp * 1000;
+//       let content = '';
+//       let type: WhatsAppMessage['type'] = 'unknown';
+//       let mediaUrl = '';
+//       let caption = '';
+//       let fileName = '';
+//       let fileSize = 0;
+//       let mimetype = '';
+//       let isReply = false,
+//         replyToMessageId = '',
+//         replyToMessage = '',
+//         replyToParticipant = '';
+//       const msgContent = rawMessage.message;
+//       if (!msgContent || Object.keys(msgContent).length === 0) {
+//         if (rawMessage.messageStubType) {
+//           type = 'unknown';
+//           content = `[Status: ${rawMessage.messageStubType}]`;
+//           switch (rawMessage.messageStubType) {
+//             case 1:
+//               content = '[Status: Message revoked]';
+//               break;
+//             case 2:
+//               content = '[Status: Group created]';
+//               break;
+//             case 3:
+//               content = '[Status: Group settings updated]';
+//               break;
+//             case 4:
+//               content = '[Status: Group participant added]';
+//               break;
+//             case 5:
+//               content = '[Status: Group participant removed]';
+//               break;
+//             case 6:
+//               content = '[Status: Group participant promoted]';
+//               break;
+//             case 7:
+//               content = '[Status: Group participant demoted]';
+//               break;
+//             case 8:
+//               content = '[Status: Group name updated]';
+//               break;
+//           }
+//         } else {
+//           content = '[Notification]';
+//         }
+//         logger.debug(`Status/notification message: ${content}`);
+//       } else if (msgContent.conversation) {
+//         content = msgContent.conversation;
+//         type = 'text';
+//       } else if (msgContent.extendedTextMessage) {
+//         content = msgContent.extendedTextMessage.text || '';
+//         type = 'text';
+//         if (msgContent.extendedTextMessage.contextInfo?.quotedMessage) {
+//           const quoted = msgContent.extendedTextMessage.contextInfo;
+//           ({ isReply, replyToMessageId, replyToMessage, replyToParticipant } = this.extractQuotedMessage(quoted));
+//         }
+//       } else if (msgContent.imageMessage) {
+//         type = 'image';
+//         caption = msgContent.imageMessage.caption || '';
+//         content = caption || '[Image]';
+//         mimetype = msgContent.imageMessage.mimetype;
+//         fileSize = msgContent.imageMessage.fileLength;
+//       } else if (msgContent.videoMessage) {
+//         type = 'video';
+//         caption = msgContent.videoMessage.caption || '';
+//         content = caption || '[Video]';
+//         mimetype = msgContent.videoMessage.mimetype;
+//         fileSize = msgContent.videoMessage.fileLength;
+//       } else if (msgContent.audioMessage) {
+//         type = 'audio';
+//         content = '[Audio]';
+//         mimetype = msgContent.audioMessage.mimetype;
+//         fileSize = msgContent.audioMessage.fileLength;
+//       } else if (msgContent.documentMessage) {
+//         type = 'document';
+//         fileName = msgContent.documentMessage.fileName || '';
+//         content = fileName || '[Document]';
+//         mimetype = msgContent.documentMessage.mimetype;
+//         fileSize = msgContent.documentMessage.fileLength;
+//         caption = msgContent.documentMessage.caption || '';
+//       } else if (msgContent.documentWithCaptionMessage) {
+//         const docMsg = msgContent.documentWithCaptionMessage.message?.documentMessage;
+//         if (docMsg) {
+//           type = 'document';
+//           fileName = docMsg.fileName || '';
+//           content = fileName || '[Document]';
+//           mimetype = docMsg.mimetype;
+//           fileSize = docMsg.fileLength;
+//           caption = docMsg.caption || '';
+//         } else {
+//           type = 'document';
+//           content = '[Document with caption]';
+//         }
+//       } else if (msgContent.locationMessage) {
+//         type = 'location';
+//         content = `[Location: ${msgContent.locationMessage.degreesLatitude},${msgContent.locationMessage.degreesLongitude}]`;
+//       } else if (msgContent.contactMessage || msgContent.contactsArrayMessage) {
+//         type = 'contact';
+//         content = '[Contact]';
+//       } else if (msgContent.stickerMessage) {
+//         type = 'unknown';
+//         content = '[Sticker]';
+//       } else if (msgContent.reactionMessage) {
+//         type = 'reaction';
+//         content = `[Reaction: ${msgContent.reactionMessage.text || ''}]`;
+//       } else {
+//         logger.debug(`Unknown message type: ${JSON.stringify(msgContent)}`);
+//         if (msgContent.protocolMessage && msgContent.protocolMessage.type === 0) {
+//           content = '[Message deleted]';
+//           type = 'deleted';
+//         } else if (msgContent.reactionMessage) {
+//           content = `[Reaction: ${msgContent.reactionMessage.text || ''}]`;
+//           type = 'reaction';
+//         } else {
+//           content = '[Unknown message type]';
+//         }
+//       }
+//       if (msgContent && msgContent.contextInfo?.quotedMessage) {
+//         const quoted = msgContent.contextInfo;
+//         ({ isReply, replyToMessageId, replyToMessage, replyToParticipant } = this.extractQuotedMessage(quoted));
+//       }
+//       return {
+//         id: messageId,
+//         from,
+//         to,
+//         content,
+//         timestamp,
+//         isFromMe,
+//         type,
+//         mediaUrl,
+//         caption,
+//         fileName,
+//         fileSize,
+//         mimetype,
+//         isReply,
+//         replyToMessageId,
+//         replyToMessage,
+//         replyToParticipant
+//       };
+//     } catch (error) {
+//       logger.error(`Error formatting message: ${error}`);
+//       return null;
+//     }
+//   }
 
   /******************************************************************************** 
    * 
