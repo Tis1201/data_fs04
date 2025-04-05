@@ -25,6 +25,21 @@ function ensureDirectoryExists(dir: string): void {
 
 // ****************************************************************************** 
 // 
+// Types
+// 
+// *******************************************************************************/
+
+export enum WhatsAppClientState {
+  Waiting = 'waiting',
+  Disconnected = 'disconnected',
+  Connecting = 'connecting',
+  Connected = 'connected',
+  AwaitingScan = 'awaiting_scan',
+  Authenticated = 'authenticated'
+}
+
+// ****************************************************************************** 
+// 
 // Utility Functions
 // 
 // *******************************************************************************/
@@ -40,6 +55,12 @@ function createBaileysLogger(logger: any): any {
   };
 }
 
+/****************************************************************************** 
+* 
+* Socket Cleanup
+* 
+********************************************************************************/
+
 async function cleanupSocket(socket: any, logger: any): Promise<void> {
   if (socket) {
     socket.ev.removeAllListeners();
@@ -50,14 +71,86 @@ async function cleanupSocket(socket: any, logger: any): Promise<void> {
     }
     socket = null;
   }
+  return Promise.resolve();
 }
 
-export type WhatsAppClientState =
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'authenticated'
-  | 'awaiting_scan';
+/****************************************************************************** 
+* 
+* State Management
+* 
+********************************************************************************/
+
+function updateState(client: any, newState: WhatsAppClientState, logger: any): void {
+  const oldState = client.state;
+  client.state = newState;
+  logger.info(`Client ${client.id} state changed from ${oldState} to ${newState}`);
+  client.emit('state', newState);
+}
+
+/****************************************************************************** 
+* 
+* State Management
+* 
+********************************************************************************/
+function handleConnectionSuccess(client: any, logger: any): void {
+  
+  client.reconnectCount = 0;
+
+  if (client.socket?.user) {
+    client.pushName = client.socket.user.name || client.socket.user.verifiedName;
+    if (!client.phoneNumber && client.socket.user.id) {
+      const match = client.socket.user.id.match(/^\d+:/);
+      if (match) {
+        client.phoneNumber = match[0].replace(/:/g, '');
+        logger.info(`Extracted phone number: ${client.phoneNumber}`);
+      }
+    }
+    logger.info(`Connected as ${client.pushName} (${client.socket.user.id})`);
+    client.emit('connected', {
+      id: client.socket.user.id,
+      name: client.pushName,
+      phoneNumber: client.phoneNumber
+    });
+
+    updateState(client, WhatsAppClientState.Connected, logger);
+  }
+}
+
+/****************************************************************************** 
+* 
+* State Management
+* 
+********************************************************************************/
+function handleDisconnection(client: any, lastDisconnect: any, logger: any): void {
+  try {
+    // Simply extract the error from the disconnect event.
+    const error = lastDisconnect?.error;
+    logger.error(`Client ${client.id} disconnected with error: ${error}`);
+  
+    // Emit the error directly so that consumers get Bailey's error.
+    client.emit('error', error);
+  
+    // Optionally, trigger reconnection if enabled.
+    if (client.autoReconnect && client.reconnectCount < client.maxReconnectAttempts) {
+      client.reconnectCount++;
+      logger.info(`Reconnecting in ${client.reconnectDelay}ms (attempt ${client.reconnectCount}/${client.maxReconnectAttempts})...`);
+      setTimeout(() => client.connect(), client.reconnectDelay);
+    }
+
+    // Update state to disconnected
+    updateState(client, WhatsAppClientState.Disconnected, logger);
+  } catch (err) {
+    logger.error(`Error in handleDisconnection for client ${client.id}:`, err);
+    // Ensure we update the state even if there's an error
+    updateState(client, WhatsAppClientState.Disconnected, logger);
+  }
+}
+
+// ****************************************************************************** 
+// 
+// WhatsAppMessage
+// 
+// *******************************************************************************/
 
 export interface WhatsAppMessage {
   id: string;
@@ -97,7 +190,7 @@ export class WhatsAppAccountClient extends EventEmitter {
   private id: string;
   private createdBy?: string;
   private socket: any;
-  private state: WhatsAppClientState = 'disconnected';
+  private state: WhatsAppClientState = WhatsAppClientState.Disconnected;
   private qrCode: string | null = null;
   private qrCodeTimestamp: number = 0;
   private qrCodeRefreshTimer: NodeJS.Timeout | null = null;
@@ -152,10 +245,8 @@ export class WhatsAppAccountClient extends EventEmitter {
       // Clean up previous socket if any
       await cleanupSocket(this.socket, logger);
 
-      this.state = 'connecting';
-      this.emit('state', this.state);
-      logger.info(`Client ${this.id} state changed to connecting`);
-
+      updateState(this, WhatsAppClientState.Waiting, logger);
+      
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
       const { version } = await fetchLatestBaileysVersion();
 
@@ -183,9 +274,9 @@ export class WhatsAppAccountClient extends EventEmitter {
       if (authFiles.some(file => file.includes('creds'))) {
         logger.info(`Restoring session for client ${this.id}`);
         setTimeout(() => {
-          if (this.state === 'connecting') {
+          if (this.state === WhatsAppClientState.Connecting) {
             logger.info(`Session restoration pending for client ${this.id}`);
-            this.emit('state', this.state);
+            updateState(this, this.state, logger);
           }
         }, 500);
       }
@@ -193,8 +284,7 @@ export class WhatsAppAccountClient extends EventEmitter {
 
     } catch (error) {
       logger.error(`Error connecting client ${this.id}: ${error}`);
-      this.state = 'disconnected';
-      this.emit('state', this.state);
+      updateState(this, WhatsAppClientState.Disconnected, logger);
       this.emit('error', error);
       if (this.autoReconnect && this.reconnectCount < this.maxReconnectAttempts) {
         this.reconnectCount++;
@@ -220,82 +310,25 @@ export class WhatsAppAccountClient extends EventEmitter {
     if (qr) {
       this.qrCode = qr;
       this.qrCodeTimestamp = Date.now();
-      this.state = 'awaiting_scan';
+      updateState(this, WhatsAppClientState.AwaitingScan, logger);
       this.emit('qr', qr);
-      this.emit('state', this.state);
       this.setupQrCodeRefreshTimer();
       logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
-      
     }
 
     if (connection) {
       switch (connection) {
         case 'connecting':
-          this.state = 'connecting';
-          this.emit('state', this.state);
+          updateState(this, WhatsAppClientState.Connecting, logger);
           break;
         case 'open':
-          this.state = 'connected';
-          this.reconnectCount = 0;
-          logger.info(`Client ${this.id} connected successfully`);
-          this.emit('state', 'connected');
-          if (this.socket?.user) {
-            this.pushName = this.socket.user.name || this.socket.user.verifiedName;
-            if (!this.phoneNumber && this.socket.user.id) {
-              const match = this.socket.user.id.match(/^(\d+):/);
-              if (match && match[1]) {
-                this.phoneNumber = match[1];
-                logger.info(`Extracted phone number: ${this.phoneNumber}`);
-              }
-            }
-            logger.info(`Connected as ${this.pushName} (${this.socket.user.id})`);
-            this.emit('connected', {
-              id: this.socket.user.id,
-              name: this.pushName,
-              phoneNumber: this.phoneNumber
-            });
-            this.emit('state', this.state);
-          }
+          handleConnectionSuccess(this, logger);
           break;
-        case 'close': {
-          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-          const errorData = (lastDisconnect?.error as Boom)?.data;
-          const isConflictError =
-            statusCode === 440 &&
-            errorData?.tag === 'stream:error' &&
-            errorData?.content?.[0]?.tag === 'conflict' &&
-            errorData?.content?.[0]?.attrs?.type === 'replaced';
-          if (statusCode === DisconnectReason.restartRequired) {
-            logger.info(`Client ${this.id} needs restart, reconnecting...`);
-            this.state = 'connecting';
-            setTimeout(() => this.connect(), 1000);
-          } else if (statusCode === DisconnectReason.loggedOut) {
-            logger.info(`Client ${this.id} logged out`);
-            this.state = 'disconnected';
-            this.emit('logout');
-            this.emit('state', this.state);
-          } else if (isConflictError) {
-            logger.warn(`Client ${this.id} disconnected due to conflict (session replaced)`);
-            this.state = 'disconnected';
-            this.emit('state', this.state);
-            this.emit('conflict');
-            this.autoReconnect = false;
-          } else {
-            logger.warn(`Client ${this.id} disconnected with status code ${statusCode}`);
-            this.state = 'disconnected';
-            this.emit('state', this.state);
-            if (this.autoReconnect && this.reconnectCount < this.maxReconnectAttempts) {
-              this.reconnectCount++;
-              logger.info(
-                `Reconnecting (${this.reconnectCount}/${this.maxReconnectAttempts}) in ${this.reconnectDelay}ms...`
-              );
-              setTimeout(() => this.connect(), this.reconnectDelay);
-            }
-          }
+        case 'close':
+          handleDisconnection(this, lastDisconnect, logger);
           break;
-        }
         default:
-          this.emit('state', this.state);
+          updateState(this, this.state, logger);
           break;
       }
     }
@@ -580,7 +613,7 @@ export class WhatsAppAccountClient extends EventEmitter {
    ********************************************************************************/        
   async sendTextMessage(to: string, text: string): Promise<string | null> {
     try {
-      if (!this.socket || this.state !== 'connected') {
+      if (!this.socket || this.state !== WhatsAppClientState.Connected) {
         throw new Error('Client not connected');
       }
       const result = await this.socket.sendMessage(to, { text });
@@ -604,7 +637,7 @@ export class WhatsAppAccountClient extends EventEmitter {
       this.qrCodeRefreshTimer = null;
     }
     this.qrCodeRefreshTimer = setTimeout(() => {
-      if (this.state === 'connecting' && this.qrCode && Date.now() - this.qrCodeTimestamp > 25000) {
+      if (this.state === WhatsAppClientState.Connecting && this.qrCode && Date.now() - this.qrCodeTimestamp > 25000) {
         logger.info(`QR code for client ${this.id} may have expired, reconnecting...`);
         this.connect();
       }
@@ -626,8 +659,7 @@ export class WhatsAppAccountClient extends EventEmitter {
       this.autoReconnect = false;
       await this.socket.logout();
       await this.socket.end();
-      this.state = 'disconnected';
-      this.emit('state', this.state);
+      updateState(this, WhatsAppClientState.Disconnected, logger);
       logger.info(`Client ${this.id} disconnected successfully`);
       return true;
     } catch (error) {
@@ -743,7 +775,7 @@ export class WhatsAppAccountClient extends EventEmitter {
    ********************************************************************************/    
   async downloadMedia(message: WhatsAppMessage | string): Promise<string | null> {
     try {
-      if (!this.socket || this.state !== 'connected') {
+      if (!this.socket || this.state !== WhatsAppClientState.Connected) {
         throw new Error('Client not connected');
       }
       let formattedMessage: WhatsAppMessage;
