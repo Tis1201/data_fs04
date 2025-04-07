@@ -65,8 +65,8 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                         ws.userId = sessionData.user.id;
                         ws.userRole = sessionData.user.systemRole;
                         logger.info(`[wss:kit] client connected via session (${ws.socketId}) - User: ${ws.userId}, Role: ${ws.userRole}`);
-                    }
-                      
+                    }      
+                           
                     ws.send(JSON.stringify({
                         type: 'welcome',
                         data: {

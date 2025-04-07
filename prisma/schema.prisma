@@ -66,22 +66,6 @@ model ApiKey {
   @@index([key])
 }
 
-model WhatsAppAccount {
-  id            String                    @id() @default(cuid())
-  client_id     String                    @unique()
-  client_status String                    @default("disconnected")
-  createdAt     DateTime                  @default(now())
-  updatedAt     DateTime                  @updatedAt()
-  phoneNumber   String
-  name          String?
-  description   String
-  createdBy     String
-  user          User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  listeners     ListenerWhatsAppAccount[]
-
-  @@index([createdBy])
-}
-
 model WebhookEndPoint {
   id            String                    @id() @default(cuid())
   createdAt     DateTime                  @default(now())
@@ -152,4 +136,37 @@ model ListenerWhatsAppAccount {
   createdAt         DateTime         @default(now())
 
   @@unique([listenerId, whatsappAccountId])
+}
+
+model WhatsAppAccount {
+  id            String                    @id() @default(cuid())
+  client_id     String                    @unique()
+  client_status String                    @default("disconnected")
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt()
+  phoneNumber   String
+  name          String?
+  description   String
+  createdBy     String
+  user          User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  listeners     ListenerWhatsAppAccount[]
+  authDatas     WhatsAppAuthData[]
+
+  @@index([createdBy])
+}
+
+model WhatsAppAuthData {
+  id                String          @id() @default(cuid())
+  clientId          String
+  keyId             String
+  type              String
+  data              String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt()
+  whatsappAccountId String
+  whatsappAccount   WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, keyId])
+  @@index([type])
+  @@index([clientId])
 }

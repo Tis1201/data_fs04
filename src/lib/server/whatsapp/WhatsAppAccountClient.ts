@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 import {
     makeWASocket,
@@ -9,10 +10,8 @@ import {
     downloadMediaMessage
 } from '@whiskeysockets/baileys';
 
-import { Boom } from '@hapi/boom';
 import { logger } from '$lib/server/logger';
 import EventEmitter from 'events';
-import crypto from 'crypto';
 import stringify from 'json-stringify-safe';
 
 
@@ -223,22 +222,24 @@ export class WhatsAppAccountClient extends EventEmitter {
      * 
      ********************************************************************************/
     constructor(
-        id: string,
+        id?: string,
         phoneNumber?: string,
         accountId?: string,
+        createdBy?: string,
         options?: { authDir?: string; mediaDir?: string }
     ) {
         super();
         this.logger_x = createBaileysLogger(logger);
-        this.id = id;
+        this.id = id || uuidv4();
         this.phoneNumber = phoneNumber;
         this.accountId = accountId;
+        this.createdBy = createdBy;
         const baseAuthDir = options?.authDir || DEFAULT_AUTH_DIR;
         const baseMediaDir = options?.mediaDir || DEFAULT_MEDIA_DIR;
         ensureDirectoryExists(baseAuthDir);
         ensureDirectoryExists(baseMediaDir);
-        this.authDir = path.join(baseAuthDir, id);
-        this.mediaDir = path.join(baseMediaDir, id);
+        this.authDir = path.join(baseAuthDir, this.id);
+        this.mediaDir = path.join(baseMediaDir, this.id);
         ensureDirectoryExists(this.authDir);
         ensureDirectoryExists(this.mediaDir);
         logger.info(`Created WhatsApp client instance with ID: ${id}`);
@@ -621,3 +622,4 @@ export class WhatsAppAccountClient extends EventEmitter {
 
    
 }
+

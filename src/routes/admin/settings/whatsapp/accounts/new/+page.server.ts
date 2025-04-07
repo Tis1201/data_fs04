@@ -27,7 +27,9 @@ export const load = restrict(
             const user_id = await validateAndGetUserId(locals);
 
             // Pass the user ID to createClient so it knows who created this client
-            const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient(undefined, undefined, { createdBy: user_id });
+            // Add a small delay to ensure the page and WebSocket connection are ready
+            // await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+            const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(user_id);
 
             logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
             

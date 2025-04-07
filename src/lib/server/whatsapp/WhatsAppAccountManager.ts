@@ -10,43 +10,62 @@ import { wsManager } from '../websocket/WebSocketManager';
 import { eventRouter, EventType, EventScope, EventDestination } from '../event/EventRouter';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 
-/**
- * Options for WhatsApp Account Manager
- */
+/****************************************************************************************************
+ * 
+ *  WhatsAppManagerOptions
+ * 
+ ****************************************************************************************************/
 export interface WhatsAppManagerOptions {
     authDir?: string;
     mediaDir?: string;
+    auth?: {};
 }
 
-/**
- * WhatsApp Account Manager
- * Manages multiple WhatsApp account clients and their states.
- */
+const clientOptions = {
+    authDir: "whatsapp-auth",
+    mediaDir: "whatsapp-media",
+};
+
+/****************************************************************************************************
+ * 
+ *  WhatsAppAccountManager Class
+ * 
+ ****************************************************************************************************/
 export class WhatsAppAccountManager extends EventEmitter {
+
     // Store for all WhatsApp clients
     private clients = new Map<string, WhatsAppAccountClient>();
+
     private options: WhatsAppManagerOptions;
+    
     private cleanupInterval: NodeJS.Timeout | null = null;
     private readonly CLEANUP_INTERVAL_MS = 60000; // Run cleanup every minute
     private readonly MAX_AWAITING_SCAN_MS = 300000; // 5 minutes
+    
+    private prisma: any;
 
+    /****************************************************************************************************
+    * 
+    *  Constructor
+    * 
+    ****************************************************************************************************/
     constructor(options?: WhatsAppManagerOptions) {
         super();
         this.options = options || {};
         logger.info('WhatsApp Account Manager initialized');
         this.startCleanupInterval();
+
+        this.prisma = getEnhancedPrisma({
+            id: '',
+            systemRole: 'ADMIN',     
+        });
     }
 
-    /**
-     * Helper method to create a QR code promise for a client.
-     *
-     * @param client - The WhatsAppAccountClient instance.
-     * @param immediateCheck - If true, check immediately if the client is connected.
-     *                         If connected, resolve immediately with an empty string.
-     *                         Otherwise, attach a 'qr' listener.
-     *                         When false, attach both 'qr' and 'connected' listeners.
-     * @returns Promise that resolves with the QR code string.
-     */
+    /****************************************************************************************************
+    * 
+    *  createQRCodePromise
+    * 
+    ****************************************************************************************************/
     private createQRCodePromise(client: WhatsAppAccountClient, immediateCheck: boolean): Promise<string> {
         return new Promise<string>((resolve) => {
             if (immediateCheck && client.getState() === 'connected') {
@@ -60,38 +79,38 @@ export class WhatsAppAccountManager extends EventEmitter {
         });
     }
 
-    /**
-     * Creates a new client instance.
-     *
-     * @param clientId - The client ID to use.
-     * @param phoneNumber - Optional phone number.
-     * @param accountId - Optional account ID for database reference.
-     * @param options - Optional client-specific options.
-     * @returns Client info with a promise for the QR code and a restored flag.
-     */
-    private async createNewClient(
-        clientId: string,
-        phoneNumber?: string,
-        accountId?: string,
-        options?: WhatsAppManagerOptions
-    ): Promise<{ clientId: string; qrCodePromise: Promise<string>; restored: boolean }> {
-        // Merge manager options with client-specific options.
-        const clientOptions = {
-            authDir: options?.authDir || this.options.authDir,
-            mediaDir: options?.mediaDir || this.options.mediaDir,
-        };
+    /****************************************************************************************************
+    * 
+    *  Create Client
+    * 
+    ****************************************************************************************************/
+    // private createClient(clientId:String ){
 
+    // }
+
+    /****************************************************************************************************
+    * 
+    *  createNewClient
+    * 
+    ****************************************************************************************************/
+    public async createNewClient(createdBy: string)
+    : Promise<{ clientId: string; qrCodePromise: Promise<string>; restored: boolean }> {
+        
         // Create and store a new WhatsApp client.
-        const client = new WhatsAppAccountClient(clientId, phoneNumber, accountId, clientOptions);
-        this.clients.set(clientId, client);
+        const client = new WhatsAppAccountClient();
+        client.setCreatedBy(createdBy);
+        
+        this.clients.set(client.getId(), client);
 
         // Set up event listeners (resolve QR code on first 'qr' event).
-        this.setupClientEventListeners(client, clientId, accountId);
+        this.setupClientEventListeners(client, client.getId());
+
         const qrCodePromise = this.createQRCodePromise(client, false);
 
         // Connect the client.
         await client.connect();
-        return { clientId, qrCodePromise, restored: false };
+
+        return { clientId: client.getId(), qrCodePromise, restored: false };
     }
 
     /**
@@ -110,23 +129,23 @@ export class WhatsAppAccountManager extends EventEmitter {
      * @param options Optional configuration options including createdBy user ID
      * @returns Client ID and QR code promise
      */
-    async createClient(
-        phoneNumber?: string,
-        accountId?: string,
-        options?: WhatsAppManagerOptions & { createdBy?: string }
-    ): Promise<{ clientId: string; qrCodePromise: Promise<string> }> {
-        const result = await this.restoreOrCreateClient(null, phoneNumber, accountId, options);
-        
-        // If createdBy is provided, set it on the client
-        if (options?.createdBy && result.clientId) {
+    async createClient(createdBy: string): Promise<{ clientId: string; qrCodePromise: Promise<string> }> {
+        try {
+            // Create a new client with the provided user ID
+            const result = await this.createNewClient(createdBy);
+            
+            // Set the createdBy user ID on the client
             const client = this.getClient(result.clientId);
             if (client) {
-                client.setCreatedBy(options.createdBy);
-                logger.info(`Associated WhatsApp client ${result.clientId} with user ${options.createdBy}`);
+                client.setCreatedBy(createdBy);
+                logger.info(`Associated WhatsApp client ${result.clientId} with user ${createdBy}`);
             }
+            
+            return { clientId: result.clientId, qrCodePromise: result.qrCodePromise };
+        } catch (error) {
+            logger.error(`Error creating WhatsApp client: ${error}`);
+            throw error;
         }
-        
-        return { clientId: result.clientId, qrCodePromise: result.qrCodePromise };
     }
 
     /**
@@ -158,43 +177,43 @@ export class WhatsAppAccountManager extends EventEmitter {
     ): Promise<{ clientId: string; qrCodePromise: Promise<string>; restored: boolean }> {
         try {
             // Create a new client if no session ID is provided.
-            if (!sessionId) {
-                const newClientId = uuidv4();
-                logger.info(`Creating new WhatsApp client with generated ID ${newClientId}`);
-                return await this.createNewClient(newClientId, phoneNumber, accountId, options);
-            }
+            // if (!sessionId) {
+            //     const newClientId = uuidv4();
+            //     logger.info(`Creating new WhatsApp client with generated ID ${newClientId}`);
+            //     return await this.createNewClient(newClientId, phoneNumber, accountId, options);
+            // }
 
             // If the client is already active in memory.
-            if (this.clients.has(sessionId)) {
+            if (this.clients.has(sessionId!)) {
                 logger.info(`Client with session ID ${sessionId} is already active in memory`);
-                const client = this.clients.get(sessionId)!;
+                const client = this.clients.get(sessionId!)!;
                 const qrCodePromise = this.createQRCodePromise(client, true);
 
                 // If client is disconnected, attempt to reconnect.
                 if (client.getState() === 'disconnected') {
                     await client.connect();
                 }
-                return { clientId: sessionId, qrCodePromise, restored: true };
+                return { clientId: sessionId!, qrCodePromise, restored: true };
             }
 
             // If a session exists on disk, restore the client.
-            if (this.sessionExists(sessionId)) {
+            if (this.sessionExists(sessionId!)) {
                 logger.info(`Restoring WhatsApp client from existing session ${sessionId}`);
                 const clientOptions = {
                     authDir: this.options.authDir,
                     mediaDir: this.options.mediaDir,
                 };
-                const client = new WhatsAppAccountClient(sessionId, phoneNumber, accountId, clientOptions);
-                this.clients.set(sessionId, client);
+                const client = new WhatsAppAccountClient(sessionId!, phoneNumber, accountId, clientOptions);
+                this.clients.set(sessionId!, client);
                 const qrCodePromise = this.createQRCodePromise(client, false);
-                this.setupClientEventListeners(client, sessionId, accountId);
+                this.setupClientEventListeners(client, sessionId!, accountId);
                 await client.connect();
-                return { clientId: sessionId, qrCodePromise, restored: true };
+                return { clientId: sessionId!, qrCodePromise, restored: true };
             }
 
             // If no session exists, create a new client with the specified session ID.
             logger.info(`Creating new WhatsApp client with session ID ${sessionId}`);
-            return await this.createNewClient(sessionId, phoneNumber, accountId, options);
+            return await this.createNewClient(sessionId!, phoneNumber, accountId, options);
         } catch (error) {
             logger.error(`Error restoring or creating WhatsApp client: ${error}`);
             throw error;
@@ -481,22 +500,23 @@ export class WhatsAppAccountManager extends EventEmitter {
     async initializeClientsFromDatabase(): Promise<void> {
         logger.info('Initializing WhatsApp clients from database');
         try {
-            const prisma = getEnhancedPrisma();
-            const accounts = await prisma.whatsAppAccount.findMany();
+            
+            const accounts = await this.prisma.whatsAppAccount.findMany();
+            
             logger.info(`Found ${accounts.length} WhatsApp accounts to initialize`);
 
             for (const account of accounts) {
                 try {
                     const client = new WhatsAppAccountClient(account.client_id);
-                    await client.setAccountId(account.id);
-                    await client.setCreatedBy(account.createdBy);
+                    client.setAccountId(account.id);
+                    client.setCreatedBy(account.createdBy);
                     this.clients.set(account.client_id, client);
                     this.setupClientEventListeners(client, account.client_id, account.id);
-                    await client.connect();
+                    // await client.connect();
                     logger.info(`Initialized WhatsApp client for account ${account.id} (${account.description})`);
                 } catch (clientError) {
                     logger.error(`Failed to initialize WhatsApp client for account ${account.id}: ${clientError}`);
-                    await prisma.whatsAppAccount.update({
+                    await this.prisma.whatsAppAccount.update({
                         where: { id: account.id },
                         data: { client_status: 'disconnected' },
                     });

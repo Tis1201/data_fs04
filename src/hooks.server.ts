@@ -16,13 +16,13 @@ if (!building) {
     (async () => {
         try {
             // Delay initialization without blocking
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // await new Promise(resolve => setTimeout(resolve, 1000));
             
             logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
             
             // Initialize WhatsApp clients from database
             logger.info('Loading WhatsApp clients from database...');
-            await whatsAppAccountManager.initializeClientsFromDatabase();
+            // await whatsAppAccountManager.initializeClientsFromDatabase();
             
             logger.info('WhatsAppAccountManager is ready');
         } catch (error) {
