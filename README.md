@@ -328,6 +328,7 @@ To package the application for deployment as a zip file:
 - Convert to Pion from aoirtc python (done)
 - Clean up websocket implementation (done)
 - Need a proper router to route ws events to different users
+- Use SQL to store Whatsapp keys
 - Clean up WebRTC Video
 - Run yolo-openvobulary on openvino on mac
 - Batch input architecture, some makes sense if input size is small
