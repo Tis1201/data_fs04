@@ -118,6 +118,8 @@ function handleConnectionSuccess(client: any, logger: any): void {
     });
 
     updateState(client, WhatsAppClientState.Connected, logger);
+
+    
   }
 }
 
