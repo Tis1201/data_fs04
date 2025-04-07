@@ -13,6 +13,8 @@ import { Boom } from '@hapi/boom';
 import { logger } from '$lib/server/logger';
 import EventEmitter from 'events';
 import crypto from 'crypto';
+import stringify from 'json-stringify-safe';
+
 
 export const DEFAULT_AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
 export const DEFAULT_MEDIA_DIR = path.join(process.cwd(), 'whatsapp-media');
@@ -46,11 +48,11 @@ export enum WhatsAppClientState {
 
 function createBaileysLogger(logger: any): any {
   return {
-    info: (message: string) => logger.info(`[Baileys] ${message}`),
-    warn: (message: string) => logger.warn(`[Baileys] ${message}`),
-    error: (message: string) => logger.error(`[Baileys] ${message}`),
-    trace: (message: string) => logger.debug(`[Baileys] ${message}`),
-    debug: (message: string) => logger.debug(`[Baileys] ${message}`),
+    warn: (message: string)  => logger.warn('[Baileys] ' + stringify(message)),
+    error: (message: string) => logger.error('[Baileys] ' + stringify(message)),
+    info: (message: string)  => {},
+    trace: (message: string) => {},
+    debug: (message: string) => {},
     child: () => createBaileysLogger(logger) // Baileys expects this method to exist
   };
 }
@@ -98,6 +100,7 @@ function handleConnectionSuccess(client: any, logger: any): void {
 
   if (client.socket?.user) {
     client.pushName = client.socket.user.name || client.socket.user.verifiedName;
+    
     if (!client.phoneNumber && client.socket.user.id) {
       const match = client.socket.user.id.match(/^\d+:/);
       if (match) {
@@ -105,7 +108,9 @@ function handleConnectionSuccess(client: any, logger: any): void {
         logger.info(`Extracted phone number: ${client.phoneNumber}`);
       }
     }
+
     logger.info(`Connected as ${client.pushName} (${client.socket.user.id})`);
+    
     client.emit('connected', {
       id: client.socket.user.id,
       name: client.pushName,
@@ -301,10 +306,10 @@ export class WhatsAppAccountClient extends EventEmitter {
 
       this.socket.ev.on('creds.update', saveCreds);
       this.socket.ev.on('connection.update', this.handleConnectionUpdate.bind(this));
-      this.socket.ev.on('messages.upsert', this.handleMessages.bind(this));
-      this.socket.ev.on('contacts.update', this.handleContactsUpdate.bind(this));
-      this.socket.ev.on('chats.upsert', this.handleChatsUpsert.bind(this));
-      this.socket.ev.on('chats.update', this.handleChatsUpdate.bind(this));
+    //   this.socket.ev.on('messages.upsert', this.handleMessages.bind(this));
+    //   this.socket.ev.on('contacts.update', this.handleContactsUpdate.bind(this));
+    //   this.socket.ev.on('chats.upsert', this.handleChatsUpsert.bind(this));
+    //   this.socket.ev.on('chats.update', this.handleChatsUpdate.bind(this));
 
       // Check for existing auth files for session restoration
       const authFiles = fs.readdirSync(this.authDir);

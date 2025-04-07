@@ -316,67 +316,81 @@ export class WhatsAppAccountManager extends EventEmitter {
 
         // Listen for state changes and update the database if needed.
         client.on('state', (state: WhatsAppClientState) => {
+            
             if (accountId) {
                 this.updateAccountStatus(accountId, state, clientId);
             }
+            
             logger.debug(`Number of whatsappclients: ${this.clients.size}`);
 
-            const pushName = client.getPushName();
-            const phoneNumber = client.getPhoneNumber();
+            const pushName      = client.getPushName();
+            const phoneNumber   = client.getPhoneNumber();
+            
             logger.info(`Client state update for ${clientId}: state=${state}, pushName=${pushName}, phoneNumber=${phoneNumber}`);
 
-            wsManager.broadcast({
-                type: 'whatsapp_state',
-                data: { clientId, state, pushName, phoneNumber },
-            });
+            eventRouter.sendPrivateMessage(
+                client.getCreatedBy()!,
+                { 
+                    action: state,
+                    data: { clientId, state, pushName, phoneNumber }
+                },
+                EventType.WHATSAPP_MESSAGE
+            );
+
+            // wsManager.broadcast({
+            //     type: 'whatsapp',
+            //     action: 'state',
+            //     data: { clientId, state, pushName, phoneNumber },
+            // });
+
         });
 
         // On connection, broadcast additional user info.
-        client.on('connected', (userInfo: any) => {
-            logger.info(`Client ${clientId} connected with user info:`, userInfo);
-            wsManager.broadcast({
-                type: 'whatsapp_state',
-                data: {
-                    clientId,
-                    state: 'connected',
-                    pushName: userInfo.name,
-                    phoneNumber: userInfo.phoneNumber,
-                },
-            });
-        });
+        // client.on('connected', (userInfo: any) => {
+        //     logger.info(`Client ${clientId} connected with user info:`, userInfo);
+        //     wsManager.broadcast({
+        //         type: 'whatsapp_state',
+        //         data: {
+        //             clientId,
+        //             state: 'connected',
+        //             pushName: userInfo.name,
+        //             phoneNumber: userInfo.phoneNumber,
+        //         },
+        //     });
+        // });
 
         // Handle logout events.
-        client.on('logout', () => {
-            if (accountId) {
-                this.updateAccountStatus(accountId, 'disconnected');
-            }
-            wsManager.broadcast({ type: 'whatsapp_logout', data: { clientId } });
-        });
+        // client.on('logout', () => {
+        //     if (accountId) {
+        //         this.updateAccountStatus(accountId, 'disconnected');
+        //     }
+        //     wsManager.broadcast({ type: 'whatsapp_logout', data: { clientId } });
+        // });
         
         // Handle conflict events (session replaced)
-        client.on('conflict', () => {
-            logger.warn(`Client ${clientId} reported conflict: session replaced by another connection`);
+        // client.on('conflict', () => {
+        //     logger.warn(`Client ${clientId} reported conflict: session replaced by another connection`);
             
-            // Update account status to disconnected
-            if (accountId) {
-                this.updateAccountStatus(accountId, 'disconnected');
-            }
+        //     // Update account status to disconnected
+        //     if (accountId) {
+        //         this.updateAccountStatus(accountId, 'disconnected');
+        //     }
             
-            // Broadcast conflict message to the web UI
-            wsManager.broadcast({ 
-                type: 'whatsapp_error', 
-                data: { 
-                    clientId, 
-                    error: 'conflict', 
-                    message: 'WhatsApp session replaced by another connection. This typically happens when the same account is logged in elsewhere.'
-                } 
-            });
+        //     // Broadcast conflict message to the web UI
+        //     wsManager.broadcast({ 
+        //         type: 'whatsapp_error', 
+        //         data: { 
+        //             clientId, 
+        //             error: 'conflict', 
+        //             message: 'WhatsApp session replaced by another connection. This typically happens when the same account is logged in elsewhere.'
+        //         } 
+        //     });
             
-            // Remove the client from the manager to prevent reconnection attempts
-            this.clients.delete(clientId);
+        //     // Remove the client from the manager to prevent reconnection attempts
+        //     this.clients.delete(clientId);
             
-            logger.info(`Client ${clientId} removed from manager due to conflict`);
-        });
+        //     logger.info(`Client ${clientId} removed from manager due to conflict`);
+        // });
 
         // Forward message events to the web UI.
         client.on('message', (message: WhatsAppMessage) => {
