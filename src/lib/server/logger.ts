@@ -98,7 +98,7 @@ const createLogger = (defaultFilePath: string = 'unknown') => {
 
     // Create Winston logger with custom format
     const winstonLogger = winston.createLogger({
-        level: dev ? 'debug' : 'info',
+        level: process.env.LOG_LEVEL || (dev ? 'debug' : 'info'),
         format: winston.format.combine(
             winston.format.timestamp({
                 format: 'YYYY-MM-DD HH:mm:ss'

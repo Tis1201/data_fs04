@@ -8,6 +8,7 @@ declare global {
 			auth: {
 				validate: () => Promise<{
 					user: {
+						id: string
 						userId: string;
 						email: string;
 						rolesString: string;

@@ -2,13 +2,15 @@
     import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '$lib/components/ui/card';
     import { Badge } from '$lib/components/ui/badge';
     import { ScrollArea } from '$lib/components/ui/scroll-area';
-    import { Button } from "$lib/components/ui/button";
+    import { Button } from "$lib/components/ui/button/index.js";
     import { Input } from "$lib/components/ui/input";
-    import { Trash2, Send, Zap, Key, RefreshCw } from 'lucide-svelte';
+    import { Trash2, Send, Zap, Key, RefreshCw, ChevronsUpDown } from 'lucide-svelte';
     import { socketStore } from '$lib/stores/websocket-store';
     import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
     import { Label } from "$lib/components/ui/label";
     import { Skeleton } from "$lib/components/ui/skeleton";
+    import * as Collapsible from '$lib/components/ui/collapsible/index.js';
+    import CodeBlock from '$lib/components/ui_components_sveltekit/code/CodeBlock.svelte';
 
     let messageInput = '';
     let apiKeyInput = '';
@@ -16,12 +18,14 @@
     let connected = false;
     let error: Error | null = null;
     let loading = false;
+    let socketId = '';
 
     // Subscribe to socket store
     $: if ($socketStore) {
         messages = $socketStore.messages;
         connected = $socketStore.status === 'OPEN';
         error = $socketStore.error;
+        socketId = $socketStore.socketId;
     }
 
     function sendMessage() {
@@ -99,11 +103,14 @@
                     <div class={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"} animate-pulse`}></div>
                     <span class="text-sm font-medium">{connected ? "Connected" : "Disconnected"}</span>
                 </div>
-                <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
+                {#if socketId}
+                    <span class="text-sm text-muted-foreground">Socket ID: {socketId}</span>
+                {/if}
+                <!-- <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
                     <RefreshCw class="h-4 w-4 mr-2" />
                     Reconnect
-                </Button>
-            </div>
+                </Button> -->
+            </div> 
         </div>
     </CardHeader>
     <CardContent class="space-y-4">
@@ -167,35 +174,72 @@
             <div class="p-4 space-y-3">
                 {#if messages}
                     {#each messages as message}
-                        <div class="p-3 rounded-lg bg-muted/50">
-                            <div class="flex items-center gap-2 mb-1.5">
-                                <Badge variant={message.type === 'system' ? 'secondary' : message.type === 'error' ? 'destructive' : 'default'}>
-                                    {message.type}
-                                </Badge>
-                                {#if message.data?.timestamp}
-                                    <span class="text-xs text-muted-foreground">{new Date(message.data.timestamp).toLocaleTimeString()}</span>
+                        {#if message.type !== 'pong'}
+                            <div class="p-3 rounded-lg bg-muted/50">
+                                <div class="flex items-center gap-2 mb-1.5">
+                                    <Badge variant={message.type === 'system' ? 'secondary' : message.type === 'error' ? 'destructive' : 'default'}>
+                                        {message.type}
+                                    </Badge>
+                                    {#if message.data?.timestamp}
+                                        <span class="text-xs text-muted-foreground">{new Date(message.data.timestamp).toLocaleTimeString()}</span>
+                                    {/if}
+                                    {#if socketId}
+                                        <span class="text-xs font-mono text-muted-foreground">ID: {socketId}</span>
+                                    {/if}
+                                    {#if message.data?.authMethod}
+                                        <Badge variant="outline">{message.data.authMethod}</Badge>
+                                    {/if}
+                                </div>
+                                {#if message.type === 'echo'}
+                                    <div class="text-sm font-medium">{message.data?.content || 'No content'}</div>
+                                {:else if message.content}
+                                    <div class="text-sm font-medium">{message.content}</div>
                                 {/if}
-                                {#if message.data?.socketId}
-                                    <span class="text-xs font-mono text-muted-foreground">ID: {message.data.socketId}</span>
+                                {#if message.data?.message}
+                                    <div class="text-sm">
+                                        <Collapsible.Root class="w-full space-y-2">
+                                            <div class="flex items-center justify-between px-2">
+                                                <div class="flex items-center gap-2">
+                                                    <h4 class="text-sm font-medium">Message data</h4>
+                                                    {#if message.data?.message?.action}
+                                                        <span class="text-xs text-muted-foreground">({message.data.message.action})</span>
+                                                    {/if}
+                                                </div>
+                                                <Collapsible.Trigger asChild let:builder>
+                                                    <Button builders={[builder]} variant="ghost" size="sm" class="w-9 p-0">
+                                                        <ChevronsUpDown class="h-4 w-4" />
+                                                        <span class="sr-only">Toggle message data</span>
+                                                    </Button>
+                                                </Collapsible.Trigger>
+                                            </div>
+                                            <Collapsible.Content class="space-y-2">
+                                                <Card class="mt-2">
+                                                    <CardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
+                                                        <CardTitle class="text-sm font-medium">JSON Data</CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent class="p-0">
+                                                        <div class="bg-muted rounded-md p-3">
+                                                            <CodeBlock 
+                                                                code={JSON.stringify(message.data.message, null, 2).trim()}
+                                                                language="json"
+                                                                className="text-sm"
+                                                                wrapWords={true}
+                                                                showLineNumbers={true}
+                                                            />
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            </Collapsible.Content>
+                                        </Collapsible.Root>
+                                    </div>
                                 {/if}
-                                {#if message.data?.authMethod}
-                                    <Badge variant="outline">{message.data.authMethod}</Badge>
+                                {#if message.data?.originalMessage}
+                                    <div class="text-sm font-mono text-muted-foreground mt-1">
+                                        {message.data.originalMessage}
+                                    </div>
                                 {/if}
                             </div>
-                            {#if message.type === 'echo'}
-                                <div class="text-sm font-medium">{message.data?.content || 'No content'}</div>
-                            {:else if message.content}
-                                <div class="text-sm font-medium">{message.content}</div>
-                            {/if}
-                            {#if message.data?.message}
-                                <div class="text-sm">{message.data.message}</div>
-                            {/if}
-                            {#if message.data?.originalMessage}
-                                <div class="text-sm font-mono text-muted-foreground mt-1">
-                                    {message.data.originalMessage}
-                                </div>
-                            {/if}
-                        </div>
+                        {/if}
                     {/each}
                 {/if}
             </div>
@@ -208,5 +252,5 @@
                 <span class="text-destructive ml-2">Error: {error.message}</span>
             {/if}
         </p>
-    </CardFooter>
+    </CardFooter> 
 </Card>

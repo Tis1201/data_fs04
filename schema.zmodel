@@ -33,6 +33,7 @@ model User {
   whatsappAccounts WhatsAppAccount[]
   listeners     ListenerEndpoint[]
   
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   @@allow('read', auth() != null)  // Authenticated users can read
@@ -90,22 +91,7 @@ model ApiKey {
   @@index([key])
 }
 
-model WhatsAppAccount {
-  id            String   @id @default(cuid())
-  client_id     String @unique
-  client_status String @default("disconnected")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  phoneNumber   String
-  name          String?
-  description   String
-  createdBy     String
-  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  listeners     ListenerWhatsAppAccount[]
 
-  @@allow('all', auth().systemRole == 'ADMIN') 
-  @@index([createdBy])
-}
 
 model WebhookEndPoint{
   id String @id @default(cuid())
@@ -191,6 +177,8 @@ model ListenerWebhookEndpoint {
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
 }
 
+
+
 // Junction table for ListenerEndpoint to WhatsAppAccount many-to-many relationship
 model ListenerWhatsAppAccount {
   id String @id @default(cuid())
@@ -205,4 +193,38 @@ model ListenerWhatsAppAccount {
   
   @@unique([listenerId, whatsappAccountId])
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+}
+
+model WhatsAppAccount {
+  id            String   @id @default(cuid())
+  client_id     String @unique
+  client_status String @default("disconnected")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  phoneNumber   String
+  name          String?
+  description   String
+  createdBy     String
+  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  listeners     ListenerWhatsAppAccount[]
+  
+  @@allow('all', auth().systemRole == 'ADMIN') 
+  @@index([createdBy])
+}
+
+model WhatsAppAuthData {
+  id        String   @id @default(cuid())
+  clientId  String               // Same as WhatsAppAccount.client_id
+  keyId     String               // e.g. "creds.json", "pre-key-123.json"
+  type      String               // Optional: e.g. "creds", "session", "pre-key"
+  data      String               // Actual key/credential content
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@unique([clientId, keyId])    // Ensure uniqueness per WhatsApp client
+  @@index([type])
+  @@index([clientId])
+
+  @@allow('all', auth().systemRole == 'ADMIN')
 }

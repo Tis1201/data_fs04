@@ -3,7 +3,6 @@
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
-    import { PasswordInput } from "$lib/components/ui/password-input";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
@@ -15,37 +14,31 @@
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import type { PageData } from "./$types";
+    import ReadOnlyField from "$lib/components/ui_components_sveltekit/form/ReadOnlyField.svelte";
     
     export let data: PageData;
-    const title = "Create User";
+    const title = "Create API Key";
 
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
         "Settings",
-        ["Users", "/admin/users"],
-        "New User",
+        ["API Keys", "/admin/settings/api_keys"],
+        "New API Key",
     ];
 
-    
     // Import the reusable form handler
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     
     // Create a form handler with standardized error handling
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-        successRedirect: '/admin/users',
+        successRedirect: '/admin/settings/api_keys',
         validateOnInput: true,
         debugMode: true,
         onSuccess: (result) => {
-            toast.success("User created successfully");
+            toast.success("API key created successfully");
         }
     });
-
-    // Role options for the select dropdown
-    const roleOptions = [
-        { value: "USER", label: "User" },
-        { value: "ADMIN", label: "Admin" },
-    ];
 
     // Status options for the select dropdown
     const statusOptions = [
@@ -66,75 +59,63 @@
             errorMessage={$errorMessage}
         >
             
-            <FormCard title="User Information">
-                <FormRow columns={2}>
-                        <FormField id="email" label="Email" error={$errors.email}>
-                            <Input
-                                id="email"
-                                name="email"
-                                type="email"
-                                bind:value={$form.email}
-                                placeholder="user@example.com"
-                                aria-invalid={$errors.email ? 'true' : undefined}
-                                {...$constraints.email}
-                            />
-                        </FormField>
-
-                        <FormField id="name" label="Name" error={$errors.name}>
-                            <Input
-                                id="name"
-                                name="name"
-                                type="text"
-                                bind:value={$form.name}
-                                placeholder="John Doe"
-                                aria-invalid={$errors.name ? 'true' : undefined}
-                                {...$constraints.name}
-                            />
-                        </FormField>
-                    </FormRow>
-
-                <FormRow columns={2}>
-                    <FormField
-                        id="password"
-                        label="Password"
-                        error={$errors.password}
-                    >
-                        <PasswordInput
-                            id="password"
-                            name="password"
-                            bind:value={$form.password}
-                            placeholder="Enter password"
-                            aria-invalid={$errors.password ? 'true' : undefined}
-                            {...$constraints.password}
-                        />
-                        <p class="text-xs text-muted-foreground mt-1">
-                            Leave empty to use default temporary password
-                        </p>
-                    </FormField>
-
-                    <FormField id="role" label="Role" error={$errors.role}>
-                        <EnhancedSelect
-                            name="role"
-                            options={roleOptions}
-                            bind:value={$form.role}
-                            aria-invalid={$errors.role ? 'true' : undefined}
-                            {...$constraints.role}
+            <FormCard title="API Key Information">
+                <FormRow>
+                    <FormField id="apiKey" label="API Key" error={$errors.apiKey}>
+                        <ReadOnlyField
+                            id="apiKey"
+                            name="apiKey"
+                            value={$form.apiKey}
+                            placeholder="API key will be generated automatically"
                         />
                     </FormField>
                 </FormRow>
 
                 <FormRow columns={2}>
-                    <FormField
-                        id="status"
-                        label="Status"
-                        error={$errors.status}
-                    >
+                    <FormField id="name" label="Name" error={$errors.name}>
+                        <Input
+                            id="name"
+                            name="name"
+                            type="text"
+                            bind:value={$form.name}
+                            placeholder="API Key Name"
+                            aria-invalid={$errors.name ? 'true' : undefined}
+                            {...$constraints.name}
+                        />
+                    </FormField>
+
+                    <FormField id="description" label="Description" error={$errors.description}>
+                        <Input
+                            id="description"
+                            name="description"
+                            type="text"
+                            bind:value={$form.description}
+                            placeholder="Optional description"
+                            aria-invalid={$errors.description ? 'true' : undefined}
+                            {...$constraints.description}
+                        />
+                    </FormField>
+                </FormRow>
+
+                <FormRow columns={2}>
+                    <FormField id="active" label="Active" error={$errors.active}>
                         <EnhancedSelect
-                            name="status"
+                            name="active"
                             options={statusOptions}
-                            bind:value={$form.status}
-                            aria-invalid={$errors.status ? 'true' : undefined}
-                            {...$constraints.status}
+                            bind:value={$form.active}
+                            aria-invalid={$errors.active ? 'true' : undefined}
+                            {...$constraints.active}
+                        />
+                    </FormField>
+
+                    <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt}>
+                        <Input
+                            id="expiresAt"
+                            name="expiresAt"
+                            type="datetime-local"
+                            bind:value={$form.expiresAt}
+                            aria-invalid={$errors.expiresAt ? 'true' : undefined}
+                            {...$constraints.expiresAt}
                         />
                     </FormField>
                 </FormRow>
@@ -143,7 +124,7 @@
                     <Button
                         type="button"
                         variant="outline"
-                        on:click={() => goto("/admin/users")}
+                        on:click={() => goto("/admin/settings/api_keys")}
                         disabled={$submitting}
                     >
                         Cancel
@@ -153,9 +134,9 @@
                             <span class="absolute inset-0 flex items-center justify-center">
                                 <Skeleton class="h-4 w-20" />
                             </span>
-                            <span class="opacity-0">Create User</span>
+                            <span class="opacity-0">Create API Key</span>
                         {:else}
-                            Create User
+                            Create API Key
                         {/if}
                     </Button>
                 </FormActions>

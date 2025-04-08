@@ -8,6 +8,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../../users/schema';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
+import { logger } from '$lib/server/logger';
+import { validateAndGetUserId } from '$lib/server/security/auth-utils';
 
 export const load = restrict(
     async ({ locals }) => {
@@ -22,10 +24,17 @@ export const load = restrict(
             // Create a new WhatsApp client directly in the load function
             // This will trigger QR code generation which will be sent via WebSocket
             // Let Baileys generate the client ID
-            const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient();
+            const user_id = await validateAndGetUserId(locals);
+
+            // Pass the user ID to createClient so it knows who created this client
+            // Add a small delay to ensure the page and WebSocket connection are ready
+            // await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+            const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(user_id);
+
+            logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
             
             console.log(`Created WhatsApp client with ID ${clientId} during page load`);
-            
+                  
             return { 
                 form,
                 clientId

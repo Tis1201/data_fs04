@@ -16,7 +16,7 @@ if (!building) {
     (async () => {
         try {
             // Delay initialization without blocking
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // await new Promise(resolve => setTimeout(resolve, 1000));
             
             logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
             

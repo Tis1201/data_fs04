@@ -9,6 +9,8 @@ pnpm-lock.yaml
 
 workings/
 
+whatsapp-media
+
 docker/prisma
 
 # SvelteKit
