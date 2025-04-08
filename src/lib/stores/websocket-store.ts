@@ -19,9 +19,8 @@ interface WebSocketMessage {
 interface WebSocketState {
   status: WebSocketStatus;
   error: Error | null;
-  socket: { id?: string; readyState?: number; url?: string; socketId?: string } | null;
+  socket: { id?: string; readyState?: number; url?: string } | null;
   messages: WebSocketMessage[];
-  socketId: string;
 }
 
 const createSocketStore = () => {
@@ -31,8 +30,7 @@ const createSocketStore = () => {
       status: 'CLOSED',
       error: null,
       socket: null,
-      messages: [],
-      socketId: ''
+      messages: []
     });
     return {
       subscribe,
@@ -49,8 +47,7 @@ const createSocketStore = () => {
     status: 'CONNECTING',
     error: null,
     socket: null,
-    messages: [],
-    socketId: ''
+    messages: []
   });
 
   let socket: WebSocket | null = null;
@@ -92,13 +89,7 @@ const createSocketStore = () => {
       socket.onopen = () => {
         reconnectAttempts = 0;
         const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
-        set({ 
-          status: 'OPEN', 
-          error: null, 
-          socket: { id: socketId, readyState: socket!.readyState, url, socketId }, 
-          messages: [], 
-          socketId 
-        });
+        set({ status: 'OPEN', error: null, socket: { id: socketId, readyState: socket!.readyState, url }, messages: [] });
         addMessage({ type: 'system', content: 'Connected to WebSocket server', data: { timestamp: new Date().toISOString(), socketId } });
         socket!.send(JSON.stringify({ type: 'register', data: { clientType: 'web' } }));
         if (pingInterval) clearInterval(pingInterval);
@@ -133,7 +124,7 @@ const createSocketStore = () => {
 
       socket.onclose = (event) => {
         addMessage({ type: 'system', content: 'Disconnected from WebSocket server', data: { timestamp: new Date().toISOString(), reason: event.reason || 'Connection closed', code: event.code } });
-        update(state => ({ ...state, status: 'CLOSED', socket: null, socketId: '' }));
+        update(state => ({ ...state, status: 'CLOSED', socket: null }));
         if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
         // Exponential backoff reconnection.
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -161,8 +152,7 @@ const createSocketStore = () => {
           type: 'error',
           content: 'Failed to connect to WebSocket server',
           data: { timestamp: new Date().toISOString(), message: error?.message || 'Connection failed' }
-        }],
-        socketId: ''
+        }]
       });
     }
   };
@@ -173,7 +163,7 @@ const createSocketStore = () => {
     if (pingInterval) { clearInterval(pingInterval); pingInterval = null; }
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     reconnectAttempts = 0;
-    set({ status: 'CLOSED', error: null, socket: null, messages: [], socketId: '' });
+    set({ status: 'CLOSED', error: null, socket: null, messages: [] });
   };
 
   // Send a message; if not connected, attempt reconnect and resend.
