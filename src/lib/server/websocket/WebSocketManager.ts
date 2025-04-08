@@ -164,7 +164,7 @@ export class WebSocketManager {
     handleMessage(message: string, ws: ExtendedWebSocket): void {
         try {
             const data = JSON.parse(message);
-            logger.debug(`[wss:manager] received message from ${ws.socketId}:`, data);
+            logger.debug(`[wss:manager] received message from ${ws.socketId}:${data.type}:`, data);
 
             switch (data.type) {
                 case 'ping':

@@ -14,7 +14,7 @@ const handler = restrict(async ({ request, locals }) => {
     let type: string;
     let userId: string;
     
-    try {
+    // try {
         const body = await request.json();
         ({ message, type = 'broadcast' } = body);
 
@@ -63,37 +63,37 @@ const handler = restrict(async ({ request, locals }) => {
             message: 'Message broadcasted successfully',
             clientCount: WebSocketManager.getInstance().getClientCount()
         });
-    } catch (error) {
-        logger.error('Error broadcasting message', { 
-            error: {
-                message: error.message,
-                stack: error.stack,
-                name: error.name,
-                type: error.constructor.name
-            },
-            timestamp: new Date().toISOString(),
-            metadata: {
-                message: message,
-                userId: userId,
-                type: type
-            }
-        });
+    // } catch (error) {
+    //     logger.error('Error broadcasting message', { 
+    //         error: {
+    //             message: error.message,
+    //             stack: error.stack,
+    //             name: error.name,
+    //             type: error.constructor.name
+    //         },
+    //         timestamp: new Date().toISOString(),
+    //         metadata: {
+    //             message: message,
+    //             userId: userId,
+    //             type: type
+    //         }
+    //     });
 
-        // Return detailed error information in development
-        const errorResponse = {
-            error: error.message,
-            details: process.env.NODE_ENV === 'development' ? {
-                stack: error.stack,
-                name: error.name,
-                type: error.constructor.name
-            } : null
-        };
+    //     // Return detailed error information in development
+    //     const errorResponse = {
+    //         error: error.message,
+    //         details: process.env.NODE_ENV === 'development' ? {
+    //             stack: error.stack,
+    //             name: error.name,
+    //             type: error.constructor.name
+    //         } : null
+    //     };
 
-        return json({ 
-            success: false, 
-            ...errorResponse 
-        }, { status: error instanceof Error ? error.status : 500 });
-    }
+    //     return json({ 
+    //         success: false, 
+    //         ...errorResponse 
+    //     }, { status: error instanceof Error ? error.status : 500 });
+    // }
 }, ['ADMIN']);
 
 export const POST = handler satisfies RequestHandler;
