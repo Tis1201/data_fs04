@@ -2,18 +2,19 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-import {
+import pkg from '@whiskeysockets/baileys';
+const { 
     makeWASocket,
     fetchLatestBaileysVersion,
-    useMultiFileAuthState,
     DisconnectReason,
     downloadMediaMessage
-} from '@whiskeysockets/baileys';
+} = pkg;
 
+import types from '@whiskeysockets/baileys/lib/Types';
 import { logger } from '$lib/server/logger';
 import EventEmitter from 'events';
 import stringify from 'json-stringify-safe';
-
+import { useZenstackAuthState } from './useZenstackAuthState';
 
 export const DEFAULT_AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
 export const DEFAULT_MEDIA_DIR = path.join(process.cwd(), 'whatsapp-media');
@@ -261,13 +262,23 @@ export class WhatsAppAccountClient extends EventEmitter {
 
             updateState(this, WhatsAppClientState.Waiting, logger);
 
-            const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
+            const { state, saveCreds } = await useZenstackAuthState(this.id);
             const { version } = await fetchLatestBaileysVersion();
+
+            // Ensure we have valid auth state
+            if (!state || !state.creds) {
+                logger.warn(`No valid auth state found for client ${this.id}, initializing new state`);
+                state.creds = initAuthCreds();
+                await saveCreds();
+            }
 
             // Initialize the WhatsApp socket with our logger
             this.socket = makeWASocket({
                 version,
-                auth: state,
+                auth: {
+                    creds: state.creds,
+                    keys: state.keys
+                },
                 logger: this.logger_x,
                 printQRInTerminal: false,
                 browser: ['FS04 WhatsApp', 'Chrome', '1.0.0'],
@@ -623,3 +634,8 @@ export class WhatsAppAccountClient extends EventEmitter {
    
 }
 
+function initAuthCreds(): any {
+    return {
+        // Initialize auth credentials here
+    };
+}

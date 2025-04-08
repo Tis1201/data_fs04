@@ -30,7 +30,7 @@ const handler = restrict(async ({ request, locals }) => {
             messageType: type,
             messageLength: message.length,
             timestamp: new Date().toISOString()
-        });
+        });      
                       
         // Send the message to the user
         try {

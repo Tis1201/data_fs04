@@ -207,8 +207,7 @@ model WhatsAppAccount {
   createdBy     String
   user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   listeners     ListenerWhatsAppAccount[]
-  authDatas     WhatsAppAuthData[]
-
+  
   @@allow('all', auth().systemRole == 'ADMIN') 
   @@index([createdBy])
 }
@@ -220,12 +219,8 @@ model WhatsAppAuthData {
   type      String               // Optional: e.g. "creds", "session", "pre-key"
   data      String               // Actual key/credential content
   createdAt DateTime @default(now())
-  
   updatedAt DateTime @updatedAt
 
-  whatsappAccountId String
-  whatsappAccount WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
-  
 
   @@unique([clientId, keyId])    // Ensure uniqueness per WhatsApp client
   @@index([type])

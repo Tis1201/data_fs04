@@ -504,7 +504,7 @@ export class WhatsAppAccountManager extends EventEmitter {
             const accounts = await this.prisma.whatsAppAccount.findMany();
             
             logger.info(`Found ${accounts.length} WhatsApp accounts to initialize`);
-
+ 
             for (const account of accounts) {
                 try {
                     const client = new WhatsAppAccountClient(account.client_id);
@@ -512,7 +512,7 @@ export class WhatsAppAccountManager extends EventEmitter {
                     client.setCreatedBy(account.createdBy);
                     this.clients.set(account.client_id, client);
                     this.setupClientEventListeners(client, account.client_id, account.id);
-                    // await client.connect();
+                    await client.connect();
                     logger.info(`Initialized WhatsApp client for account ${account.id} (${account.description})`);
                 } catch (clientError) {
                     logger.error(`Failed to initialize WhatsApp client for account ${account.id}: ${clientError}`);

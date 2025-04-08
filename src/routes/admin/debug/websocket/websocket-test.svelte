@@ -103,8 +103,8 @@
                     <div class={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"} animate-pulse`}></div>
                     <span class="text-sm font-medium">{connected ? "Connected" : "Disconnected"}</span>
                 </div>
-                {#if messages && messages.length > 0 && messages[0].data?.socketId}
-                    <span class="text-sm text-muted-foreground">Socket ID: {messages[0].data.socketId}</span>
+                {#if socketId}
+                    <span class="text-sm text-muted-foreground">Socket ID: {socketId}</span>
                 {/if}
                 <!-- <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
                     <RefreshCw class="h-4 w-4 mr-2" />
@@ -183,8 +183,8 @@
                                     {#if message.data?.timestamp}
                                         <span class="text-xs text-muted-foreground">{new Date(message.data.timestamp).toLocaleTimeString()}</span>
                                     {/if}
-                                    {#if message.data?.socketId}
-                                        <span class="text-xs font-mono text-muted-foreground">ID: {message.data.socketId}</span>
+                                    {#if socketId}
+                                        <span class="text-xs font-mono text-muted-foreground">ID: {socketId}</span>
                                     {/if}
                                     {#if message.data?.authMethod}
                                         <Badge variant="outline">{message.data.authMethod}</Badge>

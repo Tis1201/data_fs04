@@ -150,21 +150,18 @@ model WhatsAppAccount {
   createdBy     String
   user          User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   listeners     ListenerWhatsAppAccount[]
-  authDatas     WhatsAppAuthData[]
 
   @@index([createdBy])
 }
 
 model WhatsAppAuthData {
-  id                String          @id() @default(cuid())
-  clientId          String
-  keyId             String
-  type              String
-  data              String
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt()
-  whatsappAccountId String
-  whatsappAccount   WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  id        String   @id() @default(cuid())
+  clientId  String
+  keyId     String
+  type      String
+  data      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt()
 
   @@unique([clientId, keyId])
   @@index([type])

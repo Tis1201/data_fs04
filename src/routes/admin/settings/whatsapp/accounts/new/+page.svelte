@@ -78,15 +78,42 @@
   
     // For easier reference in reactive blocks and template
     $: $formState;
-  
+    
+    // Track previous state to detect actual changes
+    let previousState = {
+      connectionStatus: null,
+      clientId: null,
+      qrCode: null,
+      currentStep: null
+    };
+
     // Debug log for changes (remove or gate in production)
-    $: console.log("Form WhatsApp state changed:", {
-      connectionStatus: $formState.connectionStatus,
-      clientId: $formState.clientId,
-      qrCode: $formState.qrCode ? "present" : "null",
-      currentStep
-    });
-  
+    $: {
+      // Only log if this is not the first render and state has actually changed
+      const currentState = {
+        connectionStatus: $formState.connectionStatus,
+        clientId: $formState.clientId,
+        qrCode: $formState.qrCode,
+        currentStep
+      };
+
+      const hasChanged = Object.entries(currentState).some(([key, value]) => {
+        return value !== previousState[key];
+      });
+
+      if (previousState.connectionStatus !== null && hasChanged) {
+        console.log(`WhatsApp form state change:`, {
+          ...currentState,
+          qrCode: currentState.qrCode ? "present" : "null",
+          timestamp: new Date().toISOString(),
+          componentId: `whatsapp-form-${Math.random().toString(36).substring(2, 8)}`
+        });
+      }
+
+      // Update previous state
+      previousState = currentState;
+    }
+    
     // Watch connection status and, if connected/authenticated and on step 1, auto-advance after a delay.
     $: if (
       currentStep === 1 &&

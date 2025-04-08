@@ -22,7 +22,7 @@ if (!building) {
             
             // Initialize WhatsApp clients from database
             logger.info('Loading WhatsApp clients from database...');
-            // await whatsAppAccountManager.initializeClientsFromDatabase();
+            await whatsAppAccountManager.initializeClientsFromDatabase();
             
             logger.info('WhatsAppAccountManager is ready');
         } catch (error) {
