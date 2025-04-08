@@ -34,7 +34,7 @@ export const load = restrict(
             logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
             
             console.log(`Created WhatsApp client with ID ${clientId} during page load`);
-            
+                  
             return { 
                 form,
                 clientId

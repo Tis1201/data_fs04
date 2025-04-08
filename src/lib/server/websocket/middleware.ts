@@ -22,6 +22,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                 try {
                     // Assign socket ID first
                     ws.socketId = nanoid();
+                    ws.isAlive = true;
                     logger.debug(`[wss:kit] assigned socket ID: ${ws.socketId}`);
 
                     // Get API key from query parameters (for non-session auth)
@@ -67,6 +68,21 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                         logger.info(`[wss:kit] client connected via session (${ws.socketId}) - User: ${ws.userId}, Role: ${ws.userRole}`);
                     }      
                            
+                    // Set up message handling after authentication
+                    ws.isAlive = true;
+                    ws.on('message', (message: string) => {
+                        manager.handleMessage(message.toString(), ws);
+                    });
+
+                    ws.on('error', (error) => {
+                        manager.handleClientError(ws, error);
+                    });
+                    
+                    ws.on('close', () => {
+                        manager.handleClientDisconnect(ws);
+                    });
+
+                    // Send welcome message
                     ws.send(JSON.stringify({
                         type: 'welcome',
                         data: {
@@ -84,19 +100,6 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                     
                     // Log the client count after adding
                     logger.info(`[wss:kit] client added to manager, total clients: ${manager.getClientCount()}`);
-
-                    // Set up message handling after authentication
-                    ws.on('message', (message: string) => {
-                        manager.handleMessage(message.toString(), ws);
-                    });
-
-                    ws.on('error', (error) => {
-                        manager.handleClientError(ws, error);
-                    });
-                    
-                    ws.on('close', () => {
-                        manager.handleClientDisconnect(ws);
-                    });
 
                 } catch (error) {
                     console.log("--------------------------------------------");

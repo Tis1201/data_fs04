@@ -76,8 +76,8 @@ export class WhatsAppAccountManager extends EventEmitter {
                     client.once('connected', () => resolve(''));
                 }
             }
-        });
-    }
+        });   
+    } 
 
     /****************************************************************************************************
     * 

@@ -16,12 +16,14 @@
     let connected = false;
     let error: Error | null = null;
     let loading = false;
+    let socketId = '';
 
     // Subscribe to socket store
     $: if ($socketStore) {
         messages = $socketStore.messages;
         connected = $socketStore.status === 'OPEN';
         error = $socketStore.error;
+        socketId = $socketStore.socketId;
     }
 
     function sendMessage() {
@@ -99,11 +101,12 @@
                     <div class={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"} animate-pulse`}></div>
                     <span class="text-sm font-medium">{connected ? "Connected" : "Disconnected"}</span>
                 </div>
-                <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
+                <span class="text-sm text-muted-foreground">Socket ID: {socketId}</span>
+                <!-- <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
                     <RefreshCw class="h-4 w-4 mr-2" />
                     Reconnect
-                </Button>
-            </div>
+                </Button> -->
+            </div> 
         </div>
     </CardHeader>
     <CardContent class="space-y-4">

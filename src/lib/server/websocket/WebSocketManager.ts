@@ -170,6 +170,9 @@ export class WebSocketManager {
                 case 'ping':
                     ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
                     break;
+                case 'register':
+                    logger.info(`[wss:manager] client registered: ${ws.socketId} for user ${ws.userId}`)
+                    break;
                 case 'subscribe':
                     break;
                 case 'whatsapp':
@@ -232,18 +235,18 @@ export class WebSocketManager {
 
     handleClientDisconnect(ws: ExtendedWebSocket): void {
         logger.info(`[wss:manager] client disconnected: ${ws.socketId} for user ${ws.userId}`);
-        
+        this.removeClient(ws);
         // Add a longer delay before removing to prevent race conditions
         // This gives time for reconnection attempts to complete
-        setTimeout(() => {
-            // Check if the client is still in the set before removing
-            if (this.clients.has(ws)) {
-                logger.debug(`[wss:manager] removing disconnected client ${ws.socketId} after delay`);
-                this.removeClient(ws);
-            } else {
-                logger.debug(`[wss:manager] client ${ws.socketId} already removed, skipping`);
-            }
-        }, 1000); // Increased from 100ms to 1000ms
+        // setTimeout(() => {
+        //     // Check if the client is still in the set before removing
+        //     if (this.clients.has(ws)) {
+        //         logger.debug(`[wss:manager] removing disconnected client ${ws.socketId} after delay`);
+        //         this.removeClient(ws);
+        //     } else {
+        //         logger.debug(`[wss:manager] client ${ws.socketId} already removed, skipping`);
+        //     }
+        // }, 1000); // Increased from 100ms to 1000ms
     } 
 }
 

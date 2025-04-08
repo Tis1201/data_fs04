@@ -106,7 +106,7 @@ function handleConnectionSuccess(client: any, logger: any): void {
                 client.phoneNumber = match[0].replace(/:/g, '');
                 logger.info(`Extracted phone number: ${client.phoneNumber}`);
             }
-        }
+        } 
 
         logger.info(`Connected as ${client.pushName} (${client.socket.user.id})`);
 
