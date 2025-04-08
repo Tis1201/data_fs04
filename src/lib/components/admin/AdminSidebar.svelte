@@ -118,7 +118,7 @@
                 { href: "/admin/debug/sse", label: "SSE", icon: BellDot },
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap },
                 { href: "/admin/debug/stream", label: "WebRTC", icon: Network },
-                { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
+                // { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
             ],
         },
         
