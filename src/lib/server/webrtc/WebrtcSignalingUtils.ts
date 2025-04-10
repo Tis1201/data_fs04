@@ -1,4 +1,6 @@
-import type { ExtendedWebSocket, ExtendedWebSocketServer } from '../websocket/WebSocketUtils';
+import type { ExtendedWebSocket } from '../websocket/WebSocketUtils';
+import { WebSocketManager } from '../websocket/WebSocketManager';
+import { WebSocket } from 'ws';
 
 // Message types
 export type WebRTCMessageType =
@@ -36,25 +38,38 @@ export interface WebRTCMessage {
 export function handleWebRTCMessage(
   message: any,
   sender: ExtendedWebSocket,
-  wss: ExtendedWebSocketServer
+  wsManager: WebSocketManager
 ): void {
   const senderId = sender.socketId;
-  if (!message || !message.type || !WEBRTC_MESSAGE_TYPES.includes(message.type)) {
+  // Handle nested message structure
+  const msg = message.type === 'webrtc' ? message.data : message;
+  
+  if (!msg || !msg.type || !WEBRTC_MESSAGE_TYPES.includes(msg.type)) {
     console.warn(`[WebRTC] Invalid message type from ${senderId}:`, message);
     return;
   }
-  if (!message.timestamp) {
-    message.timestamp = new Date().toISOString();
+  
+  if (!msg.timestamp) {
+    msg.timestamp = new Date().toISOString();
   }
-  if (SIGNALING_MESSAGE_TYPES.includes(message.type)) {
-    console.log(`[WebRTC:Signaling] ${message.type} from ${senderId}`);
-    if (message.type === 'offer') {
-      console.log(`[WebRTC:Offer] SDP includes data channel: ${message.sdp?.includes('webrtc-datachannel') ? 'Yes' : 'No'}`);
+  
+  // Log the message type
+  console.log(`[WebRTC] Received ${msg.type} from ${senderId}`);
+  
+  // Additional logging based on message type
+  if (msg.type === 'offer') {
+    console.log(`[WebRTC:Offer] Received offer from ${senderId}`);
+    if (msg.sdp) {
+      console.log(`[WebRTC:Offer] SDP length: ${msg.sdp.length} chars`);
     }
-  } else {
-    console.log(`[WebRTC:DataChannel] ${message.type} from ${senderId}`, message.label ? `channel: ${message.label}` : '');
+  } else if (msg.type === 'answer') {
+    console.log(`[WebRTC:Answer] Received answer from ${senderId}`);
+  } else if (msg.type === 'ice-candidate' || msg.type === 'candidate') {
+    console.log(`[WebRTC:ICE] Received candidate from ${senderId}`);
   }
-  broadcastMessage(message, wss);
+
+  // Forward the message to all other clients except the sender
+  broadcastMessage(msg, wsManager, sender);
 }
 
 /** Log a client leaving a room. */
@@ -62,19 +77,28 @@ export function leaveRoom(socketId: string): void {
   console.log(`[WebRTC] Client ${socketId} left all rooms`);
 }
 
-/** Broadcast a message to all connected clients. */
-function broadcastMessage(message: any, wss: ExtendedWebSocketServer): void {
+/** Broadcast a message to all connected clients except the sender. */
+function broadcastMessage(message: any, wsManager: WebSocketManager, sender: ExtendedWebSocket): void {
   const outgoingMessage = {
     type: 'webrtc',
     data: message,
     timestamp: new Date().toISOString()
   };
-  const messageString = JSON.stringify(outgoingMessage);
-  const activeClients = Array.from(wss.clients).filter(client => client.readyState === 1);
-  activeClients.forEach(client => {
-    const clientId = (client as ExtendedWebSocket).socketId;
-    console.log(`[WebRTC] Broadcasting ${message.type} to client ${clientId}`);
-    client.send(messageString);
+  console.log(`[WebRTC] Broadcasting message from ${sender.socketId}:`, outgoingMessage);
+  
+  // Broadcast to everyone except the sender
+  const jsonMessage = JSON.stringify(outgoingMessage);
+  const clients = wsManager.getClients();
+  
+  clients.forEach((client) => {
+    // Skip the sender
+    if (client.socketId === sender.socketId) {
+      return;
+    }
+    
+    // Send to all other clients
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(jsonMessage);
+    }
   });
-  console.log(`[WebRTC] Broadcast complete: ${message.type} sent to ${activeClients.length} clients`);
 }
