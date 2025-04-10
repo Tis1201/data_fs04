@@ -17,6 +17,7 @@
     let messages = [];
     let videoElement: HTMLVideoElement;
     let isVideoLoading = true;
+    let isVideoPaused = true;
     let webrtcState;
     let unsubscribeRTC;
 
@@ -27,27 +28,66 @@
       { value: "error", label: "Error" }
     ];
 
+    // Track the current video stream ID to avoid redundant updates
+    let currentVideoStreamId = '';
+    let playAttemptInProgress = false;
+    let playAttemptTimeout: ReturnType<typeof setTimeout> | null = null;
+    
+    // Function to safely play the video with debouncing
+    function safePlayVideo() {
+      if (playAttemptInProgress || !videoElement) return;
+      
+      // Clear any pending timeout
+      if (playAttemptTimeout) {
+        clearTimeout(playAttemptTimeout);
+        playAttemptTimeout = null;
+      }
+      
+      // Set a small delay to debounce multiple play attempts
+      playAttemptTimeout = setTimeout(() => {
+        if (!videoElement) return;
+        
+        playAttemptInProgress = true;
+        console.log('[WebRTC] Attempting to play video...');
+        
+        const playPromise = videoElement.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              console.log('[WebRTC] Video playback started successfully');
+              isVideoLoading = false;
+              isVideoPaused = false;
+              playAttemptInProgress = false;
+            })
+            .catch(error => {
+              console.error('[WebRTC] Error playing video:', error);
+              playAttemptInProgress = false;
+              
+              // If autoplay was prevented, we can try again with user interaction
+              if (error.name === 'NotAllowedError') {
+                console.log('[WebRTC] Autoplay prevented, waiting for user interaction');
+              } else if (error.name === 'AbortError') {
+                console.log('[WebRTC] Play request was aborted, will retry in 1s');
+                // Try again after a short delay
+                setTimeout(safePlayVideo, 1000);
+              }
+            });
+        } else {
+          playAttemptInProgress = false;
+        }
+      }, 250); // 250ms debounce delay
+    }
+    
     // When a video stream is available, bind it to the video element.
-    $: if ($videoStream && videoElement) {
+    $: if ($videoStream && videoElement && (!currentVideoStreamId || currentVideoStreamId !== $videoStream.id)) {
       console.log('[WebRTC] Setting video stream to element:', $videoStream.id);
-      videoElement.srcObject = $videoStream;
+      currentVideoStreamId = $videoStream.id;
       
-      // Use a more reliable way to play the video
-      const playPromise = videoElement.play();
-      
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            console.log('[WebRTC] Video playback started successfully');
-            isVideoLoading = false;
-          })
-          .catch(error => {
-            console.error('[WebRTC] Error playing video:', error);
-            // If autoplay was prevented, we can try again with user interaction
-            if (error.name === 'NotAllowedError') {
-              console.log('[WebRTC] Autoplay prevented, waiting for user interaction');
-            }
-          });
+      // Only set srcObject if it's a different stream
+      if (videoElement.srcObject !== $videoStream) {
+        videoElement.srcObject = $videoStream;
+        // Attempt to play the video
+        safePlayVideo();
       }
     }
 
@@ -71,6 +111,33 @@
       }
     }
 
+    // Monitor video play/pause state
+    function updateVideoState() {
+      if (!videoElement) return;
+      
+      isVideoPaused = videoElement.paused;
+      
+      // Set up event listeners for play/pause state changes
+      if (!videoElement._hasPlayPauseListeners) {
+        videoElement._hasPlayPauseListeners = true;
+        
+        videoElement.addEventListener('play', () => {
+          console.log('[WebRTC] Video play event');
+          isVideoPaused = false;
+        });
+        
+        videoElement.addEventListener('pause', () => {
+          console.log('[WebRTC] Video pause event');
+          isVideoPaused = true;
+        });
+      }
+    }
+    
+    // Update video state whenever the video element or stream changes
+    $: if (videoElement) {
+      updateVideoState();
+    }
+    
     onMount(() => {
       console.log('[WebRTC] Initializing client');
       unsubscribe = initWebRTCClient();
@@ -145,7 +212,22 @@
             playsinline 
             muted 
             class="w-full h-full object-contain"
+            on:click={safePlayVideo}
           ></video>
+          
+          <!-- Play button overlay - only show when video is paused -->
+          {#if isVideoPaused}
+            <div 
+              class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 cursor-pointer" 
+              on:click={safePlayVideo}
+            >
+              <div class="rounded-full bg-white bg-opacity-80 p-3 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              </div>
+            </div>
+          {/if}
         {:else}
           <div class="absolute inset-0 flex items-center justify-center text-white">
             <p>Waiting for video stream...</p>
