@@ -22,6 +22,30 @@ export class WebRTCClient {
             }
             if (state.dataChannel) {
                 this.dataChannel = state.dataChannel;
+                
+                // Set up data channel event handlers if they're not already set
+                if (this.dataChannel && !this.dataChannel.onmessage) {
+                    this.dataChannel.onmessage = (event) => {
+                        console.log('[WebRTC] Data channel message received:', event.data);
+                        this.handleDataChannelMessage({ data: event.data });
+                    };
+                    
+                    this.dataChannel.onopen = () => {
+                        console.log('[WebRTC] Data channel opened');
+                        webRTCStore.update(state => ({
+                            ...state,
+                            dataChannelStatus: 'open'
+                        }));
+                    };
+                    
+                    this.dataChannel.onclose = () => {
+                        console.log('[WebRTC] Data channel closed');
+                        webRTCStore.update(state => ({
+                            ...state,
+                            dataChannelStatus: 'closed'
+                        }));
+                    };
+                }
             }
             
             // Process the latest message from the store if available
@@ -113,7 +137,31 @@ export class WebRTCClient {
                 };
 
                 this.peerConnection.ondatachannel = (event) => {
+                    console.log('[WebRTC] Data channel received:', event.channel.label);
                     this.dataChannel = event.channel;
+                    
+                    // Set up event handlers for the data channel
+                    this.dataChannel.onmessage = (msgEvent) => {
+                        console.log('[WebRTC] Data channel message received:', msgEvent.data);
+                        this.handleDataChannelMessage({ data: msgEvent.data });
+                    };
+                    
+                    this.dataChannel.onopen = () => {
+                        console.log('[WebRTC] Data channel opened');
+                        webRTCStore.update(state => ({
+                            ...state,
+                            dataChannelStatus: 'open'
+                        }));
+                    };
+                    
+                    this.dataChannel.onclose = () => {
+                        console.log('[WebRTC] Data channel closed');
+                        webRTCStore.update(state => ({
+                            ...state,
+                            dataChannelStatus: 'closed'
+                        }));
+                    };
+                    
                     webRTCStore.update(state => ({
                         ...state,
                         dataChannel: this.dataChannel
@@ -321,7 +369,35 @@ export class WebRTCClient {
     }
 
     private handleDataChannelMessage(message: any) {
-        // Handle data channel messages if needed
+        console.log('[WebRTC] Received data channel message:', message);
+        
+        // Extract the message content
+        let messageContent = '';
+        if (typeof message.data === 'string') {
+            messageContent = message.data;
+        } else if (message.message && typeof message.message === 'string') {
+            messageContent = message.message;
+        } else {
+            console.warn('[WebRTC] Data channel message has unknown format:', message);
+            return;
+        }
+        
+        // Update the store with the received message
+        webRTCStore.update(state => ({
+            ...state,
+            lastDataChannelMessage: messageContent,
+            dataChannelMessages: [...(state.dataChannelMessages || []), {
+                content: messageContent,
+                timestamp: new Date().toISOString(),
+                direction: 'received'
+            }]
+        }));
+        
+        // Emit an event for the message
+        const event = new CustomEvent('datachannel-message', {
+            detail: { message: messageContent }
+        });
+        window.dispatchEvent(event);
     }
 
     private handleVideoStream(message: any) {
@@ -392,6 +468,27 @@ export function sendDataChannelMessage(message: string) {
     const state = get(webRTCStore);
     if (state.dataChannel && state.dataChannel.readyState === 'open') {
         state.dataChannel.send(message);
+        
+        // Also update the store with the sent message
+        webRTCStore.update(state => ({
+            ...state,
+            dataChannelMessages: [...(state.dataChannelMessages || []), {
+                content: message,
+                timestamp: new Date().toISOString(),
+                direction: 'sent'
+            }]
+        }));
+        
+        return true;
+    } else {
+        // If the data channel isn't ready, try to send via signaling server
+        console.log('[WebRTC] Data channel not ready, sending via signaling');
+        socketStore.send('webrtc', {
+            type: 'data-channel-message',
+            data: message
+        });
+        
+        return false;
     }
 }
 

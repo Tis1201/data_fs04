@@ -63,9 +63,10 @@
     }
 
     function sendMessage() {
-      if (message.trim() && webrtcState.dataChannel) {
-        sendDataChannelMessage(message);
-        messages = [...messages, { text: message, sent: true, timestamp: new Date() }];
+      if (message.trim()) {
+        const success = sendDataChannelMessage(message);
+        // The message will be added to the store in the sendDataChannelMessage function
+        // We don't need to manually add it to the messages array anymore
         message = '';
       }
     }
@@ -86,16 +87,9 @@
       });
 
       const statusUnsubscribe = webrtcStatus.subscribe(status => {
-        if (status.dataChannel) {
-          status.dataChannel.onmessage = (event) => {
-            try {
-              const msgText = typeof event.data === 'string' ? event.data : '[Binary data]';
-              messages = [...messages, { text: msgText, sent: false, timestamp: new Date() }];
-            } catch (error) {
-              console.error('[WebRTC] Data channel message error:', error);
-            }
-          };
-        }
+        // We don't need to manually handle data channel messages anymore
+        // as they're now handled in the webrtc-client.ts and stored in the webRTCStore
+        console.log('[WebRTC] Status updated:', status);
       });
 
       const originalUnsubscribe = unsubscribe;
@@ -212,19 +206,19 @@
     <!-- Data Channel Chat -->
     <div class="md:col-span-2 bg-white p-4 rounded-md shadow">
       <h2 class="text-lg font-medium mb-4">Data Channel Chat</h2>
-      {#if !webrtcState?.dataChannel || webrtcState?.dataChannel.readyState !== 'open'}
+      {#if !webrtcState?.dataChannel || webrtcState?.dataChannelStatus !== 'open'}
         <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
           <p class="text-yellow-700">Data channel is not ready. Establish a WebRTC connection first.</p>
         </div>
       {:else}
         <div class="space-y-4">
           <div class="border border-gray-200 rounded-md p-2 h-64 overflow-y-auto">
-            {#if messages.length === 0}
+            {#if !webrtcState?.dataChannelMessages || webrtcState.dataChannelMessages.length === 0}
               <div class="text-gray-400 text-center p-4">No messages yet</div>
             {:else}
-              {#each messages as msg}
-                <div class="mb-2 p-2 rounded-md {msg.sent ? 'bg-blue-100 ml-auto max-w-[80%]' : 'bg-gray-100 mr-auto max-w-[80%]'}">
-                  <div class="break-words">{msg.text}</div>
+              {#each webrtcState.dataChannelMessages as msg}
+                <div class="mb-2 p-2 rounded-md {msg.direction === 'sent' ? 'bg-blue-100 ml-auto max-w-[80%]' : 'bg-gray-100 mr-auto max-w-[80%]'}">
+                  <div class="break-words">{msg.content}</div>
                   <div class="text-xs text-gray-500 mt-1">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</div>
                 </div>
               {/each}

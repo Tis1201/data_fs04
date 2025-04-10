@@ -12,10 +12,19 @@ export interface WebRTCMessage {
     timestamp?: string;
 }
 
+export interface DataChannelMessage {
+    content: string;
+    timestamp: string;
+    direction: 'sent' | 'received';
+}
+
 export interface WebRTCState {
     connectionStatus: 'disconnected' | 'connected' | 'error';
     peerConnection: RTCPeerConnection | null;
     dataChannel: RTCDataChannel | null;
+    dataChannelStatus?: 'open' | 'closed' | 'connecting';
+    dataChannelMessages?: DataChannelMessage[];
+    lastDataChannelMessage?: string;
     videoStream: MediaStream | null;
     latestMessage: WebRTCMessage | null;
     error: string | null;
@@ -25,6 +34,8 @@ const initialState: WebRTCState = {
     connectionStatus: 'disconnected',
     peerConnection: null,
     dataChannel: null,
+    dataChannelStatus: 'closed',
+    dataChannelMessages: [],
     videoStream: null,
     latestMessage: null,
     error: null
