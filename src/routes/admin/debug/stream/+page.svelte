@@ -7,7 +7,8 @@
     import { initWebRTCClient, webrtcEvents, webrtcStatus, clearEvents, sendWebRTCMessage, sendDataChannelMessage, videoStream } from '$lib/utils/webrtc/webrtc-client';
     import { socketStore } from '$lib/stores/websocket-store';
     import { get } from 'svelte/store';
-  
+    import { webRTCStore } from '$lib/stores/webrtc-store';
+
     let unsubscribe;
     let events = [];
     let filteredEvents = [];
@@ -16,63 +17,148 @@
     let messages = [];
     let videoElement: HTMLVideoElement;
     let isVideoLoading = true;
-  
+    let isVideoPaused = true;
+    let webrtcState;
+    let unsubscribeRTC;
+
     const eventTypeOptions = [
       { value: "offer", label: "Offer" },
       { value: "answer", label: "Answer" },
       { value: "ice-candidate", label: "ICE Candidate" },
       { value: "error", label: "Error" }
     ];
-  
-    // When a video stream is available, bind it to the video element.
-    $: if ($videoStream && videoElement) {
-      videoElement.srcObject = $videoStream;
-      videoElement.play();
-      isVideoLoading = false;
+
+    // Track the current video stream ID to avoid redundant updates
+    let currentVideoStreamId = '';
+    let playAttemptInProgress = false;
+    let playAttemptTimeout: ReturnType<typeof setTimeout> | null = null;
+    
+    // Function to safely play the video with debouncing
+    function safePlayVideo() {
+      if (playAttemptInProgress || !videoElement) return;
+      
+      // Clear any pending timeout
+      if (playAttemptTimeout) {
+        clearTimeout(playAttemptTimeout);
+        playAttemptTimeout = null;
+      }
+      
+      // Set a small delay to debounce multiple play attempts
+      playAttemptTimeout = setTimeout(() => {
+        if (!videoElement) return;
+        
+        playAttemptInProgress = true;
+        console.log('[WebRTC] Attempting to play video...');
+        
+        const playPromise = videoElement.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              console.log('[WebRTC] Video playback started successfully');
+              isVideoLoading = false;
+              isVideoPaused = false;
+              playAttemptInProgress = false;
+            })
+            .catch(error => {
+              console.error('[WebRTC] Error playing video:', error);
+              playAttemptInProgress = false;
+              
+              // If autoplay was prevented, we can try again with user interaction
+              if (error.name === 'NotAllowedError') {
+                console.log('[WebRTC] Autoplay prevented, waiting for user interaction');
+              } else if (error.name === 'AbortError') {
+                console.log('[WebRTC] Play request was aborted, will retry in 1s');
+                // Try again after a short delay
+                setTimeout(safePlayVideo, 1000);
+              }
+            });
+        } else {
+          playAttemptInProgress = false;
+        }
+      }, 250); // 250ms debounce delay
     }
-  
+    
+    // When a video stream is available, bind it to the video element.
+    $: if ($videoStream && videoElement && (!currentVideoStreamId || currentVideoStreamId !== $videoStream.id)) {
+      console.log('[WebRTC] Setting video stream to element:', $videoStream.id);
+      currentVideoStreamId = $videoStream.id;
+      
+      // Only set srcObject if it's a different stream
+      if (videoElement.srcObject !== $videoStream) {
+        videoElement.srcObject = $videoStream;
+        // Attempt to play the video
+        safePlayVideo();
+      }
+    }
+
     function updateFilteredEvents() {
       filteredEvents = selectedEventType === "all"
         ? events
         : events.filter(event => event.type === selectedEventType);
     }
-  
+
     function handleClearEvents() {
       console.log('[WebRTC] Clearing events');
       clearEvents();
     }
-  
+
     function sendMessage() {
-      if (message.trim() && get(webrtcStatus).dataChannel) {
-        sendDataChannelMessage(message);
-        messages = [...messages, { text: message, sent: true, timestamp: new Date() }];
+      if (message.trim()) {
+        const success = sendDataChannelMessage(message);
+        // The message will be added to the store in the sendDataChannelMessage function
+        // We don't need to manually add it to the messages array anymore
         message = '';
       }
     }
-  
+
+    // Monitor video play/pause state
+    function updateVideoState() {
+      if (!videoElement) return;
+      
+      isVideoPaused = videoElement.paused;
+      
+      // Set up event listeners for play/pause state changes
+      if (!videoElement._hasPlayPauseListeners) {
+        videoElement._hasPlayPauseListeners = true;
+        
+        videoElement.addEventListener('play', () => {
+          console.log('[WebRTC] Video play event');
+          isVideoPaused = false;
+        });
+        
+        videoElement.addEventListener('pause', () => {
+          console.log('[WebRTC] Video pause event');
+          isVideoPaused = true;
+        });
+      }
+    }
+    
+    // Update video state whenever the video element or stream changes
+    $: if (videoElement) {
+      updateVideoState();
+    }
+    
     onMount(() => {
       console.log('[WebRTC] Initializing client');
       unsubscribe = initWebRTCClient();
-  
+
+      // Subscribe to webRTCStore
+      unsubscribeRTC = webRTCStore.subscribe(state => {
+        webrtcState = state;
+      });
+
       const eventsUnsubscribe = webrtcEvents.subscribe(value => {
         events = value;
         updateFilteredEvents();
         // console.log('[WebRTC] Events updated:', events);
       });
-  
+
       const statusUnsubscribe = webrtcStatus.subscribe(status => {
-        if (status.dataChannel) {
-          status.dataChannel.onmessage = (event) => {
-            try {
-              const msgText = typeof event.data === 'string' ? event.data : '[Binary data]';
-              messages = [...messages, { text: msgText, sent: false, timestamp: new Date() }];
-            } catch (error) {
-              console.error('[WebRTC] Data channel message error:', error);
-            }
-          };
-        }
+        // We don't need to manually handle data channel messages anymore
+        // as they're now handled in the webrtc-client.ts and stored in the webRTCStore
+        console.log('[WebRTC] Status updated:', status);
       });
-  
+
       const originalUnsubscribe = unsubscribe;
       unsubscribe = () => {
         console.log('[WebRTC] Cleaning up subscriptions');
@@ -80,19 +166,20 @@
         statusUnsubscribe();
         if (originalUnsubscribe) originalUnsubscribe();
       };
-  
+
       const tempVideoElement = document.createElement('video');
       const isH264Supported = tempVideoElement.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"');
       console.log('H.264 Supported:', isH264Supported);
     });
-  
+
     onDestroy(() => {
       if (unsubscribe) unsubscribe();
+      if (unsubscribeRTC) unsubscribeRTC();
     });
-  
+
     $: if (events) updateFilteredEvents();
   </script>
-  
+
   <div class="space-y-4 p-4">
     <Breadcrumb>
       <BreadcrumbList>
@@ -105,7 +192,7 @@
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
-  
+
     <div class="flex items-center justify-between">
       <h1 class="text-2xl font-semibold">WebRTC Debug Console</h1>
       <div class="flex space-x-2">
@@ -114,13 +201,33 @@
         </Button>
       </div>
     </div>
-  
+
     <!-- Video Stream Panel -->
     <div class="bg-white p-4 rounded-md shadow">
       <h2 class="text-lg font-medium mb-4">Video Stream</h2>
       <div class="relative aspect-video bg-black rounded-md overflow-hidden">
         {#if $videoStream}
-          <video bind:this={videoElement} autoplay playsinline muted class="w-full h-full object-contain"></video>
+          <video 
+            bind:this={videoElement} 
+            playsinline 
+            muted 
+            class="w-full h-full object-contain"
+            on:click={safePlayVideo}
+          ></video>
+          
+          <!-- Play button overlay - only show when video is paused -->
+          {#if isVideoPaused}
+            <div 
+              class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 cursor-pointer" 
+              on:click={safePlayVideo}
+            >
+              <div class="rounded-full bg-white bg-opacity-80 p-3 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              </div>
+            </div>
+          {/if}
         {:else}
           <div class="absolute inset-0 flex items-center justify-center text-white">
             <p>Waiting for video stream...</p>
@@ -140,32 +247,36 @@
         <span>{$videoStream?.id}</span>
       </div>
     </div>
-  
+
     <!-- Connection Status Panel -->
     <div class="bg-white p-4 rounded-md shadow">
       <h2 class="text-lg font-medium mb-4">Connection Status</h2>
       <div class="space-y-2">
         <div class="flex items-center">
           <span class="font-medium mr-2">Socket:</span>
-          {#if $webrtcStatus.connected}
+          {#if webrtcState?.connectionStatus === 'connected'}
             <span class="text-green-600 font-medium flex items-center">
               <span class="inline-block w-2 h-2 bg-green-600 rounded-full mr-2"></span>Connected
             </span>
-          {:else}
+          {:else if webrtcState?.connectionStatus === 'disconnected'}
             <span class="text-red-600 font-medium flex items-center">
               <span class="inline-block w-2 h-2 bg-red-600 rounded-full mr-2"></span>Disconnected
             </span>
+          {:else}
+            <span class="text-yellow-600 font-medium flex items-center">
+              <span class="inline-block w-2 h-2 bg-yellow-600 rounded-full mr-2"></span>Error: {webrtcState?.error}
+            </span>
           {/if}
         </div>
-        {#if $webrtcStatus.error}
+        {#if webrtcState?.error}
           <div class="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
-            <p class="text-red-600 text-sm">Error: {$webrtcStatus.error}</p>
+            <p class="text-red-600 text-sm">Error: {webrtcState?.error}</p>
           </div>
         {/if}
-        {#if $webrtcStatus.lastEventTimestamp}
+        {#if webrtcState?.lastEventTimestamp}
           <div>
             <span class="text-gray-500 text-sm">Last event:</span>
-            <span class="text-gray-700 text-sm ml-1">{new Date($webrtcStatus.lastEventTimestamp).toLocaleString()}</span>
+            <span class="text-gray-700 text-sm ml-1">{new Date(webrtcState?.lastEventTimestamp).toLocaleString()}</span>
           </div>
         {/if}
         <div class="mt-4">
@@ -173,23 +284,23 @@
         </div>
       </div>
     </div>
-  
+
     <!-- Data Channel Chat -->
     <div class="md:col-span-2 bg-white p-4 rounded-md shadow">
       <h2 class="text-lg font-medium mb-4">Data Channel Chat</h2>
-      {#if !$webrtcStatus.dataChannel || $webrtcStatus.dataChannel.readyState !== 'open'}
+      {#if !webrtcState?.dataChannel || webrtcState?.dataChannelStatus !== 'open'}
         <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-md">
           <p class="text-yellow-700">Data channel is not ready. Establish a WebRTC connection first.</p>
         </div>
       {:else}
         <div class="space-y-4">
           <div class="border border-gray-200 rounded-md p-2 h-64 overflow-y-auto">
-            {#if messages.length === 0}
+            {#if !webrtcState?.dataChannelMessages || webrtcState.dataChannelMessages.length === 0}
               <div class="text-gray-400 text-center p-4">No messages yet</div>
             {:else}
-              {#each messages as msg}
-                <div class="mb-2 p-2 rounded-md {msg.sent ? 'bg-blue-100 ml-auto max-w-[80%]' : 'bg-gray-100 mr-auto max-w-[80%]'}">
-                  <div class="break-words">{msg.text}</div>
+              {#each webrtcState.dataChannelMessages as msg}
+                <div class="mb-2 p-2 rounded-md {msg.direction === 'sent' ? 'bg-blue-100 ml-auto max-w-[80%]' : 'bg-gray-100 mr-auto max-w-[80%]'}">
+                  <div class="break-words">{msg.content}</div>
                   <div class="text-xs text-gray-500 mt-1">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</div>
                 </div>
               {/each}
@@ -210,7 +321,7 @@
         </div>
       {/if}
     </div>
-  
+
     <!-- Event Log Panel -->
     <div class="bg-white p-4 rounded-md shadow">
       <div class="flex items-center justify-between mb-4">
@@ -268,4 +379,3 @@
       {/if}
     </div>
   </div>
-  

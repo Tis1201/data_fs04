@@ -1,7 +1,8 @@
-import { logger } from '$lib/server/logger';
 import { WebSocket } from 'ws';
 import crypto from 'crypto';
 import { log } from 'console';
+import {handleWebRTCMessage} from "../webrtc/WebrtcSignalingUtils"
+import {logger} from '../logger';
 
 /**
  * Extended WebSocket type with additional properties
@@ -178,6 +179,9 @@ export class WebSocketManager {
                 case 'whatsapp':
                     this.handleWhatsAppMessage(data, ws);
                     break;
+                case 'webrtc':
+                    handleWebRTCMessage(data, ws, this);
+                    break;
                 default:
                     logger.warn(`[wss:manager] unknown message type: ${data.type}`);
             }
@@ -186,47 +190,7 @@ export class WebSocketManager {
         }
     }
 
-    async handleWhatsAppMessage(data: any, ws: ExtendedWebSocket): Promise<void> {
-        try {
-            const { whatsAppAccountManager } = await import('$lib/server/whatsapp/WhatsAppAccountManager');
-
-            logger.info(`[wss:manager] handling WhatsApp message: ${data.action}`);
-
-            switch (data.action) {
-                case 'testMessage':
-                    whatsAppAccountManager.sendTestMessage(data.data?.message || 'Test message');
-                    ws.send(JSON.stringify({
-                        type: 'whatsapp',
-                        action: 'testMessageResponse',
-                        data: {
-                            message: 'Test message received and broadcast',
-                            timestamp: Date.now()
-                        }
-                    }));
-                    break;
-                case 'requestQRCode': {
-                    const accountId = data.data?.accountId;
-                    const clientId = `temp-${crypto.randomUUID()}`;
-                    const client = await whatsAppAccountManager.createClient(undefined, accountId, { clientId });
-
-                    ws.send(JSON.stringify({
-                        type: 'whatsapp',
-                        action: 'clientCreated',
-                        data: {
-                            clientId,
-                            accountId: accountId || null,
-                            status: 'connecting'
-                        }
-                    }));
-                    break;
-                }
-                default:
-                    logger.warn(`[wss:manager] unknown WhatsApp action: ${data.action}`);
-            }
-        } catch (error) {
-            logger.error(`[wss:manager] error handling WhatsApp message:`, error);
-        }
-    }
+   
 
     handleClientError(ws: ExtendedWebSocket, error: Error): void {
         logger.error(`[wss:manager] client error (${ws.socketId}):`, error);
