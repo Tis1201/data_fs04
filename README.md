@@ -327,8 +327,16 @@ To package the application for deployment as a zip file:
 - Add WebRTC Video (done)
 - Convert to Pion from aoirtc python (done)
 - Clean up websocket implementation (done)
-- Need a proper router to route ws events to different users
-- Use SQL to store Whatsapp keys
-- Clean up WebRTC Video
-- Run yolo-openvobulary on openvino on mac
-- Batch input architecture, some makes sense if input size is small
+- Need a proper router to route ws events to different users (in progress - part of Room Management)
+- Use SQL to store Whatsapp keys (pending)
+- Implement Room Management System for WebRTC (in progress)
+  - Room creation/deletion
+  - User management
+  - Session tracking
+  - Resource limits
+- Add Remote Terminal Support (in progress)
+  - Using xterm-svelte https://github.com/BattlefieldDuck/xterm-svelte
+  - WebRTC data channel integration
+  - Terminal session management
+- Run yolo-openvobulary on openvino on mac (pending)
+- Batch input architecture (pending)
