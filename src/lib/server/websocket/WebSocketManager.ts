@@ -2,6 +2,7 @@ import { logger } from '$lib/server/logger';
 import { WebSocket } from 'ws';
 import crypto from 'crypto';
 import { log } from 'console';
+import {handleWebRTCMessage} from "../webrtc/WebrtcSignalingUtils"
 
 /**
  * Extended WebSocket type with additional properties
