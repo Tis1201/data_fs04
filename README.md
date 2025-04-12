@@ -324,11 +324,11 @@ To package the application for deployment as a zip file:
 ### To-dos
 - Add WebRTC Signaling (done)
 - Add WebRTC Offer/Answer (done)
-- Add WebRTC Video (done)
+- Add WebRTC Video (done) 
 - Convert to Pion from aoirtc python (done)
 - Clean up websocket implementation (done)
 - Need a proper router to route ws events to different users (in progress - part of Room Management)
-- Use SQL to store Whatsapp keys (pending)
+- Use SQL to store Whatsapp keys (done)
 - Implement Room Management System for WebRTC (in progress)
   - Room creation/deletion
   - User management
