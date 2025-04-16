@@ -80,6 +80,13 @@ export function handleRoomMessage(
 
   switch (action) {
     case 'create': {
+      // Per-user room creation cap
+      const MAX_ROOMS_PER_USER = 5;
+      const userRoomCount = Array.from(rooms.values()).filter(r => r.createdBy === ws.userId).length;
+      if (userRoomCount >= MAX_ROOMS_PER_USER) {
+        ws.send(JSON.stringify({ type: 'room', error: `You have reached the maximum of ${MAX_ROOMS_PER_USER} rooms.`, action: 'error' }));
+        break;
+      }
       // Create a new room, let RoomManager generate the ID
       const room = createRoom(undefined, secret, config as RoomConfig || {}, ws.userId, ws.socketId);
       ws.send(JSON.stringify({
@@ -116,7 +123,7 @@ export function handleRoomMessage(
     }
     case 'status': {
       if (!roomId) {
-        ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId', action }));
+        ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Missing roomId' }));
         return;
       }
       const room = getRoom(roomId);
@@ -132,6 +139,6 @@ export function handleRoomMessage(
       break;
     }
     default:
-      ws.send(JSON.stringify({ type: 'room:error', error: 'Unknown room action', action }));
+      ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Unknown room action' }));
   }
 }

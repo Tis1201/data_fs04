@@ -9,7 +9,7 @@
     import { roomStore } from '$lib/stores/room-store';
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
     import {Badge} from "$lib/components/ui/badge";
-    import {Alert} from "$lib/components/ui/alert";
+    import {Alert, AlertTitle, AlertDescription} from "$lib/components/ui/alert";
     // Svelte auto-subscription
     $: room = $roomStore;
     
@@ -42,6 +42,13 @@
 
     <!-- Enhanced Room Visualization -->
     <div class="mt-4 space-y-4">
+        {#if room.error}
+            <Alert color="destructive" class="mt-2">
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{room.error}</AlertDescription>
+                <Button size="sm" variant="ghost" on:click={() => roomStore.clearError()}>Dismiss</Button>
+            </Alert>
+        {/if}
         {#if room.roomId}
             <Card class="border shadow-sm">
                 <CardHeader>
