@@ -10,12 +10,21 @@ export function getRoom(roomId: string): Room | undefined {
   return rooms.get(roomId);
 }
 
-export function createRoom(roomId?: string, secret: string, config: RoomConfig = {}): Room {
+export function createRoom(roomId?: string, secret: string, config: RoomConfig = {}, createdBy?: string, socketId?: string): Room {
+  // Always generate a password if not provided
+  if (!config.password) {
+    config.password = uuidv4();
+  }
   const actualRoomId = roomId || uuidv4();
   let room = rooms.get(actualRoomId);
   if (!room) {
-    room = new Room(actualRoomId, secret, config);
+    room = new Room(actualRoomId, secret, config, createdBy);
     rooms.set(actualRoomId, room);
+    // Add creator as first participant and admin if createdBy is present
+    if (createdBy) {
+      room.addParticipant(createdBy, socketId, true);
+
+    }
   }
   return room;
 }
@@ -33,7 +42,7 @@ export function removeRoom(roomId: string): boolean {
 export function joinRoom(roomId: string, secret: string, socketId: string, isAdmin = false, config: RoomConfig = {}, metadata?: Record<string, any>): RoomResult<RoomParticipant> {
   let room = rooms.get(roomId);
   if (!room) {
-    room = createRoom(roomId, secret, config);
+    room = createRoom(roomId, secret, config); // joinRoom does not set createdBy
   }
   return room.addParticipant(socketId, isAdmin, metadata);
 }
@@ -72,12 +81,11 @@ export function handleRoomMessage(
   switch (action) {
     case 'create': {
       // Create a new room, let RoomManager generate the ID
-      const room = createRoom(undefined, secret, config as RoomConfig || {});
+      const room = createRoom(undefined, secret, config as RoomConfig || {}, ws.userId, ws.socketId);
       ws.send(JSON.stringify({
         type: 'room',
         action: 'created',
-        roomId: room.roomId,
-        status: room.getStatus ? room.getStatus() : undefined
+        ...room.toJSON()
       }));
       break;
     }

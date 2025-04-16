@@ -27,7 +27,8 @@ export interface RoomResult<T> {
  * Participant information in a room
  */
 export interface RoomParticipant {
-  socketId: string;
+  userId: string;
+  socketId?: string; // optional, for session tracking
   isAdmin: boolean;
   joinedAt: Date;
   lastActive: Date;
@@ -73,14 +74,16 @@ export class Room {
   private readonly createdAt: Date;
   private lastActivity: Date;
   private readonly eventEmitter: EventEmitter;
+  public readonly createdBy?: string;
 
-  constructor(roomId: string, secret: string, config: RoomConfig = {}) {
+  constructor(roomId: string, secret: string, config: RoomConfig = {}, createdBy?: string) {
     this.roomId = roomId;
     this.secret = secret;
     this.config = config;
     this.createdAt = new Date();
     this.lastActivity = new Date();
     this.eventEmitter = new EventEmitter();
+    this.createdBy = createdBy;
   }
 
   /**
@@ -122,7 +125,15 @@ export class Room {
    * Get all participants in the room
    */
   getParticipants(): RoomParticipant[] {
-    return Array.from(this.participants.values());
+    // Always include both userId and socketId for each participant, set socketId to null if missing
+    return Array.from(this.participants.values()).map(p => ({
+      userId: p.userId,
+      socketId: p.socketId ?? null,
+      isAdmin: p.isAdmin,
+      joinedAt: p.joinedAt,
+      lastActive: p.lastActive,
+      metadata: p.metadata
+    }));
   }
 
   /**
@@ -148,12 +159,14 @@ export class Room {
 
   /**
    * Add a participant to the room
-   * @param socketId Client socket ID
+   * @param userId Canonical user ID
+   * @param socketId Client socket ID (optional, for session tracking)
    * @param isAdmin Whether the participant is an admin
    * @param metadata Additional participant metadata
    */
   addParticipant(
-    socketId: string,
+    userId: string,
+    socketId?: string,
     isAdmin: boolean = false,
     metadata?: Record<string, any>
   ): RoomResult<RoomParticipant> {
@@ -165,7 +178,7 @@ export class Room {
       };
     }
 
-    if (this.hasParticipant(socketId)) {
+    if (this.participants.has(userId)) {
       return {
         success: false,
         error: RoomError.ALREADY_JOINED,
@@ -174,18 +187,19 @@ export class Room {
     }
 
     const participant: RoomParticipant = {
+      userId,
       socketId,
-      isAdmin,
+      isAdmin: !!isAdmin,
       joinedAt: new Date(),
       lastActive: new Date(),
       metadata
     };
 
-    this.participants.set(socketId, participant);
+    this.participants.set(userId, participant);
     this.updateLastActivity();
     this.emit('participant:joined', { participant, room: this });
     
-    logger.info(`[WebRTC:Room] Participant ${socketId} joined room ${this.roomId}`);
+    logger.info(`[WebRTC:Room] Participant ${userId} joined room ${this.roomId}`);
     return {
       success: true,
       data: participant
@@ -269,7 +283,8 @@ export class Room {
    * Get admin participants
    */
   getAdmins(): RoomParticipant[] {
-    return Array.from(this.participants.values()).filter(p => p.isAdmin);
+    // Only return participants who are admins (with valid userId)
+    return Array.from(this.participants.values()).filter(p => p.isAdmin && p.userId);
   }
 
   /**
@@ -331,6 +346,26 @@ export class Room {
   /**
    * Get room status information
    */
+  /**
+   * Canonical representation of the room for API responses
+   */
+  toJSON() {
+    return {
+      id: this.roomId,
+      name: this.config.name,
+      description: this.config.description,
+      participantCount: this.getParticipantCount(),
+      maxParticipants: this.config.maxParticipants,
+      hasPassword: !!this.config.password,
+      lastActivity: this.lastActivity,
+      createdAt: this.createdAt,
+      metadata: this.config.metadata || {},
+      admins: this.getAdmins().map(p => p.socketId),
+      createdBy: this.createdBy,
+      participants: this.getParticipants()
+    };
+  }
+
   getStatus(): RoomStatus {
     return {
       id: this.roomId,
@@ -342,7 +377,9 @@ export class Room {
       lastActivity: this.lastActivity,
       createdAt: this.createdAt,
       metadata: this.config.metadata || {},
-      admins: this.getAdmins().map(p => p.socketId)
+      admins: this.getAdmins().map(p => p.socketId),
+      createdBy: this.createdBy,
+      participants: this.getParticipants()
     };
   }
 

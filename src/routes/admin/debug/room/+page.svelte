@@ -7,7 +7,9 @@
     import { goto } from "$app/navigation";
     import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
     import { roomStore } from '$lib/stores/room-store';
-    
+    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+    import {Badge} from "$lib/components/ui/badge";
+    import {Alert} from "$lib/components/ui/alert";
     // Svelte auto-subscription
     $: room = $roomStore;
     
@@ -38,27 +40,82 @@
         </Button>
     </div>
 
-    <!-- Debug Logging Output -->
-    <div class="mt-4">
-        <div class="text-xs text-gray-500">roomStore debug:</div>
-        <pre class="bg-gray-100 rounded p-2 text-xs overflow-x-auto">{JSON.stringify(room, null, 2)}</pre>
+    <!-- Enhanced Room Visualization -->
+    <div class="mt-4 space-y-4">
         {#if room.roomId}
-            <div class="mt-2 p-2 bg-green-100 rounded">
-                <div>Room created: <strong>{room.roomId}</strong></div>
-                {#if room.status}
-                    <div class="mt-2">
-                        <div><span class="font-semibold">Participants:</span> {room.status.participantCount}</div>
-                        <div><span class="font-semibold">Has Password:</span> {room.status.hasPassword ? 'Yes' : 'No'}</div>
-                        <div><span class="font-semibold">Created At:</span> {room.status.createdAt}</div>
-                        <div><span class="font-semibold">Last Activity:</span> {room.status.lastActivity}</div>
-                        <div><span class="font-semibold">Admins:</span> {room.status.admins && room.status.admins.length > 0 ? room.status.admins.join(', ') : 'None'}</div>
-                        <div><span class="font-semibold">Metadata:</span> <pre class="inline bg-gray-50 p-1 rounded">{JSON.stringify(room.status.metadata, null, 2)}</pre></div>
+            <Card class="border shadow-sm">
+                <CardHeader>
+                    <CardTitle class="flex items-center gap-2">
+                        Room <Badge color="green">{room.roomId}</Badge>
+                    </CardTitle>
+                    <CardDescription>Created At: {room.status?.createdAt}</CardDescription>
+                    {#if room.status?.createdBy}
+                        <div class="text-xs text-gray-500 mt-1">Created By: <Badge color="purple">{room.status.createdBy}</Badge></div>
+                    {/if}
+                </CardHeader>
+                <CardContent class="space-y-2">
+                    <div class="flex flex-wrap gap-4">
+                        <div>
+                            <span class="font-semibold">Participants:</span>
+                            <Badge color="blue">{room.status?.participantCount ?? 0}</Badge>
+                        </div>
+                        <div>
+                            <span class="font-semibold">Has Password:</span>
+                            <Badge color={room.status?.hasPassword ? 'yellow' : 'gray'}>{room.status?.hasPassword ? 'Yes' : 'No'}</Badge>
+                        </div>
+                        <div>
+                            <span class="font-semibold">Last Activity:</span>
+                            <span>{room.status?.lastActivity}</span>
+                        </div>
                     </div>
-                {/if}
-            </div>
+                    <div>
+                        <span class="font-semibold">Admins:</span>
+                        {#if room.status?.admins && room.status.admins.length > 0}
+                            <span>
+                                {#each room.status.admins as admin, i}
+                                    <Badge color="gray">{admin}</Badge>{i < room.status.admins.length - 1 ? ', ' : ''}
+                                {/each}
+                            </span>
+                        {:else}
+                            <span class="text-gray-400">None</span>
+                        {/if}
+                    </div>
+                    {#if room.status?.participants && room.status.participants.length > 0}
+                        <div>
+                            <span class="font-semibold">Participants:</span>
+                            <ul class="mt-1 space-y-1">
+                                {#each room.status.participants as p}
+                                    <li class="flex items-center gap-2 text-xs">
+                                        <span class="font-mono">{p.userId}</span>
+                                        {#if p.socketId}
+                                            <span class="text-gray-400">({p.socketId})</span>
+                                        {/if}
+                                        {#if p.isAdmin}
+                                            <Badge color="yellow">admin</Badge>
+                                        {/if}
+                                        <span class="text-gray-400">joined: {p.joinedAt && (new Date(p.joinedAt)).toLocaleString()}</span>
+                                    </li>
+                                {/each}
+                            </ul>
+                        </div>
+                    {/if}
+                    <div>
+                        <span class="font-semibold">Metadata:</span>
+                        <pre class="bg-gray-50 p-2 rounded text-xs mt-1">{JSON.stringify(room.status?.metadata, null, 2)}</pre>
+                    </div>
+                </CardContent>
+            </Card>
         {/if}
         {#if room.error}
-            <div class="mt-2 p-2 bg-red-100 rounded">Error: {room.error}</div>
+            <Alert color="destructive" class="mt-2">
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>{room.error}</AlertDescription>
+            </Alert>
         {/if}
+        <!-- Collapsible debug output for developers -->
+        <details class="mt-2">
+            <summary class="text-xs text-gray-500 cursor-pointer">roomStore debug (JSON)</summary>
+            <pre class="bg-gray-100 rounded p-2 text-xs overflow-x-auto">{JSON.stringify(room, null, 2)}</pre>
+        </details>
     </div>
 </div>
