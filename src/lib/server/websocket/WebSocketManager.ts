@@ -176,12 +176,17 @@ export class WebSocketManager {
                     break;
                 case 'subscribe':
                     break;
-                case 'whatsapp':
-                    this.handleWhatsAppMessage(data, ws);
-                    break;
+                // case 'whatsapp':
+                //     this.handleWhatsAppMessage(data, ws);
+                //     break;
                 case 'webrtc':
                     handleWebRTCMessage(data, ws, this);
                     break;
+                // case 'webrtc':
+                //     handleRoomCMessage(data, ws, this);
+                //     break;   
+                case 'room':
+                    handleRoomMessage(data, ws, this); 
                 default:
                     logger.warn(`[wss:manager] unknown message type: ${data.type}`);
             }
