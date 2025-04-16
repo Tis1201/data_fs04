@@ -1,5 +1,5 @@
 import { Room, RoomConfig, RoomResult, RoomParticipant, RoomError } from './Room';
-import { eventRouter, EventType } from '../event/EventRouter';
+// import { eventRouter, EventType } from '../event/EventRouter';
 import { v4 as uuidv4 } from 'uuid';
 
 
@@ -67,64 +67,63 @@ export function handleRoomMessage(
   ws: { send: (msg: string) => void; socketId?: string },
   wsManager: any
 ) {
-  const { action, roomId, secret, config, isAdmin, metadata } = data;
+  const { action, roomId, secret, config, isAdmin, metadata, role } = data;
 
   switch (action) {
+    case 'create': {
+      // Create a new room, let RoomManager generate the ID
+      const room = createRoom(undefined, secret, config as RoomConfig || {});
+      ws.send(JSON.stringify({
+        type: 'room',
+        action: 'created',
+        roomId: room.roomId,
+        status: room.getStatus ? room.getStatus() : undefined
+      }));
+      break;
+    }
     case 'join': {
-      if (!roomId || !ws.socketId) return;
+      if (!roomId || !ws.socketId) {
+        ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId or socketId', action }));
+        return;
+      }
       const result = joinRoom(
         roomId,
         secret || '',
         ws.socketId,
         isAdmin || false,
         config as RoomConfig || {},
-        metadata
+        { ...metadata, role }
       );
-      const userId = (ws as any).userId || ws.socketId;
-      eventRouter.sendPrivateMessage(
-        userId,
-        { type: 'room:join', ...result },
-        EventType.MESSAGE
-      );
+      ws.send(JSON.stringify({ type: 'room:join', ...result }));
       break;
     }
     case 'leave': {
-      if (!roomId || !ws.socketId) return;
+      if (!roomId || !ws.socketId) {
+        ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId or socketId', action }));
+        return;
+      }
       const result = leaveRoom(roomId, ws.socketId);
-      eventRouter.sendPrivateMessage(
-  (ws as any).userId || ws.socketId,
-  { type: 'room:leave', ...result },
-  EventType.MESSAGE
-);
+      ws.send(JSON.stringify({ type: 'room:leave', ...result }));
       break;
     }
     case 'status': {
-      if (!roomId) return;
+      if (!roomId) {
+        ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId', action }));
+        return;
+      }
       const room = getRoom(roomId);
-      eventRouter.sendPrivateMessage(
-  (ws as any).userId || ws.socketId,
-  {
-    type: 'room:status',
-    status: room ? room.getStatus() : null
-  },
-  EventType.MESSAGE
-);
+      ws.send(JSON.stringify({
+        type: 'room:status',
+        status: room ? room.getStatus() : null
+      }));
       break;
     }
     case 'list': {
       const allRooms = listRooms().map(r => r.getStatus());
-      eventRouter.sendPrivateMessage(
-  (ws as any).userId || ws.socketId,
-  { type: 'room:list', rooms: allRooms },
-  EventType.MESSAGE
-);
+      ws.send(JSON.stringify({ type: 'room:list', rooms: allRooms }));
       break;
     }
     default:
-      eventRouter.sendPrivateMessage(
-  (ws as any).userId || ws.socketId,
-  { type: 'room:error', error: 'Unknown room action', action },
-  EventType.MESSAGE
-);
+      ws.send(JSON.stringify({ type: 'room:error', error: 'Unknown room action', action }));
   }
 }
