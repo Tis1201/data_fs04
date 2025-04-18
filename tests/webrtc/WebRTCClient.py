@@ -72,7 +72,7 @@ class WebRTCClient(RoomClient):
         self.pc = RTCPeerConnection()
         
         # Setup event handlers
-        self.pc.on('icecandidate', self.handle_ice_candidate)
+        self.pc.on('icecandidate', self.handle_local_ice_candidate)
         self.pc.on('connectionstatechange', self.on_connection_state_change)
         self.pc.on('iceconnectionstatechange', self.on_ice_connection_state_change)
         
@@ -117,9 +117,47 @@ class WebRTCClient(RoomClient):
             logger.error(f"Error creating offer: {str(e)}")
 
    
-    async def handle_ice_candidate(self, data: dict):
-        """Handle incoming ICE candidate"""
+    async def handle_local_ice_candidate(self, event):
+        """Send local ICE candidate to remote peer via signaling server, with timestamp and message ID."""
         try:
+            if event.candidate:
+                from datetime import datetime
+                import uuid
+                candidate_data = {
+                    "candidate": event.candidate.candidate,
+                    "sdpMid": event.candidate.sdpMid,
+                    "sdpMLineIndex": event.candidate.sdpMLineIndex,
+                }
+                timestamp = datetime.now().isoformat()
+                message_id = f"ice-candidate-{timestamp}-{uuid.uuid4()}"
+                # Track sent message IDs to avoid processing our own
+                if not hasattr(self, 'sent_message_ids'):
+                    self.sent_message_ids = set()
+                self.sent_message_ids.add(message_id)
+                await self.websocket_client.send({
+                    "type": "webrtc",
+                    "action": "ice-candidate",
+                    "data": {
+                        "candidate": candidate_data,
+                        "timestamp": timestamp,
+                        "_clientMessageId": message_id
+                    }
+                })
+                logger.debug(f"Sent local ICE candidate: {candidate_data} (ID: {message_id})")
+        except Exception as e:
+            logger.error(f"Error sending local ICE candidate: {str(e)}")
+
+    async def handle_ice_candidate(self, data: dict):
+        """Handle incoming ICE candidate, skipping those we sent ourselves."""
+        try:
+            # Deduplicate: skip if this is our own message
+            msg_id = None
+            if isinstance(data, dict):
+                msg_id = data.get("_clientMessageId") or (data.get("candidate", {}) or {}).get("_clientMessageId")
+            if hasattr(self, 'sent_message_ids') and msg_id and msg_id in self.sent_message_ids:
+                logger.debug(f"Skipping ICE candidate with our own message ID: {msg_id}")
+                return
+
             candidate_info = data.get('candidate')
             if not candidate_info:
                 logger.warning("No candidate info in ICE candidate message")
