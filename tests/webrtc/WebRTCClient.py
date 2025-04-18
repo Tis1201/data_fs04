@@ -30,24 +30,69 @@ class WebRTCClient(RoomClient):
     def handle_webrtc_message(self, message: dict):
         """Handle WebRTC-specific messages"""
         # WebRTC message handling logic here
-        logger.debug(f"WebRTC message received: {message}")
-        pass
+        logger.debug(f"WebRTC message received: {message['data']['type']}")
+
+        data = message['data']
+
+        if data['type'] == 'answer':
+            asyncio.create_task(self.handle_answer(data))
+
+        if data['type'] == 'ice-candidate':
+            asyncio.create_task(self.handle_ice_candidate(data))
+    
+
+
+    async def handle_answer(self, data: dict):
+        """Handle incoming WebRTC answer"""
+        try:
+            logger.debug(f"Handling answer: {data}")
+            
+            # Create RTCSessionDescription from the answer
+            answer = RTCSessionDescription(sdp=data['sdp'], type='answer')
+            
+            # Set the remote description
+            await self.pc.setRemoteDescription(answer)
+            logger.debug("Set remote description successfully")
+            
+            # If we have a data channel, send a test message
+            if self.dc and self.dc.readyState == "open":
+                test_message = {
+                    "text": "Hello from Python client!",
+                    "timestamp": datetime.now().isoformat()
+                }
+                self.dc.send(json.dumps(test_message))
+                logger.debug(f"Sent test message: {test_message}")
+                
+        except Exception as e:
+            logger.error(f"Error handling answer: {str(e)}")
+        
 
     def create_webrtc_connection(self, data):
         logger.debug(f"Creating WebRTC connection: {data}")
         self.pc = RTCPeerConnection()
         
         # Setup event handlers
-        self.pc.on('iceConnectionStateChange', lambda state: logger.debug(f"ICE connection state: {state}"))
-        self.pc.on('iceGatheringStateChange', lambda state: logger.debug(f"ICE gathering state: {state}"))
         self.pc.on('icecandidate', self.handle_ice_candidate)
-        self.pc.on('connectionstatechange', lambda state: logger.debug(f"Connection state: {state}"))
+        self.pc.on('connectionstatechange', self.on_connection_state_change)
+        self.pc.on('iceconnectionstatechange', self.on_ice_connection_state_change)
         
         # Create data channel
         self.dc = self.pc.createDataChannel('chat')
-        self.dc.on('open', lambda: logger.debug("Data channel opened"))
-        self.dc.on('message', lambda message: logger.debug(f"Received message: {message}"))
-        
+        self.dc.on('open', self.on_datachannel_open)
+        self.dc.on('message', self.on_datachannel_message)
+
+    def on_datachannel_open(self):
+        logger.debug("Data channel opened")
+
+    def on_datachannel_message(self, message):
+        logger.debug(f"Received message: {message}")
+
+    def on_connection_state_change(self):
+        logger.debug(f"Connection state changed: {self.pc.connectionState}")
+
+    def on_ice_connection_state_change(self):
+        logger.debug(f"ICE connection state changed: {self.pc.iceConnectionState}")
+
     async def create_offer(self):
         """Create and send an offer"""
         try:
@@ -80,5 +125,4 @@ class WebRTCClient(RoomClient):
                 }
             }))        
 
-    def handle_webrtc_message(self, message: dict):
-        logger.debug(f"WebRTC message received: {message}")
+   
