@@ -1,3 +1,4 @@
+import { logger } from '../logger';
 import { Room, RoomConfig, RoomResult, RoomParticipant, RoomError } from './Room';
 // import { eventRouter, EventType } from '../event/EventRouter';
 import { v4 as uuidv4 } from 'uuid';
@@ -72,11 +73,14 @@ export function listRooms(): Room[] {
  */
 // ws: expects an object with send(msg: string) and optional socketId
 export function handleRoomMessage(
-  data: any,
+  message: any,
   ws: { send: (msg: string) => void; socketId?: string },
   wsManager: any
 ) {
-  const { action, roomId, secret, config, isAdmin, metadata, role } = data;
+  const { action, data } = message;
+  const {roomId, password, config, isAdmin, metadata, role} = data;
+
+  logger.debug(JSON.stringify(data))
 
   switch (action) {
     case 'create': {
@@ -97,19 +101,20 @@ export function handleRoomMessage(
       break;
     }
     case 'join': {
+      logger.debug(`[WebRTC:Room] Joining room ${roomId} with socketId ${ws.socketId}, ${password}`);
       if (!roomId || !ws.socketId) {
         ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId or socketId', action }));
         return;
       }
       const result = joinRoom(
         roomId,
-        secret || '',
+        password || '',
         ws.socketId,
         isAdmin || false,
         config as RoomConfig || {},
         { ...metadata, role }
       );
-      ws.send(JSON.stringify({ type: 'room:join', ...result }));
+      ws.send(JSON.stringify({ type: 'room', 'action':'joined', ...result }));
       break;
     }
     case 'leave': {

@@ -8,6 +8,7 @@
     import { socketStore } from '$lib/stores/websocket-store';
     import { get } from 'svelte/store';
     import { webRTCStore } from '$lib/stores/webrtc-store';
+    import { roomStore } from '$lib/stores/room-store';
 
     let unsubscribe;
     let events = [];
@@ -20,6 +21,8 @@
     let isVideoPaused = true;
     let webrtcState;
     let unsubscribeRTC;
+    let roomState;
+    let unsubscribeRoom;
 
     const eventTypeOptions = [
       { value: "offer", label: "Offer" },
@@ -73,8 +76,8 @@
               }
             });
         } else {
-          playAttemptInProgress = false;
-        }
+          playAttemptInProgress = false; 
+        } 
       }, 250); // 250ms debounce delay
     }
     
@@ -139,34 +142,39 @@
     }
     
     onMount(() => {
-      console.log('[WebRTC] Initializing client');
-      unsubscribe = initWebRTCClient();
+      unsubscribeRoom = roomStore.subscribe(state => {
+    console.log('[roomState]', state);
+        roomState = state;
+        if (roomState?.roomId && !unsubscribe) {
+          unsubscribe = initWebRTCClient();
 
-      // Subscribe to webRTCStore
-      unsubscribeRTC = webRTCStore.subscribe(state => {
-        webrtcState = state;
+          // Subscribe to webRTCStore
+          unsubscribeRTC = webRTCStore.subscribe(state => {
+            webrtcState = state;
+          });
+
+          const eventsUnsubscribe = webrtcEvents.subscribe(value => {
+            events = value;
+            updateFilteredEvents();
+          });
+
+          const statusUnsubscribe = webrtcStatus.subscribe(status => {
+            // We don't need to manually handle data channel messages anymore
+            // as they're now handled in the webrtc-client.ts and stored in the webRTCStore
+            console.log('[WebRTC] Status updated:', status);
+          });
+
+          const originalUnsubscribe = unsubscribe;
+          unsubscribe = () => {
+            console.log('[WebRTC] Cleaning up subscriptions');
+            eventsUnsubscribe();
+            statusUnsubscribe();
+            if (originalUnsubscribe) originalUnsubscribe();
+          };
+        } else if (!roomState?.roomId && !roomState?.error) {
+          roomStore.createRoom();
+        }
       });
-
-      const eventsUnsubscribe = webrtcEvents.subscribe(value => {
-        events = value;
-        updateFilteredEvents();
-        // console.log('[WebRTC] Events updated:', events);
-      });
-
-      const statusUnsubscribe = webrtcStatus.subscribe(status => {
-        // We don't need to manually handle data channel messages anymore
-        // as they're now handled in the webrtc-client.ts and stored in the webRTCStore
-        console.log('[WebRTC] Status updated:', status);
-      });
-
-      const originalUnsubscribe = unsubscribe;
-      unsubscribe = () => {
-        console.log('[WebRTC] Cleaning up subscriptions');
-        eventsUnsubscribe();
-        statusUnsubscribe();
-        if (originalUnsubscribe) originalUnsubscribe();
-      };
-
       const tempVideoElement = document.createElement('video');
       const isH264Supported = tempVideoElement.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"');
       console.log('H.264 Supported:', isH264Supported);
@@ -175,6 +183,7 @@
     onDestroy(() => {
       if (unsubscribe) unsubscribe();
       if (unsubscribeRTC) unsubscribeRTC();
+      if (unsubscribeRoom) unsubscribeRoom();
     });
 
     $: if (events) updateFilteredEvents();
@@ -202,6 +211,118 @@
       </div>
     </div>
 
+    {#if roomState?.roomId}
+      <div class="bg-white p-4 rounded-md shadow mb-4">
+        <h2 class="text-lg font-medium mb-2">Room Info</h2>
+        <div class="flex flex-col space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-500">Room ID:</span>
+              <code class="px-1.5 py-0.5 rounded bg-gray-100 font-mono text-xs">{roomState.roomId}</code>
+            </div>
+            <button 
+              class="text-gray-500 hover:text-gray-700" 
+              title="Copy Room ID"
+              on:click={() => navigator.clipboard.writeText(roomState.roomId)}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            </button>
+          </div>
+          
+          {#if roomState.status?.password}
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-500">Password:</span>
+                <code class="px-1.5 py-0.5 rounded bg-gray-100 font-mono text-xs">{roomState.status.password}</code>
+              </div>
+              <button 
+                class="text-gray-500 hover:text-gray-700" 
+                title="Copy Password"
+                on:click={() => navigator.clipboard.writeText(roomState.status.password)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              </button>
+            </div>
+          {/if}
+          
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            {#if roomState.status?.createdAt}
+              <div>
+                <span class="text-gray-500">Created:</span>
+                <span class="ml-1">{new Date(roomState.status.createdAt).toLocaleString()}</span>
+              </div>
+            {/if}
+            {#if roomState.status?.createdBy}
+              <div>
+                <span class="text-gray-500">By:</span>
+                <span class="ml-1 font-mono">{roomState.status.createdBy}</span>
+              </div>
+            {/if}
+            {#if typeof roomState.status?.participantCount === 'number'}
+              <div>
+                <span class="text-gray-500">Participants:</span>
+                <span class="ml-1">{roomState.status.participantCount}</span>
+              </div>
+            {/if}
+            {#if roomState.status?.lastActivity}
+              <div>
+                <span class="text-gray-500">Last Activity:</span>
+                <span class="ml-1">{new Date(roomState.status.lastActivity).toLocaleString()}</span>
+              </div>
+            {/if}
+          </div>
+          
+          <details class="mt-1">
+            <summary class="text-xs text-gray-500 cursor-pointer">More details</summary>
+            <div class="mt-2 p-2 bg-gray-50 rounded-md text-xs">
+              {#if roomState.status?.admins && roomState.status.admins.length > 0}
+                <div class="mb-2">
+                  <span class="font-semibold">Admins:</span>
+                  {#each roomState.status.admins as admin, i}
+                    <span class="font-mono">{admin}</span>{i < roomState.status.admins.length - 1 ? ', ' : ''}
+                  {/each}
+                </div>
+              {/if}
+              
+              {#if roomState.status?.participants && roomState.status.participants.length > 0}
+                <div class="mb-2">
+                  <span class="font-semibold">Participants:</span>
+                  <ul class="ml-2 mt-1 space-y-1">
+                    {#each roomState.status.participants as p}
+                      <li class="flex items-center gap-2">
+                        <span class="font-mono">{p.userId}</span>
+                        {#if p.socketId}
+                          <span class="text-gray-400">({p.socketId})</span>
+                        {/if}
+                        {#if p.isAdmin}
+                          <span class="bg-yellow-100 text-yellow-800 px-1 rounded text-xs">admin</span>
+                        {/if}
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+              
+              {#if roomState.status?.metadata}
+                <div>
+                  <span class="font-semibold">Metadata:</span>
+                  <pre class="bg-gray-100 p-2 rounded text-xs mt-1 overflow-x-auto">{JSON.stringify(roomState.status.metadata, null, 2)}</pre>
+                </div>
+              {/if}
+            </div>
+          </details>
+        </div>
+      </div>
+    {:else if roomState?.error}
+      <div class="bg-red-50 border border-red-200 rounded-md p-4 mb-4 text-red-700">
+        Error: {roomState.error}
+      </div>
+    {:else}
+      <div class="bg-gray-50 border border-gray-200 rounded-md p-4 mb-4 text-gray-700">
+        Creating room...
+      </div>
+    {/if}
+    
     <!-- Video Stream Panel -->
     <div class="bg-white p-4 rounded-md shadow">
       <h2 class="text-lg font-medium mb-4">Video Stream</h2>

@@ -70,7 +70,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
                     ws.send(JSON.stringify({
                         type: 'welcome',
                         data: {
-                            message: `Hello from SvelteKit ${apiKey ? 'API ' : ''}${new Date().toLocaleString()}`,
+                            message: `Hello ${apiKey ? 'API ' : ''}${new Date().toLocaleString()}`,
                             socketId: ws.socketId,
                             userId: ws.userId,
                             role: ws.userRole,
@@ -87,6 +87,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
 
                     // Set up message handling after authentication
                     ws.on('message', (message: string) => {
+                        // console.log("------->", message);
                         manager.handleMessage(message.toString(), ws);
                     });
 

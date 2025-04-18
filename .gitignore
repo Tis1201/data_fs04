@@ -82,3 +82,84 @@ prisma/dev.db
 # windsurf rules
 # .windsurfrules
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.orig
+*.rej
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Python IDE
+.idea/
+.vscode/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.env
+.venv
+venv/
+ENV/
+
+# Python test
+/nosetests.xml
+/coverage.xml
+/.hypothesis/
+.pytest_cache/
+
+# Python logs
+*.log
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Python virtual environment
+venv/
+env/
+.venv/
+ENV/
+
+# Python packages
+*.egg-info/
+.dist-info/
+build/
+*.egg
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python test and coverage
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.coverage.xml
+
+# Python IDE
+.vscode/
+.idea/
+.pytest_cache/
+.mypy_cache/
+

@@ -350,7 +350,7 @@ export class Room {
    * Canonical representation of the room for API responses
    */
   toJSON() {
-    return {
+    const base = {
       id: this.roomId,
       name: this.config.name,
       description: this.config.description,
@@ -364,10 +364,15 @@ export class Room {
       createdBy: this.createdBy,
       participants: this.getParticipants()
     };
+    if (this.config.password) {
+      // Expose password only if set
+      return { ...base, password: this.config.password };
+    }
+    return base;
   }
 
-  getStatus(): RoomStatus {
-    return {
+  getStatus(): RoomStatus & { password?: string } {
+    const base = {
       id: this.roomId,
       name: this.config.name,
       description: this.config.description,
@@ -381,6 +386,10 @@ export class Room {
       createdBy: this.createdBy,
       participants: this.getParticipants()
     };
+    if (this.config.password) {
+      return { ...base, password: this.config.password };
+    }
+    return base;
   }
 
   /**

@@ -22,36 +22,38 @@ function createRoomStore() {
         case 'created': {
           // Accept both legacy (status) and new flat payloads
           if (msg.status) {
-            update(r => ({
-              ...r,
-              roomId: msg.roomId,
-              status: {
-                ...msg.status,
-                participants: msg.status.participants || []
-              },
-              error: undefined // Only clear error on successful creation
-            }));
-          } else {
-            update(r => ({
-              ...r,
-              roomId: msg.id,
-              status: {
-                id: msg.id,
-                name: msg.name,
-                description: msg.description,
-                participantCount: msg.participantCount,
-                maxParticipants: msg.maxParticipants,
-                hasPassword: msg.hasPassword,
-                lastActivity: msg.lastActivity,
-                createdAt: msg.createdAt,
-                metadata: msg.metadata,
-                admins: msg.admins,
-                createdBy: msg.createdBy,
-                participants: msg.participants || []
-              },
-              error: undefined // Only clear error on successful creation
-            }));
-          }
+  update(r => ({
+    ...r,
+    roomId: msg.roomId,
+    status: {
+      ...msg.status,
+      participants: msg.status.participants || [],
+      password: msg.status.password ?? msg.password // always include password if present
+    },
+    error: undefined // Only clear error on successful creation
+  }));
+} else {
+  update(r => ({
+    ...r,
+    roomId: msg.id,
+    status: {
+      id: msg.id,
+      name: msg.name,
+      description: msg.description,
+      participantCount: msg.participantCount,
+      maxParticipants: msg.maxParticipants,
+      hasPassword: msg.hasPassword,
+      lastActivity: msg.lastActivity,
+      createdAt: msg.createdAt,
+      metadata: msg.metadata,
+      admins: msg.admins,
+      createdBy: msg.createdBy,
+      participants: msg.participants || [],
+      password: msg.password // always include password if present
+    },
+    error: undefined // Only clear error on successful creation
+  }));
+}
           break;
         }
         case 'error': {
