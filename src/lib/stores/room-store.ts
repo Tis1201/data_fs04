@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { socketStore } from '$lib/stores/websocket-store';
 import { browser } from '$app/environment';
 
@@ -103,16 +103,49 @@ function createRoomStore() {
     update(r => ({ ...r, error: undefined }));
   }
 
+  function createRoom() {
+    const trySend = () => sendOrWarn({ type: 'room', action: 'create', data: {} }, 'Create');
+    const MAX_RETRIES = 5;
+    const BASE_DELAY = 200;
+    let attempt = 0;
+
+    function attemptSend() {
+      const status = get(socketStore).status;
+      if (status === 'OPEN') {
+        trySend();
+      } else if (attempt < MAX_RETRIES) {
+        attempt++;
+        setTimeout(attemptSend, BASE_DELAY * Math.pow(2, attempt));
+      } else {
+        console.warn('[roomStore] Failed to create room: WebSocket not open after retries');
+      }
+    }
+    attemptSend();
+  }
+
+  function joinRoom(roomId: string, role: string = 'viewer') {
+    sendOrWarn({ type: 'room', action: 'join', roomId, role }, 'Join');
+  }
+
+  function leaveRoom(roomId: string) {
+    sendOrWarn({ type: 'room', action: 'leave', roomId }, 'Leave');
+  }
+
+  function listRooms() {
+    sendOrWarn({ type: 'room', action: 'list' }, 'List');
+  }
+
+  function reset() {
+    set({});
+  }
+
   return {
     subscribe,
-    createRoom: () => sendOrWarn({ type: 'room', action: 'create', data: {  } }, 'Create'),
-    joinRoom: (roomId: string, role: string = 'viewer') =>
-      sendOrWarn({ type: 'room', action: 'join', roomId, role }, 'Join'),
-    leaveRoom: (roomId: string) =>
-      sendOrWarn({ type: 'room', action: 'leave', roomId }, 'Leave'),
-    listRooms: () =>
-      sendOrWarn({ type: 'room', action: 'list' }, 'List'),
-    reset: () => set({}),
+    createRoom,
+    joinRoom,
+    leaveRoom,
+    listRooms,
+    reset,
     clearError
   };
 

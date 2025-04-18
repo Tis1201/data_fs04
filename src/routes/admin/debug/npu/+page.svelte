@@ -1,37 +1,38 @@
 <script lang="ts">
-    import { page } from "$app/stores";
-    import { Button } from "$lib/components/ui/button";
     import { Plus } from "lucide-svelte";
-    import { onMount } from "svelte";
-    import { writable } from "svelte/store";
     import type { PageData } from "./$types";
     import { goto } from "$app/navigation";
-    import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '$lib/components/ui/breadcrumb';
-
-    onMount(() => {
-    });
-</script>
-
-<div class="space-y-2 p-2">
-    <Breadcrumb>
-        <BreadcrumbList>
-            <BreadcrumbItem>
-                <a href="/admin" class="text-sm font-medium underline-offset-4 hover:underline">Main</a>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-                <BreadcrumbPage>NPU</BreadcrumbPage>
-            </BreadcrumbItem>
-        </BreadcrumbList>
-    </Breadcrumb>
-
-    <div class="flex items-center justify-between mb-2">
-        <h1 class="text-xl font-semibold">NPU</h1>
-        <Button size="sm">
-            <Plus class="mr-2 h-4 w-4" />
-            Test
-        </Button>
-    </div>
+    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+    import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
     
-</div>
+    
+    let loading = false;
+    
+    // Initialize pagination with stored preferences
+    initPagination('preferredPageSize', true);
+    
+    // Define breadcrumbs for this page
+    const pageCrumbs = [
+        ["Admin", "/admin"],
+        "Debug",
+        "NPU"
+    ];
+</script>
+
+<PageContainer crumbs={pageCrumbs}>
+    <PageHeader title="Users">
+        <svelte:fragment slot="action">
+            <ActionButton
+                label="Add User"
+                icon={Plus}
+                onClick={() => goto('/admin/users/new')}
+            />
+        </svelte:fragment>
+    </PageHeader>
+
+
+</PageContainer>
+

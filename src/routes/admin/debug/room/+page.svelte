@@ -1,18 +1,15 @@
 <script lang="ts">
-    import { page } from "$app/stores";
+    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+    
     import { Button } from "$lib/components/ui/button";
     import { Plus } from "lucide-svelte";
     import { onMount } from "svelte";
-    import type { PageData } from "./$types";
-    import { goto } from "$app/navigation";
-    import {
-        Breadcrumb,
-        BreadcrumbItem,
-        BreadcrumbList,
-        BreadcrumbPage,
-        BreadcrumbSeparator,
-    } from "$lib/components/ui/breadcrumb";
+
+    import { get } from 'svelte/store';
     import { roomStore } from "$lib/stores/room-store";
+
     import {
         Card,
         CardContent,
@@ -20,7 +17,9 @@
         CardHeader,
         CardTitle,
     } from "$lib/components/ui/card";
+
     import { Badge } from "$lib/components/ui/badge";
+
     import {
         Alert,
         AlertTitle,
@@ -28,37 +27,41 @@
     } from "$lib/components/ui/alert";
     // Svelte auto-subscription
     $: room = $roomStore;
+    $: console.log('roomStore debug:', $roomStore);
 
     function handleCreateRoom() {
         console.log("Create Room");
         roomStore.createRoom();
     }
+
+    // Define breadcrumbs for this page
+    const pageCrumbs = [
+        ["Admin", "/admin"],
+        "Debug",
+        "Room"
+    ];
+  
+    onMount(() => {
+        const roomState = get(roomStore);
+        if (!roomState?.roomId) {
+            console.log('Calling createRoom...');
+            roomStore.createRoom();
+        }
+    });
 </script>
 
-<div class="space-y-2 p-2">
-    <Breadcrumb>
-        <BreadcrumbList>
-            <BreadcrumbItem>
-                <a
-                    href="/admin"
-                    class="text-sm font-medium underline-offset-4 hover:underline"
-                    >Main</a
-                >
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-                <BreadcrumbPage>Room</BreadcrumbPage>
-            </BreadcrumbItem>
-        </BreadcrumbList>
-    </Breadcrumb>
+<PageContainer crumbs={pageCrumbs}>
 
-    <div class="flex items-center justify-between mb-2">
-        <h1 class="text-xl font-semibold">Room</h1>
-        <Button size="sm" on:click={handleCreateRoom}>
-            <Plus class="mr-2 h-4 w-4" />
-            Create Room
-        </Button>
-    </div>
+    <PageHeader title="Room">
+        <svelte:fragment slot="action">
+            <ActionButton
+                label="Add Room"
+                icon={Plus}
+                onClick={handleCreateRoom}
+            />
+        </svelte:fragment>
+    </PageHeader>
+
 
     <!-- Enhanced Room Visualization -->
     <div class="mt-4 space-y-4">
@@ -220,4 +223,4 @@
                 )}</pre>
         </details>
     </div>
-</div>
+</PageContainer>

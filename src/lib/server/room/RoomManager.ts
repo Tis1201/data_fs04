@@ -85,7 +85,7 @@ export function handleRoomMessage(
   switch (action) {
     case 'create': {
       // Per-user room creation cap
-      const MAX_ROOMS_PER_USER = 5;
+      const MAX_ROOMS_PER_USER = 100;
       const userRoomCount = Array.from(rooms.values()).filter(r => r.createdBy === ws.userId).length;
       if (userRoomCount >= MAX_ROOMS_PER_USER) {
         ws.send(JSON.stringify({ type: 'room', error: `You have reached the maximum of ${MAX_ROOMS_PER_USER} rooms.`, action: 'error' }));
