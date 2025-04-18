@@ -92,7 +92,7 @@ export function handleRoomMessage(
         break;
       }
       // Create a new room, let RoomManager generate the ID
-      const room = createRoom(undefined, secret, config as RoomConfig || {}, ws.userId, ws.socketId);
+      const room = createRoom(undefined, undefined, config as RoomConfig || {}, ws.userId, ws.socketId);
       ws.send(JSON.stringify({
         type: 'room',
         action: 'created',
@@ -106,15 +106,20 @@ export function handleRoomMessage(
         ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId or socketId', action }));
         return;
       }
-      const result = joinRoom(
-        roomId,
-        password || '',
-        ws.socketId,
-        isAdmin || false,
-        config as RoomConfig || {},
-        { ...metadata, role }
-      );
-      ws.send(JSON.stringify({ type: 'room', 'action':'joined', ...result }));
+      ws.send(JSON.stringify({
+        type: 'room',
+        action: 'joined',
+        data: {}
+      }));
+      // const result = joinRoom(
+      //   roomId,
+      //   password || '',
+      //   ws.socketId,
+      //   isAdmin || false,
+      //   config as RoomConfig || {},
+      //   { ...metadata, role }
+      // );
+      // ws.send(JSON.stringify({ type: 'room', 'action':'joined', ...result }));
       break;
     }
     case 'leave': {

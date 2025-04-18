@@ -24,7 +24,8 @@ async def test_webrtc():
     
     # Connect and start WebRTC
     if await ws_client.connect():
-        logger.debug("Connected to WebSocket server")
+        # logger.debug("Connected to WebSocket server")
+        pass
 
     
 

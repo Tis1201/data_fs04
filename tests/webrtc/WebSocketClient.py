@@ -21,10 +21,10 @@ class WebSocketClient:
         try:
             self.websocket = await websockets.connect(self.url)
             self._connected = True
-            logger.debug("WebSocket connected successfully")
+            logger.debug("[WebSocket] connected")
             return True
         except Exception as e:
-            logger.debug(f"Connection failed: {str(e)}")
+            logger.debug(f"[WebSocket] Connection failed: {str(e)}")
             return False
 
     async def send(self, message: Any) -> bool:

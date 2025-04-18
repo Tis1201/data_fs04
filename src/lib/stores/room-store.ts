@@ -105,7 +105,7 @@ function createRoomStore() {
 
   return {
     subscribe,
-    createRoom: () => sendOrWarn({ type: 'room', action: 'create' }, 'Create'),
+    createRoom: () => sendOrWarn({ type: 'room', action: 'create', data: {  } }, 'Create'),
     joinRoom: (roomId: string, role: string = 'viewer') =>
       sendOrWarn({ type: 'room', action: 'join', roomId, role }, 'Join'),
     leaveRoom: (roomId: string) =>
