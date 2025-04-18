@@ -136,7 +136,61 @@ All real-time data and media flows directly between peers after the connection i
 
 ---
 
-## 6. Further Reading
+## 6. How to Set Up Video Streaming
+
+### 1. Add a Video Track to the Peer Connection
+
+**Python (aiortc) Example:**
+```python
+from aiortc import RTCPeerConnection, VideoStreamTrack
+
+class CustomVideoStreamTrack(VideoStreamTrack):
+    async def recv(self):
+        # Generate or grab a video frame here
+        ...
+
+pc = RTCPeerConnection()
+video_track = CustomVideoStreamTrack()
+pc.addTrack(video_track)
+```
+
+**Browser (JavaScript) Example:**
+```js
+const pc = new RTCPeerConnection();
+navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+  .then(stream => {
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+  });
+```
+
+### 2. Signal as Usual
+- The offer/answer SDP will automatically include video media sections if a video track is present.
+- ICE candidate exchange and signaling are unchanged.
+
+### 3. Receiving Video
+- **Python:** Listen for the `"track"` event and process/display video frames.
+- **Browser:** Attach the incoming stream to a video element.
+
+### 4. No Special Signaling Messages for Video
+- You do **not** need to send special WebSocket messages for video.
+- The presence of a video track is automatically negotiated via SDP in the offer/answer.
+
+### 5. Video Setup Summary Table
+
+| Step              | Code/Action                           | Channel    | Notes                       |
+|-------------------|---------------------------------------|------------|-----------------------------|
+| Add video track   | `pc.addTrack(video_track)`            | WebRTC     | Before offer/answer         |
+| Signal SDP        | Send offer/answer as usual            | WebSocket  | SDP includes video section  |
+| ICE candidates    | Send/receive as usual                 | WebSocket  |                             |
+| Receive video     | Handle `track` event                  | WebRTC     | Frames delivered to peer    |
+
+**References:**
+- [aiortc Video Example](https://aiortc.readthedocs.io/en/latest/examples/video_stream.html)
+- [MDN: WebRTC Video Chat](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Video_chat)
+
+---
+
+## 7. Further Reading
 - [WebRTC for the Curious](https://webrtcforthecurious.com/)
 - [aiortc Documentation](https://aiortc.readthedocs.io/en/latest/)
 - [MDN WebRTC Guide](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API)

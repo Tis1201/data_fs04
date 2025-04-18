@@ -6,6 +6,28 @@ from WebSocketClient import WebSocketClient
 from loguru import logger   
 from RoomClient import RoomClient
 
+PATH_TO_VIDEO = "/Users/bernard/Documents/work/tools/dataset/body/pedestrain/v_01.mp4"
+
+import av
+from aiortc import VideoStreamTrack
+
+class VideoFileStreamTrack(VideoStreamTrack):
+    def __init__(self, path):
+        super().__init__()
+        self.container = av.open(path)
+        self.stream = self.container.streams.video[0]
+        self.frame_iter = self.container.decode(self.stream)
+
+    async def recv(self):
+        import asyncio
+        frame = next(self.frame_iter, None)
+        if frame is None:
+            self.container.seek(0)
+            self.frame_iter = self.container.decode(self.stream)
+            frame = next(self.frame_iter, None)
+        await asyncio.sleep(1 / float(self.stream.average_rate))
+        return frame
+
 class WebRTCClient(RoomClient):
 
     def __init__(self, websocket_client: WebSocketClient, room_id: str, password: str):
@@ -76,6 +98,10 @@ class WebRTCClient(RoomClient):
         self.pc.on('connectionstatechange', self.on_connection_state_change)
         self.pc.on('iceconnectionstatechange', self.on_ice_connection_state_change)
         
+        # Add video track from file
+        video_track = VideoFileStreamTrack(PATH_TO_VIDEO)
+        self.video_sender = self.pc.addTrack(video_track)
+
         # Create data channel
         self.dc = self.pc.createDataChannel('chat')
         self.dc.on('open', self.on_datachannel_open)
