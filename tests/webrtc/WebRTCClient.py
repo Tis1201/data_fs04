@@ -86,7 +86,12 @@ class WebRTCClient(RoomClient):
 
     def on_datachannel_message(self, message):
         logger.debug(f"Received message: {message}")
-
+        #echo back
+        if self.dc.readyState == "open":
+            self.dc.send(message)
+        else:
+            logger.warning("Data channel not open, cannot send")
+               
     def on_connection_state_change(self):
         logger.debug(f"Connection state changed: {self.pc.connectionState}")
 
