@@ -1,6 +1,6 @@
 import asyncio
 from math import log
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
 from typing import Callable, Optional, Dict, Any
 from WebSocketClient import WebSocketClient
 from loguru import logger   
@@ -111,18 +111,34 @@ class WebRTCClient(RoomClient):
         except Exception as e:
             logger.error(f"Error creating offer: {str(e)}")
 
-    def handle_ice_candidate(self, event):
-        """Handle ICE candidates"""
-        if event.candidate:
-            logger.debug(f"Sending ICE candidate: {event.candidate}")
-            asyncio.create_task(self.websocket_client.send({
-                'type': 'webrtc',
-                'action': 'candidate',
-                'data': {
-                    'candidate': event.candidate.candidate,
-                    'sdpMid': event.candidate.sdpMid,
-                    'sdpMLineIndex': event.candidate.sdpMLineIndex
-                }
-            }))        
-
    
+    async def handle_ice_candidate(self, data: dict):
+        """Handle incoming ICE candidate"""
+        try:
+            candidate_info = data.get('candidate')
+            if not candidate_info:
+                logger.warning("No candidate info in ICE candidate message")
+                return
+            candidate_str = candidate_info.get("candidate", "")
+            sdp_mid = candidate_info.get("sdpMid", "")
+            sdp_mline_index = candidate_info.get("sdpMLineIndex", 0)
+            parts = candidate_str.split()
+            if len(parts) >= 8 and parts[0].startswith("candidate:"):
+                foundation = parts[0].split(":")[1]
+                candidate = RTCIceCandidate(
+                    component=int(parts[1]),
+                    foundation=foundation,
+                    ip=parts[4],
+                    port=int(parts[5]),
+                    priority=int(parts[3]),
+                    protocol=parts[2],
+                    type=parts[7],
+                    sdpMid=sdp_mid,
+                    sdpMLineIndex=sdp_mline_index
+                )
+                await self.pc.addIceCandidate(candidate)
+                logger.debug(f"Added ICE candidate: {candidate}")
+            else:
+                logger.error(f"Invalid ICE candidate: {candidate_str}")
+        except Exception as e:
+            logger.error(f"Error handling ICE candidate: {str(e)}")
