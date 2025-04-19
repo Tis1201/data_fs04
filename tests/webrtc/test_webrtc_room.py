@@ -10,24 +10,36 @@ from WebRTCClient import WebRTCClient
 from loguru import logger
 
 API_KEY     = "295e9daaa70fbfd2140ba42b3ddfab2c92e80c00e18020b953fab6ec3e8feacd"
-ROOM_ID     = "53b083ee-431d-4b0f-ae6e-f330b3d6d16b"
-PASSWORD    = "5c28fb65-c789-4ba8-9490-096a0245b343"
 
 serverURL = f"ws://localhost:5173/websocket?apiKey={API_KEY}"
 
+roomInfoURL = f"http://localhost:5173/api/test/latest-room"
+
+def get_room_info():
+    import requests
+    response = requests.get(roomInfoURL)
+    return response.json()
+
 async def test_webrtc():
+
+    room = get_room_info()
+    # logger.debug(f"[Room] Room info: {room}")
+
+    roomId      = room['id']
+    password    = room['password']
+
+    logger.debug(f"Using room {roomId} with password {password}")
+
     # Create WebSocket client
     ws_client = WebSocketClient(serverURL)
     
     # Create WebRTC client using the WebSocket client
-    webrtc_client = WebRTCClient(ws_client, ROOM_ID, PASSWORD)
+    webrtc_client = WebRTCClient(ws_client, roomId, password)
     
     # Connect and start WebRTC
     if await ws_client.connect():
         # logger.debug("Connected to WebSocket server")
         pass
-
-    
 
     await ws_client.run()
 
