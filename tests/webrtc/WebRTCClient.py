@@ -38,7 +38,7 @@ class WebRTCClient(RoomClient):
         logger.debug(f"[WebRTC] WebRTC client initialized for room {room_id}")
 
     def handle_message(self, message: dict):
-        # logger.debug(f"Message received: {message}")
+        logger.debug(f"Message received: {message}")
         super().handle_message(message)
         if message['type'] == 'webrtc':
             self.handle_webrtc_message(message)
@@ -92,7 +92,14 @@ class WebRTCClient(RoomClient):
 
     def create_webrtc_connection(self, data):
         logger.debug(f"Creating WebRTC connection: {data}")
-        self.pc = RTCPeerConnection()
+        # Configure with STUN server using the correct aiortc format
+        from aiortc import RTCConfiguration, RTCIceServer
+        
+        self.pc = RTCPeerConnection(configuration=RTCConfiguration(
+            iceServers=[RTCIceServer(
+                urls=['stun:stun.l.google.com:19302']
+            )]
+        ))
         
         # Setup event handlers
         self.pc.on('icecandidate', self.handle_local_ice_candidate)
@@ -136,8 +143,8 @@ class WebRTCClient(RoomClient):
             await self.websocket_client.send({
                 'type': 'webrtc',
                 'action': 'offer',
-                'roomId': self.roomId,
                 'data': {
+                    'roomId': self.roomId,
                     'sdp': offer.sdp,
                     'type': offer.type
                 }
@@ -167,6 +174,7 @@ class WebRTCClient(RoomClient):
                     "type": "webrtc",
                     "action": "ice-candidate",
                     "data": {
+                        "roomId": self.roomId,
                         "candidate": candidate_data,
                         "timestamp": timestamp,
                         "_clientMessageId": message_id

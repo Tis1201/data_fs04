@@ -11,6 +11,9 @@ export function getRoom(roomId: string): Room | undefined {
   return rooms.get(roomId);
 }
 
+// Alias for compatibility
+export const findRoom = getRoom;
+
 export function createRoom(roomId?: string, secret: string, config: RoomConfig = {}, createdBy?: string, socketId?: string): Room {
   // Always generate a password if not provided
   if (!config.password) {
@@ -119,6 +122,9 @@ export function handleRoomMessage(
         ws.send(JSON.stringify({ type: 'room', action: 'error', error: access.message || 'Invalid password' }));
         return;
       }
+
+      // Add user as participant (surgical fix)
+      room.addParticipant(ws.userId, ws.socketId, isAdmin, metadata);
 
       ws.send(JSON.stringify({
         type: 'room',

@@ -1,6 +1,68 @@
 import type { ExtendedWebSocket } from '../websocket/WebSocketUtils';
 import { WebSocketManager } from '../websocket/WebSocketManager';
 import { WebSocket } from 'ws';
+import { findRoom } from '../room/RoomManager';
+import { logger } from '../logger';
+
+/**
+ * Broadcast a message to all participants in a room except the sender.
+ * @param wsManager WebSocketManager instance
+ * @param roomId Room ID
+ * @param senderId Sender's socket/user ID
+ * @param msg Message to send
+ */
+export function broadcastToRoomExceptSender(
+  wsManager: WebSocketManager,
+  roomId: string,
+  senderId: string,
+  msg: any
+) {
+  const room = findRoom(roomId);
+  logger.debug(`[WebRTC] Broadcasting to room ${roomId} except sender ${senderId}`);
+  if (!room) return;
+
+  const outgoingMessage = {
+    type: 'webrtc',
+    data: msg,
+    timestamp: new Date().toISOString()
+  };
+  const jsonMessage = JSON.stringify(outgoingMessage);
+
+  // Gather all sockets for all participants except sender
+  const participants = room.getParticipants();
+  const allSockets: ExtendedWebSocket[] = [];
+  for (const participant of participants) {
+    if (participant.socketId && participant.socketId !== senderId) {
+      const sockets = wsManager.getClientsByUserId(participant.userId);
+      allSockets.push(...sockets.filter(ws => ws.socketId !== senderId));
+    }
+  }
+
+  allSockets.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(jsonMessage);
+      logger.debug(`[WebRTC] Broadcasted to ${client.socketId}`);
+    }
+  });
+}
+
+/**
+ * Send a message to a single participant in a room.
+ * @param wsManager WebSocketManager instance
+ * @param socketId Target participant's socket ID
+ * @param msg Message to send
+ */
+export function sendToParticipant(
+  wsManager: WebSocketManager,
+  socketId: string,
+  msg: any
+) {
+  const ws = wsManager.getClient(socketId);
+  if (ws) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
 
 // Message types
 export type WebRTCMessageType =
@@ -41,7 +103,6 @@ export function handleWebRTCMessage(
   wsManager: WebSocketManager
 ): void {
   const senderId = sender.socketId;
-  const roomId = message.roomId;
   // Handle nested message structure
   const msg = message.type === 'webrtc' ? message.data : message;
   
@@ -53,7 +114,24 @@ export function handleWebRTCMessage(
   if (!msg.timestamp) {
     msg.timestamp = new Date().toISOString();
   }
-  
+
+  const roomId = msg.roomId;
+
+  // Secure: Only allow participants to send/receive messages for this room
+  if (roomId) {
+    const room = findRoom(roomId);
+    if (!room) {
+      console.warn(`[WebRTC] Room ${roomId} not found for signaling message from ${senderId}`);
+      return;
+    }
+    // Check by userId and socketId for best practice
+    const isParticipant = room.hasParticipant(sender.userId) || room.hasParticipant(sender.socketId);
+    if (!isParticipant) {
+      console.warn(`[WebRTC] Sender ${senderId} (userId: ${sender.userId}) is not a participant of room ${roomId}. Message rejected.`);
+      return;
+    }
+  }
+
   // Log the message type
   console.log(`[WebRTC] Received ${msg.type} from ${senderId} for room ${roomId}`);
   
@@ -65,31 +143,20 @@ export function handleWebRTCMessage(
     if (msg.sdp) {
       console.log(`[WebRTC:Offer] SDP length: ${msg.sdp.length} chars`);
     }
+
   } else if (msg.type === 'answer') {
     console.log(`[WebRTC:Answer] Received answer from ${senderId}`);
   } else if (msg.type === 'ice-candidate' || msg.type === 'candidate') {
     console.log(`[WebRTC:ICE] Received candidate from ${senderId}`);
   }
 
-  // Forward the message to all other participants in the room except the sender
-  // if (roomId) {
-  //   const { getRoom } = await import('../room/RoomManager');
-  //   const room = getRoom(roomId);
-  //   if (room) {
-  //     const participants = room.getParticipants();
-  //     for (const participant of participants) {
-  //       if (participant.socketId && participant.socketId !== senderId) {
-  //         const targetWs = wsManager.getClient(participant.socketId);
-  //         if (targetWs) {
-  //           targetWs.send(JSON.stringify(msg));
-  //         }
-  //       }
-  //     }
-  //     return;
-  //   }
-  // }
+  if(roomId) {
+    broadcastToRoomExceptSender(wsManager, roomId, senderId, msg);
+  }
+
+  
   // fallback: broadcast to all if no roomId or room not found
-  broadcastMessage(msg, wsManager, sender);
+  // broadcastMessage(msg, wsManager, sender);
 }
 
 /** Log a client leaving a room. */

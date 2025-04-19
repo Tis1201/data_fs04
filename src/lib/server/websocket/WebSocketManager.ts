@@ -87,6 +87,13 @@ export class WebSocketManager {
         return Array.from(this.clients);
     }
 
+    /**
+     * Get a client by socketId
+     */
+    getClientBySocketId(socketId: string): ExtendedWebSocket | undefined {
+        return Array.from(this.clients).find(ws => ws.socketId === socketId);
+    }
+
     getClientsByUserId(userId: string): ExtendedWebSocket[] {
         logger.debug(`[wss:manager] Getting clients for userId: ${userId}`);
         logger.debug(`[wss:manager] Total clients in registry: ${this.clients.size}`);
@@ -167,7 +174,7 @@ export class WebSocketManager {
         // logger.info(`[wss:manager] RAW MESSAGE RECEIVED: ${message}`)
         // try {
             const data = JSON.parse(message);
-            // logger.info(`[wss:manager] PARSED MESSAGE: type=${data.type}, from=${ws.socketId}, content=${JSON.stringify(data)}`);
+            logger.info(`[wss:manager] PARSED MESSAGE: type=${data.type}, from=${ws.socketId}, content=${JSON.stringify(data)}`);
             // logger.debug(`[wss:manager] received message from ${ws.socketId}:${data.type}:${message}`);
 
             switch (data.type) {
