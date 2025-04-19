@@ -41,6 +41,7 @@ export function handleWebRTCMessage(
   wsManager: WebSocketManager
 ): void {
   const senderId = sender.socketId;
+  const roomId = message.roomId;
   // Handle nested message structure
   const msg = message.type === 'webrtc' ? message.data : message;
   
@@ -54,11 +55,13 @@ export function handleWebRTCMessage(
   }
   
   // Log the message type
-  console.log(`[WebRTC] Received ${msg.type} from ${senderId}`);
+  console.log(`[WebRTC] Received ${msg.type} from ${senderId} for room ${roomId}`);
   
   // Additional logging based on message type
   if (msg.type === 'offer') {
-    console.log(`[WebRTC:Offer] Received offer from ${senderId}`);
+    
+    console.log(`[WebRTC:Offer] Received offer from ${senderId} for room ${roomId}`);
+
     if (msg.sdp) {
       console.log(`[WebRTC:Offer] SDP length: ${msg.sdp.length} chars`);
     }
@@ -68,7 +71,24 @@ export function handleWebRTCMessage(
     console.log(`[WebRTC:ICE] Received candidate from ${senderId}`);
   }
 
-  // Forward the message to all other clients except the sender
+  // Forward the message to all other participants in the room except the sender
+  // if (roomId) {
+  //   const { getRoom } = await import('../room/RoomManager');
+  //   const room = getRoom(roomId);
+  //   if (room) {
+  //     const participants = room.getParticipants();
+  //     for (const participant of participants) {
+  //       if (participant.socketId && participant.socketId !== senderId) {
+  //         const targetWs = wsManager.getClient(participant.socketId);
+  //         if (targetWs) {
+  //           targetWs.send(JSON.stringify(msg));
+  //         }
+  //       }
+  //     }
+  //     return;
+  //   }
+  // }
+  // fallback: broadcast to all if no roomId or room not found
   broadcastMessage(msg, wsManager, sender);
 }
 
@@ -84,7 +104,7 @@ function broadcastMessage(message: any, wsManager: WebSocketManager, sender: Ext
     data: message,
     timestamp: new Date().toISOString()
   };
-  console.log(`[WebRTC] Broadcasting message from ${sender.socketId}:`, outgoingMessage);
+  // console.log(`[WebRTC] Broadcasting message from ${sender.socketId}:`, outgoingMessage);
   
   // Broadcast to everyone except the sender
   const jsonMessage = JSON.stringify(outgoingMessage);

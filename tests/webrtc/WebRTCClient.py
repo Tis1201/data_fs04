@@ -35,6 +35,7 @@ class WebRTCClient(RoomClient):
         self.pc = None
         self.dc = None
         self.video_sender = None
+        logger.debug(f"[WebRTC] WebRTC client initialized for room {room_id}")
 
     def handle_message(self, message: dict):
         # logger.debug(f"Message received: {message}")
@@ -129,11 +130,13 @@ class WebRTCClient(RoomClient):
         try:
             offer = await self.pc.createOffer()
             await self.pc.setLocalDescription(offer)
+            logger.debug(f"[WebRTC] Created offer for room {self.roomId}")
             
             # Send offer through WebSocket
             await self.websocket_client.send({
                 'type': 'webrtc',
                 'action': 'offer',
+                'roomId': self.roomId,
                 'data': {
                     'sdp': offer.sdp,
                     'type': offer.type

@@ -164,10 +164,10 @@ export class WebSocketManager {
     }
 
     handleMessage(message: string, ws: ExtendedWebSocket): void {
-        logger.info(`[wss:manager] RAW MESSAGE RECEIVED: ${message}`)
+        // logger.info(`[wss:manager] RAW MESSAGE RECEIVED: ${message}`)
         // try {
             const data = JSON.parse(message);
-            logger.info(`[wss:manager] PARSED MESSAGE: type=${data.type}, from=${ws.socketId}, content=${JSON.stringify(data)}`);
+            // logger.info(`[wss:manager] PARSED MESSAGE: type=${data.type}, from=${ws.socketId}, content=${JSON.stringify(data)}`);
             // logger.debug(`[wss:manager] received message from ${ws.socketId}:${data.type}:${message}`);
 
             switch (data.type) {
