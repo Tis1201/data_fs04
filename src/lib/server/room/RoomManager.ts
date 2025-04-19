@@ -102,10 +102,24 @@ export function handleRoomMessage(
     }
     case 'join': {
       logger.debug(`[WebRTC:Room] Joining room ${roomId} with socketId ${ws.socketId}, ${password}`);
+      
       if (!roomId || !ws.socketId) {
-        ws.send(JSON.stringify({ type: 'room:error', error: 'Missing roomId or socketId', action }));
+        ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Missing roomId or socketId' }));
         return;
       }
+
+      const room = getRoom(roomId);
+      if (!room) {
+        ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Room not found' }));
+        return;
+      }
+      
+      const access = room.validateAccess(password);
+      if (!access.success) {
+        ws.send(JSON.stringify({ type: 'room', action: 'error', error: access.message || 'Invalid password' }));
+        return;
+      }
+
       ws.send(JSON.stringify({
         type: 'room',
         action: 'joined',
@@ -131,23 +145,23 @@ export function handleRoomMessage(
       ws.send(JSON.stringify({ type: 'room:leave', ...result }));
       break;
     }
-    case 'status': {
-      if (!roomId) {
-        ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Missing roomId' }));
-        return;
-      }
-      const room = getRoom(roomId);
-      ws.send(JSON.stringify({
-        type: 'room:status',
-        status: room ? room.getStatus() : null
-      }));
-      break;
-    }
-    case 'list': {
-      const allRooms = listRooms().map(r => r.getStatus());
-      ws.send(JSON.stringify({ type: 'room:list', rooms: allRooms }));
-      break;
-    }
+    // case 'status': {
+    //   if (!roomId) {
+    //     ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Missing roomId' }));
+    //     return;
+    //   }
+    //   const room = getRoom(roomId);
+    //   ws.send(JSON.stringify({
+    //     type: 'room:status',
+    //     status: room ? room.getStatus() : null
+    //   }));
+    //   break;
+    // }
+    // case 'list': {
+    //   const allRooms = listRooms().map(r => r.getStatus());
+    //   ws.send(JSON.stringify({ type: 'room:list', rooms: allRooms }));
+    //   break;
+    // }
     default:
       ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Unknown room action' }));
   }

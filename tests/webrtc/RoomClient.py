@@ -31,11 +31,15 @@ class RoomClient:
 
     def handle_room_message(self, message: dict):
 
-        # logger.debug(f"Room message received: {message}")
+        logger.debug(f"Room message received: {message}")
         
         if message["action"] == "joined":
             # logger.debug(f"Joined room: {message['data']}")
             self.handle_room_joined(message)
+            return
+
+        if message["action"] == "error":
+            logger.error(f"Room error: {message['error']}")
             return
 
         # logger.debug(f"Room message received: {message}")
