@@ -201,3 +201,16 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: false })
 > WebRTC connection setup is complex, but with a robust signaling flow and proper ICE candidate handling (as shown here), you can achieve reliable peer-to-peer communication in Python or any other language.
 
 If you have questions or need help debugging, check the logs or reach out to the maintainers.
+
+---
+
+## Recent Changes (2025-04-19)
+
+- **Security:** Only room participants can send or receive signaling messages (offer, answer, ICE). Unauthorized attempts are logged and rejected.
+- **Participant Management:** Users are now explicitly added as participants when joining a room, ensuring up-to-date and accurate room state.
+- **Centralized Permission Checks:** All signaling handlers now verify participant status before processing messages.
+- **Architecture:** The codebase is moving toward a composition-based pattern, with a planned `RoomWebRTCController` for modular and secure signaling logic. Room handles membership; the controller will handle signaling and always reference the Room for checks.
+- **Testing:** All changes have been validated with the Python `aiortc` client and custom test scripts. Logs confirm correct enforcement.
+- **Impact:** Test clients (and real clients) must join the room before sending any signaling messages. If not, their messages will be rejected and a warning will appear in the server logs.
+
+This improves security, prevents leaks, and sets the stage for further modularization and maintainability.

@@ -17,7 +17,11 @@ roomInfoURL = f"http://localhost:5173/api/test/latest-room"
 
 def get_room_info():
     import requests
-    response = requests.get(roomInfoURL)
+    import uuid
+    
+    # Force a new room creation by adding a unique query parameter
+    unique_url = f"{roomInfoURL}?_={uuid.uuid4()}"
+    response = requests.get(unique_url)
     return response.json()
 
 async def test_webrtc():

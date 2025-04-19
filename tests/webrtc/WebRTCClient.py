@@ -5,6 +5,11 @@ from typing import Callable, Optional, Dict, Any
 from WebSocketClient import WebSocketClient
 from loguru import logger   
 from RoomClient import RoomClient
+import json
+import logging
+import uuid
+import asyncio
+from datetime import datetime
 
 PATH_TO_VIDEO = "/Users/bernard/Documents/work/tools/dataset/body/pedestrain/v_01.mp4"
 
@@ -35,6 +40,8 @@ class WebRTCClient(RoomClient):
         self.pc = None
         self.dc = None
         self.video_sender = None
+        self._pending_echo = []  # Buffer for messages received while channel is not open
+        self._force_connecting = False  # Flag to indicate we're forcing usage of a connecting channel
         logger.debug(f"[WebRTC] WebRTC client initialized for room {room_id}")
 
     def handle_message(self, message: dict):
@@ -114,20 +121,103 @@ class WebRTCClient(RoomClient):
         self.dc = self.pc.createDataChannel('chat')
         self.dc.on('open', self.on_datachannel_open)
         self.dc.on('message', self.on_datachannel_message)
+        
+        # Add state change handler for debugging
+        def on_datachannel_state_change():
+            logger.debug(f"Data channel state changed: {self.dc.readyState}")
+            
+        self.dc.on('statechange', on_datachannel_state_change)
 
     def on_datachannel_open(self):
         logger.debug("Data channel opened")
+        
+        # Check if data channel is actually usable
+        if not self.dc:
+            logger.error("Data channel is None, cannot proceed")
+            return
+            
+        # If we're in forced mode and the channel is still connecting, be extra careful
+        if self._force_connecting and self.dc.readyState == "connecting":
+            logger.warning("Using data channel in connecting state - some operations may fail")
+        
+        # Process any buffered messages first
+        if self._pending_echo:
+            logger.debug(f"Processing {len(self._pending_echo)} buffered messages")
+            for msg in self._pending_echo:
+                try:
+                    # Only send if we're in forced mode or channel is actually open
+                    if self.dc.readyState == "open" or self._force_connecting:
+                        self.dc.send(msg)
+                        logger.debug(f"Sent buffered message: {msg}")
+                    else:
+                        logger.warning(f"Cannot send buffered message, channel state: {self.dc.readyState}")
+                except Exception as e:
+                    logger.error(f"Failed to send buffered message: {str(e)}")
+            self._pending_echo.clear()
+            
+        # Send a test message only once when the data channel is open
+        try:
+            # Only attempt to send if channel is open or we're in forced mode
+            if self.dc.readyState == "open" or self._force_connecting:
+                test_message = {
+                    "text": "Hello from Python client!",
+                    "timestamp": datetime.now().isoformat()
+                }
+                json_msg = json.dumps(test_message)
+                self.dc.send(json_msg)
+                logger.debug(f"Sent test message: {test_message}")
+            else:
+                logger.warning(f"Cannot send test message, channel state: {self.dc.readyState}")
+        except Exception as e:
+            logger.error(f"Failed to send test message on data channel open: {str(e)}")
+            # Log the full exception for debugging
+            import traceback
+            logger.debug(f"Exception details: {traceback.format_exc()}")
 
     def on_datachannel_message(self, message):
-        logger.debug(f"Received message: {message}")
-        #echo back
-        if self.dc.readyState == "open":
-            self.dc.send(message)
+        # Log the received message and channel state
+        logger.debug(f"Received message: {message} (data channel state: {self.dc.readyState})")
+        
+        # Echo back the message if channel is open or we're in forced mode, otherwise buffer it
+        if self.dc.readyState == "open" or (self._force_connecting and self.dc.readyState == "connecting"):
+            try:
+                self.dc.send(message)
+                logger.debug(f"Echoed message back immediately: {message}")
+            except Exception as e:
+                logger.error(f"Failed to echo message: {str(e)}")
+                # If we're in forced mode and it failed, buffer the message anyway
+                if self._force_connecting:
+                    logger.warning("Forced mode failed, buffering message for later")
+                    self._pending_echo.append(message)
         else:
-            logger.warning("Data channel not open, cannot send")
-               
+            logger.warning("Data channel not open, buffering message for later")
+            self._pending_echo.append(message)
+
     def on_connection_state_change(self):
         logger.debug(f"Connection state changed: {self.pc.connectionState}")
+        
+        # If connection is connected but data channel isn't open yet, check its state
+        if self.pc.connectionState == "connected" and self.dc and self.dc.readyState == "connecting":
+            logger.debug("Connection is connected but data channel still connecting. Checking in 1 second...")
+            
+            # Schedule a check after 1 second to see if we need to manually trigger open
+            async def check_datachannel_state():
+                await asyncio.sleep(1)
+                if not self.dc:
+                    logger.warning("Data channel no longer exists")
+                    return
+                    
+                logger.debug(f"Data channel state after delay: {self.dc.readyState}")
+                if self.dc.readyState == "open":
+                    logger.debug("Data channel is now open, but event might not have fired. Triggering manually.")
+                    self.on_datachannel_open()
+                elif self.dc.readyState == "connecting":
+                    logger.debug("Data channel still connecting after delay. Attempting to use it anyway.")
+                    # Set a flag to indicate we're forcing usage of a connecting channel
+                    self._force_connecting = True
+                    self.on_datachannel_open()
+            
+            asyncio.create_task(check_datachannel_state())
 
     def on_ice_connection_state_change(self):
         logger.debug(f"ICE connection state changed: {self.pc.iceConnectionState}")
