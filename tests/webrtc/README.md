@@ -200,6 +200,89 @@ navigator.mediaDevices.getUserMedia({ video: true, audio: false })
 **Summary:**
 > WebRTC connection setup is complex, but with a robust signaling flow and proper ICE candidate handling (as shown here), you can achieve reliable peer-to-peer communication in Python or any other language.
 
+---
+
+## 8. Transitioning to Peer-ID Based Architecture (TBD)
+
+### Overview
+For IoT device remoting and streaming applications, a peer-ID based architecture offers significant advantages over room-based connections. This section outlines the planned transition to a peer-ID model.
+
+### Why Peer-ID for IoT Devices?
+
+| Feature | Room-Based | Peer-ID Based |
+|---------|------------|---------------|
+| Addressing | Indirect (via room) | Direct (via device ID) |
+| Connection Model | Many-to-many | One-to-one |
+| Device Management | Requires room tracking | Natural mapping to physical devices |
+| Server Complexity | Higher (room state) | Lower (simple registry) |
+| Scaling | More complex | More straightforward |
+
+### Implementation Plan
+
+1. **Device Registration**
+   - Each IoT device registers with a unique peer ID (e.g., serial number)
+   - Server maintains a registry of online devices
+
+2. **Connection Process**
+   ```
+   ┌─────────────┐                ┌─────────────┐                ┌─────────────┐
+   │             │                │             │                │             │
+   │  IoT Device │◄──Register──►  │  Signaling  │◄──Register──►  │   Browser   │
+   │  (peer-123) │                │   Server    │                │  (peer-456) │
+   │             │                │             │                │             │
+   └─────────────┘                └─────────────┘                └─────────────┘
+          ▲                                                             │
+          │                                                             │
+          │                         Connection                          │
+          │                         Request to                          │
+          │                         peer-123                            │
+          │                                                             │
+          └─────────────────────────────────────────────────────────────┘
+                               Direct WebRTC
+                             Data & Video Stream
+   ```
+
+3. **Message Structure**
+   ```json
+   // Device Registration
+   {
+     "type": "register",
+     "peerId": "device-123",
+     "capabilities": ["terminal", "video"]
+   }
+
+   // Connection Request
+   {
+     "type": "connect",
+     "targetPeerId": "device-123"
+   }
+   ```
+
+4. **Benefits for Remote Terminal & Streaming**
+   - Simpler connection management
+   - Clear mapping between physical devices and WebRTC peers
+   - Easier authentication and access control
+   - Reduced server-side state management
+   - Better scaling for many devices
+
+### Compatibility Plan
+- Maintain backward compatibility with room-based connections
+- Implement peer-ID as an alternative connection method
+- Gradually transition to peer-ID as the primary method for IoT devices
+
+### Implementation Status
+- [ ] Define peer-ID protocol extensions
+- [ ] Implement device registration
+- [ ] Update connection establishment flow
+- [ ] Add browser-side peer connection API
+- [ ] Test with IoT devices
+
+---
+
+**References:**
+- [PeerJS Documentation](https://peerjs.com/docs)
+- [WebRTC for IoT Devices](https://webrtc.org/getting-started/media-devices)
+
 If you have questions or need help debugging, check the logs or reach out to the maintainers.
 
 ---
