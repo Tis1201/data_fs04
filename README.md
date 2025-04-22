@@ -1,6 +1,107 @@
 # FS04 Web Application
 
-## Core Architecture
+[![CI](https://img.shields.io/github/actions/workflow/status/your-org/fs04_web/ci.yml?branch=main)](https://github.com/your-org/fs04_web/actions)
+[![Coverage](https://img.shields.io/codecov/c/github/your-org/fs04_web)](https://codecov.io/gh/your-org/fs04_web)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+- [Development](#development)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Directory Structure](#directory-structure)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Overview
+
+FS04 Web is a SvelteKit-based application for real-time video streaming, room management, and admin workflows using ZenStack, WebRTC, and RTP.
+
+## Features
+
+- Role-based access control with ZenStack-enhanced Prisma
+- Form actions via Zod and Superforms (sveltekit-superforms)
+- Real-time communication with WebSockets
+- RTP and WebRTC streaming integration
+- Admin dashboard and room management
+- Xterm terminal support (xterm-svelte)
+- Responsive UI with Tailwind CSS & shadcn-svelte components
+- Persistence via svelte-persisted-store
+- Table utilities with svelte-headless-table
+- Test data generation with @faker-js/faker
+
+## Tech Stack
+
+- Framework: SvelteKit, Vite, TypeScript
+- Backend: ZenStack (Prisma) & LuciaAuth
+- Validation: Zod & Superform
+- UI: Tailwind CSS, shadcn-svelte, lucide icons
+- Real-time: WebSockets, WebRTC
+- Testing: Vitest, Playwright
+- Streaming: OpenCV, FFmpeg, RTP
+
+## Prerequisites
+
+- Node.js >= 18
+- npm or yarn
+- PostgreSQL database
+
+## Getting Started
+
+```bash
+git clone <repository-url>
+cd fs04_web
+cp .env.example .env  # configure DATABASE_URL, PORT, NODE_ENV
+npm install
+npx prisma generate
+npx zenstack generate
+```
+
+## Development
+
+```bash
+npm run dev  # starts Vite dev server
+```
+
+Open http://localhost:5173
+
+## Testing
+
+- Unit tests: `npm test`
+- End-to-end tests: `npm run test:e2e`
+
+## Deployment
+
+See [PRODUCTION.md](./PRODUCTION.md) for production deployment instructions.
+
+## Directory Structure
+
+```
+fs04_web/
+├── src/
+│   ├── routes/         # SvelteKit routes
+│   ├── lib/            # utilities, stores, components
+│   └── ...
+├── prisma/             # database schema & migrations
+├── docker/             # Docker files & examples
+├── tests/              # additional test suites
+└── ...
+```
+
+## Contributing
+
+Contributions welcome! Please fork, branch, and submit pull requests. Adhere to existing conventions and ensure tests pass.
+
+## License
+
+MIT License 2025 Your Company
+
+### Core Architecture
 
 ### Server Context and Data Access
 
@@ -305,30 +406,17 @@ To package the application for deployment as a zip file:
    - ZenStack and Prisma files are pre-generated and included
    - No need to run `zenstack generate` or `prisma generate` on the server
    - Environment variables must be configured on the server
-     - Shows content structure
-     - Improves perceived performance
-   - Example:
-     ```svelte
-     {#if loading}
-       <div class="space-y-4">
-         <Skeleton class="h-8 w-full" />
-         <Skeleton class="h-4 w-3/4" />
-       </div>
-     {:else}
-       <!-- Actual content -->
-     {/if}
-     ```
 
 ## Development
 
 ### To-dos
 - Add WebRTC Signaling (done)
 - Add WebRTC Offer/Answer (done)
-- Add WebRTC Video (done)
+- Add WebRTC Video (done) 
 - Convert to Pion from aoirtc python (done)
 - Clean up websocket implementation (done)
+- Use SQL to store Whatsapp keys (done)
 - Need a proper router to route ws events to different users (in progress - part of Room Management)
-- Use SQL to store Whatsapp keys (pending)
 - Implement Room Management System for WebRTC (in progress)
   - Room creation/deletion
   - User management

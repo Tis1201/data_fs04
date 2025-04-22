@@ -1,13 +1,13 @@
 <script lang="ts">
     import { page } from "$app/stores";
     import { Button } from "$lib/components/ui/button";
-</script>
+</script> 
 
 <div class="p-2">
     <div class="flex items-center justify-between mb-2">
         <h1 class="text-xl font-semibold">Overview</h1>
         <Button variant="outline" size="sm">Refresh</Button>
-    </div>
+    </div>  
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="rounded-lg border bg-card text-card-foreground p-4">

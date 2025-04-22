@@ -1,6 +1,7 @@
 import { webRTCStore } from '$lib/stores/webrtc-store';
 import { socketStore } from '$lib/stores/websocket-store';
 import { get, writable } from 'svelte/store';
+import { roomStore } from '$lib/stores/room-store';
 
 export interface WebRTCClientConfig {
     iceServers?: RTCIceServer[];
@@ -115,8 +116,12 @@ export class WebRTCClient {
                 this.peerConnection.onicecandidate = (event) => {
                     if (event.candidate) {
                         console.log(`[WebRTC] Local ICE candidate: ${event.candidate.candidate}`);
+                        // Always include the current roomId from roomStore
+                        const currentRoomState = get(roomStore);
+                        const roomId = currentRoomState?.roomId;
                         socketStore.send('webrtc', {
                             type: 'ice-candidate',
+                            roomId,
                             candidate: event.candidate
                         });
                     } else {
@@ -232,8 +237,12 @@ export class WebRTCClient {
                 })
                 .then(() => {
                     console.log('[WebRTC] Sending answer to remote peer');
+                    const currentRoomState = get(roomStore);
+                    const roomId = currentRoomState?.roomId;
+                    // Always include the current roomId from roomStore
                     socketStore.send('webrtc', {
                         type: 'answer',
+                        roomId,
                         sdp: this.peerConnection.localDescription.sdp
                     });
                 })

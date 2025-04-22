@@ -54,7 +54,10 @@
 
         Ear,
 
-        EarIcon
+        EarIcon,
+
+        DoorOpen
+
 
 
 
@@ -115,6 +118,7 @@
             subItems: [
                 // { href: "/admin/debug/vpu", label: "VPU", icon: Video },
                 // { href: "/admin/debug/npu", label: "NPU", icon: Cpu },
+                { href: "/admin/debug/room", label: "Room", icon: DoorOpen },
                 { href: "/admin/debug/sse", label: "SSE", icon: BellDot },
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap },
                 { href: "/admin/debug/stream", label: "WebRTC", icon: Network },
