@@ -11,6 +11,7 @@ declare global {
 						id: string
 						userId: string;
 						email: string;
+						name: string | null;
 						rolesString: string;
 						systemRole: string;
 					};
