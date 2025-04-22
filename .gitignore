@@ -81,3 +81,5 @@ prisma/dev.db
 
 # windsurf rules
 # .windsurfrules
+__pycache__/
+*.pyc
