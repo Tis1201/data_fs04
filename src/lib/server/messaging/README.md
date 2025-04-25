@@ -173,5 +173,8 @@ This code is part of the FS0 Web project and is subject to the project's license
 - **Future:**
   - Add more advanced delivery controls, such as device type, session state, or presence-based targeting.
 
+- **Scalability/Production TODO:**
+  - Implement a Redis-backed (or other distributed) `SharedStore` for connection/session state. This will allow your messaging system to scale horizontally across multiple app instances and support high-volume, production-grade deployments. See `interfaces/sharedStore.ts` for the abstraction point. For local or dev, use an in-memory implementation; for production, use Redis or a similar distributed store.
+
 Contributions and suggestions for these features are welcome! See the relevant interfaces and router logic for extension points.
 
