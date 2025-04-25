@@ -143,3 +143,35 @@ const outMessage = MessageFactory.toOutMessage(routingMessage);
 ## License
 This code is part of the FS0 Web project and is subject to the project's license terms.
 
+---
+
+## TODO & Ideas: Advanced Routing and Delivery
+
+- **Protocol-based Delivery:**
+  - Enable routing to only specific protocols (e.g., WebSocket, SSE, etc.) by filtering connections based on `protocol`.
+  - Example: Deliver only to WebSocket connections, or only to SSE connections for a given user.
+
+- **Connection/Device-based Targeting:**
+  - Support scopes like `connection:<connectionId>` or `device:<connectionId>` to deliver to a specific device/session.
+  - Example: Direct a message to a particular browser tab or device by its connectionId.
+
+- **Sender-aware Delivery:**
+  - Use fields like `echoToSender` or `deliverToSenderConnection` to control whether the sender's own connection receives the message ("echo/no-echo" logic).
+  - Example: Exclude the sender's connection from a broadcast, or send only to the sender.
+
+- **Device Reply Pattern:**
+  - When a device receives a message, it can use the `senderConnectionId` from the original message as a "return address" for direct replies (e.g., by setting `scope: device:<senderConnectionId>`).
+  - This enables device-to-device direct messaging and advanced workflows (e.g., responses routed only to the originating device, not all of a user's devices).
+  - **Security:** Device-to-device replies are secure because a connection authorizer always checks that the sender is allowed to target the given connectionId before any message is delivered. This prevents unauthorized access or hijacking even if a connectionId is guessed or leaked.
+
+- **Hybrid/Custom Routing Rules:**
+  - Combine userId, protocol, and connectionId for fine-grained delivery (e.g., send to all of a user's connections except the sender, or only to mobile devices).
+
+- **Extensible Scope System:**
+  - Continue to extend the `scope` convention for targeting rooms, groups, devices, etc.
+
+- **Future:**
+  - Add more advanced delivery controls, such as device type, session state, or presence-based targeting.
+
+Contributions and suggestions for these features are welcome! See the relevant interfaces and router logic for extension points.
+

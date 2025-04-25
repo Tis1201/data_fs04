@@ -30,6 +30,6 @@ export const MessageDispatcher: MessageDispatcher = {
       return messageHandler.handle(message);
     }
 
-    console.warn(`[Dispatcher] Unhandled message type: ${payload.type}: ${JSON.stringify(message)}`);
+    console.warn(`[Dispatcher] Unhandled message type: ${type}: ${JSON.stringify(message)}`);
   }
 };

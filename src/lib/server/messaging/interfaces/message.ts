@@ -24,6 +24,7 @@ export interface InMessage extends BaseMessage {
 export interface RoutingMessage extends InMessage {
   id: string;
   systemGenerated?: boolean;
+  echoToSender?: boolean;
 }
   
 /**
