@@ -55,6 +55,11 @@ export class WSConnection implements Connection {
       scope: `user:${this.meta.userInfo.id}`
     };
 
+    if(parsed.type === 'ping') {
+      this.send({ type: 'pong' });
+      return;
+    }
+
     const { MessageDispatcher } = await import("../core/dispatcher");
     await MessageDispatcher.dispatch(message);
 

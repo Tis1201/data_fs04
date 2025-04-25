@@ -23,9 +23,6 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
     if (wss !== undefined) {
       wss.on('connection', async (ws: ExtendedWebSocket, request) => {
         // try {
-        ws.socketId = nanoid();
-        logger.debug(`[wss:kit] assigned socket ID: ${ws.socketId}`);
-
         const userInfo = await extractUserInfoFromRequest(request, event);
 
         if ('error' in userInfo) {
@@ -35,7 +32,6 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
         }
 
         const meta = {
-          id: ws.socketId,
           userInfo: userInfo,
           nodeId: 'node-1',
           protocol: 'websocket',
