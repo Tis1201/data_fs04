@@ -1,8 +1,11 @@
 import type { Connection } from '../interfaces/connection';
-import type { SharedStore } from '../interfaces/sharedStore';
 import type { ConnectionMeta } from '../interfaces/connection';
+import { v4 as uuidv4 } from 'uuid';
 
 import { MemorySharedStore } from '../stores/memorySharedStore';
+import { sharedStore } from './sharedStore';
+import { logger } from '$lib/server/logger';
+
 // import { RedisSharedStore } from '../stores/redisSharedStore';
 // import { config } from '$lib/config'; // Optional toggle
 
@@ -11,7 +14,6 @@ import { MemorySharedStore } from '../stores/memorySharedStore';
 //   ? (() => { throw new Error('RedisSharedStore not implemented yet'); })()
 //   : MemorySharedStore;
 
-const store: SharedStore = MemorySharedStore;
 
 type ConnectionId = string;
 type UserId = string;
@@ -21,16 +23,24 @@ class DefaultConnectionManager {
   private userConnections = new Map<UserId, Set<ConnectionId>>();
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
-    const { id, userId } = connection.meta;
+    // Set a UUID in connection.meta if not present
+    if (!('id' in connection.meta)) {
+      (connection.meta as any).id = uuidv4();
+    }
+
+    const { id, userInfo } = connection.meta;
 
     this.liveConnections.set(id, connection);
 
-    const connSet = this.userConnections.get(userId) ?? new Set();
+    const connSet = this.userConnections.get(userInfo.id) ?? new Set();
     connSet.add(id);
-    this.userConnections.set(userId, connSet);
+
+    logger.debug(`[ConnectionManager] Registered connection: ${id} for user: ${userInfo.id}`);
+
+    this.userConnections.set(userInfo.id, connSet);
 
     // Store metadata in the shared store
-    store.setConnection(connection.meta, ttlSeconds);
+    sharedStore.setConnection(connection.meta, ttlSeconds);
   }
 
   unregisterConnection(connId: ConnectionId): void {
@@ -39,16 +49,16 @@ class DefaultConnectionManager {
 
     this.liveConnections.delete(connId);
 
-    const { userId } = connection.meta;
-    const connSet = this.userConnections.get(userId);
+    const { userInfo } = connection.meta;
+    const connSet = this.userConnections.get(userInfo.id);
     if (connSet) {
       connSet.delete(connId);
       if (connSet.size === 0) {
-        this.userConnections.delete(userId);
+        this.userConnections.delete(userInfo.id);
       }
     }
 
-    store.removeConnection(connId);
+    sharedStore.removeConnection(connId);
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {
@@ -80,11 +90,11 @@ class DefaultConnectionManager {
   }
 
   async getConnectionMeta(connId: ConnectionId): Promise<ConnectionMeta | null> {
-    return store.getConnection(connId);
+    return sharedStore.getConnection(connId);
   }
 
   async getAllConnectionMetas(): Promise<ConnectionMeta[]> {
-    return store.getAllConnections();
+    return sharedStore.getAllConnections();
   }
 
   getLiveConnectionCount(): number {

@@ -11,6 +11,8 @@ type WebSocketStatus = 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'RECONNECT
 
 interface WebSocketMessage {
   type: string;
+  scope: string;
+  payload: Record<string, unknown>;
   data?: any;
   content?: string;
   timestamp?: string;
@@ -90,8 +92,8 @@ const createSocketStore = () => {
         reconnectAttempts = 0;
         const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
         set({ status: 'OPEN', error: null, socket: { id: socketId, readyState: socket!.readyState, url }, messages: [] });
-        addMessage({ type: 'system', content: 'Connected to WebSocket server', data: { timestamp: new Date().toISOString(), socketId } });
-        socket!.send(JSON.stringify({ type: 'register', data: { clientType: 'web' } }));
+        // addMessage({ type: 'system', content: 'Connected to WebSocket server', data: { timestamp: new Date().toISOString(), socketId } });
+        // socket!.send(JSON.stringify({ type: 'register', data: { clientType: 'web' } }));
         if (pingInterval) clearInterval(pingInterval);
         pingInterval = setInterval(() => {
           if (socket && socket.readyState === WebSocket.OPEN) {

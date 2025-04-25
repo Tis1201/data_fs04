@@ -1,6 +1,6 @@
 import type { Connection, ConnectionMeta } from '../interfaces/connection';
 import { ConnectionManager } from '../core/connectionManager';
-import type { Message } from '../interfaces/message';
+import type { InMessage } from '../interfaces/message';
 
 export class WSConnection implements Connection {
   meta: ConnectionMeta;
@@ -47,12 +47,13 @@ export class WSConnection implements Connection {
     }
 
     // Compose the full Message object
-    const message: Message = {
-      payload: parsed,
+    const message: InMessage = {
+      type: parsed.type,
+      scope: parsed.scope,
+      payload: parsed.payload,
       userInfo: this.meta.userInfo,
       protocol: this.meta.protocol,
       connectionId: this.meta.id,
-      scope: `user:${this.meta.userInfo.id}`
     };
 
     if(parsed.type === 'ping') {

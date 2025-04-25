@@ -1,12 +1,25 @@
 import type { SharedStore } from '../interfaces/sharedStore';
 import type { ConnectionMeta } from '../interfaces/connection';
 
-const memory = new Map<string, { meta: ConnectionMeta; expiresAt?: number }>();
+const memory = new Map<string, { meta: ConnectionMeta; userId?: string; expiresAt?: number }>();
 
 export const MemorySharedStore: SharedStore = {
+  debugPrint() {
+    console.log('[MemorySharedStore] Dump:');
+    for (const [id, entry] of memory.entries()) {
+      const { meta, userId, expiresAt } = entry;
+      console.log(`  id: ${id}, userId: ${userId}, expiresAt: ${expiresAt ? new Date(expiresAt).toISOString() : 'none'}`);
+    }
+  },
   async setConnection(meta, ttlSeconds) {
     const expiresAt = ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined;
-    memory.set(meta.id, { meta, expiresAt });
+    // Store both the original meta and extract userId for easier querying
+    const entry = { 
+      meta,
+      userId: meta.userInfo?.id,
+      expiresAt 
+    };
+    memory.set(meta.id, entry);
   },
 
   async removeConnection(connId) {
@@ -25,7 +38,7 @@ export const MemorySharedStore: SharedStore = {
 
   async getConnectionsByUser(userId) {
     return Array.from(memory.values())
-      .filter(e => e.meta.userId === userId && (!e.expiresAt || e.expiresAt > Date.now()))
+      .filter(e => e.userId === userId && (!e.expiresAt || e.expiresAt > Date.now()))
       .map(e => e.meta);
   },
 

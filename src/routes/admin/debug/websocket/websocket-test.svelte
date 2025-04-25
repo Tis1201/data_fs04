@@ -30,7 +30,10 @@
 
     function sendMessage() {
         if (messageInput.trim()) {
-            socketStore.send({ type: 'message', content: messageInput });
+            socketStore.send({ 
+                type: 'message', 
+                scope: 'user:self',
+                payload: {content:messageInput} });
             messageInput = '';
         }
     }
