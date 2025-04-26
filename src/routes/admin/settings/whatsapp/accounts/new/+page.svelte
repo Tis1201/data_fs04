@@ -62,18 +62,35 @@
     // Subscribe to the WhatsApp store to update our form state.
     // We update only if the store's clientId matches our form's clientId.
     const unsubscribe = whatsAppStore.subscribe(($store) => {
+      console.log('WhatsApp store update:', { 
+        storeClientId: $store.clientId, 
+        storeQrCode: $store.qrCode ? 'Present' : 'Null',
+        storeConnectionStatus: $store.connectionStatus
+      });
+      
       formState.update(($state) => {
-        if ($store.clientId === $state.clientId) {
-          // Update with new values
-          return {
-            ...$state,
-            connectionStatus: $store.connectionStatus,
-            qrCode: $store.qrCode,
-            pushName: $store.pushName,
-            phoneNumber: $store.phoneNumber,
-          };
-        }
-        return $state;
+        console.log('Form state before update:', { 
+          formClientId: $state.clientId, 
+          formQrCode: $state.qrCode ? 'Present' : 'Null',
+          formConnectionStatus: $state.connectionStatus
+        });
+        
+        // Update regardless of clientId match for debugging
+        const newState = {
+          ...$state,
+          connectionStatus: $store.connectionStatus,
+          qrCode: $store.qrCode,
+          pushName: $store.pushName,
+          phoneNumber: $store.phoneNumber,
+        };
+        
+        console.log('Form state after update:', { 
+          formClientId: newState.clientId, 
+          formQrCode: newState.qrCode ? 'Present' : 'Null',
+          formConnectionStatus: newState.connectionStatus
+        });
+        
+        return newState;
       });
     });
     onDestroy(unsubscribe);

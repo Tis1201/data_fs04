@@ -62,8 +62,8 @@ function createWhatsAppStore() {
                     break;
 
                 case 'connected':
-                    const { clientId: connectedClientId, accountId: connectedAccountId, pushName, phoneNumber } = data;
-                    console.log('Client connected:', connectedClientId, connectedAccountId, data);
+                    const { clientId: connectedClientId, accountId: connectedAccountId, pushName, phoneNumber } = content;
+                    console.log('Client connected:', connectedClientId, connectedAccountId, content);
                     update(state => ({
                         ...state,
                         clientId: connectedClientId,
@@ -76,8 +76,8 @@ function createWhatsAppStore() {
                     break;
 
                 case 'disconnected':
-                    const { clientId: disconnectedClientId, accountId: disconnectedAccountId } = data;
-                    console.log('Client disconnected:', disconnectedClientId, disconnectedAccountId, data);
+                    const { clientId: disconnectedClientId, accountId: disconnectedAccountId } = content;
+                    console.log('Client disconnected:', disconnectedClientId, disconnectedAccountId, content);
                     update(state => ({
                         ...state,
                         clientId: disconnectedClientId,
