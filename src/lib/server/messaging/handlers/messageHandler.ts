@@ -34,7 +34,4 @@ export const messageHandler: Handler = {
 
 
 
-function uuidv4(): string {
-    throw new Error('Function not implemented.');
-}
 

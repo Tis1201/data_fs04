@@ -1,5 +1,7 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
+import type { ClientMessage } from './types/messages';
+
 
 const WS_URL_PATH = '/websocket';
 const BASE_RECONNECT_INTERVAL = 1000;
@@ -169,7 +171,27 @@ const createSocketStore = () => {
   };
 
   // Send a message; if not connected, attempt reconnect and resend.
-  const send = (eventOrMessage: string | WebSocketMessage, data?: any) => {
+  // const send = (eventOrMessage: string | WebSocketMessage, data?: any) => {
+  //   if (!socket || socket.readyState !== WebSocket.OPEN) {
+  //     if (!socket || socket.readyState === WebSocket.CLOSED) {
+  //       connect('');
+  //       setTimeout(() => send(eventOrMessage, data), 1000);
+  //     }
+  //     return;
+  //   }
+  //   const message: WebSocketMessage = typeof eventOrMessage === 'object'
+  //     ? eventOrMessage
+  //     : { type: eventOrMessage, data: data || {}, timestamp: new Date().toISOString() };
+  //   try {
+  //     socket.send(JSON.stringify(message));
+  //     addMessage({ ...message, timestamp: new Date().toISOString() });
+  //   } catch (error) {
+  //     console.error('Send error:', error);
+  //   }
+  // };
+  const send = (eventOrMessage: string | ClientMessage, data?: any) => {
+    console.log('Sending message:', eventOrMessage, data, socket);
+    
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       if (!socket || socket.readyState === WebSocket.CLOSED) {
         connect('');
@@ -177,9 +199,14 @@ const createSocketStore = () => {
       }
       return;
     }
-    const message: WebSocketMessage = typeof eventOrMessage === 'object'
+    const message: ClientMessage = typeof eventOrMessage === 'object'
       ? eventOrMessage
-      : { type: eventOrMessage, data: data || {}, timestamp: new Date().toISOString() };
+      : { 
+          type: eventOrMessage, 
+          scope: 'system',
+          payload: data || {}, 
+          timestamp: new Date().toISOString() 
+        };
     try {
       socket.send(JSON.stringify(message));
       addMessage({ ...message, timestamp: new Date().toISOString() });

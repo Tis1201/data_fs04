@@ -9,6 +9,8 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import { socketStore } from "$lib/stores/websocket-store";
+    import { type ClientMessage, createClientMessage, type MessageScope } from "$lib/types/messages";
     
     // Props for the form component
     export let form;
@@ -19,13 +21,16 @@
     export let errorMessage;
     
     // Event dispatcher for navigation
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     const dispatch = createEventDispatcher();
     
     // Function to go back to the previous step
     function goBack() {
         dispatch('goBack');
     }
+
+
+
 </script>
 
 <!-- Step 2: Account Details -->

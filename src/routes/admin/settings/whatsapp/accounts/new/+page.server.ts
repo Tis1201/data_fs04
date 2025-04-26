@@ -29,15 +29,16 @@ export const load = restrict(
             // Pass the user ID to createClient so it knows who created this client
             // Add a small delay to ensure the page and WebSocket connection are ready
             // await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
-            const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(user_id);
+            // const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(user_id);
 
-            logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
+            // logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
             
-            console.log(`Created WhatsApp client with ID ${clientId} during page load`);
+            // console.log(`Created WhatsApp client with ID ${clientId} during page load`);
                   
             return { 
-                form,
-                clientId
+                form, 
+                clientId: null
+                // clientId
             };
         } catch (error) {
             console.error('Error creating WhatsApp client during page load:', error);

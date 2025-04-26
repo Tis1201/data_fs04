@@ -37,17 +37,20 @@ function createWhatsAppStore() {
 
     if (browser) {
         socketStore.on('whatsapp', (message: any) => {
-            const { type, action, data } = message.message || {};
-            console.log(`Received message: ${type}, ${action}, ${data?.clientId}`, message.message);
 
-            if (!data) {
+            console.log('Received message:', message);
+
+            const {action, content} = message.payload || {};
+            console.log(`Received message: ${action}, ${content?.clientId}`, message.message);
+
+            if (!content) {
                 console.log('Message data is missing:', message);
                 return;
             }
 
             switch (action) {
                 case 'qrCode':
-                    const { qrCode, clientId, accountId } = data;
+                    const { qrCode, clientId, accountId } = content;
                     console.log('QR code received:', qrCode, clientId, accountId);
                     update(state => ({
                         ...state,

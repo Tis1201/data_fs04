@@ -4,6 +4,7 @@ import type { InMessage } from "../interfaces/message";
 // import { TerminalHandler } from '../handlers/terminalHandler';
 // import { WebhookHandler } from '../handlers/webhookHandler';
 import { messageHandler } from '../handlers/messageHandler';
+import { whatsappHandler } from "../handlers/whatsappHandler";
 
 export interface MessageDispatcher {
   dispatch(message: InMessage): Promise<void>;
@@ -28,6 +29,10 @@ export const MessageDispatcher: MessageDispatcher = {
 
     if (type === 'message') {
       return messageHandler.handle(message);
+    }
+
+    if ( type === 'whatsapp') {
+      return whatsappHandler.handle(message);
     }
 
     console.warn(`[Dispatcher] Unhandled message type: ${type}: ${JSON.stringify(message)}`);

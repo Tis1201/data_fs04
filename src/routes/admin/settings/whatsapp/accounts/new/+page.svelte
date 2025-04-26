@@ -16,10 +16,12 @@
     import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
     import type { PageData } from "./$types";
     import { writable } from "svelte/store";
-    import { onDestroy } from "svelte";
+    import { onDestroy, onMount } from "svelte";
   
     // Import the reusable form handler
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+    import { createClientMessage, type ClientMessage } from "$lib/types/messages";
+    import { socketStore } from "$lib/stores/websocket-store";
   
     export let data: PageData;
     const title = "Create WhatsApp Account";
@@ -158,37 +160,37 @@
     });
   
     // Request a new WhatsApp client (which triggers a QR code event).
-    async function requestNewQRCode() {
-      console.log("Requesting new WhatsApp client");
-      whatsAppStore.reset();
-      const toastId = toast.loading("Creating new WhatsApp client...");
+    // async function requestNewQRCode() {
+    //   console.log("Requesting new WhatsApp client");
+    //   whatsAppStore.reset();
+    //   const toastId = toast.loading("Creating new WhatsApp client...");
   
-      try {
-        const response = await fetch("?/requestQRCode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        const result = await response.json();
+    //   try {
+    //     const response = await fetch("?/requestQRCode", {
+    //       method: "POST",
+    //       headers: { "Content-Type": "application/json" },
+    //     });
+    //     const result = await response.json();
   
-        if (result.success && result.clientId) {
-          formState.update((state) => ({
-            ...state,
-            clientId: result.clientId,
-            connectionStatus: "disconnected",
-            qrCode: null,
-          }));
-          toast.dismiss(toastId);
-          toast.success("New WhatsApp client created. Waiting for QR code...");
-        } else {
-          toast.dismiss(toastId);
-          toast.error("Failed to create new WhatsApp client");
-        }
-      } catch (error) {
-        console.error("Error creating new WhatsApp client:", error);
-        toast.dismiss(toastId);
-        toast.error("Error creating new WhatsApp client");
-      }
-    }
+    //     if (result.success && result.clientId) {
+    //       formState.update((state) => ({
+    //         ...state,
+    //         clientId: result.clientId,
+    //         connectionStatus: "disconnected",
+    //         qrCode: null,
+    //       }));
+    //       toast.dismiss(toastId);
+    //       toast.success("New WhatsApp client created. Waiting for QR code...");
+    //     } else {
+    //       toast.dismiss(toastId);
+    //       toast.error("Failed to create new WhatsApp client");
+    //     }
+    //   } catch (error) {
+    //     console.error("Error creating new WhatsApp client:", error);
+    //     toast.dismiss(toastId);
+    //     toast.error("Error creating new WhatsApp client");
+    //   }
+    // }
   
     // Handle error events from WhatsApp (if any).
     function handleError(event: CustomEvent) {
@@ -254,6 +256,25 @@
           return "bg-red-50 border border-red-200";
       }
     }
+
+    // Function to request a new QR code
+    function requestNewQRCode() {
+        const message: ClientMessage = createClientMessage(
+            'whatsapp',
+            'user:self',
+            {
+                action: 'request_qr'
+            }
+        );
+
+        console.log('Sending message:', message)
+        
+        socketStore.send(message);
+    }
+
+    onMount(() => {
+        requestNewQRCode();
+    });
   </script>
   
   <PageContainer crumbs={pageCrumbs}>
