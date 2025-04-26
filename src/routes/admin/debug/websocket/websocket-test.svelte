@@ -30,7 +30,10 @@
 
     function sendMessage() {
         if (messageInput.trim()) {
-            socketStore.send({ type: 'message', content: messageInput });
+            socketStore.send({ 
+                type: 'message', 
+                scope: 'user:self',
+                payload: {content:messageInput} });
             messageInput = '';
         }
     }
@@ -190,49 +193,8 @@
                                         <Badge variant="outline">{message.data.authMethod}</Badge>
                                     {/if}
                                 </div>
-                                {#if message.type === 'echo'}
-                                    <div class="text-sm font-medium">{message.data?.content || 'No content'}</div>
-                                {:else if message.content}
-                                    <div class="text-sm font-medium">{message.content}</div>
-                                {/if}
-                                {#if message.data?.message}
-                                    <div class="text-sm">
-                                        <Collapsible.Root class="w-full space-y-2">
-                                            <div class="flex items-center justify-between px-2">
-                                                <div class="flex items-center gap-2">
-                                                    <h4 class="text-sm font-medium">Message data</h4>
-                                                    {#if message.data?.message?.action}
-                                                        <span class="text-xs text-muted-foreground">({message.data.message.action})</span>
-                                                    {/if}
-                                                </div>
-                                                <Collapsible.Trigger asChild let:builder>
-                                                    <Button builders={[builder]} variant="ghost" size="sm" class="w-9 p-0">
-                                                        <ChevronsUpDown class="h-4 w-4" />
-                                                        <span class="sr-only">Toggle message data</span>
-                                                    </Button>
-                                                </Collapsible.Trigger>
-                                            </div>
-                                            <Collapsible.Content class="space-y-2">
-                                                <Card class="mt-2">
-                                                    <CardHeader class="flex flex-row items-center justify-between pb-2 space-y-0">
-                                                        <CardTitle class="text-sm font-medium">JSON Data</CardTitle>
-                                                    </CardHeader>
-                                                    <CardContent class="p-0">
-                                                        <div class="bg-muted rounded-md p-3">
-                                                            <CodeBlock 
-                                                                code={JSON.stringify(message.data.message, null, 2).trim()}
-                                                                language="json"
-                                                                className="text-sm"
-                                                                wrapWords={true}
-                                                                showLineNumbers={true}
-                                                            />
-                                                        </div>
-                                                    </CardContent>
-                                                </Card>
-                                            </Collapsible.Content>
-                                        </Collapsible.Root>
-                                    </div>
-                                {/if}
+                                {JSON.stringify(message)}
+                                
                                 {#if message.data?.originalMessage}
                                     <div class="text-sm font-mono text-muted-foreground mt-1">
                                         {message.data.originalMessage}

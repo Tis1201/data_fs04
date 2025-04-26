@@ -103,6 +103,20 @@ MIT License 2025 Your Company
 
 ### Core Architecture
 
+### Messaging Core Components
+
+| Component            | Role                                                                                   |
+|---------------------|----------------------------------------------------------------------------------------|
+| **Connection**         | Unified interface to send (or receive) messages via WS, SSE, Pushpin, etc.             |
+| **ConnectionManager**  | Tracks connections and dispatches payloads to Connection.send()                        |
+| **SharedStore**        | Central source of truth: who is connected where, with TTL and metadata                 |
+| **Router**             | Resolves a scope (like room:abc123) to all relevant connection IDs                     |
+| **ScopeAuthorizer**    | Enforces who is allowed to publish to what scope                                       |
+| **Publisher**          | High-level message send function that routes → authorizes → dispatches                 |
+| **MessageDispatcher**  | Handles incoming messages and routes to message-specific handlers                      |
+| **MessageHandlers**    | Modular logic per message type (chat, webrtc, notify, webhook)                        |
+
+
 ### Server Context and Data Access
 
 The application uses `locals` to store request-scoped data and services:
