@@ -32,7 +32,7 @@ class DefaultConnectionManager {
     this.userConnections.set(userInfo.id, connSet);
 
     // Store metadata in the shared store
-    connectionSharedStore.set(connection.meta.id,connection.meta, ttlSeconds);
+    connectionSharedStore.addMember(connection.meta.id,connection.meta);
   }
 
   unregisterConnection(connId: ConnectionId): void {
@@ -82,11 +82,11 @@ class DefaultConnectionManager {
   }
 
   async getConnectionMeta(connId: ConnectionId): Promise<ConnectionMeta | null> {
-    return connectionSharedStore.get(connId);
+    return connectionSharedStore.getSingle(connId);
   }
 
   async getAllConnectionMetas(): Promise<ConnectionMeta[]> {
-    return connectionSharedStore.getAll();
+    return connectionSharedStore.getAllMembers();
   }
 
   getLiveConnectionCount(): number {
@@ -95,7 +95,7 @@ class DefaultConnectionManager {
 
   async getConnectionsByUser(userId: string): Promise<ConnectionMeta[]> {
     // Use your connectionSharedStore here
-    return connectionSharedStore.getAll().then(metas =>
+    return connectionSharedStore.getAllMembers().then(metas =>
       metas.filter(meta => meta.userInfo?.id === userId)
     );
   }

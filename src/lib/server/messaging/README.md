@@ -4,6 +4,34 @@ This directory implements the secure, extensible, and type-safe real-time messag
 
 ---
 
+## Store Design Decisions
+
+### Set-Based Storage Pattern
+- All shared stores use a `Map<string, Set<T>>` pattern, where each key can map to multiple members.
+- This design supports efficient one-to-many relationships (e.g., subscriptions, connections) and prevents accidental overwrites.
+
+### Unified API for In-Memory and Redis
+- The `SharedStore<T>` interface is designed to be compatible with both in-memory and Redis Set operations.
+- Methods include:
+  - `set(id, members)`: Overwrite the set for a key.
+  - `addMember(id, member)`: Add a member to a set.
+  - `removeMember(id, member)`: Remove a member from a set.
+  - `getMembers(id)`: Get all members for a key.
+  - `getSingle(id)`: Get a single member for a key.
+  - `getAllMembers()`: Retrieve all members across all keys.
+  - `count()`: Total number of members across all keys.
+  - `remove(id)`: Remove the entire set for a key.
+
+### Extensible for TTL and Metadata
+- The API includes a `ttlSeconds` parameter for future compatibility with Redis TTL, even though it is ignored in the in-memory implementation.
+
+### Rationale
+- This approach makes it easy to migrate to Redis or other distributed stores in the future.
+- It is robust for multi-subscriber and multi-connection scenarios.
+- The API is simple, predictable, and avoids ambiguity between single and multiple member operations.
+
+---
+
 ## Message State Model
 
 The message pipeline is built on **three clearly separated message types**:
