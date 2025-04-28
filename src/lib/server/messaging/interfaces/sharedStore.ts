@@ -1,13 +1,8 @@
-import type { ConnectionMeta } from './connection';
-
-export interface SharedStore {
+export interface SharedStore<T> {
+  set(id: string, obj: T, ttlSeconds?: number): Promise<void>;
+  get(id: string): Promise<T | null>;
+  remove(id: string): Promise<void>;
+  getAll(): Promise<T[]>;
+  count(): Promise<number>;
   debugPrint?(): void;
-  setConnection(meta: ConnectionMeta, ttlSeconds?: number): Promise<void>;
-  removeConnection(connId: string): Promise<void>;
-
-  getConnection(connId: string): Promise<ConnectionMeta | null>;
-  getConnectionsByUser(userId: string): Promise<ConnectionMeta[]>;
-
-  getAllConnections(): Promise<ConnectionMeta[]>;
-  getConnectionCount(): Promise<number>;
 }

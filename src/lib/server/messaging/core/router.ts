@@ -1,8 +1,8 @@
 import type { Router } from '../interfaces/router';
 import { ConnectionManager } from './connectionManager';
-import { sharedStore } from './sharedStore'; // or use config-switchable
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
+import { connectionSharedStore } from './stores/connectionSharedStore';
 
 export const router: Router = {
   async resolve(senderInfo:UserInfo, scope: string): Promise<string[]> {
@@ -23,11 +23,11 @@ export const router: Router = {
 
         if(targeted_user_id === 'self') targeted_user_id = senderInfo?.id;
 
-        const connections = await sharedStore.getConnectionsByUser(targeted_user_id);
+        const connections = await ConnectionManager.getConnectionsByUser(targeted_user_id);
 
         logger.debug(`[Router] Found ${connections.length} connections for user: ${id}`);
 
-        sharedStore.debugPrint?.();
+        connectionSharedStore.debugPrint?.();
 
         return (connections.map(c => c.id));
 
