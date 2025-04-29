@@ -53,6 +53,18 @@ This directory contains all server-side and client-side logic for WhatsApp integ
 
 ---
 
+## Changelog
+
+### 2025-04-29
+- **Session Error Handling:**
+  - Added robust error handling for WhatsApp session errors (e.g., 'No open session') to prevent server crashes and log issues instead of terminating the process.
+- **System/Protocol Message Filtering:**
+  - Updated `WhatsAppAccountClient.handleMessages` to filter out system-level and protocol messages (such as key exchanges, ephemeral, and protocol messages). These are no longer emitted as routing messages or sent to subscribers, but are still processed for authentication state and media download as needed.
+- **Routing Logic Improvements:**
+  - Only user-facing messages (text, media, etc.) are routed to subscribers. System messages are logged and skipped for routing, reducing noise and preventing 'Unknown message action' warnings.
+- **Encapsulation:**
+  - Utility functions for WhatsApp account state are now encapsulated within the `WhatsAppAccountClient` class as private methods, improving maintainability.
+
 ## Best Practices
 - Use ZenStack for all sensitive data access and mutations.
 - Authenticate all requests.
