@@ -17,6 +17,7 @@ import { MessageFactory, type InMessage, type RoutingMessage } from '../messagin
 import type { UserInfo } from '../types/user';
 import { userInfoByApiKey, userInfoByUserId } from '../security/auth-utils';
 import { publisher } from '../messaging/core/publisher';
+import { ConnectionProtocol } from '../messaging/interfaces/connection';
 
 // Default directories for authentication and media storage
 export const DEFAULT_AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
@@ -114,40 +115,37 @@ function handleConnectionSuccess(client: any, logger: any, clientId: string, use
             }
         }
         logger.info(`Connected as ${client.pushName} (${client.socket.user.id})`);
-        // client.emit('connected', {
-        //     id: client.socket.user.id,
-        //     name: client.pushName,
-        //     phoneNumber: client.phoneNumber
-        // });
-
-        if (!userInfo) throw new Error("userInfo is required to construct InMessage");
-
-
-        const qrMessage: InMessage = {
-            type: 'whatsapp',
-            scope: `subscription:whatsapp:${clientId}`,
-            protocol: '',
-            connectionId: '',
-            userInfo: userInfo,
-            payload: {
-                action: 'connected',
-                content: {
-                    clientId: clientId,
-                    pushName: client.pushName, // Keep pushName for backward compatibility
-                    displayName: client.pushName, // Add standardized displayName
-                    phoneNumber: client.phoneNumber
+        
+        // Emit the connected event via EventEmitter for manager to listen
+        client.emit('connected');
+        
+        // Send the connected notification via RoutingMessage
+        if (userInfo) {
+            const connectionMessage: InMessage = {
+                type: 'whatsapp',
+                scope: `subscription:whatsapp:${clientId}`,
+                protocol: "",
+                connectionId: "",
+                userInfo: userInfo,
+                payload: {
+                    action: 'connected',
+                    content: {
+                        clientId: clientId,
+                        pushName: client.pushName,
+                        displayName: client.pushName,
+                        phoneNumber: client.phoneNumber
+                    }
                 }
-            }
-        };
+            };
 
-        // Create routing message with overrides
-        const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
-            systemGenerated: true,
-            echoToSender: true
-        });
+            // Create routing message with overrides
+            const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(connectionMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
 
-        publisher.publish(routingMessage);
-
+            publisher.publish(routingMessage);
+        }
 
         updateState(client, WhatsAppClientState.Connected, logger);
     }
@@ -187,19 +185,49 @@ function handleDisconnection(client: any, lastDisconnect: any, logger: any): voi
             }
             return; // Do not proceed further for a restart-required error
         }
+        
         logger.error(`Client ${client.id} disconnected with error: ${error}`);
         client.emit('error', error);
+        client.emit('disconnected');
 
-        // Attempt reconnection if allowed.
+        // Send disconnection notification via RoutingMessage if userInfo is available
+        if (client.userInfo) {
+            const disconnectMessage: InMessage = {
+                type: 'whatsapp',
+                scope: `subscription:whatsapp:${client.id}`,
+                protocol: "",
+                connectionId: "",
+                userInfo: client.userInfo,
+                payload: {
+                    action: 'disconnected',
+                    content: {
+                        clientId: client.id,
+                        error: error ? JSON.stringify(error) : null
+                    }
+                }
+            };
+
+            // Create routing message with overrides
+            const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(disconnectMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+
+            publisher.publish(routingMessage);
+        }
+
+        // Attempt reconnection if allowed
         if (client.autoReconnect && client.reconnectCount < client.maxReconnectAttempts) {
             client.reconnectCount++;
             logger.info(`Reconnecting in ${client.reconnectDelay}ms (attempt ${client.reconnectCount}/${client.maxReconnectAttempts})...`);
             setTimeout(() => client.connect(), client.reconnectDelay);
         }
+        
         updateState(client, WhatsAppClientState.Disconnected, logger);
     } catch (err) {
         logger.error(`Error in handleDisconnection for client ${client.id}:`, err);
         updateState(client, WhatsAppClientState.Disconnected, logger);
+        client.emit('disconnected');
     }
 }
 
@@ -356,40 +384,45 @@ export class WhatsAppAccountClient extends EventEmitter {
         logger.debug(`Connection update for client ${this.id}: ${JSON.stringify(update)}`);
 
         if (qr) {
-            // Store and emit the new QR code.
+            // Store and emit the new QR code
             this.qrCode = qr;
             this.qrCodeTimestamp = Date.now();
             updateState(this, WhatsAppClientState.AwaitingScan, logger);
+            
+            // Emit QR code via EventEmitter for manager to listen
             this.emit('qr', qr);
+            
             this.setupQrCodeRefreshTimer();
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
 
-            if (!this.userInfo) {
-                throw new Error("userInfo is required to send QR message");
-            }
-
-            const qrMessage: InMessage = {
-                type: 'whatsapp',
-                scope: `subscription:whatsapp:${this.id}`,
-                protocol: '',
-                connectionId: '',
-                userInfo: this.userInfo,
-                payload: {
-                    action: 'qrCode',
-                    content: {
-                        qrCode: qr,
-                        clientId: this.id
+            // Send QR code via RoutingMessage if userInfo is available
+            if (this.userInfo) {
+                const qrMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: '',
+                    connectionId: '',
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'qrCode',
+                        content: {
+                            qrCode: qr,
+                            clientId: this.id,
+                            accountId: this.accountId
+                        }
                     }
-                }
-            };
+                };
 
-            // Create routing message with overrides
-            const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
-                systemGenerated: true,
-                echoToSender: true
-            });
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+                    systemGenerated: true,
+                    echoToSender: true
+                });
 
-            publisher.publish(routingMessage);
+                publisher.publish(routingMessage);
+            } else {
+                logger.warn(`Cannot send QR code via RoutingMessage: userInfo not available for client ${this.id}`);
+            }
         }
 
         if (connection) {
@@ -430,56 +463,87 @@ export class WhatsAppAccountClient extends EventEmitter {
                 remoteJid: message.key?.remoteJid,
                 type: Object.keys(message.message || {})[0]
             });
-            logger.debug(`Message details: ${stringify(message)}`);
-
+            
             const msgContent = message.message;
             if (!msgContent) continue;
 
+            // Emit message via EventEmitter for manager to listen
+            this.emit('message', message);
+            
+            // Process media messages
             const mediaType = Object.keys(msgContent)[0];
             const mediaMsg = msgContent[mediaType];
             const isMediaType = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'].includes(mediaType);
-            if (!isMediaType || !mediaMsg?.url || !mediaMsg?.mediaKey) {
-                this.emit('message', message); // Emit non-media messages directly.
-                continue;
-            }
+            let mediaPath = null;
+            
+            if (isMediaType && mediaMsg?.url && mediaMsg?.mediaKey) {
+                try {
+                    ensureDirectoryExists(this.mediaDir);
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const extension = mediaMsg.mimetype?.split('/')[1] || 'bin';
+                    const filename = `${mediaType}_${message.key.id}_${timestamp}.${extension}`;
+                    const filepath = path.join(this.mediaDir, filename);
 
-            try {
-                ensureDirectoryExists(this.mediaDir);
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const extension = mediaMsg.mimetype?.split('/')[1] || 'bin';
-                const filename = `${mediaType}_${message.key.id}_${timestamp}.${extension}`;
-                const filepath = path.join(this.mediaDir, filename);
+                    // Download the media and save it
+                    const buffer = await downloadMediaMessage(
+                        message,
+                        'buffer',
+                        {},
+                        {
+                            logger: this.logger_x,
+                            reuploadRequest: this.socket.updateMediaMessage
+                        }
+                    );
+                    fs.writeFileSync(filepath, buffer);
+                    logger.info(`📥 Downloaded ${mediaType} to ${filepath}`);
+                    mediaPath = filepath;
 
-                // Download the media and save it.
-                const buffer = await downloadMediaMessage(
-                    message,
-                    'buffer',
-                    {},
-                    {
-                        logger: this.logger_x,
-                        reuploadRequest: this.socket.updateMediaMessage
+                    // Save thumbnail if available
+                    if (mediaMsg.jpegThumbnail) {
+                        const thumbPath = path.join(this.mediaDir, `thumb_${filename}.jpg`);
+                        const thumbBuffer = Buffer.from(mediaMsg.jpegThumbnail, 'base64');
+                        fs.writeFileSync(thumbPath, thumbBuffer);
+                        logger.info(`🖼️ Saved thumbnail to ${thumbPath}`);
                     }
-                );
-                fs.writeFileSync(filepath, buffer);
-                logger.info(`📥 Downloaded ${mediaType} to ${filepath}`);
 
-                // Save thumbnail if available.
-                if (mediaMsg.jpegThumbnail) {
-                    const thumbPath = path.join(this.mediaDir, `thumb_${filename}.jpg`);
-                    const thumbBuffer = Buffer.from(mediaMsg.jpegThumbnail, 'base64');
-                    fs.writeFileSync(thumbPath, thumbBuffer);
-                    logger.info(`🖼️ Saved thumbnail to ${thumbPath}`);
+                    // Emit media event with file path
+                    this.emit('media', {
+                        message,
+                        mediaPath: filepath
+                    });
+                } catch (err) {
+                    logger.error(`❌ Error downloading media: ${err}`);
                 }
-
-                // Emit media event with file path.
-                this.emit('media', {
-                    message,
-                    mediaPath: filepath
-                });
-            } catch (err) {
-                logger.error(`❌ Error downloading media: ${err}`);
             }
-            this.emit('message', message); // Always emit original message.
+            
+            // Send message via RoutingMessage if userInfo is available
+            if (this.userInfo) {
+                const messagePayload: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: '',
+                    connectionId: '',
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'message',
+                        content: {
+                            clientId: this.id,
+                            message: message,
+                            mediaPath: mediaPath
+                        }
+                    }
+                };
+
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(messagePayload, {
+                    systemGenerated: true,
+                    echoToSender: false
+                });
+
+                publisher.publish(routingMessage);
+            } else {
+                logger.warn(`Cannot send message via RoutingMessage: userInfo not available for client ${this.id}`);
+            }
         }
     }
 
@@ -580,10 +644,41 @@ export class WhatsAppAccountClient extends EventEmitter {
             await this.socket.end();
             updateState(this, WhatsAppClientState.Disconnected, logger);
             logger.info(`Client ${this.id} disconnected successfully`);
+            
+            // Emit disconnected event via EventEmitter for manager to listen
+            this.emit('disconnected');
+            
+            // Send disconnection notification via RoutingMessage if userInfo is available
+            if (this.userInfo) {
+                const disconnectMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: "",
+                    connectionId: "",
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'disconnected',
+                        content: {
+                            clientId: this.id,
+                            reason: 'manual_disconnect'
+                        }
+                    }
+                };
+
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(disconnectMessage, {
+                    systemGenerated: true,
+                    echoToSender: true
+                });
+
+                publisher.publish(routingMessage);
+            }
+            
             return true;
         } catch (error) {
             logger.error(`Error disconnecting client ${this.id}: ${error}`);
             this.emit('error', error);
+            this.emit('disconnected');
             return false;
         }
     }
