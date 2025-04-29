@@ -335,21 +335,41 @@ export class WhatsAppAccountClient extends EventEmitter {
 
             for (const message of messages) {
                 try {
+                    const msgContent = message.message;
+                    if (!msgContent) continue;
+                    
+                    const messageType = Object.keys(msgContent)[0];
+                    
                     logger.debug(`Processing message ${messages.indexOf(message) + 1} of ${messages.length}:`, {
                         id: message.key?.id,
                         fromMe: message.key?.fromMe,
                         remoteJid: message.key?.remoteJid,
-                        type: Object.keys(message.message || {})[0]
+                        type: messageType
                     });
                     
-                    const msgContent = message.message;
-                    if (!msgContent) continue;
-
-                    // Emit message via EventEmitter for manager to listen
-                    this.emit('message', message);
+                    // Skip system messages, key exchanges, and protocol messages when emitting
+                    // but still process them for other purposes (like media download)
+                    const systemMessageTypes = [
+                        'senderKeyDistributionMessage',
+                        'protocolMessage',
+                        'ephemeralMessage',
+                        'viewOnceMessage',
+                        'reactionMessage',
+                        'pollUpdateMessage',
+                        'pollCreationMessage',
+                        'scheduledCallCreationMessage'
+                    ];
+                    
+                    // Only emit actual user messages, not system messages
+                    if (!systemMessageTypes.includes(messageType)) {
+                        // Emit message via EventEmitter for manager to listen
+                        this.emit('message', message);
+                    } else {
+                        logger.debug(`Skipping emission of system message type: ${messageType}`);
+                    }
                     
                     // Process media messages
-                    const mediaType = Object.keys(msgContent)[0];
+                    const mediaType = messageType;
                     const mediaMsg = msgContent[mediaType];
                     const isMediaType = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'].includes(mediaType);
                     let mediaPath = null;
@@ -403,8 +423,8 @@ export class WhatsAppAccountClient extends EventEmitter {
                         }
                     }
                     
-                    // Send message via RoutingMessage if userInfo is available
-                    if (this.userInfo) {
+                    // Send message via RoutingMessage if userInfo is available and it's not a system message
+                    if (this.userInfo && !systemMessageTypes.includes(messageType)) {
                         try {
                             const messagePayload: InMessage = {
                                 type: 'whatsapp',
