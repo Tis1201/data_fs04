@@ -1,43 +1,69 @@
 # WhatsApp Integration - FS04 Web
 
-This directory contains the server-side and client-side logic for WhatsApp integration in the FS04 Web project.
+This directory contains all server-side and client-side logic for WhatsApp integration in the FS04 Web project.
 
-## Structure
+---
 
-- **WhatsAppAccountManager.ts**: Manages WhatsApp client instances, session restoration, and QR code generation.
-- **WhatsAppAccountClient.ts**: Represents a single WhatsApp account connection, handles connection state, QR code events, and messaging.
-- **whatsappHandler.ts**: Handles incoming WebSocket messages for WhatsApp actions (e.g., QR code requests, message relaying).
-- **useZenstackAuthState.ts**: (See below)
+## Implementation Summary
 
-## How It Works
+- **Architecture:**
+  - Built on SvelteKit (UI/backend), ZenStack (secure DB access), Baileys (WhatsApp Web API), and a modular messaging library for all real-time features.
+  - WhatsApp onboarding, QR code, and account management flows are handled using SuperForms, shadcn-svelte, and Svelte stores for state.
 
-1. **Client requests QR code**: The web UI sends a `request_qr` action via WebSocket.
-2. **Server creates client**: `WhatsAppAccountManager` creates a new WhatsApp client and emits a QR code event.
-3. **QR code relayed to UI**: The QR code is sent back to the client and rendered as a QR image for WhatsApp pairing.
-4. **Connection status**: The UI updates based on connection/authentication state changes received via WebSocket.
+- **Key Modules:**
+  - `WhatsAppAccountManager.ts`: Manages WhatsApp client instances, sessions, and QR code generation.
+  - `WhatsAppAccountClient.ts`: Represents a single WhatsApp connection, manages state and events.
+  - `whatsappHandler.ts`: Implements a messaging handler for WhatsApp actions via WebSocket.
 
-## Technologies Used
-- [Baileys](https://github.com/WhiskeySockets/Baileys) for WhatsApp Web API
-- SvelteKit for UI
-- ZenStack for secure, declarative data access
-- WebSockets for real-time updates
+- **Onboarding Flow:**
+  1. Admin UI requests QR code via WebSocket.
+  2. Server creates WhatsApp client, emits QR event.
+  3. UI displays QR for user to pair device.
+  4. Connection/auth state is relayed live to UI.
+  5. On pairing, SuperForm submits WhatsApp account details to the backend.
+  6. All validation (including UUID and Zod) is handled both client and server side.
+  7. State is managed centrally in a Svelte store.
 
-## Security Notes
-- All authentication/session files are stored server-side (see `authDir` in `WhatsAppAccountManager`).
-- Only authenticated users can request a WhatsApp connection.
-- Use ZenStack for all sensitive data access and mutations.
+- **Security & Best Practices:**
+  - All DB access and mutations use ZenStack (never raw Prisma).
+  - Session/auth files are server-side only.
+  - All WebSocket and HTTP actions are authenticated.
+  - Remove dead code/utilities if not referenced.
+  - Error messages are clear, actionable, and logged.
+  - UI uses skeleton loaders for non-jumpy feedback.
+
+---
+
+## Relationship to the Messaging Library
+
+- The messaging library provides the backbone for all real-time communication (WebSocket, event routing, authorization).
+- WhatsApp integration is implemented as a **specialized handler** (`WhatsAppHandler`) in this library.
+- The flow:
+  1. UI sends a message (e.g. `{ type: 'whatsapp', action: 'request_qr', ... }`) via WebSocket.
+  2. The messaging dispatcher routes it to `WhatsAppHandler`.
+  3. The handler processes the action (QR, message, status, etc.) and publishes responses/events back to the correct clients.
+- This ensures all WhatsApp features benefit from the same security, routing, and extensibility as the rest of the platform.
+
+---
 
 ## Troubleshooting
 - If QR code does not appear, check browser console and server logs for errors.
 - Ensure the WebSocket connection is established and not blocked by firewalls.
 - If session issues persist, clear the `whatsapp-auth` directory and restart the server.
 
+---
+
+## Best Practices
+- Use ZenStack for all sensitive data access and mutations.
+- Authenticate all requests.
+- Use a single source of truth for WhatsApp state (Svelte store).
+- Keep business logic in page/server, UI logic in presentational components.
+- Server actions must always return `{ form }` (and `{ form, account }` on success) for SuperForms.
+- Remove unused code/utilities.
+- Use skeleton loaders for loading states.
+- Prefix debug logs for easier tracing.
+
+---
+
 ## About `useZenstackAuthState.ts`
-This file appears to be a utility for integrating ZenStack authentication state with WhatsApp sessions. 
-
-**Is it needed?**
-- If you are not using ZenStack's advanced multi-user/session security features for WhatsApp, and there are no direct imports/usages in the WhatsApp account manager/client, you can safely remove it.
-- If you use ZenStack for per-user data isolation or session-based access control in WhatsApp flows, keep it.
-
-**Recommendation:**
-I will check for references/usages of this file in the codebase to confirm if it is safe to delete.
+This file is a utility for integrating ZenStack authentication state with WhatsApp sessions. If not referenced in the WhatsApp manager or client, it can be safely removed.
