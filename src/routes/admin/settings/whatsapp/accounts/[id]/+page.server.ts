@@ -4,7 +4,8 @@ import { whatsappAccountSchema, createForm } from './schema';
 import { superValidate } from 'sveltekit-superforms/server';
 import { restrict } from '$lib/server/security/guards';
 import { zod } from 'sveltekit-superforms/adapters';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '../../../../users/schema';
+// import { SystemRole } from '$lib/server/users/schema'
 
 /**
  * Load WhatsApp account data for viewing/editing

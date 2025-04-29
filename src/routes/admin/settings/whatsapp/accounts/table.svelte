@@ -60,7 +60,7 @@
                 component: NameWithIdLink,
                 props: {
                     record,
-                    baseUrl: "/admin/whatsapp/accounts",
+                    baseUrl: "/admin/settings/whatsapp/accounts",
                     idField: "id",
                     nameField: "name"
                 }
@@ -105,7 +105,7 @@
                     {
                         label: "Edit",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/whatsapp/accounts/${record.id}`)
+                        onClick: () => goto(`/admin/settings/whatsapp/accounts/${record.id}`)
                     },
                     {
                         label: "Delete",
@@ -115,7 +115,7 @@
                     {
                         label: "Send Message",
                         icon: MessageSquare,
-                        onClick: () => goto(`/admin/whatsapp/accounts/${record.id}/messages`)
+                        onClick: () => goto(`/admin/settings/whatsapp/accounts/${record.id}/messages`)
                     }
                 ];
                 

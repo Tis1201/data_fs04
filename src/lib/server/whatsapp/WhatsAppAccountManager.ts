@@ -127,8 +127,25 @@ export class WhatsAppAccountManager extends EventEmitter {
   /****************************
    * Client Retrieval Methods *
    ****************************/
-  public getClient(clientId: string): WhatsAppAccountClient | undefined {
-    return this.clients.get(clientId);
+  public getClient(id: string): WhatsAppAccountClient | null {
+    return this.clients.get(id) || null;
+  }
+
+  /**
+   * Get all clients created by a specific user.
+   * @param userId The user ID.
+   * @returns Array of client instances created by the user.
+   */
+  getClientsByUserId(userId: string): WhatsAppAccountClient[] {
+    const userClients: WhatsAppAccountClient[] = [];
+    
+    for (const client of this.clients.values()) {
+      if (client.getCreatedBy() === userId) {
+        userClients.push(client);
+      }
+    }
+    
+    return userClients;
   }
 
   public getAllClients(): WhatsAppAccountClient[] {

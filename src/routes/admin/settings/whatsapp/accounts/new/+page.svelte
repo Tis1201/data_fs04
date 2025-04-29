@@ -64,15 +64,24 @@
     function updateFormFromStore($store) {
       if (!$store) return;
       
+      // Validate client ID - it should be a UUID format, not a phone number format
+      const clientId = $store.clientId || "";
+      const isValidClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId);
+      
       console.log('[WHATSAPP_FORM] Updating form with values:', {
         displayName: $store.displayName,
         phoneNumber: $store.phoneNumber,
-        clientId: $store.clientId
+        clientId: clientId,
+        isValidClientId: isValidClientId
       });
+      
+      if (!isValidClientId) {
+        console.warn('[WHATSAPP_FORM] Invalid client ID format:', clientId);
+      }
       
       $form.name = $store.displayName || "Unknown";
       $form.phoneNumber = $store.phoneNumber || "";
-      $form.client_id = $store.clientId || "";
+      $form.client_id = clientId;
       $form.description = `WhatsApp Account - ${$form.name}`;
     }
   
@@ -93,6 +102,9 @@
         // Use our centralized function to update form values
         updateFormFromStore($whatsAppStore);
         
+        // Log the client ID to ensure we're using the correct one
+        console.log('[WHATSAPP_FORM] Using client ID for form:', $whatsAppStore.clientId);
+        
         // Advance to next step
         currentStep = 2;
         toast.success("WhatsApp connected successfully!");
@@ -105,17 +117,38 @@
       debugMode: true,
       action: "?/createAccount",
       onSuccess: (result) => {
+        console.log('[WHATSAPP_FORM] Form submission success:', result);
+        console.log('[WHATSAPP_FORM] Current step before success handling:', currentStep);
+        
+        // Check for account data in the response
         if (result.data?.account) {
+          console.log('[WHATSAPP_FORM] Account data found:', result.data.account);
           createdAccount = {
             id: result.data.account.id,
             description: result.data.account.description,
           };
+          
+          // Force step change and ensure it's applied
           currentStep = 3;
+          console.log('[WHATSAPP_FORM] Set current step to:', currentStep);
+          
+          // Show success message
           toast.success("WhatsApp account created successfully");
+        } else {
+          console.warn('[WHATSAPP_FORM] Account data missing from success response:', result);
         }
       },
       onError: (result) => {
-        toast.error(result.form?.message || "Failed to create WhatsApp account");
+        console.error('[WHATSAPP_FORM] Form submission error:', result);
+        
+        // Show a more detailed error message
+        const errorMessage = result.form?.message || "Failed to create WhatsApp account";
+        toast.error(errorMessage);
+        
+        // If there's a specific validation error, log it
+        if (result.form?.errors) {
+          console.error('[WHATSAPP_FORM] Validation errors:', result.form.errors);
+        }
       },
     });
   
@@ -339,6 +372,9 @@
         />
       {:else if currentStep === 3}
         <!-- Step 3: Success -->
+        {#key currentStep}
+          <div on:mount={() => console.log('[WHATSAPP_FORM] Success step mounted with account:', createdAccount)}></div>
+        {/key}
         <FormCard title="Account Created Successfully" description="Your WhatsApp account has been created successfully.">
           <div class="space-y-6">
             <div class="bg-muted/40 p-4 rounded-lg border border-muted">
@@ -350,10 +386,16 @@
                   {#if createdAccount?.description}
                     <p class="text-sm">{createdAccount.description}</p>
                   {:else}
+                    <p class="text-sm text-yellow-500">Account created but description not available</p>
                     <Skeleton class="h-4 w-48" />
                   {/if}
                 </div>
               </div>
+            </div>
+            <div class="bg-muted/40 p-4 rounded-lg border border-muted">
+              <h4 class="text-sm font-medium mb-2">Debug Info</h4>
+              <p class="text-xs text-muted-foreground">Current Step: {currentStep}</p>
+              <p class="text-xs text-muted-foreground">Account ID: {createdAccount?.id || 'Not available'}</p>
             </div>
             <FormActions>
               <Button variant="outline" on:click={() => goto('/admin/settings/whatsapp/accounts')}>

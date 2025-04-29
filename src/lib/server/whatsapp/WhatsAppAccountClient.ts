@@ -132,7 +132,7 @@ function handleConnectionSuccess(client: any, logger: any, clientId: string, use
             payload: {
                 action: 'connected',
                 content: {
-                    clientId: client.socket.user.id,
+                    clientId: clientId,
                     pushName: client.pushName, // Keep pushName for backward compatibility
                     displayName: client.pushName, // Add standardized displayName
                     phoneNumber: client.phoneNumber

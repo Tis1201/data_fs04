@@ -28,8 +28,8 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        ["WhatsApp", "/admin/whatsapp"],
-        ["Accounts", "/admin/whatsapp/accounts"],
+        ["WhatsApp", "/admin/settings/whatsapp"],
+        ["Accounts", "/admin/settings/whatsapp/accounts"],
         isNew ? "New Account" : account?.name || "Edit Account",
     ];
 
@@ -42,7 +42,7 @@
                         : "WhatsApp account updated",
                 );
                 try {
-                    await goto("/admin/whatsapp/accounts");
+                    await goto("/admin/settings/whatsapp/accounts");
                 } catch (error) {
                     console.error("Navigation error:", error);
                     toast.error("Failed to redirect. Please try again.");
@@ -142,7 +142,7 @@
                         <Button
                             variant="outline"
                             type="button"
-                            on:click={() => goto("/admin/whatsapp/accounts")}
+                            on:click={() => goto("/admin/settings/whatsapp/accounts")}
                         >
                             Cancel
                         </Button>
