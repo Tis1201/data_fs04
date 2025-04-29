@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import pkg from '@whiskeysockets/baileys';
-const { 
+const {
     makeWASocket,
     fetchLatestBaileysVersion,
     DisconnectReason,
@@ -101,7 +101,7 @@ function updateState(client: any, newState: WhatsAppClientState, logger: any): v
  * @param client - The WhatsApp client instance.
  * @param logger - The logger instance.
  */
-function handleConnectionSuccess(client: any, logger: any): void {
+function handleConnectionSuccess(client: any, logger: any, clientId: string, userInfo?: UserInfo): void {
     client.reconnectCount = 0;
     if (client.socket?.user) {
         client.pushName = client.socket.user.name || client.socket.user.verifiedName;
@@ -114,11 +114,41 @@ function handleConnectionSuccess(client: any, logger: any): void {
             }
         }
         logger.info(`Connected as ${client.pushName} (${client.socket.user.id})`);
-        client.emit('connected', {
-            id: client.socket.user.id,
-            name: client.pushName,
-            phoneNumber: client.phoneNumber
+        // client.emit('connected', {
+        //     id: client.socket.user.id,
+        //     name: client.pushName,
+        //     phoneNumber: client.phoneNumber
+        // });
+
+        if (!userInfo) throw new Error("userInfo is required to construct InMessage");
+
+
+        const qrMessage: InMessage = {
+            type: 'whatsapp',
+            scope: `subscription:whatsapp:${clientId}`,
+            protocol: '',
+            connectionId: '',
+            userInfo: userInfo,
+            payload: {
+                action: 'connected',
+                content: {
+                    clientId: client.socket.user.id,
+                    pushName: client.pushName, // Keep pushName for backward compatibility
+                    displayName: client.pushName, // Add standardized displayName
+                    phoneNumber: client.phoneNumber
+                }
+            }
+        };
+
+        // Create routing message with overrides
+        const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+            systemGenerated: true,
+            echoToSender: true
         });
+
+        publisher.publish(routingMessage);
+
+
         updateState(client, WhatsAppClientState.Connected, logger);
     }
 }
@@ -183,7 +213,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     // Private properties
     private id: string;
     private createdBy?: string;
-    private userInfo?:UserInfo | null;
+    private userInfo?: UserInfo | null;
     private socket: any;
     private state: WhatsAppClientState = WhatsAppClientState.Disconnected;
     private qrCode: string | null = null;
@@ -241,7 +271,7 @@ export class WhatsAppAccountClient extends EventEmitter {
 
     async init() {
         logger.info(`Initialized WhatsApp client instance with ID: ${this.createdBy}`);
-        if(!this.createdBy)return
+        if (!this.createdBy) return
         this.userInfo = await userInfoByUserId(this.createdBy);
         logger.debug(`User info: ${JSON.stringify(this.userInfo)}`);
     }
@@ -333,33 +363,33 @@ export class WhatsAppAccountClient extends EventEmitter {
             this.emit('qr', qr);
             this.setupQrCodeRefreshTimer();
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
-        
+
             if (!this.userInfo) {
                 throw new Error("userInfo is required to send QR message");
             }
 
             const qrMessage: InMessage = {
-                        type: 'whatsapp',
-                        scope: `subscription:whatsapp:${this.id}`,
-                        protocol: '',
-                        connectionId: '',
-                        userInfo: this.userInfo,
-                        payload: {
-                            action: 'qrCode',
-                            content:{
-                                qrCode: qr,
-                                clientId: this.id
-                            }
-                        }
-                    };
-            
-                    // Create routing message with overrides
-                    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
-                        systemGenerated: true,
-                        echoToSender: true
-                    });
-            
-                    publisher.publish(routingMessage);
+                type: 'whatsapp',
+                scope: `subscription:whatsapp:${this.id}`,
+                protocol: '',
+                connectionId: '',
+                userInfo: this.userInfo,
+                payload: {
+                    action: 'qrCode',
+                    content: {
+                        qrCode: qr,
+                        clientId: this.id
+                    }
+                }
+            };
+
+            // Create routing message with overrides
+            const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+
+            publisher.publish(routingMessage);
         }
 
         if (connection) {
@@ -368,7 +398,7 @@ export class WhatsAppAccountClient extends EventEmitter {
                     updateState(this, WhatsAppClientState.Connecting, logger);
                     break;
                 case 'open':
-                    handleConnectionSuccess(this, logger);
+                    handleConnectionSuccess(this, logger, this.id, this.userInfo??undefined);
                     break;
                 case 'close':
                     handleDisconnection(this, lastDisconnect, logger);

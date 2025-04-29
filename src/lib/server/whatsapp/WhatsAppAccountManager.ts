@@ -204,12 +204,16 @@ export class WhatsAppAccountManager extends EventEmitter {
       const pushName = client.getPushName();
       const phoneNumber = client.getPhoneNumber();
       logger.info(`Client state update for ${clientId}: state=${state}, pushName=${pushName}, phoneNumber=${phoneNumber}`);
-      eventRouter.sendPrivateMessage(
-        client.getCreatedBy()!,
-        { action: state, data: { clientId, state, pushName, phoneNumber } },
-        EventType.WHATSAPP_MESSAGE
-      );
-      logger.debug(`Number of whatsappclients: ${this.clients.size}`);
+      
+      
+      
+      
+      // eventRouter.sendPrivateMessage(
+      //   client.getCreatedBy()!,
+      //   { action: state, data: { clientId, state, pushName, phoneNumber } },
+      //   EventType.WHATSAPP_MESSAGE
+      // );
+      // logger.debug(`Number of whatsappclients: ${this.clients.size}`);
     });
 
     client.on('message', (message: WhatsAppMessage) => {
