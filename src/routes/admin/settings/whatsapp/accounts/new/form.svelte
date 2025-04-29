@@ -9,11 +9,8 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
-    import { socketStore } from "$lib/stores/websocket-store";
-    import { type ClientMessage, createClientMessage, type MessageScope } from "$lib/types/messages";
-    import { writable } from 'svelte/store';
     
-    // Props for the form component
+    // Props for the form component - simple passthrough
     export let form;
     export let errors;
     export let enhance;
@@ -22,49 +19,8 @@
     export let errorMessage;
     
     // Event dispatcher for navigation
-    import { createEventDispatcher, onMount } from 'svelte';
+    import { createEventDispatcher } from 'svelte';
     const dispatch = createEventDispatcher();
-    
-    // Create a local error message store
-    const localErrorMessage = writable(errorMessage);
-    
-    // Update the local store when the prop changes
-    $: localErrorMessage.set(errorMessage);
-    
-    // Create a custom enhance function that wraps the provided one
-    const customEnhance = (originalEnhance) => {
-        return (form) => {
-            return ({ formData, formElement, action, cancel }) => {
-                console.log('[WHATSAPP_FORM_COMPONENT] Form submission started');
-                
-                // Validate client ID before submission
-                const clientIdInput = formElement.querySelector('#client_id');
-                const clientId = clientIdInput?.value || '';
-                const isValidClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId);
-                
-                console.log('[WHATSAPP_FORM_COMPONENT] Client ID validation:', { clientId, isValidClientId });
-                
-                if (!isValidClientId) {
-                    console.warn('[WHATSAPP_FORM_COMPONENT] Invalid client ID format:', clientId);
-                    localErrorMessage.set('Invalid client ID format. Please reconnect your WhatsApp account.');
-                    cancel();
-                    return;
-                }
-                
-                // Log form data for debugging
-                console.log('[WHATSAPP_FORM_COMPONENT] Form data:', {
-                    clientId: formData.get('client_id'),
-                    description: formData.get('description')
-                });
-                
-                // If valid, proceed with the original enhance function
-                if (originalEnhance) {
-                    console.log('[WHATSAPP_FORM_COMPONENT] Proceeding with form submission');
-                    return originalEnhance(form)({ formData, formElement, action, cancel });
-                }
-            };
-        };
-    };
     
     // Function to go back to the previous step
     function goBack() {
@@ -76,9 +32,9 @@
 <FormContainer 
     method="POST" 
     action="?/createAccount" 
-    enhance={customEnhance(enhance)} 
+    {enhance} 
     novalidate 
-    errorMessage={$localErrorMessage}
+    {errorMessage}
 >
     <FormCard title="Account Details" description="Enter account information.">
 
@@ -95,8 +51,6 @@
             </FormField>
         </FormRow>
         
-        
-
         <FormRow columns={1}>
             <FormField id="name" label="Display Name" error={errors.name}>
                 <Input
@@ -137,8 +91,6 @@
                 />
             </FormField>
         </FormRow>
-        
-      
 
         <FormActions>
             <Button

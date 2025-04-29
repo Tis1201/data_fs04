@@ -144,9 +144,13 @@ export const actions: Actions = {
                 await client.setAccountId(account.id);
             }
 
-            // Prepare the response with form and account data
-            const response = {
-                form: message(form, 'WhatsApp account created successfully!', { status: 'success' }),
+            // Create a success message with the form data
+            const successForm = message(form, 'WhatsApp account created successfully!', { status: 'success' });
+            
+            // Add the account data to the form data object directly
+            // This ensures SuperForms gets the form data at the top level
+            const formWithAccount = {
+                ...successForm,
                 account
             };
             
@@ -154,12 +158,12 @@ export const actions: Actions = {
             logger.info('Sending successful response with account data:', {
                 accountId: account.id,
                 description: account.description,
-                responseStructure: Object.keys(response)
+                responseStructure: Object.keys(formWithAccount)
             });
             
             // Return the form object with success and account data
-            // We need to include the account data for the client to show success
-            return response;
+            // SuperForms expects the form to be at the top level
+            return formWithAccount;
         } catch (err) {
             // Log the full error for debugging
             logger.error('Error creating WhatsApp account:', err);
