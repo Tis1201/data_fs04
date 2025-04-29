@@ -25,6 +25,31 @@ This directory implements the secure, extensible, and type-safe real-time messag
 ### Extensible for TTL and Metadata
 - The API includes a `ttlSeconds` parameter for future compatibility with Redis TTL, even though it is ignored in the in-memory implementation.
 
+### Subscription Key & Subscriber Scope Design
+- **Subscription keys** follow the convention: `subscription:<type>:<resourceId>`, e.g., `subscription:whatsapp:clientId123` or `subscription:webrtc:clientId456`.
+- **Subscriber scopes** follow the convention: `subscriber:<type>:<id>`, e.g., `subscriber:user:userId123`, `subscriber:connection:connectionId456`, `subscriber:group:groupId789`.
+- This namespacing ensures efficient querying, prevents key collisions, and supports future extensibility for new subscriber types.
+- Helper functions are used to generate and parse these keys and scopes for consistency.
+
+#### Example SubscriptionMeta
+```typescript
+export interface SubscriptionMeta {
+  id: string; // unique subscription id
+  key: string; // e.g., 'subscription:whatsapp:clientId123'
+  scope: string; // e.g., 'subscriber:user:userId123', 'subscriber:connection:connectionId456'
+}
+```
+
+#### Helper Functions
+```typescript
+function makeSubscriptionKey(type: string, resourceId: string) {
+  return `subscription:${type}:${resourceId}`;
+}
+function makeSubscriberScope(type: string, id: string) {
+  return `subscriber:${type}:${id}`;
+}
+```
+
 ### Rationale
 - This approach makes it easy to migrate to Redis or other distributed stores in the future.
 - It is robust for multi-subscriber and multi-connection scenarios.

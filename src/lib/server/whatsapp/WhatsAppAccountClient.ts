@@ -13,6 +13,10 @@ import { logger } from '$lib/server/logger';
 import EventEmitter from 'events';
 import stringify from 'json-stringify-safe';
 import { useZenstackAuthState } from './useZenstackAuthState';
+import { MessageFactory, type InMessage, type RoutingMessage } from '../messaging/interfaces/message';
+import type { UserInfo } from '../types/user';
+import { userInfoByApiKey, userInfoByUserId } from '../security/auth-utils';
+import { publisher } from '../messaging/core/publisher';
 
 // Default directories for authentication and media storage
 export const DEFAULT_AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
@@ -179,6 +183,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     // Private properties
     private id: string;
     private createdBy?: string;
+    private userInfo?:UserInfo | null;
     private socket: any;
     private state: WhatsAppClientState = WhatsAppClientState.Disconnected;
     private qrCode: string | null = null;
@@ -232,6 +237,13 @@ export class WhatsAppAccountClient extends EventEmitter {
         ensureDirectoryExists(this.authDir);
         ensureDirectoryExists(this.mediaDir);
         logger.info(`Created WhatsApp client instance with ID: ${this.id}`);
+    }
+
+    async init() {
+        logger.info(`Initialized WhatsApp client instance with ID: ${this.createdBy}`);
+        if(!this.createdBy)return
+        this.userInfo = await userInfoByUserId(this.createdBy);
+        logger.debug(`User info: ${JSON.stringify(this.userInfo)}`);
     }
 
     /********************************************************************************
@@ -321,6 +333,33 @@ export class WhatsAppAccountClient extends EventEmitter {
             this.emit('qr', qr);
             this.setupQrCodeRefreshTimer();
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
+        
+            if (!this.userInfo) {
+                throw new Error("userInfo is required to send QR message");
+            }
+
+            const qrMessage: InMessage = {
+                        type: 'whatsapp',
+                        scope: `subscription:whatsapp:${this.id}`,
+                        protocol: '',
+                        connectionId: '',
+                        userInfo: this.userInfo,
+                        payload: {
+                            action: 'qrCode',
+                            content:{
+                                qrCode: qr,
+                                clientId: this.id
+                            }
+                        }
+                    };
+            
+                    // Create routing message with overrides
+                    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+                        systemGenerated: true,
+                        echoToSender: true
+                    });
+            
+                    publisher.publish(routingMessage);
         }
 
         if (connection) {

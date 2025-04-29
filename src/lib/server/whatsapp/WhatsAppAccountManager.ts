@@ -53,8 +53,10 @@ export class WhatsAppAccountManager extends EventEmitter {
    * Client Creation / Restoration Functions *
    *******************************************/
   public async createNewClient(createdBy: string): Promise<{ clientId: string; qrCodePromise: Promise<string>; restored: boolean }> {
-    const client = new WhatsAppAccountClient();
-    client.setCreatedBy(createdBy);
+    const client = new WhatsAppAccountClient(undefined, undefined, undefined, createdBy);
+    // client.setCreatedBy(createdBy);
+    await client.init();
+    
     this.clients.set(client.getId(), client);
 
     // Set up event listeners.

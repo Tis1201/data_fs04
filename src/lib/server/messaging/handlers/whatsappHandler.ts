@@ -3,6 +3,7 @@ import type { Handler } from '../interfaces/handler';
 import { publisher } from '../core/publisher';
 import { logger } from '$lib/server/logger';
 import { whatsAppAccountManager, WhatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
+import { subscriptionRegistry } from '../core/subscriptionRegistry';
 
 export class WhatsAppHandler implements Handler {
     supports(type: string): boolean {
@@ -43,6 +44,8 @@ export class WhatsAppHandler implements Handler {
         const qrCode = await qrCodePromise;
 
         message.payload.content = qrCode;
+
+        subscriptionRegistry.addSubscription(`subscription:whatsapp:${clientId}`, `subscriber:connection:${message.connectionId}`);
 
         // Create routing message with overrides
         const qrMessage: InMessage = {

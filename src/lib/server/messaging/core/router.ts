@@ -3,6 +3,9 @@ import { ConnectionManager } from './connectionManager';
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
 import { connectionSharedStore } from './stores/connectionSharedStore';
+import { userRouter } from '../routers/userRouter';
+import { subscriptionRouter } from '../routers/subscriptionRouter';
+import { connectionRouter } from '../routers/connectionRouter';
 
 export const router: Router = {
   async resolve(senderInfo:UserInfo, scope: string): Promise<string[]> {
@@ -13,35 +16,17 @@ export const router: Router = {
 
     const [kind, id] = scope.split(':');
 
-    logger.debug(`[Router] Resolving scope: ${scope} (kind: ${kind}, id: ${id})`);
+    logger.debug(`[Router] Resolving scope: ${scope} (kind: ${kind})`);
 
     switch (kind) {
       case 'user':
-        logger.debug(`[Router] Resolving user scope: ${scope}`);
+        return userRouter.resolve(senderInfo, scope);
 
-        let targeted_user_id = id;
-
-        if(targeted_user_id === 'self') targeted_user_id = senderInfo?.id;
-
-        const connections = await ConnectionManager.getConnectionsByUser(targeted_user_id);
-
-        logger.debug(`[Router] Found ${connections.length} connections for user: ${id}`);
-
-        connectionSharedStore.debugPrint?.();
-
-        return (connections.map(c => c.id));
-
-    //   case 'room':
-    //     const userIds = await Store.getRoomMembers(id);
-    //     const allConnIds: string[] = [];
-    //     for (const userId of userIds) {
-    //       const connMetas = await Store.getConnectionsByUser(userId);
-    //       allConnIds.push(...connMetas.map(m => m.id));
-    //     }
-    //     return allConnIds;
-
-      case 'conn':
-        return [id];
+      case 'subscription':
+        return subscriptionRouter.resolve(senderInfo, scope);
+   
+      case 'connection':
+        return connectionRouter.resolve(senderInfo, scope);
 
       default:
         logger.warn(`[Router] Unknown scope kind: ${kind}`);

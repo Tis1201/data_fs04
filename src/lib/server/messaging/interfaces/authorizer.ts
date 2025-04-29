@@ -8,6 +8,6 @@ export interface Authorizer {
      * @param targetId - The target scope identifier (e.g. user ID, group ID, role ID)
      * @param type - Optional message type for more granular checks (e.g. only allow chat:msg)
      */
-    isAllowed(senderId: UserInfo | undefined, targetId: string, type?: string): Promise<boolean> | boolean;
+    isAllowed(senderId: UserInfo | undefined, scope: string, type?: string, connectionIds?: string[]): Promise<boolean> | boolean;
   }
   
