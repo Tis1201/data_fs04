@@ -94,7 +94,16 @@ export class WhatsAppAccountClient extends EventEmitter {
     // Private properties
     private id: string;
     private createdBy?: string;
-    private userInfo?: UserInfo | null;
+    private userInfo: UserInfo | null = null;
+    
+    /**
+     * Sets the user info for this client
+     * Used for message routing
+     */
+    public setUserInfo(userInfo: UserInfo): void {
+      this.userInfo = userInfo;
+      logger.debug(`Set user info for client ${this.id}`, { userId: userInfo.id });
+    }
     private socket: any;
     private state: WhatsAppClientState = WhatsAppClientState.Disconnected;
     private qrCode: string | null = null;

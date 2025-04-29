@@ -6,6 +6,8 @@ import { WhatsAppAccountClient } from './WhatsAppAccountClient';
 import type { WhatsAppClientState } from './WhatsAppAccountClient';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { DEFAULT_AUTH_DIR } from './WhatsAppAccountClient';
+import { userInfoByUserId } from '$lib/server/security/auth-utils';
+// import type { UserInfo } from '$lib/server/messaging/interfaces/connection';
 
 export interface WhatsAppManagerOptions {
   authDir?: string;
@@ -37,8 +39,6 @@ export class WhatsAppAccountManager extends EventEmitter {
     this.startCleanupInterval();
     this.prisma = getEnhancedPrisma({ id: '', systemRole: 'ADMIN' });
   }
-
-
 
   /**
    * Creates a new WhatsApp client instance
@@ -119,24 +119,21 @@ export class WhatsAppAccountManager extends EventEmitter {
    * Sets up event listeners for client state changes
    */
   private setupClientEvents(client: WhatsAppAccountClient): void {
-    // Get account ID safely from client info
+    // Helper to get account ID safely
     const getAccountId = () => {
-      const info = client.getInfo();
-      return info?.accountId;
+      const accountId = client.getAccountId();
+      return accountId || undefined;
     };
     
-    // Listen for state changes to update database
-    client.on('connected', () => {
-      this.updateAccountStatus(getAccountId(), 'connected', client.getId());
-    });
-    
-    client.on('disconnected', () => {
-      // Remove client from registry when disconnected
-      this.clients.delete(client.getId());
-      this.updateAccountStatus(getAccountId(), 'disconnected', client.getId());
-    });
-    
-    client.on('state', (state: WhatsAppClientState) => {
+    // Forward connection state changes
+    client.on('connection_state', (state: WhatsAppClientState) => {
+      this.emit('client_state_change', {
+        clientId: client.getId(),
+        state,
+        accountId: getAccountId()
+      });
+      
+      // Update account status in database
       this.updateAccountStatus(getAccountId(), state, client.getId());
     });
   }
@@ -231,6 +228,13 @@ export class WhatsAppAccountManager extends EventEmitter {
 
       for (const account of accounts) {
         try {
+          // Fetch user info for the account creator
+          const userInfo = await userInfoByUserId(account.createdBy);
+          if (!userInfo) {
+            logger.warn(`Could not find user info for account ${account.id} creator (${account.createdBy}), skipping initialization`);
+            continue;
+          }
+          
           const client = new WhatsAppAccountClient(
             account.client_id, 
             account.phone_number, 
@@ -239,13 +243,16 @@ export class WhatsAppAccountManager extends EventEmitter {
             this.options
           );
           
+          // Set the userInfo on the client to enable message routing
+          client.setUserInfo(userInfo);
+          
           // Register the client
           this.clients.set(account.client_id, client);
           this.setupClientEvents(client);
           
           // Connect the client
           await client.connect();
-          logger.info(`Initialized WhatsApp client for account ${account.id} (${account.description})`);
+          logger.info(`Initialized WhatsApp client for account ${account.id} (${account.description}) with user info`);
         } catch (error) {
           logger.error(`Failed to initialize WhatsApp client for account ${account.id}: ${error}`);
           await this.prisma.whatsAppAccount.update({
