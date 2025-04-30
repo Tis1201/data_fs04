@@ -50,10 +50,21 @@ This directory contains all server-side and client-side logic for WhatsApp integ
 - If QR code does not appear, check browser console and server logs for errors.
 - Ensure the WebSocket connection is established and not blocked by firewalls.
 - If session issues persist, clear the `whatsapp-auth` directory and restart the server.
+- For "No open session" errors when sending messages:
+  - Ensure the recipient's phone number is properly formatted with `@s.whatsapp.net` suffix
+  - Check that the auth state is properly storing session data
+  - The first message to a new contact requires establishing a new E2E encryption session
 
 ---
 
 ## Changelog
+
+### 2025-04-30
+- **E2E Encryption Session Handling:**
+  - Improved session storage and retrieval in `useZenstackAuthState.ts` to properly handle WhatsApp's E2E encryption sessions
+  - Added detailed logging for session operations to aid in debugging
+  - Fixed phone number formatting to ensure proper JID format with `@s.whatsapp.net` suffix
+  - Enhanced error handling in message sending to provide clearer error messages
 
 ### 2025-04-29
 - **Session Error Handling:**
@@ -77,5 +88,14 @@ This directory contains all server-side and client-side logic for WhatsApp integ
 
 ---
 
+## Understanding E2E Encryption in WhatsApp
+
+WhatsApp uses the Signal Protocol for end-to-end encryption, which has several important characteristics:
+
+- **Per-Conversation Sessions**: Each conversation (with each contact) has its own unique cryptographic session
+- **Session Establishment**: The first message to a new contact requires fetching their pre-keys and establishing a session
+- **Session Persistence**: All session data must be properly stored and retrieved via the auth state implementation
+- **JID Format**: WhatsApp IDs must be properly formatted as `{number}@s.whatsapp.net` for individual chats
+
 ## About `useZenstackAuthState.ts`
-This file is a utility for integrating ZenStack authentication state with WhatsApp sessions. If not referenced in the WhatsApp manager or client, it can be safely removed.
+This file implements the auth state interface required by Baileys to store and retrieve cryptographic keys, sessions, and other state. It uses ZenStack/Prisma for persistence and is critical for proper E2E encryption functionality.
