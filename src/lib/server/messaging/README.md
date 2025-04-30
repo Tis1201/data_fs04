@@ -4,6 +4,59 @@ This directory implements the secure, extensible, and type-safe real-time messag
 
 ---
 
+## Store Design Decisions
+
+### Set-Based Storage Pattern
+- All shared stores use a `Map<string, Set<T>>` pattern, where each key can map to multiple members.
+- This design supports efficient one-to-many relationships (e.g., subscriptions, connections) and prevents accidental overwrites.
+
+### Unified API for In-Memory and Redis
+- The `SharedStore<T>` interface is designed to be compatible with both in-memory and Redis Set operations.
+- Methods include:
+  - `set(id, members)`: Overwrite the set for a key.
+  - `addMember(id, member)`: Add a member to a set.
+  - `removeMember(id, member)`: Remove a member from a set.
+  - `getMembers(id)`: Get all members for a key.
+  - `getSingle(id)`: Get a single member for a key.
+  - `getAllMembers()`: Retrieve all members across all keys.
+  - `count()`: Total number of members across all keys.
+  - `remove(id)`: Remove the entire set for a key.
+
+### Extensible for TTL and Metadata
+- The API includes a `ttlSeconds` parameter for future compatibility with Redis TTL, even though it is ignored in the in-memory implementation.
+
+### Subscription Key & Subscriber Scope Design
+- **Subscription keys** follow the convention: `subscription:<type>:<resourceId>`, e.g., `subscription:whatsapp:clientId123` or `subscription:webrtc:clientId456`.
+- **Subscriber scopes** follow the convention: `subscriber:<type>:<id>`, e.g., `subscriber:user:userId123`, `subscriber:connection:connectionId456`, `subscriber:group:groupId789`.
+- This namespacing ensures efficient querying, prevents key collisions, and supports future extensibility for new subscriber types.
+- Helper functions are used to generate and parse these keys and scopes for consistency.
+
+#### Example SubscriptionMeta
+```typescript
+export interface SubscriptionMeta {
+  id: string; // unique subscription id
+  key: string; // e.g., 'subscription:whatsapp:clientId123'
+  scope: string; // e.g., 'subscriber:user:userId123', 'subscriber:connection:connectionId456'
+}
+```
+
+#### Helper Functions
+```typescript
+function makeSubscriptionKey(type: string, resourceId: string) {
+  return `subscription:${type}:${resourceId}`;
+}
+function makeSubscriberScope(type: string, id: string) {
+  return `subscriber:${type}:${id}`;
+}
+```
+
+### Rationale
+- This approach makes it easy to migrate to Redis or other distributed stores in the future.
+- It is robust for multi-subscriber and multi-connection scenarios.
+- The API is simple, predictable, and avoids ambiguity between single and multiple member operations.
+
+---
+
 ## Message State Model
 
 The message pipeline is built on **three clearly separated message types**:
@@ -60,6 +113,9 @@ The message pipeline is built on **three clearly separated message types**:
 ## Scope Handling & Special Cases
 
 - **`user:self`**: This scope is dynamically resolved to the sender's own user ID by the router. This allows clients to use `user:self` for self-directed messages without knowing their own ID.
+- **`subscription:whatsapp:<accountId>`**: This scope targets all active subscriptions for a specific WhatsApp account. Use this pattern to send messages or events to every client or service subscribed to updates for the given WhatsApp account.
+  - **Example:** To send a message to all subscribers of WhatsApp account `abc123`, use `scope: subscription:whatsapp:abc123` in your RoutingMessage.
+  - This pattern is extensible and can be used for other integrations (e.g., `subscription:telegram:<accountId>`, `subscription:room:<roomId>`, etc.).
 - **Other scopes**: The router and authorizers can be extended for rooms, groups, etc.
 
 ---
@@ -119,6 +175,73 @@ const outMessage = MessageFactory.toOutMessage(routingMessage);
 
 ---
 
+## Temporary Subscriptions from the Frontend
+
+The messaging system supports dynamic, temporary subscriptions—ideal for real-time UIs such as forms, modals, or dashboards.
+
+**How it works:**
+- When a frontend component (e.g., a form) wants to receive messages for a specific scope (such as a WhatsApp account), it sends a `subscribe` message over SSE or WebSocket using an explicit, extensible structure:
+
+  ```json
+  {
+    "type": "subscribe",                  // The action to perform
+    "subscription": "subscription:whatsapp:<accountId>", // The topic or event stream to subscribe to
+    "subscriber": "subscriber:connection:self",           // Who is subscribing ("self" will be resolved by the backend)
+    "scope": "user:self"                   // Context for authorization (can be used for further access checks)
+  }
+  ```
+
+  - The backend resolves `subscriber:connection:self` to the actual connection ID associated with the current session.
+  - This structure is extensible: you can support other subscription or subscriber types (e.g., users, webhooks, MQ endpoints) by changing the `subscription` and `subscriber` fields.
+  - Including `scope` allows for flexible authorization and is optional if your backend can infer the user from the connection/session.
+
+- The backend registers the current connection as a subscriber for that scope using its unique connection ID: `subscriber:connection:<connectionId>`.
+- While subscribed, the frontend receives all messages/events for that scope.
+
+### Unsubscribe: Why and When
+- **Always send an `unsubscribe` message** (with the same structure, but `type: "unsubscribe"`) when a component is destroyed (e.g., form is closed), a user logs out, or a connection is intentionally closed.
+- This ensures:
+  - Resource efficiency (no memory leaks)
+  - Users stop receiving messages they no longer want
+  - The backend can clean up subscribers and optimize delivery
+- The backend should also automatically clean up on connection loss.
+
+  ```json
+  {
+    "type": "unsubscribe",
+    "subscription": "subscription:whatsapp:<accountId>",
+    "subscriber": "subscriber:connection:self",
+    "scope": "user:self"
+  }
+  ```
+
+### Subscription Authorization (Security)
+- **Every subscribe request must be authorized on the backend.** Never trust the client-supplied scope or resource alone.
+- The backend must verify that the subscriber (user, connection, etc.) has legitimate access to the resource (e.g., WhatsApp account, MQTT topic, etc.) before registering the subscription.
+- Use Zenstack or your access control logic to enforce this. For example:
+
+  ```typescript
+  function subscriptionAuthorizer({ subscriber, subscription, userInfo }) {
+    const resourceId = parseResourceId(subscription);
+    return zenstack.canAccess(userInfo, resourceId); // true if allowed, false if not
+  }
+  ```
+- If the subscriber is not authorized, reject the subscription and log the attempt.
+- This is critical to prevent spoofing and unauthorized data access in multi-tenant or sensitive systems.
+
+    "type": "unsubscribe",
+    "scope": "subscription:whatsapp:<accountId>"
+  }
+  ```
+- This ensures only active, interested UI components receive updates, and subscriptions are cleaned up automatically.
+
+**Benefits:**
+- Ephemeral: Only active UI gets messages.
+- Resource efficient: No memory leaks; subscriptions are cleaned up on disconnect/unmount.
+- Simple: Works for any temporary or long-lived UI state.
+
+---
+
 ## Authorizers & Router
 - **Authorizers** (e.g., `userAuthorizer`, `scopeAuthorizer`) enforce publishing permissions for each scope. For example, only a user can publish to `user:self`.
 - **Router** resolves the scope to the correct set of connection IDs. For `user:self`, it automatically substitutes the sender's ID.
@@ -146,6 +269,17 @@ This code is part of the FS0 Web project and is subject to the project's license
 ---
 
 ## TODO & Ideas: Advanced Routing and Delivery
+
+- **Subscription Module Design & Implementation:**
+  - Design and implement a modular `subscription` module under `messaging/`.
+  - Support dynamic registration and unregistration of subscriptions (in-memory for ephemeral, persistent for durable if needed).
+  - Allow multiple subscriber types: user, connection, MQ endpoint, webhook, etc.
+  - Use a clear and extensible scope pattern: `subscriber:<type>:<id>`.
+  - Provide secure, extensible APIs for registering, listing, and removing subscriptions.
+  - Enforce authorization checks for all subscription actions (use Zenstack policies for access control).
+  - Integrate subscription delivery with the messaging router for efficient event/message fan-out to all active subscriptions.
+  - Ensure robust unregistration and cleanup to prevent memory leaks (especially for temporary UI or connection-based subscriptions).
+  - Document subscription conventions, patterns, and extension points for team clarity.
 
 - **Protocol-based Delivery:**
   - Enable routing to only specific protocols (e.g., WebSocket, SSE, etc.) by filtering connections based on `protocol`.

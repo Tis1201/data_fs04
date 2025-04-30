@@ -12,14 +12,16 @@ export interface WhatsAppMessage {
     type: string;
 }
 
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'authenticated' | 'awaiting_scan';
+
 export interface WhatsAppState {
-    connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'authenticated';
+    connectionStatus: ConnectionStatus;
     clientId: string | null;
     messages: WhatsAppMessage[];
     qrCode: string | null;
     accountId: string | null;
     phoneNumber: string | null;
-    pushName: string | null;
+    displayName: string | null; // Standardized name field
 }
 
 const initialState: WhatsAppState = {
@@ -29,43 +31,62 @@ const initialState: WhatsAppState = {
     qrCode: null,
     accountId: null,
     phoneNumber: null,
-    pushName: null
+    displayName: null
 };
 
 function createWhatsAppStore() {
-    const { subscribe, update } = writable<WhatsAppState>(initialState);
+    const { subscribe, update, set } = writable<WhatsAppState>(initialState);
 
     if (browser) {
         socketStore.on('whatsapp', (message: any) => {
-            const { type, action, data } = message.message || {};
-            console.log(`Received message: ${type}, ${action}, ${data?.clientId}`, message.message);
+            console.log('[WHATSAPP_STORE] Received message:', message);
 
-            if (!data) {
-                console.log('Message data is missing:', message);
+            const {action, content} = message.payload || {};
+            
+            if (!content) {
+                console.error('[WHATSAPP_STORE] Message content is missing:', message);
                 return;
             }
 
             switch (action) {
                 case 'qrCode':
-                    const { qrCode, clientId, accountId } = data;
-                    console.log('QR code received:', qrCode, clientId, accountId);
+                    const { qrCode, clientId, accountId } = content;
+                    console.log('[WHATSAPP_STORE] QR code received for client:', clientId);
                     update(state => ({
                         ...state,
                         qrCode,
                         clientId,
-                        connectionStatus: 'connecting',
+                        connectionStatus: 'awaiting_scan',
                         accountId
                     }));
                     break;
 
                 case 'connected':
-                    const { clientId: connectedClientId, accountId: connectedAccountId, pushName, phoneNumber } = data;
-                    console.log('Client connected:', connectedClientId, connectedAccountId, data);
+                    // Extract fields with clear naming
+                    const { 
+                        clientId: connectedClientId, 
+                        accountId: connectedAccountId, 
+                        pushName, // Backend still uses pushName
+                        phoneNumber 
+                    } = content;
+                    
+                    // Validate critical fields
+                    if (!pushName) {
+                        console.warn('[WHATSAPP_STORE] Missing displayName in connected message:', content);
+                    }
+                    
+                    console.log('[WHATSAPP_STORE] Client connected:', {
+                        clientId: connectedClientId,
+                        displayName: pushName, // Map pushName to displayName
+                        phoneNumber,
+                        accountId: connectedAccountId
+                    });
+                    
                     update(state => ({
                         ...state,
                         clientId: connectedClientId,
                         connectionStatus: 'connected',
-                        pushName: pushName,
+                        displayName: pushName, // Store as displayName
                         phoneNumber: phoneNumber,
                         accountId: connectedAccountId,
                         qrCode: null
@@ -73,8 +94,11 @@ function createWhatsAppStore() {
                     break;
 
                 case 'disconnected':
-                    const { clientId: disconnectedClientId, accountId: disconnectedAccountId } = data;
-                    console.log('Client disconnected:', disconnectedClientId, disconnectedAccountId, data);
+                    const { clientId: disconnectedClientId, accountId: disconnectedAccountId } = content;
+                    console.log('[WHATSAPP_STORE] Client disconnected:', {
+                        clientId: disconnectedClientId,
+                        accountId: disconnectedAccountId
+                    });
                     update(state => ({
                         ...state,
                         clientId: disconnectedClientId,
@@ -85,12 +109,16 @@ function createWhatsAppStore() {
                     break;
  
                 default:
-                    console.log('Unknown message action:', action, message);
+                    console.log('[WHATSAPP_STORE] Unknown message action:', action, message);
             } 
         });
     }
 
-    return { subscribe, update };
+    return { 
+        subscribe, 
+        update,
+        reset: () => set(initialState)
+    };
 }
 
 export const whatsAppStore = createWhatsAppStore();

@@ -2,17 +2,9 @@ import type { Connection } from '../interfaces/connection';
 import type { ConnectionMeta } from '../interfaces/connection';
 import { v4 as uuidv4 } from 'uuid';
 
-import { MemorySharedStore } from '../stores/memorySharedStore';
-import { sharedStore } from './sharedStore';
+import { connectionSharedStore } from './stores/connectionSharedStore';
 import { logger } from '$lib/server/logger';
 
-// import { RedisSharedStore } from '../stores/redisSharedStore';
-// import { config } from '$lib/config'; // Optional toggle
-
-// Swap stores based on environment/config
-// const store: SharedStore = config.useRedis
-//   ? (() => { throw new Error('RedisSharedStore not implemented yet'); })()
-//   : MemorySharedStore;
 
 
 type ConnectionId = string;
@@ -40,7 +32,7 @@ class DefaultConnectionManager {
     this.userConnections.set(userInfo.id, connSet);
 
     // Store metadata in the shared store
-    sharedStore.setConnection(connection.meta, ttlSeconds);
+    connectionSharedStore.addMember(connection.meta.id,connection.meta);
   }
 
   unregisterConnection(connId: ConnectionId): void {
@@ -58,7 +50,7 @@ class DefaultConnectionManager {
       }
     }
 
-    sharedStore.removeConnection(connId);
+    connectionSharedStore.remove(connId);
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {
@@ -90,15 +82,22 @@ class DefaultConnectionManager {
   }
 
   async getConnectionMeta(connId: ConnectionId): Promise<ConnectionMeta | null> {
-    return sharedStore.getConnection(connId);
+    return connectionSharedStore.getSingle(connId);
   }
 
   async getAllConnectionMetas(): Promise<ConnectionMeta[]> {
-    return sharedStore.getAllConnections();
+    return connectionSharedStore.getAllMembers();
   }
 
   getLiveConnectionCount(): number {
     return this.liveConnections.size;
+  }
+
+  async getConnectionsByUser(userId: string): Promise<ConnectionMeta[]> {
+    // Use your connectionSharedStore here
+    return connectionSharedStore.getAllMembers().then(metas =>
+      metas.filter(meta => meta.userInfo?.id === userId)
+    );
   }
 }
 

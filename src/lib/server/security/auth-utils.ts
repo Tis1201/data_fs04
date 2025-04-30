@@ -39,6 +39,34 @@ export function extractApiKey(request: Request | import('http').IncomingMessage)
   return null;
 }
 
+export async function userInfoByUserId(userId: string): Promise<UserInfo | null> {
+  if (!userId) return null;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        systemRole: true
+      }
+    });
+
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      systemRole: user.systemRole,
+      source: 'session'
+    };
+  } catch (err) {
+    // Optionally log error
+    return null;
+  }
+}
 
 export async function userInfoByApiKey(key: string): Promise<UserInfo | null> {
   if (!key) return null;

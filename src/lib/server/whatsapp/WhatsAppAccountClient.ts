@@ -2,17 +2,20 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import pkg from '@whiskeysockets/baileys';
-const { 
+const {
     makeWASocket,
     fetchLatestBaileysVersion,
     DisconnectReason,
     downloadMediaMessage
 } = pkg;
-import types from '@whiskeysockets/baileys/lib/Types';
 import { logger } from '$lib/server/logger';
 import EventEmitter from 'events';
 import stringify from 'json-stringify-safe';
 import { useZenstackAuthState } from './useZenstackAuthState';
+import { MessageFactory, type InMessage, type RoutingMessage } from '../messaging/interfaces/message';
+import type { UserInfo } from '../types/user';
+import { userInfoByUserId } from '../security/auth-utils';
+import { publisher } from '../messaging/core/publisher';
 
 // Default directories for authentication and media storage
 export const DEFAULT_AUTH_DIR = path.join(process.cwd(), 'whatsapp-auth');
@@ -49,14 +52,17 @@ export enum WhatsAppClientState {
  * @param logger - The base logger instance.
  * @returns An object with logging functions (warn, error, etc.) expected by Baileys.
  */
-function createBaileysLogger(logger: any): any {
+function createBaileysLogger(baseLogger: any): any {
     return {
-        warn: (message: string) => logger.warn('[Baileys] ' + stringify(message)),
-        error: (message: string) => logger.error('[Baileys] ' + stringify(message)),
-        info: (message: string) => logger.warn('[Baileys] ' + stringify(message)),
-        trace: (message: string) => { },
-        debug: (message: string) => { },
-        child: () => createBaileysLogger(logger) // Required by Baileys API
+        warn: (message: string) => baseLogger.warn('[Baileys] ' + stringify(message)),
+        error: (message: string) => baseLogger.error('[Baileys] ' + stringify(message)),
+        info: (message: string) => baseLogger.info('[Baileys] ' + stringify(message)),
+        // trace: (message: string) => baseLogger.info('[Baileys] ' + stringify(message)),
+        // debug: (message: string) => baseLogger.info('[Baileys] ' + stringify(message)),
+        
+        trace: () => {}, // Empty function for trace level
+        debug: () => {}, // Empty function for debug level
+        child: () => createBaileysLogger(baseLogger) // Required by Baileys API
     };
 }
 
@@ -66,108 +72,19 @@ function createBaileysLogger(logger: any): any {
  * @param logger - The logger instance.
  * @returns A promise that resolves once the socket is ended.
  */
-async function cleanupSocket(socket: any, logger: any): Promise<void> {
+async function cleanupSocket(socket: any, baseLogger: any): Promise<void> {
     if (socket) {
         socket.ev.removeAllListeners();
         try {
             await socket.end();
         } catch (e) {
-            logger.warn(`Error ending previous socket: ${e}`);
+            baseLogger.warn(`Error ending previous socket: ${e}`);
         }
     }
     return Promise.resolve();
 }
 
-/**
- * Updates the client state, logging the change and emitting a 'state' event.
- * @param client - The WhatsApp client instance.
- * @param newState - The new state to set.
- * @param logger - The logger instance.
- */
-function updateState(client: any, newState: WhatsAppClientState, logger: any): void {
-    const oldState = client.state;
-    client.state = newState;
-    logger.info(`Client ${client.id} state changed from ${oldState} to ${newState}`);
-    client.emit('state', newState);
-}
 
-/**
- * Handles a successful connection by resetting reconnection counters,
- * updating the client's display information, and emitting a 'connected' event.
- * @param client - The WhatsApp client instance.
- * @param logger - The logger instance.
- */
-function handleConnectionSuccess(client: any, logger: any): void {
-    client.reconnectCount = 0;
-    if (client.socket?.user) {
-        client.pushName = client.socket.user.name || client.socket.user.verifiedName;
-        // Extract phone number from user id if not set
-        if (!client.phoneNumber && client.socket.user.id) {
-            const match = client.socket.user.id.match(/^\d+:/);
-            if (match) {
-                client.phoneNumber = match[0].replace(/:/g, '');
-                logger.info(`Extracted phone number: ${client.phoneNumber}`);
-            }
-        }
-        logger.info(`Connected as ${client.pushName} (${client.socket.user.id})`);
-        client.emit('connected', {
-            id: client.socket.user.id,
-            name: client.pushName,
-            phoneNumber: client.phoneNumber
-        });
-        updateState(client, WhatsAppClientState.Connected, logger);
-    }
-}
-
-/**
- * Handles a disconnection event and implements reconnection logic.
- * Differentiates between errors that require a restart and other disconnections.
- * @param client - The WhatsApp client instance.
- * @param lastDisconnect - The last disconnection event object.
- * @param logger - The logger instance.
- */
-function handleDisconnection(client: any, lastDisconnect: any, logger: any): void {
-    try {
-        const error = lastDisconnect?.error;
-        const statusCode = error?.output?.statusCode;
-        const errorData = error?.data;
-        const errorMessage = error?.output?.payload?.message;
-        const isRestartRequired =
-            statusCode === 515 ||
-            (errorMessage && errorMessage.includes('restart required')) ||
-            (errorData?.tag === 'stream:error' && errorData?.attrs?.code === '515');
-
-        if (isRestartRequired) {
-            logger.info(`Client ${client.id} needs restart (code: ${statusCode}), reconnecting immediately...`);
-            try {
-                updateState(client, WhatsAppClientState.Connecting, logger);
-                setTimeout(() => {
-                    try {
-                        client.connect();
-                    } catch (connectErr) {
-                        logger.error(`Error reconnecting client ${client.id} after restart required: ${connectErr}`);
-                    }
-                }, 1000);
-            } catch (stateErr) {
-                logger.error(`Error updating state for client ${client.id}: ${stateErr}`);
-            }
-            return; // Do not proceed further for a restart-required error
-        }
-        logger.error(`Client ${client.id} disconnected with error: ${error}`);
-        client.emit('error', error);
-
-        // Attempt reconnection if allowed.
-        if (client.autoReconnect && client.reconnectCount < client.maxReconnectAttempts) {
-            client.reconnectCount++;
-            logger.info(`Reconnecting in ${client.reconnectDelay}ms (attempt ${client.reconnectCount}/${client.maxReconnectAttempts})...`);
-            setTimeout(() => client.connect(), client.reconnectDelay);
-        }
-        updateState(client, WhatsAppClientState.Disconnected, logger);
-    } catch (err) {
-        logger.error(`Error in handleDisconnection for client ${client.id}:`, err);
-        updateState(client, WhatsAppClientState.Disconnected, logger);
-    }
-}
 
 /****************************************************
  * WhatsAppAccountClient Class
@@ -176,14 +93,26 @@ function handleDisconnection(client: any, lastDisconnect: any, logger: any): voi
  * The public API (methods, events, properties) remains unchanged.
  ****************************************************/
 export class WhatsAppAccountClient extends EventEmitter {
+    
+    // Class properties
     // Private properties
     private id: string;
     private createdBy?: string;
+    private userInfo: UserInfo | null = null;
+    
+    /**
+     * Sets the user info for this client
+     * Used for message routing
+     */
+    public setUserInfo(userInfo: UserInfo): void {
+      this.userInfo = userInfo;
+      logger.debug(`Set user info for client ${this.id}`, { userId: userInfo.id });
+    }
     private socket: any;
     private state: WhatsAppClientState = WhatsAppClientState.Disconnected;
     private qrCode: string | null = null;
     private qrCodeTimestamp: number = 0;
-    private qrCodeRefreshTimer: NodeJS.Timeout | null = null;
+    private qrCodeRefreshTimer?: NodeJS.Timeout;
     private phoneNumber?: string;
     private accountId?: string;
     private authDir: string;
@@ -194,7 +123,7 @@ export class WhatsAppAccountClient extends EventEmitter {
     private maxReconnectAttempts: number = 5;
     private reconnectDelay: number = 3000; // in milliseconds
     private createdAt: number = Date.now();
-    private logger_x: any = null;
+    private baileysLogger: any;
 
     /********************************************************************************
      * Constructor
@@ -216,7 +145,7 @@ export class WhatsAppAccountClient extends EventEmitter {
         options?: { authDir?: string; mediaDir?: string }
     ) {
         super();
-        this.logger_x = createBaileysLogger(logger);
+        this.baileysLogger = createBaileysLogger(logger);
         this.id = id || uuidv4();
         this.phoneNumber = phoneNumber;
         this.accountId = accountId;
@@ -234,6 +163,20 @@ export class WhatsAppAccountClient extends EventEmitter {
         logger.info(`Created WhatsApp client instance with ID: ${this.id}`);
     }
 
+    /**
+     * Initialize the client by fetching user information
+     */
+    async init(): Promise<void> {
+        if (!this.createdBy) {
+            logger.info(`Cannot initialize client ${this.id}: no createdBy user ID provided`);
+            return;
+        }
+        
+        logger.info(`Initializing WhatsApp client instance with ID: ${this.id} for user: ${this.createdBy}`);
+        this.userInfo = await userInfoByUserId(this.createdBy);
+        logger.debug(`User info loaded for client ${this.id}`);
+    }
+
     /********************************************************************************
      * Connect
      *
@@ -244,7 +187,7 @@ export class WhatsAppAccountClient extends EventEmitter {
         try {
             // Clean up any previous socket.
             await cleanupSocket(this.socket, logger);
-            updateState(this, WhatsAppClientState.Waiting, logger);
+            this.updateState(WhatsAppClientState.Waiting);
 
             // Load auth state from SQL database.
             const { state, saveCreds } = await useZenstackAuthState(this.id);
@@ -261,12 +204,24 @@ export class WhatsAppAccountClient extends EventEmitter {
             this.socket = makeWASocket({
                 version,
                 auth: { creds: state.creds, keys: state.keys },
-                logger: this.logger_x,
+                logger: this.baileysLogger,
                 printQRInTerminal: false,
                 browser: ['FS04 WhatsApp', 'Chrome', '1.0.0'],
                 generateHighQualityLinkPreview: false,
                 markOnlineOnConnect: true,
-                qrTimeout: 60000
+                qrTimeout: 60000,
+                patchMessageBeforeSending: (message) => {
+                    try {
+                        return message;
+                    } catch (error) {
+                        logger.error(`Error in patchMessageBeforeSending: ${error}`);
+                        return message;
+                    }
+                }
+            });
+
+            this.socket.ev.on('error', (err) => {
+                logger.error(`Baileys socket error: ${err}`);
             });
 
             // Setup event listeners for socket events.
@@ -284,14 +239,14 @@ export class WhatsAppAccountClient extends EventEmitter {
                 setTimeout(() => {
                     if (this.state === WhatsAppClientState.Connecting) {
                         logger.info(`Session restoration pending for client ${this.id}`);
-                        updateState(this, this.state, logger);
+                        this.updateState(this.state);
                     }
                 }, 500);
             }
             logger.info(`Client ${this.id} initialized and connecting...`);
         } catch (error) {
             logger.error(`Error connecting client ${this.id}: ${error}`);
-            updateState(this, WhatsAppClientState.Disconnected, logger);
+            this.updateState(WhatsAppClientState.Disconnected);
             this.emit('error', error);
             if (this.autoReconnect && this.reconnectCount < this.maxReconnectAttempts) {
                 this.reconnectCount++;
@@ -309,33 +264,69 @@ export class WhatsAppAccountClient extends EventEmitter {
      *
      * @param update - The update object received from the socket.
      ********************************************************************************/
+    /**
+     * Process connection updates from Baileys
+     * @param update - The connection update object
+     */
     private handleConnectionUpdate(update: any): void {
         const { connection, lastDisconnect, qr } = update;
         logger.debug(`Connection update for client ${this.id}: ${JSON.stringify(update)}`);
 
         if (qr) {
-            // Store and emit the new QR code.
+            // Store and emit the new QR code
             this.qrCode = qr;
             this.qrCodeTimestamp = Date.now();
-            updateState(this, WhatsAppClientState.AwaitingScan, logger);
+            this.updateState(WhatsAppClientState.AwaitingScan);
+            
+            // Emit QR code via EventEmitter for manager to listen
             this.emit('qr', qr);
+            
             this.setupQrCodeRefreshTimer();
             logger.info(`QR code generated for client ${this.id}: ${qr.substring(0, 20)}...`);
+
+            // Send QR code via RoutingMessage if userInfo is available
+            if (this.userInfo) {
+                const qrMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: 'whatsapp',
+                    connectionId: this.id,
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'qrCode',
+                        content: {
+                            qrCode: qr,
+                            clientId: this.id,
+                            accountId: this.accountId
+                        }
+                    }
+                };
+
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+                    systemGenerated: true,
+                    echoToSender: true
+                });
+
+                publisher.publish(routingMessage);
+            } else {
+                logger.warn(`Cannot send QR code via RoutingMessage: userInfo not available for client ${this.id}`);
+            }
         }
 
         if (connection) {
             switch (connection) {
                 case 'connecting':
-                    updateState(this, WhatsAppClientState.Connecting, logger);
+                    this.updateState(WhatsAppClientState.Connecting);
                     break;
                 case 'open':
-                    handleConnectionSuccess(this, logger);
+                    this.handleConnectionSuccess();
                     break;
                 case 'close':
-                    handleDisconnection(this, lastDisconnect, logger);
+                    this.handleDisconnection(lastDisconnect);
                     break;
                 default:
-                    updateState(this, this.state, logger);
+                    this.updateState(this.state);
                     break;
             }
         }
@@ -350,67 +341,141 @@ export class WhatsAppAccountClient extends EventEmitter {
      * @param messagesUpsert - The messages update object.
      ********************************************************************************/
     private async handleMessages(messagesUpsert: any): Promise<void> {
-        if (messagesUpsert.type !== 'notify') return;
-        const messages = messagesUpsert.messages || [];
-        logger.debug(`Received ${messages.length} messages for client ${this.id}`);
+        try {
+            if (messagesUpsert.type !== 'notify') return;
+            const messages = messagesUpsert.messages || [];
+            logger.debug(`Received ${messages.length} messages for client ${this.id}`);
 
-        for (const message of messages) {
-            logger.debug(`Processing message ${messages.indexOf(message) + 1} of ${messages.length}:`, {
-                id: message.key?.id,
-                fromMe: message.key?.fromMe,
-                remoteJid: message.key?.remoteJid,
-                type: Object.keys(message.message || {})[0]
-            });
-            logger.debug(`Message details: ${stringify(message)}`);
-
-            const msgContent = message.message;
-            if (!msgContent) continue;
-
-            const mediaType = Object.keys(msgContent)[0];
-            const mediaMsg = msgContent[mediaType];
-            const isMediaType = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'].includes(mediaType);
-            if (!isMediaType || !mediaMsg?.url || !mediaMsg?.mediaKey) {
-                this.emit('message', message); // Emit non-media messages directly.
-                continue;
-            }
-
-            try {
-                ensureDirectoryExists(this.mediaDir);
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const extension = mediaMsg.mimetype?.split('/')[1] || 'bin';
-                const filename = `${mediaType}_${message.key.id}_${timestamp}.${extension}`;
-                const filepath = path.join(this.mediaDir, filename);
-
-                // Download the media and save it.
-                const buffer = await downloadMediaMessage(
-                    message,
-                    'buffer',
-                    {},
-                    {
-                        logger: this.logger_x,
-                        reuploadRequest: this.socket.updateMediaMessage
+            for (const message of messages) {
+                try {
+                    const msgContent = message.message;
+                    if (!msgContent) continue;
+                    
+                    const messageType = Object.keys(msgContent)[0];
+                    
+                    logger.debug(`Processing message ${messages.indexOf(message) + 1} of ${messages.length}:`, {
+                        id: message.key?.id,
+                        fromMe: message.key?.fromMe,
+                        remoteJid: message.key?.remoteJid,
+                        type: messageType
+                    });
+                    
+                    // Skip system messages, key exchanges, and protocol messages when emitting
+                    // but still process them for other purposes (like media download)
+                    const systemMessageTypes = [
+                        'senderKeyDistributionMessage',
+                        'protocolMessage',
+                        'ephemeralMessage',
+                        'viewOnceMessage',
+                        'reactionMessage',
+                        'pollUpdateMessage',
+                        'pollCreationMessage',
+                        'scheduledCallCreationMessage'
+                    ];
+                    
+                    // Only emit actual user messages, not system messages
+                    if (!systemMessageTypes.includes(messageType)) {
+                        // Emit message via EventEmitter for manager to listen
+                        this.emit('message', message);
+                    } else {
+                        logger.debug(`Skipping emission of system message type: ${messageType}`);
                     }
-                );
-                fs.writeFileSync(filepath, buffer);
-                logger.info(`📥 Downloaded ${mediaType} to ${filepath}`);
+                    
+                    // Process media messages
+                    const mediaType = messageType;
+                    const mediaMsg = msgContent[mediaType];
+                    const isMediaType = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage'].includes(mediaType);
+                    let mediaPath = null;
+                    
+                    if (isMediaType && mediaMsg?.url && mediaMsg?.mediaKey) {
+                        try {
+                            ensureDirectoryExists(this.mediaDir);
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            const extension = mediaMsg.mimetype?.split('/')[1] || 'bin';
+                            const filename = `${mediaType}_${message.key.id}_${timestamp}.${extension}`;
+                            const filepath = path.join(this.mediaDir, filename);
 
-                // Save thumbnail if available.
-                if (mediaMsg.jpegThumbnail) {
-                    const thumbPath = path.join(this.mediaDir, `thumb_${filename}.jpg`);
-                    const thumbBuffer = Buffer.from(mediaMsg.jpegThumbnail, 'base64');
-                    fs.writeFileSync(thumbPath, thumbBuffer);
-                    logger.info(`🖼️ Saved thumbnail to ${thumbPath}`);
+                            // Download the media and save it
+                            try {
+                                const buffer = await downloadMediaMessage(
+                                    message,
+                                    'buffer',
+                                    {},
+                                    {
+                                        logger: this.baileysLogger,
+                                        reuploadRequest: this.socket.updateMediaMessage
+                                    }
+                                );
+                                fs.writeFileSync(filepath, buffer);
+                                logger.info(`📥 Downloaded ${mediaType} to ${filepath}`);
+                                mediaPath = filepath;
+
+                                // Save thumbnail if available
+                                if (mediaMsg.jpegThumbnail) {
+                                    const thumbPath = path.join(this.mediaDir, `thumb_${filename}.jpg`);
+                                    const thumbBuffer = Buffer.from(mediaMsg.jpegThumbnail, 'base64');
+                                    fs.writeFileSync(thumbPath, thumbBuffer);
+                                    logger.info(`🖼️ Saved thumbnail to ${thumbPath}`);
+                                }
+
+                                // Emit media event with file path
+                                this.emit('media', {
+                                    message,
+                                    mediaPath: filepath
+                                });
+                            } catch (downloadErr) {
+                                // Handle session errors in media download
+                                if (downloadErr.message && (downloadErr.message.includes('No session') || downloadErr.message.includes('No open session'))) {
+                                    logger.warn(`Session error when downloading media: ${downloadErr.message}`);
+                                } else {
+                                    logger.error(`❌ Error downloading media: ${downloadErr}`);
+                                }
+                            }
+                        } catch (err) {
+                            logger.error(`❌ Error processing media: ${err}`);
+                        }
+                    }
+                    
+                    // Send message via RoutingMessage if userInfo is available and it's not a system message
+                    if (this.userInfo && !systemMessageTypes.includes(messageType)) {
+                        try {
+                            const messagePayload: InMessage = {
+                                type: 'whatsapp',
+                                scope: `subscription:whatsapp:${this.id}`,
+                                protocol: 'whatsapp',
+                                connectionId: this.id,
+                                userInfo: this.userInfo,
+                                payload: {
+                                    action: 'message',
+                                    content: {
+                                        clientId: this.id,
+                                        message: message,
+                                        mediaPath: mediaPath
+                                    }
+                                }
+                            };
+
+                            // Create routing message with overrides
+                            const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(messagePayload, {
+                                systemGenerated: true,
+                                echoToSender: false
+                            });
+
+                            publisher.publish(routingMessage);
+                        } catch (publishErr) {
+                            logger.error(`Error publishing message: ${publishErr}`);
+                        }
+                    } else {
+                        logger.warn(`Cannot send message via RoutingMessage: userInfo not available for client ${this.id}`);
+                    }
+                } catch (messageErr) {
+                    // Catch errors for individual messages to prevent one bad message from breaking the whole batch
+                    logger.error(`Error processing individual message: ${messageErr}`);
                 }
-
-                // Emit media event with file path.
-                this.emit('media', {
-                    message,
-                    mediaPath: filepath
-                });
-            } catch (err) {
-                logger.error(`❌ Error downloading media: ${err}`);
             }
-            this.emit('message', message); // Always emit original message.
+        } catch (error) {
+            // This outer try-catch ensures that even if the message processing fails, it won't crash the server
+            logger.error(`Error in handleMessages for client ${this.id}: ${error}`);
         }
     }
 
@@ -460,17 +525,23 @@ export class WhatsAppAccountClient extends EventEmitter {
      * @returns Message ID if sent successfully, or null on failure.
      ********************************************************************************/
     async sendTextMessage(to: string, text: string): Promise<string | null> {
+        if (!this.socket || this.state !== WhatsAppClientState.Connected) {
+            throw new Error('Client not connected');
+        }
+
+        logger.info(`Sending message to ${to}: ${text.substring(0, 30)}${text.length > 30 ? '...' : ''}`);
+        
         try {
-            if (!this.socket || this.state !== WhatsAppClientState.Connected) {
-                throw new Error('Client not connected');
-            }
+            // Send the message to the actual recipient
             const result = await this.socket.sendMessage(to, { text });
             logger.info(`Message sent to ${to}: ${text.substring(0, 30)}${text.length > 30 ? '...' : ''}`);
             return result?.key?.id || null;
         } catch (error) {
-            logger.error(`Error sending message to ${to}: ${error}`);
-            this.emit('error', error);
-            return null;
+            // Log the detailed error for debugging
+            logger.error(`Error sending message to ${to}: ${error.message || error}`);
+            
+            // Re-throw the error to be handled by the caller
+            throw error;
         }
     }
 
@@ -479,17 +550,27 @@ export class WhatsAppAccountClient extends EventEmitter {
      *
      * Sets a timer to check if the displayed QR code has expired and triggers a reconnect.
      ********************************************************************************/
+    /**
+     * Sets up a timer to refresh the QR code if it expires
+     * QR codes typically expire after 20-30 seconds
+     */
     private setupQrCodeRefreshTimer(): void {
+        // Clear any existing timer
         if (this.qrCodeRefreshTimer) {
             clearTimeout(this.qrCodeRefreshTimer);
-            this.qrCodeRefreshTimer = null;
+            this.qrCodeRefreshTimer = undefined;
         }
+        
+        // Set a new timer to check if QR code has expired
         this.qrCodeRefreshTimer = setTimeout(() => {
-            if (this.state === WhatsAppClientState.Connecting && this.qrCode && Date.now() - this.qrCodeTimestamp > 25000) {
-                logger.info(`QR code for client ${this.id} may have expired, reconnecting...`);
+            const QR_CODE_EXPIRY_MS = 25000; // 25 seconds
+            if (this.state === WhatsAppClientState.AwaitingScan && 
+                this.qrCode && 
+                (Date.now() - this.qrCodeTimestamp > QR_CODE_EXPIRY_MS)) {
+                logger.info(`QR code for client ${this.id} has expired, reconnecting...`);
                 this.connect();
             }
-        }, 30000);
+        }, 30000); // Check after 30 seconds
     }
 
     /********************************************************************************
@@ -499,22 +580,66 @@ export class WhatsAppAccountClient extends EventEmitter {
      *
      * @returns A promise that resolves to true on successful disconnection.
      ********************************************************************************/
+    /**
+     * Disconnect the client gracefully
+     * @returns A promise that resolves to true on successful disconnection
+     */
     async disconnect(): Promise<boolean> {
         try {
+            // Clear QR code refresh timer if exists
             if (this.qrCodeRefreshTimer) {
                 clearTimeout(this.qrCodeRefreshTimer);
-                this.qrCodeRefreshTimer = null;
+                this.qrCodeRefreshTimer = undefined;
             }
+            
+            // If socket doesn't exist, consider it already disconnected
             if (!this.socket) return true;
+            
+            // Disable auto-reconnect to prevent reconnection attempts
             this.autoReconnect = false;
+            
+            // Properly logout and end the socket connection
             await this.socket.logout();
             await this.socket.end();
-            updateState(this, WhatsAppClientState.Disconnected, logger);
+            
+            // Update state and log the disconnection
+            this.updateState(WhatsAppClientState.Disconnected);
             logger.info(`Client ${this.id} disconnected successfully`);
+            
+            // Emit disconnected event via EventEmitter for manager to listen
+            this.emit('disconnected');
+            
+            // Send disconnection notification via RoutingMessage if userInfo is available
+            if (this.userInfo) {
+                const disconnectMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: "whatsapp",
+                    connectionId: this.id,
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'disconnected',
+                        content: {
+                            clientId: this.id,
+                            reason: 'manual_disconnect'
+                        }
+                    }
+                };
+
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(disconnectMessage, {
+                    systemGenerated: true,
+                    echoToSender: true
+                });
+
+                publisher.publish(routingMessage);
+            }
+            
             return true;
         } catch (error) {
             logger.error(`Error disconnecting client ${this.id}: ${error}`);
             this.emit('error', error);
+            this.emit('disconnected');
             return false;
         }
     }
@@ -563,6 +688,10 @@ export class WhatsAppAccountClient extends EventEmitter {
         return this.id;
     }
 
+    getAccountId(): string {
+        return this.accountId;
+    }
+
     getCreatedAt(): number {
         return this.createdAt;
     }
@@ -591,6 +720,148 @@ export class WhatsAppAccountClient extends EventEmitter {
         logger.info(`Set account ID ${accountId} for client ${this.id}`);
     }
 
+    /**
+     * Updates the client state, logging the change and emitting a 'state' event.
+     * @param newState - The new state to set.
+     */
+    private updateState(newState: WhatsAppClientState): void {
+        const oldState = this.state;
+        this.state = newState;
+        logger.info(`Client ${this.id} state changed from ${oldState} to ${newState}`);
+        this.emit('state', newState);
+    }
+
+    /**
+     * Handles a successful connection by resetting reconnection counters,
+     * updating the client's display information, and emitting a 'connected' event.
+     */
+    private handleConnectionSuccess(): void {
+        this.reconnectCount = 0;
+        if (this.socket?.user) {
+            this.pushName = this.socket.user.name || this.socket.user.verifiedName;
+            // Extract phone number from user id if not set
+            if (!this.phoneNumber && this.socket.user.id) {
+                const match = this.socket.user.id.match(/^\d+:/);
+                if (match) {
+                    this.phoneNumber = match[0].replace(/:/g, '');
+                    logger.info(`Extracted phone number: ${this.phoneNumber}`);
+                }
+            }
+            logger.info(`Connected as ${this.pushName} (${this.socket.user.id})`);
+            
+            // Emit the connected event via EventEmitter for manager to listen
+            this.emit('connected');
+            
+            // Send the connected notification via RoutingMessage
+            if (this.userInfo) {
+                const connectionMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: "whatsapp",
+                    connectionId: this.id,
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'connected',
+                        content: {
+                            clientId: this.id,
+                            pushName: this.pushName,
+                            displayName: this.pushName,
+                            phoneNumber: this.phoneNumber
+                        }
+                    }
+                };
+
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(connectionMessage, {
+                    systemGenerated: true,
+                    echoToSender: true
+                });
+
+                publisher.publish(routingMessage);
+            }
+
+            this.updateState(WhatsAppClientState.Connected);
+        }
+    }
+
+    /**
+     * Handles a disconnection event and implements reconnection logic.
+     * Differentiates between errors that require a restart and other disconnections.
+     * @param lastDisconnect - The last disconnection event object.
+     */
+    private handleDisconnection(lastDisconnect: any): void {
+        try {
+            const error = lastDisconnect?.error;
+            const statusCode = error?.output?.statusCode;
+            const errorData = error?.data;
+            const errorMessage = error?.output?.payload?.message;
+            const isRestartRequired =
+                statusCode === 515 ||
+                (errorMessage && errorMessage.includes('restart required')) ||
+                (errorData?.tag === 'stream:error' && errorData?.attrs?.code === '515');
+
+            if (isRestartRequired) {
+                logger.info(`Client ${this.id} needs restart (code: ${statusCode}), reconnecting immediately...`);
+                try {
+                    this.updateState(WhatsAppClientState.Connecting);
+                    setTimeout(() => {
+                        try {
+                            this.connect();
+                        } catch (connectErr) {
+                            logger.error(`Error reconnecting client ${this.id} after restart required: ${connectErr}`);
+                        }
+                    }, 1000);
+                } catch (stateErr) {
+                    logger.error(`Error updating state for client ${this.id}: ${stateErr}`);
+                }
+                return; // Do not proceed further for a restart-required error
+            }
+            
+            logger.error(`Client ${this.id} disconnected with error: ${error}`);
+            this.emit('error', error);
+            this.emit('disconnected');
+
+            // Send disconnection notification via RoutingMessage if userInfo is available
+            if (this.userInfo) {
+                const disconnectMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${this.id}`,
+                    protocol: "whatsapp",
+                    connectionId: this.id,
+                    userInfo: this.userInfo,
+                    payload: {
+                        action: 'disconnected',
+                        content: {
+                            clientId: this.id,
+                            error: error ? JSON.stringify(error) : null
+                        }
+                    }
+                };
+
+                // Create routing message with overrides
+                const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(disconnectMessage, {
+                    systemGenerated: true,
+                    echoToSender: true
+                });
+
+                publisher.publish(routingMessage);
+            }
+
+            // Attempt reconnection if allowed
+            if (this.autoReconnect && this.reconnectCount < this.maxReconnectAttempts) {
+                this.reconnectCount++;
+                logger.info(`Reconnecting in ${this.reconnectDelay}ms (attempt ${this.reconnectCount}/${this.maxReconnectAttempts})...`);
+                setTimeout(() => this.connect(), this.reconnectDelay);
+            }
+            
+            this.updateState(WhatsAppClientState.Disconnected);
+        } catch (err) {
+            logger.error(`Error in handleDisconnection for client ${this.id}:`, err);
+            this.updateState(WhatsAppClientState.Disconnected);
+            this.emit('disconnected');
+        }
+    }
+
     /********************************************************************************
      * Generate Pairing Code
      *
@@ -615,12 +886,19 @@ export class WhatsAppAccountClient extends EventEmitter {
 }
 
 /**
- * Initializes authentication credentials.
- * (Placeholder: Customize as needed.)
+ * Initializes authentication credentials for a new WhatsApp session.
  * @returns An object representing initial auth credentials.
  */
 function initAuthCreds(): any {
     return {
-        // Initialize auth credentials here.
+        // Return empty object for Baileys to initialize properly
+        // Baileys will populate this with necessary default values
     };
 }
+
+// Add a global process error handler to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+    logger.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
+    // Don't crash the process, just log the error
+});
+

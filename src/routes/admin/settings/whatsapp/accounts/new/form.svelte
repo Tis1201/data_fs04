@@ -10,7 +10,7 @@
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     
-    // Props for the form component
+    // Props for the form component - simple passthrough
     export let form;
     export let errors;
     export let enhance;
@@ -51,8 +51,6 @@
             </FormField>
         </FormRow>
         
-        
-
         <FormRow columns={1}>
             <FormField id="name" label="Display Name" error={errors.name}>
                 <Input
@@ -93,8 +91,6 @@
                 />
             </FormField>
         </FormRow>
-        
-      
 
         <FormActions>
             <Button

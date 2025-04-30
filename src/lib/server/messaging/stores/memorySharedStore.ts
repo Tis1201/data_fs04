@@ -1,55 +1,87 @@
-import type { SharedStore } from '../interfaces/sharedStore';
-import type { ConnectionMeta } from '../interfaces/connection';
+// src/lib/server/messaging/stores/memorySharedStore.ts
+import type { SharedStore } from "../interfaces/sharedStore";
 
-const memory = new Map<string, { meta: ConnectionMeta; userId?: string; expiresAt?: number }>();
+/**
+ * A generic in-memory set store for storing multiple values per key.
+ * API is compatible with Redis Set operations and your SharedStore interface.
+ */
+export function createMemoryStore<T>(): SharedStore<T> {
+  const memory = new Map<string, Set<T>>();
 
-export const MemorySharedStore: SharedStore = {
-  debugPrint() {
-    console.log('[MemorySharedStore] Dump:');
-    for (const [id, entry] of memory.entries()) {
-      const { meta, userId, expiresAt } = entry;
-      console.log(`  id: ${id}, userId: ${userId}, expiresAt: ${expiresAt ? new Date(expiresAt).toISOString() : 'none'}`);
+  return {
+    /**
+     * Overwrite the set at id with the provided members.
+     */
+    async set(id, members, _ttlSeconds) {
+      // TTL is ignored in memory, but kept for API compatibility.
+      memory.set(id, new Set(members));
+    },
+
+    /**
+     * Get a single (first) member for an id, or null if none.
+     */
+    async getSingle(id) {
+      const set = memory.get(id);
+      if (!set || set.size === 0) return null;
+      return set.values().next().value ?? null;
+    },
+
+    /**
+     * Add a member to the set at id.
+     */
+    async addMember(id, member) {
+      if (!memory.has(id)) {
+        memory.set(id, new Set<T>());
+      }
+      memory.get(id)!.add(member);
+    },
+
+    /**
+     * Remove a member from the set at id.
+     */
+    async removeMember(id, member) {
+      const set = memory.get(id);
+      if (set) {
+        set.delete(member);
+        if (set.size === 0) memory.delete(id);
+      }
+    },
+
+    /**
+     * Remove the entire set for an id.
+     */
+    async remove(id) {
+      memory.delete(id);
+    },
+
+    /**
+     * Get all members for an id.
+     */
+    async getMembers(id) {
+      return Array.from(memory.get(id) ?? []);
+    },
+
+    /**
+     * Get the total number of members across all ids.
+     */
+    async count() {
+      let total = 0;
+      for (const set of memory.values()) total += set.size;
+      return total;
+    },
+
+    async getAllMembers() {
+      // Flatten all sets into a single array
+      return Array.from(memory.values()).flatMap(set => Array.from(set));
+    },
+
+    /**
+     * Print debug info for all ids and their members.
+     */
+    debugPrint() {
+      for (const [id, set] of memory.entries()) {
+        console.log(`key: ${id}, members: ${Array.from(set).join(',')}`);
+      }
     }
-  },
-  async setConnection(meta, ttlSeconds) {
-    const expiresAt = ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined;
-    // Store both the original meta and extract userId for easier querying
-    const entry = { 
-      meta,
-      userId: meta.userInfo?.id,
-      expiresAt 
-    };
-    memory.set(meta.id, entry);
-  },
-
-  async removeConnection(connId) {
-    memory.delete(connId);
-  },
-
-  async getConnection(connId) {
-    const entry = memory.get(connId);
-    if (!entry) return null;
-    if (entry.expiresAt && entry.expiresAt < Date.now()) {
-      memory.delete(connId);
-      return null;
-    }
-    return entry.meta;
-  },
-
-  async getConnectionsByUser(userId) {
-    return Array.from(memory.values())
-      .filter(e => e.userId === userId && (!e.expiresAt || e.expiresAt > Date.now()))
-      .map(e => e.meta);
-  },
-
-  async getAllConnections() {
-    const now = Date.now();
-    return Array.from(memory.values())
-      .filter(e => !e.expiresAt || e.expiresAt > now)
-      .map(e => e.meta);
-  },
-
-  async getConnectionCount() {
-    return (await MemorySharedStore.getAllConnections()).length;
-  }
-};
+  };
+}

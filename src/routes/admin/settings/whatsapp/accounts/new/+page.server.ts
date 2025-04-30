@@ -29,15 +29,16 @@ export const load = restrict(
             // Pass the user ID to createClient so it knows who created this client
             // Add a small delay to ensure the page and WebSocket connection are ready
             // await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
-            const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(user_id);
+            // const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(user_id);
 
-            logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
+            // logger.debug(`Created WhatsApp client with userId: ${user_id} during page load`);
             
-            console.log(`Created WhatsApp client with ID ${clientId} during page load`);
+            // console.log(`Created WhatsApp client with ID ${clientId} during page load`);
                   
             return { 
-                form,
-                clientId
+                form, 
+                clientId: null
+                // clientId
             };
         } catch (error) {
             console.error('Error creating WhatsApp client during page load:', error);
@@ -79,19 +80,52 @@ export const actions: Actions = {
             // Create the WhatsApp account with the client_id from the form
             // The client_id should have been set in the frontend when the WebSocket connection was authenticated
             if (!form.data.client_id) {
-                return fail(400, { 
-                    form: message(form, 'Client ID is required. Please authenticate with WhatsApp first.', { status: 'error' })
-                });
+                // SuperForms expects the form to be at the top level
+                return fail(400, message(form, 'Client ID is required. Please authenticate with WhatsApp first.', { status: 'error' }));
             }
             
-            // Get client info from WhatsApp manager
+            // Log the client ID from the form for debugging
+            logger.info(`Received client_id from form: ${form.data.client_id}`);
+            
+            // Validate client ID format (should be UUID)
+            const isValidClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(form.data.client_id);
+            
+            if (!isValidClientId) {
+                logger.warn(`Invalid client ID format: ${form.data.client_id}`);
+                return fail(400, message(form, 'Invalid client ID format. Please reconnect your WhatsApp account.', { status: 'error' }));
+            }
+            
+            // Get client directly by ID
             const client = whatsAppAccountManager.getClient(form.data.client_id);
+            
+            if (!client) {
+                logger.warn(`Client with ID ${form.data.client_id} not found when creating account`);
+                return fail(400, message(form, 'WhatsApp client not found. Please reconnect and try again.', { status: 'error' }));
+            }
+            
             const clientInfo = client ? client.getInfo() : null;
             
-            console.log('Client info for database:', {
-                clientId: form.data.client_id,
-                phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber,
-                name: form.data.name || clientInfo?.pushName
+            if (!clientInfo) {
+                logger.warn(`Client info not available for client ${form.data.client_id}`);
+            }
+            
+            // Log all the data we have for debugging
+            logger.info('Account creation data:', {
+                fromForm: {
+                    clientId: form.data.client_id,
+                    phoneNumber: form.data.phoneNumber,
+                    name: form.data.name,
+                    description: form.data.description
+                },
+                fromClient: clientInfo ? {
+                    phoneNumber: clientInfo.phoneNumber,
+                    pushName: clientInfo.pushName
+                } : 'No client info available',
+                finalValues: {
+                    clientId: form.data.client_id,
+                    phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber || 'Unknown',
+                    name: form.data.name || clientInfo?.pushName || 'Unknown'
+                }
             });
             
             // Create the WhatsApp account in the database
@@ -110,16 +144,37 @@ export const actions: Actions = {
                 await client.setAccountId(account.id);
             }
 
-            // Return the form object with success and account data
-            return { 
-                form: message(form, 'WhatsApp account created successfully!', { status: 'success' }),
+            // Create a success message with the form data
+            const successForm = message(form, 'WhatsApp account created successfully!', { status: 'success' });
+            
+            // Add the account data to the form data object directly
+            // This ensures SuperForms gets the form data at the top level
+            const formWithAccount = {
+                ...successForm,
                 account
             };
-        } catch (err) {
-            console.error('Error creating WhatsApp account:', err);
-            return fail(500, { 
-                form: message(form, 'Failed to create WhatsApp account. Please try again.', { status: 'error' }) 
+            
+            // Log the response for debugging
+            logger.info('Sending successful response with account data:', {
+                accountId: account.id,
+                description: account.description,
+                responseStructure: Object.keys(formWithAccount)
             });
+            
+            // Return the form object with success and account data
+            // SuperForms expects the form to be at the top level
+            return formWithAccount;
+        } catch (err) {
+            // Log the full error for debugging
+            logger.error('Error creating WhatsApp account:', err);
+            
+            // Provide a more specific error message if possible
+            const errorMessage = err instanceof Error 
+                ? `Failed to create WhatsApp account: ${err.message}` 
+                : 'Failed to create WhatsApp account. Please try again.';
+            
+            // SuperForms expects the form to be at the top level, even in error cases
+            return fail(500, message(form, errorMessage, { status: 'error' }));
         }
     },
     

@@ -1,23 +1,30 @@
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
-import  { userAuthorizer } from '../authorizers/userAuthorizer';
+import { userAuthorizer } from '../authorizers/userAuthorizer';
+import { subscriptionAuthorizer } from '../authorizers/subscriptionAuthorizer';
 // import { GroupAuthorizer } from './authorizer/groupAuthorizer';
 // import { RoleAuthorizer } from './authorizer/roleAuthorizer';
 // import { RoomAuthorizer } from './authorizer/roomAuthorizer';
 
 export const ScopeAuthorizer = {
-  async isAllowed(scope: string, userInfo?: UserInfo, type?: string): Promise<boolean> {
+  async isAllowed(scope: string, userInfo: UserInfo, type: string, connectionIds: string[]): Promise<boolean> {
     const scopes = scope.split(',').map(s => s.trim());
 
-    for (const s of scopes) {
-      const [kind, id] = s.split(':');
+    for (const scope of scopes) {
 
-      logger.debug(`[ScopeAuthorizer] Checking scope: ${s} (kind: ${kind}, id: ${id})`);
+      const [kind, rest] = scope.split(':');
+
+      logger.debug(`[ScopeAuthorizer] Checking scope: ${scope} (kind: ${kind}, rest: ${rest})`);
 
       switch (kind) {
         case 'user':
-          if (!userAuthorizer.isAllowed(userInfo, id)) return false;
+          if (!userAuthorizer.isAllowed(userInfo, scope, type, connectionIds)) return false;
           break;
+
+        case 'subscription':
+          if (!subscriptionAuthorizer.isAllowed(userInfo, scope, type,connectionIds)) return false;
+          break;
+
 
         // case 'group':
         //   if (!(await GroupAuthorizer.isAllowed(userId, id))) return false;
@@ -35,7 +42,7 @@ export const ScopeAuthorizer = {
         //   break; // always allow direct-to-conn
 
         default:
-          return false;
+          throw new Error(`[ScopeAuthorizer] Unknown scope kind: ${kind}`);
       }
     }
 

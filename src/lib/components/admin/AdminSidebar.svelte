@@ -56,7 +56,19 @@
 
         EarIcon,
 
-        DoorOpen
+        DoorOpen,
+
+        ScreenShareIcon,
+
+        DivideCircleIcon,
+
+        NetworkIcon,
+
+        Router
+
+
+
+
 
 
 
@@ -112,6 +124,16 @@
         // { href: "/admin/connections", label: "Connections", icon: Cable },
         // { href: "/admin/screens", label: "Screens", icon: Tv },
         // { href: "/admin/mosaic", label: "Mosaic", icon: LayoutGrid },
+        {
+            label: "IOT",
+            icon: Network,
+            subItems: [
+                // { href: "/admin/debug/vpu", label: "VPU", icon: Video },
+                // { href: "/admin/debug/npu", label: "NPU", icon: Cpu },
+                { href: "/admin/iot/devices", label: "Devices", icon: Router },
+                // { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
+            ],
+        },
         {
             label: "Debug",
             icon: BugOff,
