@@ -59,6 +59,39 @@ This directory contains all server-side and client-side logic for WhatsApp integ
 
 ## Changelog
 
+---
+
+## WhatsApp Client Refactor & Modularization Attempt (2025-04-30)
+
+### What Was Attempted
+- The codebase attempted to refactor and modularize `WhatsAppAccountClient.ts` to improve maintainability and structure.
+- The plan was to break up the large file into smaller, focused modules:
+  - Utilities (`utils.ts`)
+  - Types & enums (`types.ts`)
+  - Event handlers (`handlers/connection.ts`, `handlers/message.ts`, `handlers/contact.ts`)
+  - Main class (`WhatsAppAccountClient.ts`)
+  - Public entrypoint (`index.ts`)
+- All modules were placed under `src/lib/server/whatsapp/client/` for separation of concerns and easier testing.
+
+### What Actually Happened
+- The modularization was implemented, but then all the new files were deleted and the codebase was restored to a single-file implementation.
+- The current `WhatsAppAccountClient.ts` is a monolithic file again, containing all logic, types, and utilities in one place.
+- The rollback was performed to maintain stability, backward compatibility, and minimize risk of side effects during ongoing development.
+
+### Lessons Learned
+- Large-scale refactors should be done incrementally, with careful testing after each step.
+- Backward compatibility and minimal changes are critical in production or shared codebases.
+- Having a clear migration plan and communication with teammates is important before restructuring core modules.
+- The current code is stable and functioning, but still could benefit from future modularization once a safe window for refactor is available.
+
+### Next Steps
+- Continue to keep changes minimal and focused on bug fixes or small improvements.
+- Plan for modularization in a dedicated branch or during a maintenance window.
+- Add or update tests to cover all critical WhatsApp client logic before the next refactor attempt.
+- Document any future refactor steps clearly in this README.
+
+---
+
 ### 2025-04-30
 - **E2E Encryption Session Handling:**
   - Improved session storage and retrieval in `useZenstackAuthState.ts` to properly handle WhatsApp's E2E encryption sessions
