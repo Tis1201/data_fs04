@@ -41,16 +41,30 @@ export class WhatsAppAccountManager extends EventEmitter {
   }
 
   /**
-   * Creates a new WhatsApp client instance
+   * Creates or restores a WhatsApp client instance
+   * @private Internal method used by restoreOrCreateClient
+   * @param createdBy - User ID who created/owns this client
+   * @param existingSessionId - Optional existing session ID to restore
+   * @returns Object containing the client ID
    */
-  public async createClient(createdBy: string): Promise<{ clientId: string }> {
+  private async createClient(createdBy: string, existingSessionId?: string): Promise<{ clientId: string }> {
     try {
-      // Create a new client instance
-      const client = new WhatsAppAccountClient(undefined, undefined, undefined, createdBy, this.options);
+      // Create a client instance (new or restored)
+      const client = new WhatsAppAccountClient(
+        existingSessionId, // If provided, use existing session ID
+        undefined,         // Phone number (set later if available)
+        undefined,         // Account ID (set later if available)
+        createdBy,         // User who created this client
+        this.options       // Auth/media directories
+      );
+      
+      // Initialize the client (load user info, etc.)
       await client.init();
       
-      // Register the client
+      // Get the client ID (either existing or newly generated)
       const clientId = client.getId();
+      
+      // Register the client
       this.clients.set(clientId, client);
       
       // Set up client event forwarding
@@ -59,16 +73,25 @@ export class WhatsAppAccountManager extends EventEmitter {
       // Connect the client
       await client.connect();
       
-      logger.info(`Created new WhatsApp client ${clientId} for user ${createdBy}`);
+      const logMessage = existingSessionId
+        ? `Restored WhatsApp client ${clientId} for user ${createdBy}`
+        : `Created new WhatsApp client ${clientId} for user ${createdBy}`;
+      
+      logger.info(logMessage);
       return { clientId };
     } catch (error) {
-      logger.error(`Error creating WhatsApp client: ${error}`);
+      logger.error(`Error creating/restoring WhatsApp client: ${error}`);
       throw error;
     }
   }
 
   /**
-   * Restores an existing client or creates a new one
+   * Main method to get a WhatsApp client - restores an existing client or creates a new one
+   * 
+   * This is the primary method for obtaining a WhatsApp client instance. It handles:
+   * 1. Returning an existing client if it's already in memory
+   * 2. Restoring a client from disk if session files exist
+   * 3. Creating a new client if needed
    * 
    * @param sessionId - Optional ID of an existing session to restore
    * @param userId - ID of the user who owns this client
@@ -93,16 +116,8 @@ export class WhatsAppAccountManager extends EventEmitter {
       // Restore if session files exist on disk
       if (sessionId && this.sessionExists(sessionId)) {
         logger.info(`Restoring WhatsApp client from existing session ${sessionId}`);
-        const client = new WhatsAppAccountClient(sessionId, undefined, undefined, userId, this.options);
-        
-        // Register the client
-        this.clients.set(sessionId, client);
-        this.setupClientEvents(client);
-        
-        // Connect the client
-        await client.connect();
-        
-        return { clientId: sessionId, restored: true };
+        const { clientId } = await this.createClient(userId, sessionId);
+        return { clientId, restored: true };
       }
 
       // Otherwise, create a new client
@@ -176,58 +191,7 @@ export class WhatsAppAccountManager extends EventEmitter {
     return client ? client.getInfo() : null;
   }
   
-  /**
-   * Sends a message using the specified client
-   * 
-   * @param clientId - ID of the client to use for sending
-   * @param to - Recipient's phone number
-   * @param message - Message content
-   * @returns Message ID if sent successfully, null otherwise
-   */
-  public async sendMessage(clientId: string, to: string, message: string): Promise<string | null> {
-    const client = this.clients.get(clientId);
-    if (!client) {
-      logger.warn(`Cannot send message: client ${clientId} not found`);
-      return null;
-    }
-    
-    // Format the phone number for WhatsApp if needed
-    let formattedTo = to;
-    if (!formattedTo.includes('@s.whatsapp.net')) {
-      // Remove any non-digit characters except the + sign at the beginning
-      let formatted = formattedTo.trim().replace(/[^\d+]/g, '');
-      
-      // Remove the + sign if it exists (Baileys handles this internally)
-      if (formatted.startsWith('+')) {
-        formatted = formatted.substring(1);
-      }
-      
-      // Append @s.whatsapp.net suffix which is required by Baileys
-      formattedTo = formatted + '@s.whatsapp.net';
-      logger.debug(`Formatted phone number from ${to} to ${formattedTo}`);
-    }
-    
-    // Check if client is connected, if not try to reconnect
-    if (client.getState() !== 'connected') {
-      logger.info(`Client ${clientId} is not connected (state: ${client.getState()}), attempting to reconnect...`);
-      try {
-        await client.connect();
-        // Wait a moment for the connection to stabilize
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        logger.error(`Failed to reconnect client ${clientId}: ${error}`);
-        return null;
-      }
-    }
-    
-    // Now try to send the message
-    try {
-      return await client.sendTextMessage(formattedTo, message);
-    } catch (error) {
-      logger.error(`Error sending message via client ${clientId}: ${error}`);
-      return null;
-    }
-  }
+  // Message sending is handled directly by the WhatsAppAccountClient
 
   public getAllClientsInfo(): any[] {
     return this.getAllClients().map(client => client.getInfo());

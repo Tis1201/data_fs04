@@ -85,9 +85,6 @@ const postHandler = restrict(async ({ request, locals }) => {
         const formattedTo = formatPhoneNumber(to);
         logger.info(`Attempting to send WhatsApp message to ${to} via account ${accountId}`);
         
-        // Get the client ID from the client
-        const clientId = client.getId();
-        
         try {
             // Use the properly formatted phone number
             const messageId = await client.sendTextMessage(formattedTo, message);
@@ -103,10 +100,8 @@ const postHandler = restrict(async ({ request, locals }) => {
                 error: `Error sending WhatsApp message: ${error.message || error}` 
             }, { status: 500 });
         }
-        
-        
     } catch (error) {
-        console.error('Error sending WhatsApp message:', error);
+        logger.error(`Error in WhatsApp message API: ${error}`);
         return json({ 
             success: false, 
             error: 'Server error' 
