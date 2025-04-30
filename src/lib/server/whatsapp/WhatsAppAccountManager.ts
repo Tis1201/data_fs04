@@ -152,10 +152,81 @@ export class WhatsAppAccountManager extends EventEmitter {
   public getAllClients(): WhatsAppAccountClient[] {
     return Array.from(this.clients.values());
   }
+  
+  /**
+   * Get a client by its account ID
+   * @param accountId The account ID to look for
+   * @returns The WhatsApp client associated with the account ID, or null if not found
+   */
+  public getClientByAccountId(accountId: string): WhatsAppAccountClient | null {
+    if (!accountId) return null;
+    
+    for (const client of this.clients.values()) {
+      if (client.getAccountId() === accountId) {
+        return client;
+      }
+    }
+    
+    logger.debug(`No client found with account ID ${accountId}`);
+    return null;
+  }
 
   public getClientInfo(clientId: string): any | null {
     const client = this.getClient(clientId);
     return client ? client.getInfo() : null;
+  }
+  
+  /**
+   * Sends a message using the specified client
+   * 
+   * @param clientId - ID of the client to use for sending
+   * @param to - Recipient's phone number
+   * @param message - Message content
+   * @returns Message ID if sent successfully, null otherwise
+   */
+  public async sendMessage(clientId: string, to: string, message: string): Promise<string | null> {
+    const client = this.clients.get(clientId);
+    if (!client) {
+      logger.warn(`Cannot send message: client ${clientId} not found`);
+      return null;
+    }
+    
+    // Format the phone number for WhatsApp if needed
+    let formattedTo = to;
+    if (!formattedTo.includes('@s.whatsapp.net')) {
+      // Remove any non-digit characters except the + sign at the beginning
+      let formatted = formattedTo.trim().replace(/[^\d+]/g, '');
+      
+      // Remove the + sign if it exists (Baileys handles this internally)
+      if (formatted.startsWith('+')) {
+        formatted = formatted.substring(1);
+      }
+      
+      // Append @s.whatsapp.net suffix which is required by Baileys
+      formattedTo = formatted + '@s.whatsapp.net';
+      logger.debug(`Formatted phone number from ${to} to ${formattedTo}`);
+    }
+    
+    // Check if client is connected, if not try to reconnect
+    if (client.getState() !== 'connected') {
+      logger.info(`Client ${clientId} is not connected (state: ${client.getState()}), attempting to reconnect...`);
+      try {
+        await client.connect();
+        // Wait a moment for the connection to stabilize
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } catch (error) {
+        logger.error(`Failed to reconnect client ${clientId}: ${error}`);
+        return null;
+      }
+    }
+    
+    // Now try to send the message
+    try {
+      return await client.sendTextMessage(formattedTo, message);
+    } catch (error) {
+      logger.error(`Error sending message via client ${clientId}: ${error}`);
+      return null;
+    }
   }
 
   public getAllClientsInfo(): any[] {

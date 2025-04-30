@@ -1,4 +1,17 @@
 <script lang="ts">
+    import WhatsAppMessageSheet from './WhatsAppMessageSheet.svelte';
+    import { onMount } from 'svelte';
+    let messageSheetOpen = false;
+    let selectedAccountId: string | null = null;
+    
+    function showMiniMessage(accountId: string) {
+        selectedAccountId = accountId;
+        messageSheetOpen = true;
+    }
+    
+    function handleSheetClose() {
+        messageSheetOpen = false;
+    }
     // Import components and dependencies
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
@@ -115,7 +128,7 @@
                     {
                         label: "Send Message",
                         icon: MessageSquare,
-                        onClick: () => goto(`/admin/settings/whatsapp/accounts/${record.id}/messages`)
+                        onClick: () => showMiniMessage(record.id)
                     }
                 ];
                 
@@ -131,6 +144,14 @@
 
     // Using imported pagination utilities for table interactions
 </script>
+
+<WhatsAppMessageSheet 
+  accountId={selectedAccountId || ''} 
+  bind:open={messageSheetOpen} 
+  on:close={handleSheetClose} 
+  on:sent={handleSheetClose}
+/>
+
 
 <div class="space-y-4">
     <!-- Delete Confirmation Dialog -->

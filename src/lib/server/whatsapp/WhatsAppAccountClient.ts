@@ -90,6 +90,7 @@ async function cleanupSocket(socket: any, baseLogger: any): Promise<void> {
  * The public API (methods, events, properties) remains unchanged.
  ****************************************************/
 export class WhatsAppAccountClient extends EventEmitter {
+    
     // Class properties
     // Private properties
     private id: string;
@@ -535,16 +536,35 @@ export class WhatsAppAccountClient extends EventEmitter {
                 if (sendError.message && (sendError.message.includes('No session') || sendError.message.includes('No open session'))) {
                     logger.warn(`Session error when sending to ${to}, attempting to recover...`);
                     
-                    // Wait a moment and try again - sometimes this helps with session issues
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    try {
-                        const retryResult = await this.socket.sendMessage(to, { text });
-                        logger.info(`Message retry succeeded for ${to}`);
-                        return retryResult?.key?.id || null;
-                    } catch (retryError) {
-                        logger.error(`Message retry failed for ${to}: ${retryError}`);
-                        return null;
+                    // Force a session refresh by updating the version
+                    if (this.socket) {
+                        try {
+                            // Explicitly close the socket
+                            await this.socket.logout();
+                            logger.info(`Logged out client ${this.id} to refresh session`);
+                            
+                            // Wait a moment before reconnecting
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            
+                            // Reconnect with a different version to force session refresh
+                            await this.connect();
+                            
+                            // Wait for connection to stabilize
+                            await new Promise(resolve => setTimeout(resolve, 3000));
+                            
+                            if (this.state === WhatsAppClientState.Connected) {
+                                logger.info(`Successfully refreshed session for client ${this.id}, retrying message...`);
+                                const retryResult = await this.socket.sendMessage(to, { text });
+                                logger.info(`Message retry succeeded for ${to}`);
+                                return retryResult?.key?.id || null;
+                            } else {
+                                logger.error(`Failed to reconnect client ${this.id} after session error`);
+                                return null;
+                            }
+                        } catch (retryError) {
+                            logger.error(`Message retry failed for ${to}: ${retryError}`);
+                            return null;
+                        }
                     }
                 } else {
                     // For other errors, just log and return null
@@ -701,6 +721,10 @@ export class WhatsAppAccountClient extends EventEmitter {
 
     getId(): string {
         return this.id;
+    }
+
+    getAccountId(): string {
+        return this.accountId;
     }
 
     getCreatedAt(): number {
