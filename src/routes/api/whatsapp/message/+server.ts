@@ -85,37 +85,26 @@ const postHandler = restrict(async ({ request, locals }) => {
         const formattedTo = formatPhoneNumber(to);
         logger.info(`Attempting to send WhatsApp message to ${to} via account ${accountId}`);
         
+        // Get the client ID from the client
+        const clientId = client.getId();
+        
         try {
-            // Get the client ID from the client
-            const clientId = client.getId();
+            // Use the properly formatted phone number
+            const messageId = await client.sendTextMessage(formattedTo, message);
             
-                // Use the WhatsAppAccountManager's sendMessage method which handles:
-            // - Phone number formatting
-            // - Connection state checking
-            // - Session management
-            const messageId = await whatsAppAccountManager.sendMessage(clientId, to, message);
-            
-            if (messageId) {
-                logger.info(`Successfully sent WhatsApp message to ${to}, message ID: ${messageId}`);
-                return json({ 
-                    success: true, 
-                    message: 'Message sent successfully',
-                    messageId
-                });
-            } else {
-                logger.error(`Failed to send WhatsApp message to ${to} (no message ID returned)`);
-                return json({ 
-                    success: false, 
-                    error: 'Failed to send message - the WhatsApp service may be temporarily unavailable' 
-                }, { status: 500 });
-            }
-        } catch (sendError) {
-            logger.error(`Error sending message to ${to}: ${sendError}`);
+            return json({
+                success: true,
+                messageId
+            });
+        } catch (error) {
+            logger.error(`Error sending WhatsApp message: ${error}`);
             return json({ 
                 success: false, 
-                error: `Error sending message: ${sendError.message || 'Unknown error'}` 
+                error: `Error sending WhatsApp message: ${error.message || error}` 
             }, { status: 500 });
         }
+        
+        
     } catch (error) {
         console.error('Error sending WhatsApp message:', error);
         return json({ 

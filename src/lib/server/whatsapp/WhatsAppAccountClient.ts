@@ -57,6 +57,9 @@ function createBaileysLogger(baseLogger: any): any {
         warn: (message: string) => baseLogger.warn('[Baileys] ' + stringify(message)),
         error: (message: string) => baseLogger.error('[Baileys] ' + stringify(message)),
         info: (message: string) => baseLogger.info('[Baileys] ' + stringify(message)),
+        // trace: (message: string) => baseLogger.info('[Baileys] ' + stringify(message)),
+        // debug: (message: string) => baseLogger.info('[Baileys] ' + stringify(message)),
+        
         trace: () => {}, // Empty function for trace level
         debug: () => {}, // Empty function for debug level
         child: () => createBaileysLogger(baseLogger) // Required by Baileys API
@@ -522,61 +525,23 @@ export class WhatsAppAccountClient extends EventEmitter {
      * @returns Message ID if sent successfully, or null on failure.
      ********************************************************************************/
     async sendTextMessage(to: string, text: string): Promise<string | null> {
+        if (!this.socket || this.state !== WhatsAppClientState.Connected) {
+            throw new Error('Client not connected');
+        }
+
+        logger.info(`Sending message to ${to}: ${text.substring(0, 30)}${text.length > 30 ? '...' : ''}`);
+        
         try {
-            if (!this.socket || this.state !== WhatsAppClientState.Connected) {
-                throw new Error('Client not connected');
-            }
-            
-            try {
-                const result = await this.socket.sendMessage(to, { text });
-                logger.info(`Message sent to ${to}: ${text.substring(0, 30)}${text.length > 30 ? '...' : ''}`);
-                return result?.key?.id || null;
-            } catch (sendError) {
-                // Check for session errors specifically
-                if (sendError.message && (sendError.message.includes('No session') || sendError.message.includes('No open session'))) {
-                    logger.warn(`Session error when sending to ${to}, attempting to recover...`);
-                    
-                    // Force a session refresh by updating the version
-                    if (this.socket) {
-                        try {
-                            // Explicitly close the socket
-                            await this.socket.logout();
-                            logger.info(`Logged out client ${this.id} to refresh session`);
-                            
-                            // Wait a moment before reconnecting
-                            await new Promise(resolve => setTimeout(resolve, 2000));
-                            
-                            // Reconnect with a different version to force session refresh
-                            await this.connect();
-                            
-                            // Wait for connection to stabilize
-                            await new Promise(resolve => setTimeout(resolve, 3000));
-                            
-                            if (this.state === WhatsAppClientState.Connected) {
-                                logger.info(`Successfully refreshed session for client ${this.id}, retrying message...`);
-                                const retryResult = await this.socket.sendMessage(to, { text });
-                                logger.info(`Message retry succeeded for ${to}`);
-                                return retryResult?.key?.id || null;
-                            } else {
-                                logger.error(`Failed to reconnect client ${this.id} after session error`);
-                                return null;
-                            }
-                        } catch (retryError) {
-                            logger.error(`Message retry failed for ${to}: ${retryError}`);
-                            return null;
-                        }
-                    }
-                } else {
-                    // For other errors, just log and return null
-                    logger.error(`Error sending message to ${to}: ${sendError}`);
-                    return null;
-                }
-            }
+            // Send the message to the actual recipient
+            const result = await this.socket.sendMessage(to, { text });
+            logger.info(`Message sent to ${to}: ${text.substring(0, 30)}${text.length > 30 ? '...' : ''}`);
+            return result?.key?.id || null;
         } catch (error) {
-            // This outer try-catch handles any other errors that might occur
-            logger.error(`Unexpected error in sendTextMessage to ${to}: ${error}`);
-            this.emit('error', error);
-            return null;
+            // Log the detailed error for debugging
+            logger.error(`Error sending message to ${to}: ${error.message || error}`);
+            
+            // Re-throw the error to be handled by the caller
+            throw error;
         }
     }
 

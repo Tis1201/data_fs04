@@ -4,6 +4,7 @@ const { proto } = pkg;
 import types from '@whiskeysockets/baileys/lib/Types';
 import { initAuthCreds } from '@whiskeysockets/baileys/lib/Utils';
 import { BufferJSON } from '@whiskeysockets/baileys/lib/Utils';
+import { logger } from '$lib/server/logger';
 
 const prisma = getEnhancedPrisma({
   id: '',
@@ -23,6 +24,11 @@ const prisma = getEnhancedPrisma({
 const writeData = async (clientId: string, keyId: string, value: any): Promise<void> => {
   let dataString: string;
   try {
+    // Add logging for session data
+    if (keyId.startsWith('session-')) {
+      logger.debug(`Writing session data for ${keyId.split('-')[1]}`);
+    }
+    
     if (keyId === 'creds.json') {
       dataString = JSON.stringify(value, BufferJSON.replacer);
     } else if (keyId.startsWith('app-state-sync-key')) {
@@ -69,7 +75,19 @@ const readData = async (clientId: string, keyId: string): Promise<any> => {
   const record = await prisma.whatsAppAuthData.findUnique({
     where: { clientId_keyId: { clientId, keyId } }
   });
+  
+  // Add logging for session data
+  if (keyId.startsWith('session-')) {
+    const sessionId = keyId.split('-')[1];
+    if (!record) {
+      logger.debug(`No session found for ${sessionId}`);
+    } else {
+      logger.debug(`Found session data for ${sessionId}`);
+    }
+  }
+  
   if (!record) return null;
+  
   try {
     if (keyId === 'creds.json') {
       return JSON.parse(record.data, BufferJSON.reviver);
@@ -79,11 +97,21 @@ const readData = async (clientId: string, keyId: string): Promise<any> => {
       const buf = Buffer.from(record.data, 'base64');
       return new Uint8Array(buf);
     }
+    // Special handling for session data - try to parse as JSON first
+    if (keyId.startsWith('session-')) {
+      try {
+        return JSON.parse(record.data, BufferJSON.reviver);
+      } catch (e) {
+        // If JSON parsing fails, fall back to binary handling
+        const buf = Buffer.from(record.data, 'base64');
+        return new Uint8Array(buf);
+      }
+    }
     // For other keys, decode base64 into Uint8Array.
     const buf = Buffer.from(record.data, 'base64');
     return new Uint8Array(buf);
   } catch (err) {
-    console.warn(`⚠️ Failed to read data for key ${keyId}:`, err);
+    logger.warn(`Failed to read data for key ${keyId}:`, err);
     return null;
   }
 };
@@ -103,6 +131,8 @@ export const useZenstackAuthState = async (
   // Retrieve or initialize credentials.
   const creds: types.AuthenticationCreds =
     (await readData(clientId, 'creds.json')) ?? initAuthCreds();
+    
+  logger.info(`Loaded auth state for client ${clientId}`);
 
   return {
     state: {
@@ -113,6 +143,12 @@ export const useZenstackAuthState = async (
           ids: string[]
         ): Promise<{ [id: string]: types.SignalDataTypeMap[typeof type] }> => {
           const result: { [id: string]: any } = {};
+          
+          // Add debug logging for session fetches
+          if (type === 'session') {
+            logger.debug(`Fetching ${ids.length} sessions for client ${clientId}`);
+          }
+          
           await Promise.all(
             ids.map(async id => {
               // Build the key name as in the original design.
@@ -133,6 +169,17 @@ export const useZenstackAuthState = async (
         },
         set: async (data: { [category: string]: { [id: string]: any } }) => {
           const tasks: Promise<void>[] = [];
+          
+          // Add debug logging for session storage
+          if (data['session']) {
+            const sessionIds = Object.keys(data['session']);
+            if (sessionIds.length > 0) {
+              logger.debug(`Storing ${sessionIds.length} sessions for client ${clientId}`);
+              // Log the specific session IDs being stored
+              logger.debug(`Session IDs: ${sessionIds.join(', ')}`);
+            }
+          }
+          
           for (const category in data) {
             for (const id in data[category]) {
               const keyId = `${category}-${id}.json`;
@@ -149,6 +196,7 @@ export const useZenstackAuthState = async (
       }
     },
     saveCreds: async (): Promise<void> => {
+      logger.debug(`Saving credentials for client ${clientId}`);
       await writeData(clientId, 'creds.json', creds);
     }
   };
