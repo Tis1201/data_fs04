@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
+import type { RequestHandler } from '../../admin/$types';
 import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
 import { v4 as uuidv4 } from 'uuid';
