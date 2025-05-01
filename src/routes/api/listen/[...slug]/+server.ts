@@ -9,13 +9,14 @@ import { userInfoByUserId } from '$lib/server/security/auth-utils';
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
+import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 
 // SSE connection endpoint - accessible to external applications with proper authentication
 export const GET: RequestHandler = async ({ params, locals }) => {
 
     const slug = params.slug as string;
-    
-    
+
+
     logger.debug(`SSE connection request ${slug}`);
 
     //throw error if slug is empty?
@@ -34,12 +35,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
             postfix: slug
         }
     });
-    
+
     if (!listener) {
         logger.warn(`Listener not found for slug: ${slug}`);
         return json({ error: 'Listener not found' }, { status: 404 });
     }
-    
+
     logger.debug(`Listener found: ${JSON.stringify(listener)}`);
 
     const userId = listener.userId;
@@ -50,13 +51,27 @@ export const GET: RequestHandler = async ({ params, locals }) => {
         logger.warn(`User not found for userId: ${userId}`);
         return json({ error: 'User not found' }, { status: 404 });
     }
-    
+
     logger.debug(`User found: ${JSON.stringify(userInfo)}`);
 
-    
-    
+    //Get the list of webhooks and whatsapp accounts for this listener
+    const webhooks = await prisma.listenerWebhookEndpoint.findMany({
+        where: {
+            listenerId: listener.id
+        }
+    });
+
+    const whatsappAccounts = await prisma.listenerWhatsAppAccount.findMany({
+        where: {
+            listenerId: listener.id
+        }
+    });
+
+    logger.debug(`Webhooks found: ${JSON.stringify(webhooks)}`);
+    logger.debug(`WhatsApp accounts found: ${JSON.stringify(whatsappAccounts)}`);
+
     // Create a readable stream for SSE
-    const meta:ConnectionMeta = {
+    const meta: ConnectionMeta = {
         userInfo: userInfo,
         nodeId: 'node-1',
         protocol: 'sse',
@@ -66,12 +81,20 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
     const stream = new ReadableStream({
         start(controller) {
-           
-           //Create SSEConnection and add to ConnectionManager
-           const connection = new SSEConnection(meta, controller);
-           ConnectionManager.registerConnection(connection);
 
-           logger.debug(`SSE connection established: ${meta.id}`);
+            //Create SSEConnection and add to ConnectionManager
+            const connection = new SSEConnection(meta, controller);
+            ConnectionManager.registerConnection(connection);
+
+            logger.debug(`SSE connection established: ${meta.id}`);
+
+            for (const webhook of webhooks) {
+                subscriptionRegistry.addSubscription(`subscription:webhook:${webhook.webhookEndpointId}`, `subscriber:connection:${meta.id}`);
+            }
+
+            for (const whatsappAccount of whatsappAccounts) {
+                subscriptionRegistry.addSubscription(`subscription:whatsapp:${whatsappAccount.whatsappAccountId}`, `subscriber:connection:${meta.id}`);
+            }
 
         },
 
@@ -79,6 +102,15 @@ export const GET: RequestHandler = async ({ params, locals }) => {
             // Clean up when the connection is closed
             logger.debug('SSE connection closed', meta);
             ConnectionManager.unregisterConnection(meta.id!);
+
+            for (const webhook of webhooks) {
+               
+                subscriptionRegistry.removeSubscription(`subscription:webhook:${ webhook.webhookEndpointId}`, `subscriber:connection:${meta.id}`);
+            }
+
+            for (const whatsappAccount of whatsappAccounts) {
+                subscriptionRegistry.removeSubscription(`subscription:whatsapp:${whatsappAccount.whatsappAccountId}`, `subscriber:connection:${meta.id}`);
+            }
         }
 
     });

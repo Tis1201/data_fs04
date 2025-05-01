@@ -1,10 +1,11 @@
 import type { Connection, ConnectionMeta } from '../interfaces/connection';
 import { ConnectionManager } from '../core/connectionManager';
 import type { InMessage } from '../interfaces/message';
+import { logger } from '$lib/server/logger';
 
 export class SSEConnection implements Connection {
   meta: ConnectionMeta;
-  
+
   private controller: ReadableStreamDefaultController;
 
   constructor(meta: ConnectionMeta, controller: ReadableStreamDefaultController) {
@@ -29,6 +30,9 @@ export class SSEConnection implements Connection {
 
   async send(payload: any): Promise<void> {
     // this.socket.send(JSON.stringify(payload));
+    logger.debug(`[SSEConnection] Sending message: ${JSON.stringify(payload)}`);
+    // controller.enqueue(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    this.controller.enqueue(JSON.stringify(payload));      
   }
 
   async handleMessage(raw: string | Buffer): Promise<void> {

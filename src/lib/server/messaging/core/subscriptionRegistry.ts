@@ -2,6 +2,7 @@
 import type { SubscriptionMeta, SubscriptionRegistry } from "../interfaces/subscriptionRegistry";
 import { v4 as uuidv4 } from 'uuid';
 import { subscriptionSharedStore } from "./stores/subscriptionSharedStore copy";
+import { logger } from "$lib/server/logger";
 
 export const subscriptionRegistry: SubscriptionRegistry = {
     async add(subscription) {
@@ -10,6 +11,9 @@ export const subscriptionRegistry: SubscriptionRegistry = {
     },
 
     async addSubscription(key, scope) {
+
+        logger.debug(`Adding subscription: ${key} for scope: ${scope}`);
+
         const subscription: SubscriptionMeta = {
             id: uuidv4(),
             key,
@@ -24,6 +28,7 @@ export const subscriptionRegistry: SubscriptionRegistry = {
     },
 
     async removeSubscription(key, scope) {
+        logger.debug(`Removing subscription: ${key} for scope: ${scope}`);
         // Remove a specific subscriber from a topic/channel
         const members = await subscriptionSharedStore.getMembers(key);
         const toRemove = members.filter(sub => sub.scope === scope);
