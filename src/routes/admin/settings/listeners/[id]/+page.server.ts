@@ -12,7 +12,7 @@ export const load = restrict(
         try {
             logger.debug(`Loading listener with ID: ${params.id}`);
             
-            // Load existing listener
+            // Load existing listener with related webhooks and WhatsApp accounts
             const listener = await locals.prisma.listenerEndpoint.findUnique({
                 where: { id: params.id },
                 select: {
@@ -26,7 +26,28 @@ export const load = restrict(
                     listenToAll: true,
                     userId: true,
                     createdAt: true,
-                    updatedAt: true
+                    updatedAt: true,
+                    webhookEndpoints: {
+                        select: {
+                            webhookEndpoint: {
+                                select: {
+                                    id: true,
+                                    name: true
+                                }
+                            }
+                        }
+                    },
+                    whatsappAccounts: {
+                        select: {
+                            whatsappAccount: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    phoneNumber: true
+                                }
+                            }
+                        }
+                    }
                 }
             });
             

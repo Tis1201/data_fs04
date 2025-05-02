@@ -10,6 +10,8 @@
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
     import { Switch } from "$lib/components/ui/switch/index.js";
+    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+    import EndpointDisplay from "$lib/components/ui_components_sveltekit/webhook/EndpointDisplay.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import { Clock, Link } from "lucide-svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
@@ -49,6 +51,10 @@
 
     // Track if data is loaded
     let dataLoaded = !!listener;
+    
+    // Process webhook and WhatsApp account data for display
+    $: webhooks = listener?.webhookEndpoints?.map(w => w.webhookEndpoint) || [];
+    $: whatsappAccounts = listener?.whatsappAccounts?.map(w => w.whatsappAccount) || [];
     
     const { form, errors, enhance, submitting } = superForm(data.form, {
         onResult: async ({ result }) => {
@@ -154,33 +160,82 @@
                         </FormField>
                     </FormRow>
 
-                    <!-- Postfix (Read-only) -->
+                    <!-- Endpoint URL (Read-only) -->
                     {#if listener?.postfix}
                         <FormField
-                            id="postfix"
-                            label="Endpoint ID"
-                            description="Unique identifier for this listener endpoint"
+                            id="endpoint"
+                            label="Endpoint URL"
+                            description="URL for this listener endpoint"
                         >
-                            <div class="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
-                                <code class="text-sm font-mono">{listener.postfix}</code>
-                                <Button 
-                                    variant="ghost" 
-                                    size="icon" 
-                                    class="h-8 w-8"
-                                    title="Copy to clipboard"
-                                    on:click={() => {
-                                        navigator.clipboard.writeText(listener.postfix);
-                                        toast.success("Copied to clipboard");
-                                    }}
-                                >
-                                    <Link size={14} />
-                                </Button>
+                            <div class="p-2 border rounded-md bg-muted/20 w-full">
+                                <EndpointDisplay postfix={listener.postfix} basePath="/api/listen" />
                             </div>
                         </FormField>
                     {/if}
+                </FormContainer>
 
+                <!-- Connected Services Section -->
+                {#if listener}
+                    <FormField
+                        id="connections"
+                        label="Connected Services"
+                        description="Services that receive events from this listener"
+                    >
+                        <div class="space-y-4 border rounded-md p-4 bg-muted/10">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <!-- Webhooks -->
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h3 class="text-sm font-medium">Webhooks</h3>
+                                        <Badge variant="outline" class="text-xs">{webhooks.length}</Badge>
+                                    </div>
+                                    <div class="border rounded-md p-2 bg-card min-h-[80px]">
+                                        {#if webhooks.length === 0}
+                                            <p class="text-sm text-muted-foreground flex items-center justify-center h-full">No webhooks connected</p>
+                                        {:else}
+                                            <div class="space-y-2">
+                                                {#each webhooks as webhook}
+                                                    <div class="flex items-center justify-between p-2 border rounded-md bg-muted/20">
+                                                        <div class="flex items-center gap-2 overflow-hidden">
+                                                            <Badge variant="outline">{webhook.name}</Badge>
+                                                            <span class="text-xs text-muted-foreground truncate">{webhook.id}</span>
+                                                        </div>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        {/if}
+                                    </div>
+                                </div>
+                                
+                                <!-- WhatsApp Accounts -->
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <h3 class="text-sm font-medium">WhatsApp Accounts</h3>
+                                        <Badge variant="outline" class="text-xs">{whatsappAccounts.length}</Badge>
+                                    </div>
+                                    <div class="border rounded-md p-2 bg-card min-h-[80px]">
+                                        {#if whatsappAccounts.length === 0}
+                                            <p class="text-sm text-muted-foreground flex items-center justify-center h-full">No WhatsApp accounts connected</p>
+                                        {:else}
+                                            <div class="space-y-2">
+                                                {#each whatsappAccounts as account}
+                                                    <div class="flex items-center justify-between p-2 border rounded-md bg-muted/20">
+                                                        <div class="flex items-center gap-2 overflow-hidden">
+                                                            <Badge variant="outline">{account.name}</Badge>
+                                                            <span class="text-xs text-muted-foreground truncate">{account.phoneNumber || 'No phone number'}</span>
+                                                        </div>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        {/if}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </FormField>
+                    
                     <!-- Submit Button -->
-                    <FormRow columns={1} alignItems="end">
+                    <FormRow columns={1} alignItems="end" class="mt-6">
                         <FormActions>
                             <Button
                                 variant="outline"
@@ -192,7 +247,7 @@
                             <Button type="submit">Save Changes</Button>
                         </FormActions>
                     </FormRow>
-                </FormContainer>
+                {/if}
 
                 <svelte:fragment slot="footer">
                     {#if listener}
