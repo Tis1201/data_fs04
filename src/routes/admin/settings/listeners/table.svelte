@@ -13,6 +13,7 @@
     import { Skeleton } from "$lib/components/ui/skeleton";
     import EndpointDisplay from "$lib/components/ui_components_sveltekit/webhook/EndpointDisplay.svelte";
     import ListenerSourcesDisplay from "$lib/components/ui_components_sveltekit/listener/ListenerSourcesDisplay.svelte";
+    import ListenerConnectionsBadges from "$lib/components/ui_components_sveltekit/listener/ListenerConnectionsBadges.svelte";
     import type { ListenerEndpoint } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
@@ -95,7 +96,7 @@
             id: "postfix",
             label: "Endpoint",
             sortable: true,
-            width: "20%",
+            width: "15%",
             render: (record: ListenerEndpoint) => ({
                 component: EndpointDisplay,
                 props: {
@@ -122,17 +123,16 @@
         },
 
         {
-            id: "listenToAll",
-            label: "Sources",
-            sortable: true,
+            id: "connections",
+            label: "Connections",
+            sortable: false,
             width: "20%",
-            render: (record: any) => ({
-                component: ListenerSourcesDisplay,
+            render: (record: ListenerEndpoint) => ({
+                component: ListenerConnectionsBadges,
                 props: {
-                    listenToAll: record.listenToAll,
-                    webhookEndpoints: record.webhookEndpoints || [],
-                    whatsappAccounts: record.whatsappAccounts || [],
-                    showBadges: true
+                    webhookEndpoints: record.webhookEndpoints?.map(w => w.webhookEndpoint) || [],
+                    whatsappAccounts: record.whatsappAccounts?.map(w => w.whatsappAccount) || [],
+                    listenToAll: record.listenToAll
                 }
             })
         },

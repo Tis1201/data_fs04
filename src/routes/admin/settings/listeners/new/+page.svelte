@@ -303,7 +303,14 @@
                                                                 }}
                                                             />
                                                             <div class="flex-1">
-                                                                <label for={`whatsapp-${account.id}`} class="text-sm font-medium cursor-pointer">{account.name || 'WhatsApp Account'}</label>
+                                                                <div class="flex items-center gap-2">
+                                                                    <label for={`whatsapp-${account.id}`} class="text-sm font-medium cursor-pointer">{account.name || 'WhatsApp Account'}</label>
+                                                                    {#if account.client_status === 'connected'}
+                                                                        <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-[10px] py-0 px-1.5">Connected</Badge>
+                                                                    {:else}
+                                                                        <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200 text-[10px] py-0 px-1.5">Disconnected</Badge>
+                                                                    {/if}
+                                                                </div>
                                                                 <p class="text-xs text-muted-foreground font-mono">{account.phoneNumber}</p>
                                                             </div>
                                                         </div>

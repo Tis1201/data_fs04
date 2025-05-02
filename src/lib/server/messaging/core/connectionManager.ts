@@ -51,6 +51,8 @@ class DefaultConnectionManager {
     }
 
     connectionSharedStore.remove(connId);
+
+    logger.debug(`[ConnectionManager] Unregistered connection: ${connId}`);
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {

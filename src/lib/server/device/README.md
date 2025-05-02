@@ -46,6 +46,22 @@ This directory contains all server-side logic related to IoT device management, 
 ### 4. Real-time Communication (Event Flow)
 - **Initial Phase**:  
   - Devices use **Server-Sent Events (SSE)** to maintain a connection to receive commands and updates.
+  - **Endpoint**: `/api/device/{deviceId}`
+  - **Authentication**: JWT token in Authorization header
+  - **Example Request**:
+    ```bash
+    curl -i -N \
+      -H "Authorization: Bearer <JWT_TOKEN>" \
+      http://localhost:5173/api/device/device_123
+    ```
+  - **Security**:
+    - All requests must include a valid JWT token
+    - Tokens are short-lived (typically 1 hour)
+    - Device authentication required before obtaining JWT
+  - **Connection Management**:
+    - Automatic reconnection on disconnect
+    - Heartbeat mechanism to maintain connection
+    - Error handling and retry logic implemented
 - **Scaling Phase**:  
   - Switch to using **PushPin** (with NGINX) to efficiently handle millions of concurrent SSE/WebSocket connections without overloading app servers.
 - **Cloud-native Phase**:

@@ -10,12 +10,12 @@ export type ConnectionProtocol =
   | string; // allow future custom protocols
 
 export interface ConnectionMeta {
-  id: string;              // Unique connection ID
+  id?: string;              // Unique connection ID
   userInfo: UserInfo;          // Owner of the connection
   nodeId: string;          // Node or instance managing it
   protocol: ConnectionProtocol;
-  scope?: string;          // Optional: primary scope (room/user/device)
   connectedAt: number;     // Unix timestamp
+  route?: string;          // Route/path that initiated this connection
   [key: string]: any;      // Additional extensible fields
 }
 
