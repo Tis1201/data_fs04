@@ -29,6 +29,7 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 - Real-time communication with WebSockets
 - RTP and WebRTC streaming integration
 - Admin dashboard and room management
+- Event listener management with webhook and WhatsApp integrations
 - Xterm terminal support (xterm-svelte)
 - Responsive UI with Tailwind CSS & shadcn-svelte components
 - Persistence via svelte-persisted-store

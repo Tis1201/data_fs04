@@ -40,3 +40,26 @@ curl -i -N -v http://localhost:5173/api/listen/m8yhng3w-bf3e9fd693974d66b88c84c2
 ```
 
 You should see HTTP headers followed by real-time event data as it is pushed from the server.
+
+## Admin Interface
+
+The admin interface for managing listeners is available at:
+
+```
+/admin/settings/listeners
+```
+
+Features include:
+
+- View all listeners with their connections (webhooks and WhatsApp accounts)
+- Create, edit, and delete listeners
+- Toggle listener status (active/inactive)
+- Copy endpoint URLs for integration
+- View detailed connection information
+
+The interface uses shadcn-svelte components for a consistent user experience, including:
+
+- Skeleton loading states for better perceived performance
+- Responsive design for all screen sizes
+- Tooltips for additional information
+- Badge indicators for connection counts
