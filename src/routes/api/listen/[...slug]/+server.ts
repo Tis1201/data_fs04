@@ -64,6 +64,13 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     const whatsappAccounts = await prisma.listenerWhatsAppAccount.findMany({
         where: {
             listenerId: listener.id
+        },
+        include: {
+            whatsappAccount: {
+                select: {
+                    client_id: true
+                }
+            }
         }
     });
 
@@ -93,7 +100,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
             }
 
             for (const whatsappAccount of whatsappAccounts) {
-                subscriptionRegistry.addSubscription(`subscription:whatsapp:${whatsappAccount.whatsappAccountId}`, `subscriber:connection:${meta.id}`);
+                // Use the client_id for subscription instead of the database ID to match the WhatsAppAccountManager registration
+                subscriptionRegistry.addSubscription(`subscription:whatsapp:${whatsappAccount.whatsappAccount.client_id}`, `subscriber:connection:${meta.id}`);
             }
 
         },
@@ -109,7 +117,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
             }
 
             for (const whatsappAccount of whatsappAccounts) {
-                subscriptionRegistry.removeSubscription(`subscription:whatsapp:${whatsappAccount.whatsappAccountId}`, `subscriber:connection:${meta.id}`);
+                // Use the client_id for unsubscription to match the subscription
+                subscriptionRegistry.removeSubscription(`subscription:whatsapp:${whatsappAccount.whatsappAccount.client_id}`, `subscriber:connection:${meta.id}`);
             }
         }
 
