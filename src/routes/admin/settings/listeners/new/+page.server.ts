@@ -24,9 +24,14 @@ export const load = restrict(
             select: { id: true, name: true, postfix: true }
         });
         
+        // Get all WhatsApp accounts
         const whatsappAccounts = await locals.prisma.whatsAppAccount.findMany({
-            where: { client_status: 'connected' },
-            select: { id: true, name: true, phoneNumber: true }
+            select: { 
+                id: true, 
+                name: true, 
+                phoneNumber: true,
+                client_status: true // Include connection status for display
+            }
         });
         
         // Initialize the form with the schema and defaults

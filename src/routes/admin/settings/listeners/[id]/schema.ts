@@ -13,7 +13,9 @@ export const listenerEditSchema = z.object({
   }).default('ACTIVE'),
   listenToAll: z.boolean().default(false),
   postfix: z.string().optional(),
-  expiresAt: z.date().nullable().optional()
+  expiresAt: z.date().nullable().optional(),
+  webhookEndpointIds: z.array(z.string()).default([]),
+  whatsappAccountIds: z.array(z.string()).default([])
 });
 
 // Export type for use with superforms

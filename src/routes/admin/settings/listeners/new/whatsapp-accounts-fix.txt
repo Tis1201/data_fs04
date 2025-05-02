@@ -1,0 +1,32 @@
+// STEP 1: Update the server file (+page.server.ts)
+// Replace the WhatsApp account query with this:
+
+// Get all WhatsApp accounts
+const whatsappAccounts = await locals.prisma.whatsAppAccount.findMany({
+    select: { 
+        id: true, 
+        name: true, 
+        phoneNumber: true,
+        client_status: true // Include connection status for display
+    }
+});
+
+// STEP 2: Update the empty state in the Svelte component (+page.svelte)
+// Replace the empty state section with this:
+
+{:else}
+    {#if whatsappAccounts && whatsappAccounts.length === 0}
+        <div class="p-4 border border-amber-200 bg-amber-50 rounded-md">
+            <p class="text-sm text-amber-800 font-medium">No WhatsApp accounts available</p>
+            <p class="text-xs text-amber-700 mt-1">
+                You need to set up and connect WhatsApp accounts before you can select them here.
+                <a href="/admin/settings/whatsapp/accounts" class="underline font-medium">Manage WhatsApp accounts</a>
+            </p>
+        </div>
+    {:else}
+        <div class="space-y-2">
+            <Skeleton class="h-12 w-full" />
+            <Skeleton class="h-12 w-full" />
+            <Skeleton class="h-12 w-full" />
+        </div>
+    {/if}
