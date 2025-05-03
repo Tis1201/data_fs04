@@ -3,6 +3,7 @@ import type { Handle } from "@sveltejs/kit";
 import prisma from "$lib/server/prisma";
 import { building } from "$app/environment";
 import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
+import { DeviceManager } from "$lib/server/device/deviceManager";
 import { websocketMiddleware } from "$lib/server/websocket/middleware";
 import { authMiddleware } from "$lib/server/auth/middleware";
 import { logger } from "$lib/server/logger";
@@ -31,11 +32,22 @@ if (!building) {
     })();
 } 
 
+// Device manager middleware to add deviceManager to locals
+const deviceManagerMiddleware: Handle = async ({ event, resolve }) => {
+    // Add deviceManager to locals
+    event.locals.deviceManager = DeviceManager;
+    
+    return resolve(event);
+};
+
 // Combine middleware functions
 export const handle: Handle = async ({ event, resolve }) => {
-    // Run auth middleware first
+    // Chain middleware: auth -> device -> websocket
     return await authMiddleware({ 
         event, 
-        resolve: () => websocketMiddleware({ event, resolve })
+        resolve: () => deviceManagerMiddleware({
+            event,
+            resolve: () => websocketMiddleware({ event, resolve })
+        })
     });
 };

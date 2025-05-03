@@ -8,5 +8,6 @@ export interface DeviceMeta {
     connectionId?: string;
 
     claimedByConnectionId?: string;
+    claimedById?: string;
     claimedAt?: Date;
 }

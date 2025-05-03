@@ -1,6 +1,7 @@
 /// <reference types="lucia" />
 import type { PrismaClient } from '@prisma/client';
 import type { ExtendedWebSocketServer } from '$lib/server/websocket/WebSocketUtils';
+import type { DefaultDeviceManager } from '$lib/server/device/deviceManager';
 
 declare global {
 	namespace App {
@@ -30,6 +31,7 @@ declare global {
 			};
 			prisma: PrismaClient;
 			wss?: ExtendedWebSocketServer;
+			deviceManager: DefaultDeviceManager;
 		}
 	}
 	namespace Lucia {
