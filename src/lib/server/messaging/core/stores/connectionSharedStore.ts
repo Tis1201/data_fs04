@@ -1,5 +1,5 @@
 import type { SharedStore } from '../../interfaces/sharedStore';
-import { createMemoryStore } from '../../stores/memorySharedStore';
+import { createMemoryStore } from '$lib/server/stores/memorySharedStore';
 import type { ConnectionMeta } from '../../interfaces/connection';
 // import { RedisSharedStore } from '../stores/redisSharedStore';
 // import { config } from '$lib/config';

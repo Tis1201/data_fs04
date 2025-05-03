@@ -1,5 +1,5 @@
 import type { SharedStore } from '../../interfaces/sharedStore';
-import { createMemoryStore } from '../../stores/memorySharedStore';
+import { createMemoryStore } from '$lib/server/stores/memorySharedStore';
 import type { SubscriptionMeta } from '../../interfaces/subscriptionRegistry';
 
 export const subscriptionSharedStore: SharedStore<SubscriptionMeta> = createMemoryStore<SubscriptionMeta>();

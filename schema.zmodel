@@ -32,6 +32,8 @@ model User {
   apiKeys       ApiKey[]
   whatsappAccounts WhatsAppAccount[]
   listeners     ListenerEndpoint[]
+  devices       Device[]
+  
   
   
   // Authorization rules
@@ -228,3 +230,48 @@ model WhatsAppAuthData {
 
   @@allow('all', auth().systemRole == 'ADMIN')
 }
+
+
+//Device Model
+model Device {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  name          String
+  description   String?
+  status        String   @default("ACTIVE")
+  expiresAt     DateTime?
+  lastUsedAt    DateTime?
+  createdBy     String
+  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  // Device metadata
+  deviceType    String?  // e.g. "sensor", "gateway", "camera"
+  model         String?
+  manufacturer  String?
+  osVersion     String?
+  firmwareVersion String?
+  hardwareId    String?  // e.g. MAC address or serial number
+
+  // Network info
+  wifiMac       String?
+  lanMac        String?
+  ipAddress     String?
+
+  // Security & credentials
+  apiKey        String?  // Device API key for auth
+  apiKeyCreatedAt DateTime?
+  apiKeyRotatedAt DateTime?
+  
+  // Device claim/ownership
+  claimedAt     DateTime?
+  claimedBy     String?  // User ID who claimed (redundant, but useful for audit)
+
+  // Relationships
+  // logs          Log[]?    // Uncomment if you have a Log model
+
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@index([createdBy])
+  @@index([hardwareId])
+  @@index([status])
+}   

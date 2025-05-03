@@ -1,6 +1,40 @@
-# Device Server-Side Logic (`src/lib/server/device`)
+# Device Registration & Claim Flow (Stable Overview)
 
-This directory contains all server-side logic related to IoT device management, including device authentication, PIN validation, API key management, JWT issuance, and real-time event communication.
+This section summarizes the latest, stable, production-ready flow for device onboarding, registration, and user claim:
+
+## Executive Overview
+
+1. **Device Registration & Initial Connection**
+   - Device initiates an SSE connection, passing a Factory JWT Token and a generated PIN.
+   - JWT Token and PIN are validated for authenticity, strength, and format.
+   - A UUID is generated for the device.
+   - The PIN is mapped to the device UUID in the DeviceManager (transient, with expiration).
+
+2. **Subscription Management**
+   - A subscription is created for the device: `subscription:device:uuid` → `subscriber:connection:uuid`.
+   - If SSE disconnects, both the subscription and the PIN-UUID mapping are removed (resource cleanup).
+
+3. **Device Claim by User**
+   - System waits for a user to claim the device (via web/mobile UI).
+   - On claim:
+     - DeviceManager is updated with the User ID for the device.
+     - A message is sent to `subscription:device:uuid`, routed to `subscriber:connection:connectionId` to notify the device that it has been claimed. The message includes `userInfo`, `api_key`, and `device_id`.
+     - Device receives the message, stores info securely, and disconnects (causing the subscription to disappear).
+
+4. **Device Registration Confirmation & User Notification**
+   - Device calls `/device/registered` to confirm successful registration, providing metadata (OS, model, etc).
+   - Routing message is sent to `user:userId` so all user connections are notified of the new device.
+   - Device then connects to `/device/listen` using the API Key for ongoing communication.
+
+5. **Security, State, and Cleanup**
+   - All transitions (registration, claim, disconnect) update device and connection state.
+   - Stale or orphaned records are cleaned up on disconnect or timeout.
+   - All sensitive operations are authenticated and authorized; API keys are validated on every reconnect.
+   - All steps return clear error messages on failure (invalid token, expired PIN, etc).
+   - All registration, claim, and connection events are logged for audit and troubleshooting.
+
+---
+
 
 ## Structure
 

@@ -27,6 +27,7 @@ model User {
   apiKeys          ApiKey[]
   whatsappAccounts WhatsAppAccount[]
   listeners        ListenerEndpoint[]
+  devices          Device[]
 }
 
 model Session {
@@ -166,4 +167,35 @@ model WhatsAppAuthData {
   @@unique([clientId, keyId])
   @@index([type])
   @@index([clientId])
+}
+
+model Device {
+  id              String    @id() @default(cuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt()
+  name            String
+  description     String?
+  status          String    @default("ACTIVE")
+  expiresAt       DateTime?
+  lastUsedAt      DateTime?
+  createdBy       String
+  user            User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  deviceType      String?
+  model           String?
+  manufacturer    String?
+  osVersion       String?
+  firmwareVersion String?
+  hardwareId      String?
+  wifiMac         String?
+  lanMac          String?
+  ipAddress       String?
+  apiKey          String?
+  apiKeyCreatedAt DateTime?
+  apiKeyRotatedAt DateTime?
+  claimedAt       DateTime?
+  claimedBy       String?
+
+  @@index([createdBy])
+  @@index([hardwareId])
+  @@index([status])
 }
