@@ -56,8 +56,18 @@ export const actions: Actions = {
             // Get the authenticated user
             const userId = await validateAndGetUserId(locals);
             if (!userId) {
-                // Return a message through Superforms
-                return fail(401, message(form, 'You must be logged in to claim a device', { status: 'error' }));
+                // Return a properly formatted error message for the form handler
+                return fail(401, {
+                    form,
+                    success: false,
+                    message: {
+                        type: 'error',
+                        text: 'Authentication Required',
+                        details: 'You must be logged in to claim a device',
+                        code: 'AUTH_REQUIRED',
+                        timestamp: new Date().toISOString()
+                    }
+                });
             }
             
             logger.info(`User ${userId} attempting to claim device with PIN: ${pin}`);
@@ -66,7 +76,17 @@ export const actions: Actions = {
             const deviceManager = locals.deviceManager;
             if (!deviceManager) {
                 logger.error('Device manager not available in locals');
-                return fail(500, message(form, 'Device manager not available', { status: 'error' }));
+                return fail(500, {
+                    form,
+                    success: false,
+                    message: {
+                        type: 'error',
+                        text: 'System Error',
+                        details: 'Device manager not available. Please try again later.',
+                        code: 'SYSTEM_ERROR',
+                        timestamp: new Date().toISOString()
+                    }
+                });
             }
             
             // Attempt to claim the device
@@ -76,8 +96,19 @@ export const actions: Actions = {
                 const errorMessage = 'The PIN you entered doesn\'t match any available device. Please verify the 6-digit PIN and try again.';
                 logger.warn(`No device found with PIN ${pin}. Returning error: ${errorMessage}`);
                 
-                // Return the error message through Superforms
-                return fail(400, message(form, errorMessage, { status: 'error' }));
+                // Return a properly formatted error message for the form handler
+                return fail(400, {
+                    form,
+                    success: false,
+                    message: {
+                        type: 'error',
+                        text: 'Verification Failed',
+                        details: errorMessage,
+                        code: 'INVALID_PIN',
+                        requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
+                        timestamp: new Date().toISOString()
+                    }
+                });
             }
             
             logger.info(`Device claimed successfully: ${device.id} by user ${userId}`);
@@ -103,11 +134,14 @@ export const actions: Actions = {
             }
             
             // Return success response with the form and additional data
-            const successForm = message(form, 'Device claimed successfully!', { status: 'success' });
-            
             return {
-                form: successForm,
+                form,
                 success: true,
+                message: {
+                    type: 'success',
+                    text: 'Device claimed successfully!',
+                    timestamp: new Date().toISOString()
+                },
                 device: {
                     id: device.id,
                     name: device.name,
@@ -117,7 +151,17 @@ export const actions: Actions = {
             };
         } catch (err) {
             logger.error('Error claiming device:', err);
-            return fail(500, message(form, 'Failed to claim device. Please try again.', { status: 'error' }));
+            return fail(500, {
+                form,
+                success: false,
+                message: {
+                    type: 'error',
+                    text: 'System Error',
+                    details: 'Failed to claim device. Please try again.',
+                    code: 'SYSTEM_ERROR',
+                    timestamp: new Date().toISOString()
+                }
+            });
         }
     },
     

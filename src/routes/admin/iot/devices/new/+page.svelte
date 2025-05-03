@@ -13,10 +13,7 @@
   import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
   import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { superForm, message, type SuperForm } from "sveltekit-superforms/client";
-  import { zodClient } from "sveltekit-superforms/adapters";
-  import { z } from "zod";
-  import { enhance } from "$app/forms";
+  import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   
   // Import page data
@@ -31,51 +28,27 @@
     "Claim Device",
   ];
   
-  // Initialize the form with Superforms - using the server-side validated form
-  const { form, errors, enhance: superEnhance, submitting, message: formMessage } = superForm(data.pinForm, {
-    id: 'claim-device-form',
-    onUpdated: ({ form }) => {
-      // Handle form update events
-      if (form.message) {
-        if (form.valid) {
-          toast.success(form.message);
-        } else {
-          toast.error(form.message);
-          deviceStore.setClaimStatus("failed", form.message);
-        }
+  // Initialize the form with the reusable form handler
+  const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.pinForm, {
+    debugMode: false,
+    validateOnInput: true,
+    onSuccess: (result) => {
+      if (result.data.success === true && result.data.device) {
+        claimedDevice = result.data.device;
+        deviceStore.updateDevice({
+          deviceId: result.data.device.id,
+          name: result.data.device.name,
+          deviceType: result.data.device.deviceType,
+          status: result.data.device.status,
+          claimStatus: "claimed"
+        });
+        toast.success("Device claimed successfully!");
       }
     },
-    onResult: ({ result }) => {
-      // Handle the result from the server
-      if (result.type === 'success') {
-        if (result.data.success === true && result.data.device) {
-          claimedDevice = result.data.device;
-          deviceStore.updateDevice({
-            deviceId: result.data.device.id,
-            name: result.data.device.name,
-            deviceType: result.data.device.deviceType,
-            status: result.data.device.status,
-            claimStatus: "claimed"
-          });
-          toast.success("Device claimed successfully!");
-        }
-      } else if (result.type === 'failure') {
-        // Handle business validation errors from the server
-        if (result.data.message && typeof result.data.message === 'object' && 'details' in result.data.message) {
-          const errorMessage = result.data.message.details;
-          deviceStore.setClaimStatus("failed", errorMessage);
-          message.set(errorMessage);
-          toast.error("Verification Failed");
-        } else if (typeof result.data.message === 'string') {
-          deviceStore.setClaimStatus("failed", result.data.message);
-          message.set(result.data.message);
-          toast.error("Verification Failed");
-        }
-      }
-    },
-    dataType: 'json',
-    resetForm: false,
-    taintedMessage: false
+    onError: (error) => {
+      deviceStore.setClaimStatus("failed", error?.message || "Verification failed");
+      toast.error("Verification Failed");
+    }
   });
   
   let claimedDevice: any = null;
@@ -126,15 +99,18 @@
           <CardContent class="pt-6">
           <div class="flex flex-col items-center justify-center space-y-4 p-4">
             <!-- Status display -->
-            {#if $formMessage}
-              <!-- Superforms message takes precedence -->
+            {#if $errorMessage}
+              <!-- Form handler error message takes precedence -->
               <div class="mb-4 p-4 rounded-md w-full flex items-center gap-3 bg-destructive/10 border border-destructive/20 text-destructive">
                 <div class="h-10 w-10 flex-shrink-0 rounded-full bg-destructive/10 flex items-center justify-center">
                   <AlertTriangle class="h-5 w-5" />
                 </div>
                 <div class="w-full">
-                  <p class="font-medium">Verification Failed</p>
-                  <p class="text-sm">{$formMessage}</p>
+                  <!-- <p class="font-medium">Verification Failed</p> -->
+                  <p class="text-sm">{$errorMessage.text}</p>
+                  {#if $errorMessage.details}
+                    <p class="text-xs mt-1">{$errorMessage.details}</p>
+                  {/if}
                 </div>
               </div>
             {:else if $deviceStore.claimStatus === 'failed'}
@@ -149,15 +125,22 @@
                 </div>
               </div>
             {:else if $deviceStore.claimStatus === 'claiming'}
-              <!-- Loading state -->
+              <!-- Loading state with Skeleton component for better UX -->
               <div class="mb-4 p-4 rounded-md w-full flex items-center gap-3 bg-amber-50 border border-amber-200 text-amber-800">
                 <div class="h-10 w-10 flex-shrink-0 rounded-full bg-amber-100 flex items-center justify-center">
-                  <div class="h-5 w-5">
+                  <div class="h-5 w-5 animate-pulse">
                     <Skeleton class="h-5 w-5 rounded-full" />
                   </div>
                 </div>
-                <div>
-                  <p class="font-medium">Claiming device...</p>
+                <div class="w-full">
+                  <div class="flex items-center justify-between">
+                    <p class="font-medium">Claiming device...</p>
+                    <div class="flex space-x-1">
+                      <span class="h-2 w-2 rounded-full bg-amber-300 animate-pulse"></span>
+                      <span class="h-2 w-2 rounded-full bg-amber-300 animate-pulse delay-150"></span>
+                      <span class="h-2 w-2 rounded-full bg-amber-300 animate-pulse delay-300"></span>
+                    </div>
+                  </div>
                   <p class="text-sm">Please wait while we verify the PIN code</p>
                 </div>
               </div>
@@ -165,7 +148,7 @@
 
             <!-- PIN input form using Superforms -->
             <div class="w-full max-w-md">
-              <form method="POST" action="?/claimDevice" class="space-y-6" use:superEnhance={beforeSubmit}>
+              <form method="POST" action="?/claimDevice" class="space-y-6" use:enhance={beforeSubmit}>
                 <div class="space-y-2">
                   <Label for="pin" class="text-base">Device PIN Code <span class="text-destructive">*</span></Label>
                   <div class="flex justify-center">
@@ -200,8 +183,9 @@
                       size="lg"
                     >
                       {#if $submitting}
-                        <span class="absolute inset-0 flex items-center justify-center">
-                          <Skeleton class="h-5 w-28" />
+                        <span class="absolute inset-0 flex items-center justify-center gap-1.5">
+                          <Skeleton class="h-5 w-5 rounded-full animate-pulse" />
+                          <Skeleton class="h-5 w-20" />
                         </span>
                         <span class="opacity-0">Claim Device</span>
                       {:else}
