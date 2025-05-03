@@ -7,11 +7,20 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId } from '$lib/server/security/auth-utils';
+import { z } from 'zod';
+
+// Define the PIN code schema
+const pinSchema = z.object({
+    pin: z.string()
+        .min(6, { message: "PIN code must be 6 digits" })
+        .max(6, { message: "PIN code must be 6 digits" })
+        .regex(/^\d+$/, { message: "PIN code must contain only digits" })
+});
 
 export const load = restrict(
     async ({ locals }) => {
-        // Initialize the form with the schema and defaults
-        const form = await superValidate(zod(deviceSchema), {
+        // Initialize the device registration form with the schema and defaults
+        const deviceForm = await superValidate(zod(deviceSchema), {
             defaults: {
                 name: '',
                 deviceType: 'OTHER',
@@ -19,31 +28,36 @@ export const load = restrict(
             }
         });
         
+        // Initialize the PIN claim form
+        const pinForm = await superValidate(zod(pinSchema));
+        
         return { 
-            form
+            deviceForm,
+            pinForm
         };
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    // Action for claiming a device with PIN
+    // Action for claiming a device with PIN using Superforms
     claimDevice: async ({ request, locals }) => {
+        // Validate the form data against the schema
+        const form = await superValidate(request, zod(pinSchema));
+        
+        // If validation fails, return the form with errors
+        if (!form.valid) {
+            return fail(400, { form });
+        }
+        
         try {
-            const data = await request.formData();
-            const pin = data.get('pin')?.toString();
-            
-            if (!pin || pin.length < 6) {
-                return fail(400, { 
-                    success: false, 
-                    message: 'Invalid PIN code. Please enter a valid 6-digit PIN.'
-                });
-            }
+            const pin = form.data.pin;
             
             // Get the authenticated user
             const userId = await validateAndGetUserId(locals);
             if (!userId) {
-                return fail(401, { success: false, message: 'You must be logged in to claim a device' });
+                // Return a message through Superforms
+                return fail(401, message(form, 'You must be logged in to claim a device', { status: 'error' }));
             }
             
             logger.info(`User ${userId} attempting to claim device with PIN: ${pin}`);
@@ -52,7 +66,7 @@ export const actions: Actions = {
             const deviceManager = locals.deviceManager;
             if (!deviceManager) {
                 logger.error('Device manager not available in locals');
-                return fail(500, { success: false, message: 'Device manager not available' });
+                return fail(500, message(form, 'Device manager not available', { status: 'error' }));
             }
             
             // Attempt to claim the device
@@ -62,25 +76,15 @@ export const actions: Actions = {
                 const errorMessage = 'The PIN you entered doesn\'t match any available device. Please verify the 6-digit PIN and try again.';
                 logger.warn(`No device found with PIN ${pin}. Returning error: ${errorMessage}`);
                 
-                // Return a structured error response with fail() to ensure proper status code
-                return fail(400, {
-                    success: false,
-                    message: {
-                        type: 'error' as const,
-                        text: 'Verification Failed',
-                        details: errorMessage,
-                        code: 'INVALID_PIN',
-                        requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
-                        timestamp: new Date().toISOString()
-                    }
-                });
+                // Return the error message through Superforms
+                return fail(400, message(form, errorMessage, { status: 'error' }));
             }
             
             logger.info(`Device claimed successfully: ${device.id} by user ${userId}`);
             
             // Broadcast a message to all connected clients that the device has been claimed
             if (locals.wss) {
-                const message = {
+                const wsMessage = {
                     type: 'device:claimed',
                     data: {
                         deviceId: device.id,
@@ -92,33 +96,37 @@ export const actions: Actions = {
                 };
                 
                 // Broadcast to all connected clients
-                locals.wss.broadcast(JSON.stringify(message));
+                locals.wss.broadcast(JSON.stringify(wsMessage));
                 logger.info('Broadcast device claimed message to all clients');
             } else {
                 logger.warn('WebSocket server not available, could not broadcast device claimed message');
             }
             
-            // Return success response
-            return { 
+            // Return success response with the form and additional data
+            const successForm = message(form, 'Device claimed successfully!', { status: 'success' });
+            
+            return {
+                form: successForm,
                 success: true,
                 device: {
                     id: device.id,
                     name: device.name,
                     deviceType: device.deviceType,
                     status: device.status
-                },
-                message: 'Device claimed successfully'
+                }
             };
         } catch (err) {
             logger.error('Error claiming device:', err);
-            return fail(500, { success: false, message: 'Failed to claim device' });
+            return fail(500, message(form, 'Failed to claim device. Please try again.', { status: 'error' }));
         }
     },
     
     // Action for registering device details after claiming
     registerDevice: async ({ request, locals }) => {
+        // Validate the form data against the schema
         const form = await superValidate(request, zod(deviceSchema));
         
+        // If validation fails, return the form with errors
         if (!form.valid) {
             return fail(400, { form });
         }
@@ -127,7 +135,8 @@ export const actions: Actions = {
             // Get authenticated user
             const userId = await validateAndGetUserId(locals);
             if (!userId) {
-                return fail(401, { form, success: false, message: 'You must be logged in to register a device' });
+                // Return a message through Superforms
+                return fail(401, message(form, 'You must be logged in to register a device', { status: 'error' }));
             }
             
             const { name, deviceType, description, hardwareId, model, manufacturer } = form.data;
@@ -138,40 +147,48 @@ export const actions: Actions = {
             });
             
             if (!existingDevice) {
+                // Business validation error - device not found
                 return fail(404, message(form, 'Device not found. Please claim a device first.', { status: 'error' }));
             }
             
-            // Update the device with additional information
-            const device = await locals.prisma.device.update({
-                where: { id: hardwareId },
-                data: {
-                    name,
-                    deviceType,
-                    description,
-                    model,
-                    manufacturer,
-                    updatedAt: new Date()
-                }
-            });
-            
-            logger.info(`Device updated successfully: ${device.id} by user ${userId}`);
-            
-            // Return success with the updated device
-            const successForm = message(form, 'Device registered successfully!', { status: 'success' });
-            
-            return {
-                ...successForm,
-                success: true,
-                device: {
-                    id: device.id,
-                    name: device.name,
-                    deviceType: device.deviceType,
-                    status: device.status
-                }
-            };
+            try {
+                // Update the device with additional information
+                const device = await locals.prisma.device.update({
+                    where: { id: hardwareId },
+                    data: {
+                        name,
+                        deviceType,
+                        description,
+                        model,
+                        manufacturer,
+                        updatedAt: new Date()
+                    }
+                });
+                
+                logger.info(`Device updated successfully: ${device.id} by user ${userId}`);
+                
+                // Return success with the updated device
+                const successForm = message(form, 'Device registered successfully!', { status: 'success' });
+                
+                return {
+                    form: successForm,
+                    success: true,
+                    device: {
+                        id: device.id,
+                        name: device.name,
+                        deviceType: device.deviceType,
+                        status: device.status
+                    }
+                };
+            } catch (dbError) {
+                // Handle database-specific errors
+                logger.error(`Database error registering device:`, dbError);
+                // Return a business validation error through Superforms
+                return fail(500, message(form, 'Failed to update device information. Please try again.', { status: 'error' }));
+            }
         } catch (err) {
             logger.error('Error registering device:', err);
-            return fail(500, message(form, 'Failed to register device', { status: 'error' }));
+            return fail(500, message(form, 'Failed to register device. Please try again.', { status: 'error' }));
         }
     }
 };

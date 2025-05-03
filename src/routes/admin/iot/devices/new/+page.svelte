@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import { AlertTriangle, CheckCircle, ArrowLeft } from "lucide-svelte";
+  import { AlertTriangle, CheckCircle, ArrowLeft, ExternalLink } from "lucide-svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -13,6 +13,10 @@
   import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
   import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
   import { deviceStore } from "$lib/stores/device-store";
+  import { superForm, message, type SuperForm } from "sveltekit-superforms/client";
+  import { zodClient } from "sveltekit-superforms/adapters";
+  import { z } from "zod";
+  import { enhance } from "$app/forms";
   import type { PageData } from "./$types";
   
   // Import page data
@@ -27,97 +31,59 @@
     "Claim Device",
   ];
   
-  // Form state
-  let pinCode = "";
-  let submitting = false;
-  let claimError = "";
+  // Initialize the form with Superforms - using the server-side validated form
+  const { form, errors, enhance: superEnhance, submitting, message: formMessage } = superForm(data.pinForm, {
+    id: 'claim-device-form',
+    onUpdated: ({ form }) => {
+      // Handle form update events
+      if (form.message) {
+        if (form.valid) {
+          toast.success(form.message);
+        } else {
+          toast.error(form.message);
+          deviceStore.setClaimStatus("failed", form.message);
+        }
+      }
+    },
+    onResult: ({ result }) => {
+      // Handle the result from the server
+      if (result.type === 'success') {
+        if (result.data.success === true && result.data.device) {
+          claimedDevice = result.data.device;
+          deviceStore.updateDevice({
+            deviceId: result.data.device.id,
+            name: result.data.device.name,
+            deviceType: result.data.device.deviceType,
+            status: result.data.device.status,
+            claimStatus: "claimed"
+          });
+          toast.success("Device claimed successfully!");
+        }
+      } else if (result.type === 'failure') {
+        // Handle business validation errors from the server
+        if (result.data.message && typeof result.data.message === 'object' && 'details' in result.data.message) {
+          const errorMessage = result.data.message.details;
+          deviceStore.setClaimStatus("failed", errorMessage);
+          message.set(errorMessage);
+          toast.error("Verification Failed");
+        } else if (typeof result.data.message === 'string') {
+          deviceStore.setClaimStatus("failed", result.data.message);
+          message.set(result.data.message);
+          toast.error("Verification Failed");
+        }
+      }
+    },
+    dataType: 'json',
+    resetForm: false,
+    taintedMessage: false
+  });
+  
   let claimedDevice: any = null;
   
-  // Handle form submission
-  async function handleSubmit(event: Event) {
-    event.preventDefault();
-    
-    // Validate PIN before submitting
-    if (!pinCode) {
-      toast.error("Please enter a PIN code");
-      return;
-    }
-    if (pinCode.length < 6) {
-      toast.error("PIN code must be 6 digits");
-      return;
-    }
-    
-    submitting = true;
+  // Before form submission
+  function beforeSubmit() {
     deviceStore.setClaimStatus("claiming");
-    claimError = "";
-    
-    try {
-      const formData = new FormData();
-      formData.append("pin", pinCode);
-      
-      const response = await fetch("?/claimDevice", {
-        method: "POST",
-        body: formData
-      });
-      
-      const result = await response.json();
-      // Log the complete server response for debugging
-      console.log('Server response:', JSON.stringify(result, null, 2));
-      
-      if (result.success === false) {
-        // The server's error structure is: { success: false, message: { details: string, ... } }
-        console.log('Error message object:', result.message);
-        
-        // Extract the detailed error message - based on server structure from +page.server.ts
-        // The actual error message is in result.message.details
-        let errorMessage;
-        
-        if (result.message && typeof result.message === 'object' && 'details' in result.message) {
-          // This is the expected structure from the server
-          errorMessage = result.message.details;
-          console.log('Found error details:', errorMessage);
-        } else if (typeof result.message === 'string') {
-          // Fallback if message is a direct string
-          errorMessage = result.message;
-        } else {
-          // Generic fallback message
-          errorMessage = "The device could not be claimed. Please try again with a different PIN.";
-        }
-        
-        // Update the UI with the error message
-        claimError = errorMessage;
-        deviceStore.setClaimStatus("failed", errorMessage);
-        toast.error("Verification Failed");
-      } else {
-        // Handle success
-        claimedDevice = result.device;
-        deviceStore.updateDevice({
-          deviceId: result.device.id,
-          name: result.device.name,
-          deviceType: result.device.deviceType,
-          status: result.device.status,
-          claimStatus: "claimed"
-        });
-        toast.success("Device claimed successfully!");
-      }
-    } catch (error) {
-      console.error("Error claiming device:", error);
-      
-      // Only show the connection error if it's truly a network error
-      // If we have a more specific error message, use that instead
-      if (error instanceof TypeError && error.message.includes('fetch')) {
-        claimError = "Connection error. Please check your network and try again.";
-        toast.error("Connection Error");
-      } else {
-        // For other errors, provide a more generic but still helpful message
-        claimError = "An error occurred while claiming the device. Please try again.";
-        toast.error("Verification Failed");
-      }
-      
-      deviceStore.setClaimStatus("failed", claimError);
-    } finally {
-      submitting = false;
-    }
+    return true;
   }
   
   // If the device is claimed while we're on this page, update the claimedDevice variable
@@ -160,15 +126,26 @@
           <CardContent class="pt-6">
           <div class="flex flex-col items-center justify-center space-y-4 p-4">
             <!-- Status display -->
-            {#if claimError}
-              <!-- Error state takes precedence -->
+            {#if $formMessage}
+              <!-- Superforms message takes precedence -->
               <div class="mb-4 p-4 rounded-md w-full flex items-center gap-3 bg-destructive/10 border border-destructive/20 text-destructive">
                 <div class="h-10 w-10 flex-shrink-0 rounded-full bg-destructive/10 flex items-center justify-center">
                   <AlertTriangle class="h-5 w-5" />
                 </div>
                 <div class="w-full">
                   <p class="font-medium">Verification Failed</p>
-                  <p class="text-sm">{claimError}</p>
+                  <p class="text-sm">{$formMessage}</p>
+                </div>
+              </div>
+            {:else if $deviceStore.claimStatus === 'failed'}
+              <!-- Error state from device store -->
+              <div class="mb-4 p-4 rounded-md w-full flex items-center gap-3 bg-destructive/10 border border-destructive/20 text-destructive">
+                <div class="h-10 w-10 flex-shrink-0 rounded-full bg-destructive/10 flex items-center justify-center">
+                  <AlertTriangle class="h-5 w-5" />
+                </div>
+                <div class="w-full">
+                  <p class="font-medium">Verification Failed</p>
+                  <p class="text-sm">{$deviceStore.errorMessage || "The device could not be claimed. Please try again."}</p>
                 </div>
               </div>
             {:else if $deviceStore.claimStatus === 'claiming'}
@@ -186,9 +163,9 @@
               </div>
             {/if}
 
-            <!-- PIN input form -->
+            <!-- PIN input form using Superforms -->
             <div class="w-full max-w-md">
-              <form method="POST" class="space-y-6" on:submit={handleSubmit}>
+              <form method="POST" action="?/claimDevice" class="space-y-6" use:superEnhance={beforeSubmit}>
                 <div class="space-y-2">
                   <Label for="pin" class="text-base">Device PIN Code <span class="text-destructive">*</span></Label>
                   <div class="flex justify-center">
@@ -197,27 +174,32 @@
                       type="text"
                       name="pin"
                       placeholder="Enter 6-digit PIN"
-                      bind:value={pinCode}
+                      bind:value={$form.pin}
                       class="text-center text-lg tracking-widest font-mono"
                       maxlength="6"
-                      disabled={submitting || $deviceStore.claimStatus === 'claiming'}
+                      disabled={$submitting || $deviceStore.claimStatus === 'claiming'}
                       autocomplete="off"
+                      aria-invalid={$errors.pin ? 'true' : undefined}
                     />
                   </div>
-                  <p class="text-xs text-muted-foreground text-center mt-1">
-                    Enter the 6-digit PIN displayed on your device
-                  </p>
+                  {#if $errors.pin}
+                    <p class="text-xs text-destructive text-center mt-1">{$errors.pin}</p>
+                  {:else}
+                    <p class="text-xs text-muted-foreground text-center mt-1">
+                      Enter the 6-digit PIN displayed on your device
+                    </p>
+                  {/if}
                 </div>
 
                 <div class="flex justify-center pt-4">
                   <div class="w-full space-y-2">
                     <Button
                       type="submit"
-                      disabled={!pinCode || pinCode.length < 6 || submitting || $deviceStore.claimStatus === 'claiming'}
+                      disabled={!$form.pin || $form.pin.length < 6 || $submitting || $deviceStore.claimStatus === 'claiming'}
                       class="w-full relative h-11"
                       size="lg"
                     >
-                      {#if submitting}
+                      {#if $submitting}
                         <span class="absolute inset-0 flex items-center justify-center">
                           <Skeleton class="h-5 w-28" />
                         </span>
