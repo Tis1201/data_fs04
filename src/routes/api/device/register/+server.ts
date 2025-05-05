@@ -81,11 +81,6 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
 
             DeviceManager.registerDevice(pin, deviceMeta);
 
-            const encoder = new TextEncoder();
-            controller.enqueue(encoder.encode("event: connected\ndata: {}\n\n"));
-
-
-
         },
 
         cancel() {
