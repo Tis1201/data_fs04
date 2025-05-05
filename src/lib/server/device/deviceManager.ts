@@ -6,7 +6,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { WebSocketManager } from '$lib/server/websocket/WebSocketManager';
 import type { UserInfo } from '../types/user';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory } from '../messaging/interfaces/message';
+import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import * as crypto from 'crypto';
+import { generateId } from 'lucia';
+import type { PrismaClient } from '@prisma/client';
 
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
@@ -122,6 +125,91 @@ export class DefaultDeviceManager {
 
         // Return the device record
         return deviceRecords[deviceMeta.id];
+    }
+
+    /**
+     * Add a new device with system information
+     * @param pin The PIN used for device registration
+     * @param deviceId The unique device ID
+     * @param systemInfo Device system information
+     * @returns Device information including API key
+     */
+    async addDevice(pin: string, deviceId: string, systemInfo: any, userId: string, prisma: any): Promise<{
+        id: string;
+        apiKey: string;
+        name: string;
+        type: string;
+        createdAt: Date;
+    }> {
+        const deviceMeta = await pinSharedStore.getSingle(pin);
+
+        if (!deviceMeta) {
+            throw new Error(`No device found with PIN ${pin}`);
+        }
+
+        // Check deviceId matches
+        if (deviceMeta.id !== deviceId) {
+            throw new Error(`Device ID ${deviceId} does not match PIN ${pin}`);
+        }
+
+        // Generate a secure API key
+        const apiKeyValue = generateId(32);
+        const deviceName = systemInfo.deviceName || `Device-${deviceId.slice(0, 6)}`;
+        const deviceType = systemInfo.deviceType || 'unknown';
+
+        try {
+            // Create API key in the database
+            const apiKey = await prisma.apiKey.create({
+                data: {
+                    key: apiKeyValue,
+                    name: `Device: ${deviceName}`,
+                    description: `API key for ${deviceType} device (${deviceId})`,
+                    userId: userId,
+                    active: true,
+                    expiresAt: null, // Or set an expiration if needed
+                }
+            });
+
+            // Create device record
+            const deviceRecord = {
+                id: deviceId,
+                name: deviceName,
+                type: deviceType,
+                apiKeyId: apiKey.id,
+                systemInfo,
+                createdAt: new Date(),
+                claimedAt: deviceMeta.claimedAt || new Date(),
+                claimedById: deviceMeta.claimedById || userId,
+                pin: pin
+            };
+
+            // Store device record in database
+            const device = await prisma.device.upsert({
+                where: { id: deviceId },
+                update: deviceRecord,
+                create: deviceRecord,
+            });
+
+            // Remove PIN from store after successful device info submission
+            await pinSharedStore.removeMember(pin, deviceMeta);
+
+            logger.info(`Device registered: ${deviceId}`, { 
+                type: deviceRecord.type,
+                claimed: !!deviceMeta.claimedAt,
+                apiKeyId: apiKey.id
+            });
+
+            return {
+                id: device.id,
+                apiKey: apiKey.key,
+                name: device.name,
+                type: device.type,
+                createdAt: device.createdAt
+            };
+        } catch (error) {
+            logger.error(`Failed to register device ${deviceId}:`, error);
+            throw new Error(`Device registration failed: ${error.message}`);
+        }
     }
 
     /**

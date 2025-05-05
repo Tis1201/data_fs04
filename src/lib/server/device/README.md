@@ -146,3 +146,11 @@ Example incoming command:
   "command": "reboot",
   "payload": {}
 }
+
+
+## To Dos
+- User UI claim should be sent over websocket and set the senderId, sender connectionId in the routing message
+- Add api key to registered message
+- When device rx registered message, send pin, device id, api key, system info to finish claim process
+- Save all these information to DB
+- Send a claimed message to user for updating ui
