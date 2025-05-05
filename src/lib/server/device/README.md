@@ -35,6 +35,22 @@ This section summarizes the latest, stable, production-ready flow for device onb
 
 ---
 
+## Implementation Details
+
+### Device Registration
+- The `registerDevice` function ensures that each device is registered with a unique PIN.
+- The function is asynchronous, using `await` for database operations to check PIN availability before registration.
+- Logs are added to track the registration process and any errors encountered.
+
+### SSE Connection
+- A ping mechanism is implemented to keep the SSE connection alive.
+- Error handling is in place for connection failures and message sending issues.
+
+### Device Manager
+- Manages device onboarding, PIN validation, and user claiming processes.
+- Ensures devices are registered with unique PINs to prevent conflicts.
+
+---
 
 ## Structure
 

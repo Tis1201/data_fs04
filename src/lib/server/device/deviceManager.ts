@@ -15,14 +15,22 @@ export class DefaultDeviceManager {
     /**
      * Register a new device with a PIN code
      */
-    registerDevice(pin: string, device: DeviceMeta, ttlSeconds: number = 3600): void {
+    async registerDevice(pin: string, device: DeviceMeta, ttlSeconds: number = 3600): void {
 
         if (!device.id) {
             device.id = uuidv4();
         }
 
+        const existingDevice = await pinSharedStore.getSingle(pin);
+        
+        if (existingDevice) {
+            throw new Error(`PIN ${pin} is already in use by another device`);
+        }
+
         logger.info(`Registering device with PIN ${pin}`, { deviceId: device.id });
-        pinSharedStore.addMember(pin, device);
+        await pinSharedStore.addMember(pin, device);
+
+        
 
         // Store device in our mock database
         // deviceRecords[device.id] = {
@@ -82,7 +90,7 @@ export class DefaultDeviceManager {
             systemGenerated: true,
             echoToSender: false
         });
-        
+
         await publisher.publish(routingMessage);
         logger.info(`Device registration message sent to device ${deviceMeta.id}`);
 
