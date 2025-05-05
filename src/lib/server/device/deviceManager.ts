@@ -25,7 +25,7 @@ export class DefaultDeviceManager {
         }
 
         const existingDevice = await pinSharedStore.getSingle(pin);
-        
+
         if (existingDevice) {
             throw new Error(`PIN ${pin} is already in use by another device`);
         }
@@ -33,7 +33,7 @@ export class DefaultDeviceManager {
         logger.info(`Registering device with PIN ${pin}`, { deviceId: device.id });
         await pinSharedStore.addMember(pin, device);
 
-        
+
 
         // Store device in our mock database
         // deviceRecords[device.id] = {
@@ -52,7 +52,8 @@ export class DefaultDeviceManager {
      * @param userId The ID of the user claiming the device
      * @returns The claimed device or null if not found
      */
-    async claimDevice(pin: string, userInfo: UserInfo): Promise<any> {
+    async claimDevice(pin: string, userInfo: UserInfo, senderConnectionId: string, senderConnectionProtocol: string): Promise<any> {
+
         logger.info(`Attempting to claim device with PIN ${pin}`, { userId: userInfo.id });
 
         // Get device from PIN store
@@ -72,28 +73,34 @@ export class DefaultDeviceManager {
         // Store in device shared store
         await deviceSharedStore.addMember(deviceMeta.id, deviceMeta);
 
-        // Remove from PIN store to prevent reuse
-        await pinSharedStore.removeMember(pin, deviceMeta);
 
         // Create and send routing message using deviceMeta connectionId
-        const message = {
+        // Log the connection information for debugging
+        logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
+
+        // Create the message with all required properties in one step
+        const routingMessage = {
+            id: uuidv4(),
             type: 'device',
             scope: `connection:${deviceMeta.connectionId}`,
-            protocol: 'sse',
-            connectionId: deviceMeta.connectionId || '',
+            protocol: 'sse',  // This is the protocol for the device connection
+            connectionId: deviceMeta.connectionId || '',  // Ensure connectionId is always a string
             userInfo: userInfo,
             payload: {
                 action: 'registered',
                 userId: userInfo.id,
                 claimedAt: new Date().toISOString()
-            }
+            },
+            // System message properties
+            systemGenerated: true,
+            echoToSender: false,
+            // Explicit sender information for the client that initiated the claim
+            senderId: userInfo.id,
+            senderConnectionId: senderConnectionId,
+            senderConnectionProtocol: senderConnectionProtocol
         };
 
-        const routingMessage = MessageFactory.toRoutingMessage(message, {
-            systemGenerated: true,
-            echoToSender: false
-        });
-
+        // Publish the routing message
         await publisher.publish(routingMessage);
         logger.info(`Device registration message sent to device ${deviceMeta.id}`);
 
@@ -134,13 +141,18 @@ export class DefaultDeviceManager {
      * @param systemInfo Device system information
      * @returns Device information including API key
      */
-    async addDevice(pin: string, deviceId: string, systemInfo: any, userId: string, prisma: any): Promise<{
+    async addDevice(data: any, prisma: any): Promise<{
         id: string;
         apiKey: string;
         name: string;
         type: string;
         createdAt: Date;
     }> {
+
+        const { pin, id, senderId,senderConnectionId, senderConnectionProtocol } = data;
+
+        logger.debug(`Device claimed by user connection ID: ${pin}, ${id}, ${senderId},${senderConnectionId}, ${senderConnectionProtocol}`);
+
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
         if (!deviceMeta) {
@@ -148,69 +160,84 @@ export class DefaultDeviceManager {
         }
 
         // Check deviceId matches
-        if (deviceMeta.id !== deviceId) {
-            throw new Error(`Device ID ${deviceId} does not match PIN ${pin}`);
+        if (deviceMeta.id !== id) {
+            throw new Error(`Device ID ${id} does not match PIN ${pin}`);
         }
+        
 
-        // Generate a secure API key
-        const apiKeyValue = generateId(32);
-        const deviceName = systemInfo.deviceName || `Device-${deviceId.slice(0, 6)}`;
-        const deviceType = systemInfo.deviceType || 'unknown';
+        // Remove from PIN store to prevent reuse
+        // await pinSharedStore.removeMember(pin, deviceMeta);
+
+
+        // // Generate a secure API key
+        // const apiKeyValue = generateId(32);
+        // const deviceName = systemInfo.deviceName || `Device-${deviceId.slice(0, 6)}`;
+        // const deviceType = systemInfo.deviceType || 'unknown';
 
         try {
-            // Create API key in the database
-            const apiKey = await prisma.apiKey.create({
-                data: {
-                    key: apiKeyValue,
-                    name: `Device: ${deviceName}`,
-                    description: `API key for ${deviceType} device (${deviceId})`,
-                    userId: userId,
-                    active: true,
-                    expiresAt: null, // Or set an expiration if needed
-                }
-            });
+            // try {
+            //     // Create API key in the database
+            //     const apiKey = await prisma.apiKey.create({
+            //         data: {
+            //             key: apiKeyValue,
+            //             name: `Device: ${deviceName}`,
+            //             description: `API key for ${deviceType} device (${deviceId})`,
+            //             userId: userId,
+            //             active: true,
+            //             expiresAt: null, // Or set an expiration if needed
+            //         }
+            //     });
 
-            // Create device record
-            const deviceRecord = {
-                id: deviceId,
-                name: deviceName,
-                type: deviceType,
-                apiKeyId: apiKey.id,
-                systemInfo,
-                createdAt: new Date(),
-                claimedAt: deviceMeta.claimedAt || new Date(),
-                claimedById: deviceMeta.claimedById || userId,
-                pin: pin
-            };
+            //     // Create device record
+            //     const deviceRecord = {
+            //         id: deviceId,
+            //         name: deviceName,
+            //         type: deviceType,
+            //         apiKeyId: apiKey.id,
+            //         systemInfo,
+            //         createdAt: new Date(),
+            //         claimedAt: deviceMeta.claimedAt || new Date(),
+            //         claimedById: deviceMeta.claimedById || userId,
+            //         pin: pin
+            //     };
 
-            // Store device record in database
-            const device = await prisma.device.upsert({
-                where: { id: deviceId },
-                update: deviceRecord,
-                create: deviceRecord,
-            });
+            //     // Store device record in database
+            //     const device = await prisma.device.upsert({
+            //         where: { id: deviceId },
+            //         update: deviceRecord,
+            //         create: deviceRecord,
+            //     });
 
-            // Remove PIN from store after successful device info submission
-            await pinSharedStore.removeMember(pin, deviceMeta);
+            //     // Remove PIN from store after successful device info submission
+            //     await pinSharedStore.removeMember(pin, deviceMeta);
 
-            logger.info(`Device registered: ${deviceId}`, { 
-                type: deviceRecord.type,
-                claimed: !!deviceMeta.claimedAt,
-                apiKeyId: apiKey.id
-            });
+            //     logger.info(`Device registered: ${deviceId}`, { 
+            //         type: deviceRecord.type,
+            //         claimed: !!deviceMeta.claimedAt,
+            //         apiKeyId: apiKey.id
+            //     });
+
+            // return {
+            //     id: device.id,
+            //     apiKey: apiKey.key,
+            //     name: device.name,
+            //     type: device.type,
+            //     createdAt: device.createdAt
+            // };
 
             return {
-                id: device.id,
-                apiKey: apiKey.key,
-                name: device.name,
-                type: device.type,
-                createdAt: device.createdAt
-            };
-        } catch (error) {
-            logger.error(`Failed to register device ${deviceId}:`, error);
+                id: '',
+                apiKey: '',
+                name: '',
+                type: '',
+                createdAt: new Date()
+            }
+        } catch (error: { message: any; }) {
+            // logger.error(`Failed to register device ${deviceId}:`, error);
             throw new Error(`Device registration failed: ${error.message}`);
         }
     }
+
 
     /**
      * Get a device by its ID

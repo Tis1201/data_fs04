@@ -13,6 +13,8 @@
   import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
   import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
   import { deviceStore } from "$lib/stores/device-store";
+  import { socketStore } from "$lib/stores/websocket-store";
+  import { createClientMessage } from "$lib/types/messages";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   
@@ -177,12 +179,23 @@
                 <div class="flex justify-center pt-4">
                   <div class="w-full space-y-2">
                     <Button
-                      type="submit"
-                      disabled={!$form.pin || $form.pin.length < 6 || $submitting || $deviceStore.claimStatus === 'claiming'}
+                      type="button"
+                      on:click={() => {
+                        if (!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming') return;
+                        
+                        // Use WebSocket to claim device instead of form submission
+                        deviceStore.setClaimStatus('claiming');
+                        const message = createClientMessage('device', 'user:self', { 
+                          action: 'claim', 
+                          pin: $form.pin 
+                        });
+                        socketStore.send(message);
+                      }}
                       class="w-full relative h-11"
                       size="lg"
+                      disabled={!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming'}
                     >
-                      {#if $submitting}
+                      {#if $deviceStore.claimStatus === 'claiming'}
                         <span class="absolute inset-0 flex items-center justify-center gap-1.5">
                           <Skeleton class="h-5 w-5 rounded-full animate-pulse" />
                           <Skeleton class="h-5 w-20" />

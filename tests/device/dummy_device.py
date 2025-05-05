@@ -125,6 +125,14 @@ class DummyDevice:
                                 
                                 print(f"Data: {json.dumps(data, indent=2)}")
 
+                                self.senderId = data.get('senderId')
+                                self.senderConnectionId = data.get('senderConnectionId')
+                                self.senderConnectionProtocol = data.get('senderConnectionProtocol')
+
+
+                                print(f"Sender connection ID: {self.senderConnectionId}")
+                                print(f"Sender connection protocol: {self.senderConnectionProtocol}")
+
                                 
                                 # Send device info when registration is confirmed
                                 self.send_device_info()
@@ -164,18 +172,28 @@ class DummyDevice:
                 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }
             
+            
+            # Send device info to api/device/add
+            device_info['id'] = 'f2a70ec2-3d6a-4ed1-b73f-f2568a1e9da8'  # Provided device ID
+            device_info['pin'] = self.pin  # Include the generated PIN
+            device_info['senderId'] = self.senderId
+            device_info['senderConnectionId'] = self.senderConnectionId
+            device_info['senderConnectionProtocol'] = self.senderConnectionProtocol
+            
             print("Sending device information:")
             print(json.dumps(device_info, indent=2))
-            
-            # Here you would typically send the data to your server
-            # For example:
-            # response = requests.post(
-            #     f"{self.base_url}/api/device/info",
-            #     json=device_info,
-            #     headers={'Content-Type': 'application/json'}
-            # )
-            # response.raise_for_status()
-            # print("Device info sent successfully")
+
+            try:
+                response = requests.post(
+                    f"{self.base_url}/api/device/add",
+                    json=device_info,
+                    headers={'Content-Type': 'application/json'}
+                )
+                response.raise_for_status()
+                print("Device info sent successfully")
+                print(f"Response: {response.json()}")
+            except requests.exceptions.RequestException as e:
+                print(f"Failed to send device info: {e}")
             
         except Exception as e:
             print(f"Error sending device info: {str(e)}")
