@@ -20,7 +20,7 @@ import type { DeviceMeta } from '$lib/server/device/deviceMeta';
 import { v4 as uuidv4 } from 'uuid';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
-import { DeviceManager } from '$lib/server/device/deviceSharedStore';
+import { DeviceManager } from '$lib/server/device/deviceManager';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 
 ////Device

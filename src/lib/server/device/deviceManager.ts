@@ -83,24 +83,10 @@ export class DefaultDeviceManager {
                 updatedAt: new Date()
             };
         }
+
+        //Send message to subscription:device:uuid to subscriber:user:userId to notify device that is claimed
         
-        // Send notification to device that it has been claimed
-        // We'll use the WebSocketManager to broadcast the message
-        // This will be handled by the locals.wss in the actual server context
-        const message = {
-            type: 'device:claimed',
-            target: `device:${deviceMeta.id}`,
-            data: {
-                deviceId: deviceMeta.id,
-                userId: userId,
-                claimedAt: new Date().toISOString()
-            }
-        };
-        
-        // In a real implementation, this would use the WebSocketManager from locals
-        // For now, we'll just log the message
-        logger.info(`Broadcasting device claimed message`, { message });
-        
+       
         // Return the device record
         return deviceRecords[deviceMeta.id];
     }
