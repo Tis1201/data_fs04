@@ -6,8 +6,9 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
-import { validateAndGetUserId } from '$lib/server/security/auth-utils';
+import { validateAndGetUserId, validateAuth } from '$lib/server/security/auth-utils';
 import { z } from 'zod';
+import type { UserInfo } from '$lib/server/types/user';
 
 // Define the PIN code schema
 const pinSchema = z.object({
@@ -53,8 +54,12 @@ export const actions: Actions = {
         const pin = form.data.pin;
 
         // Get the authenticated user
-        const userId = await validateAndGetUserId(locals);
-        if (!userId) {
+        const auth = await locals.auth.validate();
+        const userInfo = auth!.user;
+
+        console.log(`userInfo: ${JSON.stringify(userInfo)}`)
+
+        if (!userInfo) {
             // Return a properly formatted error message for the form handler
             return fail(401, {
                 form,
@@ -69,10 +74,11 @@ export const actions: Actions = {
             });
         }
 
-        logger.info(`User ${userId} attempting to claim device with PIN: ${pin}`);
+        logger.info(`User ${userInfo.id} attempting to claim device with PIN: ${pin}`);
 
         // Get the device manager from locals
         const deviceManager = locals.deviceManager;
+
         if (!deviceManager) {
             logger.error('Device manager not available in locals');
             return fail(500, {
@@ -89,7 +95,7 @@ export const actions: Actions = {
         }
 
         // Attempt to claim the device
-        const device = await deviceManager.claimDevice(pin, userId);
+        const device = await deviceManager.claimDevice(pin, userInfo);
 
         if (!device) {
             const errorMessage = 'The PIN you entered doesn\'t match any available device. Please verify the 6-digit PIN and try again.';
@@ -110,7 +116,7 @@ export const actions: Actions = {
             });
         }
 
-        logger.info(`Device registered, next step wait for device to connect: ${device.id} by user ${userId}`);
+        logger.info(`Device registered, next step wait for device to connect: ${device.id} by user ${userInfo.id}`);
 
         // Return success response with the form and additional data
         return {

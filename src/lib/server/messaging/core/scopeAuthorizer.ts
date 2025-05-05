@@ -2,6 +2,7 @@ import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
 import { userAuthorizer } from '../authorizers/userAuthorizer';
 import { subscriptionAuthorizer } from '../authorizers/subscriptionAuthorizer';
+import { connectionAuthorizer } from '../authorizers/connectionAuthorizer';
 // import { GroupAuthorizer } from './authorizer/groupAuthorizer';
 // import { RoleAuthorizer } from './authorizer/roleAuthorizer';
 // import { RoomAuthorizer } from './authorizer/roomAuthorizer';
@@ -23,6 +24,10 @@ export const ScopeAuthorizer = {
 
         case 'subscription':
           if (!subscriptionAuthorizer.isAllowed(userInfo, scope, type,connectionIds)) return false;
+          break;
+
+        case 'connection':
+          if (!connectionAuthorizer.isAllowed(userInfo, scope, type,connectionIds)) return false;
           break;
 
 

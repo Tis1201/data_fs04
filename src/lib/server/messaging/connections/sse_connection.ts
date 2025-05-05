@@ -29,10 +29,28 @@ export class SSEConnection implements Connection {
   // }
 
   async send(payload: any): Promise<void> {
-    // this.socket.send(JSON.stringify(payload));
     logger.debug(`[SSEConnection] Sending message: ${JSON.stringify(payload)}`);
-    // controller.enqueue(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    this.controller.enqueue(JSON.stringify(payload));      
+    
+    const encoder = new TextEncoder();
+    const event = payload.type || 'message';
+    const data = JSON.stringify({
+      ...payload,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Format the SSE message according to the spec
+    const message = [
+      `event: ${event}`,
+      `data: ${data}`,
+      '\n' // Double newline to indicate end of message
+    ].join('\n');
+    
+    try {
+      this.controller.enqueue(encoder.encode(message));
+    } catch (error) {
+      logger.error(`[SSEConnection] Failed to send message: ${error}`);
+      throw error;
+    }
   }
 
   async handleMessage(raw: string | Buffer): Promise<void> {

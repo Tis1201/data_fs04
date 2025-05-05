@@ -1,5 +1,7 @@
 #Create a simple program to test device registration
 import requests
+import json
+import time
 
 BASE_URL = "http://localhost:5173"
 REGISTER_ENDPOINT = f"{BASE_URL}/api/device/register"
@@ -25,63 +27,74 @@ def test_register():
     
     # Prepare headers with PIN
     headers = {
-        'X-Device-PIN': pin
+        'X-Device-PIN': pin,
+        'Accept': 'text/event-stream',
+        'Cache-Control': 'no-cache'
     }
     
+    url = f"{REGISTER_ENDPOINT}?pin={pin}"  # Add pin as query parameter if needed
+    
+    print(f"Connecting to {url}")
+    
     try:
-        # Establish SSE connection
-        url = REGISTER_ENDPOINT
-        # Create a request session with headers
+        # Create a session to handle the request with custom headers
         session = requests.Session()
         session.headers.update(headers)
         
-        # Get the response with the session
+        # Make the initial request with the session
         response = session.get(url, stream=True)
         
-        if response.status_code != 200:
-            raise Exception(f"Failed to connect: {response.status_code}")
-        
-        print("SSE connection established")
-        
-        # Create SSE client from the response
+        # Create SSE client with the response
         sse_client = SSEClient(response)
+        print("SSE client created, waiting for events...")
         
         # Process SSE events
-        for msg in sse_client:
-            try:
-                print(f"Received event: {msg.event}")
-                print(f"Received data: {msg.data}")
+        try:
+            for msg in sse_client.events():
+                try:
+                    print(f"\n--- New Event ---")
+                    print(f"Event: {msg.event}")
+                    
+                    # Process the message data
+                    if hasattr(msg, 'data') and msg.data:
+                        try:
+                            data = json.loads(msg.data)
+                            print(f"Data: {json.dumps(data, indent=2)}")
+                        except json.JSONDecodeError:
+                            print(f"Data (raw): {msg.data}")
+                    else:
+                        print("No data in message")
+                        
+                    # Handle different event types
+                    if msg.event == 'connected':
+                        print("Successfully connected to SSE stream")
+                    elif msg.event == 'error':
+                        print(f"Error received: {msg.data}")
+                    elif msg.event == 'registered':
+                        print("Device registration successful!")
+                        break  # Exit after successful registration
+                    
+                    # Add a small delay to prevent busy waiting
+                    time.sleep(0.1)
+                    
+                except Exception as e:
+                    print(f"Error processing message: {str(e)}")
+                    continue
+                    
+        except KeyboardInterrupt:
+            print("\nSSE connection closed by user")
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            raise
                 
-                # Handle different event types
-                if msg.event == 'connected':
-                    print("Successfully connected to SSE stream")
-                
-                if msg.event == 'error':
-                    raise Exception(f"Received error: {msg.data}")
-                
-                # Add any specific event handling logic here
-                if msg.data:
-                    try:
-                        import json
-                        parsed_data = json.loads(msg.data)
-                        print(f"Parsed data: {parsed_data}")
-                    except json.JSONDecodeError:
-                        print("Received data is not JSON")
-                
-            except Exception as e:
-                print(f"Error processing message: {str(e)}")
-                raise
-            
+    except KeyboardInterrupt:
+        print("\nSSE connection closed by user")
     except Exception as e:
         print(f"Error: {str(e)}")
-        raise
     finally:
-        # Close the connection
-        if 'sse_client' in locals():
-            sse_client.close()
-            print("Connection closed")
         if 'session' in locals():
             session.close()
+        print("Test completed")
 
 if __name__ == "__main__":
     test_register()

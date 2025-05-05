@@ -4,6 +4,9 @@ import { logger } from '$lib/server/logger';
 import { v4 as uuidv4 } from 'uuid';
 // Import the WebSocket manager for broadcasting messages
 import { WebSocketManager } from '$lib/server/websocket/WebSocketManager';
+import type { UserInfo } from '../types/user';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory } from '../messaging/interfaces/message';
 
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
@@ -13,22 +16,23 @@ export class DefaultDeviceManager {
      * Register a new device with a PIN code
      */
     registerDevice(pin: string, device: DeviceMeta, ttlSeconds: number = 3600): void {
+
         if (!device.id) {
             device.id = uuidv4();
         }
-        
+
         logger.info(`Registering device with PIN ${pin}`, { deviceId: device.id });
         pinSharedStore.addMember(pin, device);
-        
+
         // Store device in our mock database
-        deviceRecords[device.id] = {
-            id: device.id,
-            name: `Device-${device.id.substring(0, 8)}`,
-            deviceType: device.deviceType || 'OTHER',
-            status: 'PENDING',
-            createdAt: new Date(),
-            updatedAt: new Date()
-        };
+        // deviceRecords[device.id] = {
+        //     id: device.id,
+        //     name: `Device-${device.id.substring(0, 8)}`,
+        //     deviceType: device.deviceType || 'OTHER',
+        //     status: 'PENDING',
+        //     createdAt: new Date(),
+        //     updatedAt: new Date()
+        // };
     }
 
     /**
@@ -37,36 +41,58 @@ export class DefaultDeviceManager {
      * @param userId The ID of the user claiming the device
      * @returns The claimed device or null if not found
      */
-    async claimDevice(pin: string, userId: string): Promise<any> {
-        logger.info(`Attempting to claim device with PIN ${pin}`, { userId });
-        
+    async claimDevice(pin: string, userInfo: UserInfo): Promise<any> {
+        logger.info(`Attempting to claim device with PIN ${pin}`, { userId: userInfo.id });
+
         // Get device from PIN store
         const deviceMeta = await pinSharedStore.getSingle(pin);
-        
+
         if (!deviceMeta || !deviceMeta.id) {
             logger.warn(`No device found with PIN ${pin}`);
             return null;
         }
-        
+
         logger.info(`Found device with PIN ${pin}`, { deviceId: deviceMeta.id });
-        
+
         // Update device metadata with claim info
         deviceMeta.claimedAt = new Date();
-        deviceMeta.claimedById = userId;
-        
+        deviceMeta.claimedById = userInfo.id;
+
         // Store in device shared store
         await deviceSharedStore.addMember(deviceMeta.id, deviceMeta);
-        
+
         // Remove from PIN store to prevent reuse
-        await pinSharedStore.removeMember(pin);
+        await pinSharedStore.removeMember(pin, deviceMeta);
+
+        // Create and send routing message using deviceMeta connectionId
+        const message = {
+            type: 'device',
+            scope: `connection:${deviceMeta.connectionId}`,
+            protocol: 'sse',
+            connectionId: deviceMeta.connectionId || '',
+            userInfo: userInfo,
+            payload: {
+                action: 'registered',
+                userId: userInfo.id,
+                claimedAt: new Date().toISOString()
+            }
+        };
+
+        const routingMessage = MessageFactory.toRoutingMessage(message, {
+            systemGenerated: true,
+            echoToSender: false
+        });
         
+        await publisher.publish(routingMessage);
+        logger.info(`Device registration message sent to device ${deviceMeta.id}`);
+
         // Update device record in our mock database
         if (deviceRecords[deviceMeta.id]) {
             deviceRecords[deviceMeta.id] = {
                 ...deviceRecords[deviceMeta.id],
                 status: 'ACTIVE',
                 claimedAt: new Date(),
-                claimedBy: userId,
+                claimedBy: userInfo.id,
                 updatedAt: new Date()
             };
         } else {
@@ -78,31 +104,30 @@ export class DefaultDeviceManager {
                 model: deviceMeta.model,
                 status: 'ACTIVE',
                 claimedAt: new Date(),
-                claimedBy: userId,
+                claimedBy: userInfo.id,
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
         }
 
-        //Send message to subscription:device:uuid to subscriber:user:userId to notify device that is claimed
-        
-       
+
+
         // Return the device record
         return deviceRecords[deviceMeta.id];
     }
-    
+
     /**
      * Get a device by its ID
      */
     getDeviceById(deviceId: string): any {
         return deviceRecords[deviceId] || null;
     }
-    
+
     /**
      * Get all devices claimed by a user
      */
     getDevicesByUser(userId: string): any[] {
-        return Object.values(deviceRecords).filter(device => 
+        return Object.values(deviceRecords).filter(device =>
             device.claimedBy === userId
         );
     }
