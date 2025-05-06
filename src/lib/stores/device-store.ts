@@ -97,6 +97,19 @@ function createDeviceStore() {
                     claimStatus: 'claimed'
                 }));
             }
+            
+            // Handle successful device claim
+            else if (message && message.payload && message.payload.action === 'claimed' && message.payload.success) {
+                console.log('[DEVICE_STORE] Device claimed successfully:', message.payload);
+                
+                update(state => ({
+                    ...state,
+                    deviceId: message.payload.deviceId,
+                    name: message.payload.deviceName,
+                    claimStatus: 'claimed',
+                    error: null
+                }));
+            }
         });
 
 

@@ -156,7 +156,9 @@ export class DefaultDeviceManager {
 
 
 
-        logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
+        // logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
+
+        const senderInfo = await userInfoByUserId(senderId);
 
 
         try {
@@ -166,7 +168,7 @@ export class DefaultDeviceManager {
             }
 
             // Check deviceId matches
-            if (deviceMeta.id === id) {
+            if (deviceMeta.id !== id) {
                 throw new Error(`Device ID ${id} does not match PIN ${pin}`);
             }
 
@@ -212,14 +214,46 @@ export class DefaultDeviceManager {
             // Remove from PIN store after successful save
             await pinSharedStore.removeMember(pin, deviceMeta);
 
+            // Create success message
+            const successMessage = {
+                id: uuidv4(),
+                scope: `connection:${senderConnectionId}`,
+                senderId: 'system',
+                timestamp: new Date().toISOString(),
+                userInfo: senderInfo
+            };
 
-            return device
+            const successResponse = MessageFactory.toRoutingMessage({
+                ...successMessage,
+                type: 'device',
+                payload: {
+                    action: 'claimed',
+                    success: true,
+                    deviceId: device.id,
+                    deviceName: device.name,
+                    message: 'Device claimed successfully',
+                    code: '200',
+                    requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
+                    timestamp: new Date().toISOString()
+                }
+            } as any);
+
+            logger.debug(`Published success response for device claim: ${device.id} for user ${senderId}`);
+
+            try {
+                await publisher.publish(successResponse);
+                logger.debug(`Successfully published device claim success message`);
+            } catch (pubError) {
+                logger.error(`Failed to publish success message: ${pubError}`);
+                // Don't fail the operation if publishing the success message fails
+            }
+
+            return device;
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             logger.error(`Failed to register device ${id}:`, error);
 
-            const senderInfo = await userInfoByUserId(senderId);
             
             if (!senderInfo) {
                 logger.error(`Failed to find user info for sender: ${senderId}`);
