@@ -99,10 +99,12 @@
             render: (record: Device) => ({
                 component: NameWithIdLink,
                 props: {
-                    name: record.name || 'Unnamed Device',
-                    id: record.id,
-                    href: `/admin/iot/devices/${record.id}`,
-                    showIdBadge: true
+                    record: {
+                        id: record.id,
+                        name: record.name || 'Unnamed Device'
+                    },
+                    baseUrl: '/admin/iot/devices',
+                    showId: true
                 }
             })
         },

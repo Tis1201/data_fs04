@@ -59,6 +59,8 @@ export class DefaultDeviceManager {
         // Get device from PIN store
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
+        
+
         if (!deviceMeta || !deviceMeta.id) {
             logger.warn(`No device found with PIN ${pin}`);
             return null;
@@ -87,6 +89,7 @@ export class DefaultDeviceManager {
             connectionId: deviceMeta.connectionId || '',  // Ensure connectionId is always a string
             userInfo: userInfo,
             payload: {
+                id: deviceMeta.id,
                 action: 'registered',
                 userId: userInfo.id,
                 claimedAt: new Date().toISOString()
@@ -159,82 +162,71 @@ export class DefaultDeviceManager {
             throw new Error(`No device found with PIN ${pin}`);
         }
 
+        logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
+
         // Check deviceId matches
         if (deviceMeta.id !== id) {
             throw new Error(`Device ID ${id} does not match PIN ${pin}`);
         }
-        
-
-        // Remove from PIN store to prevent reuse
-        // await pinSharedStore.removeMember(pin, deviceMeta);
-
-
-        // // Generate a secure API key
-        // const apiKeyValue = generateId(32);
-        // const deviceName = systemInfo.deviceName || `Device-${deviceId.slice(0, 6)}`;
-        // const deviceType = systemInfo.deviceType || 'unknown';
 
         try {
-            // try {
-            //     // Create API key in the database
-            //     const apiKey = await prisma.apiKey.create({
-            //         data: {
-            //             key: apiKeyValue,
-            //             name: `Device: ${deviceName}`,
-            //             description: `API key for ${deviceType} device (${deviceId})`,
-            //             userId: userId,
-            //             active: true,
-            //             expiresAt: null, // Or set an expiration if needed
-            //         }
-            //     });
 
-            //     // Create device record
-            //     const deviceRecord = {
-            //         id: deviceId,
-            //         name: deviceName,
-            //         type: deviceType,
-            //         apiKeyId: apiKey.id,
-            //         systemInfo,
-            //         createdAt: new Date(),
-            //         claimedAt: deviceMeta.claimedAt || new Date(),
-            //         claimedById: deviceMeta.claimedById || userId,
-            //         pin: pin
-            //     };
+            
 
-            //     // Store device record in database
-            //     const device = await prisma.device.upsert({
-            //         where: { id: deviceId },
-            //         update: deviceRecord,
-            //         create: deviceRecord,
-            //     });
+                // Generate API key and create device record
+                const apiKeyValue = generateId(32);
+                const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
+                const deviceType = data.deviceType || 'unknown';
+                // Create device record with system info
+                const deviceRecord = {
+                    id: id,
+                    name: data.deviceType || 'dummy',
+                    deviceType: data.deviceType || 'dummy',
+                    model: data.model,
+                    manufacturer: data.manufacturer,
+                    osVersion: data.osVersion,
+                    firmwareVersion: data.firmwareVersion,
+                    hardwareId: data.hardwareId,
+                    wifiMac: data.wifiMac,
+                    lanMac: data.lanMac,
+                    ipAddress: data.ipAddress,
+                    apiKey: apiKeyValue,
+                    apiKeyCreatedAt: new Date(),
+                    apiKeyRotatedAt: new Date(),
+                    status: 'ACTIVE',
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                    claimedAt: new Date(),
+                    claimedBy: senderId,
+                    description: `Device registered on ${new Date().toISOString()}`,
+                    // pin: pin,
+                    user: {
+                        connect: { id: senderId }
+                    }
+                };
 
-            //     // Remove PIN from store after successful device info submission
-            //     await pinSharedStore.removeMember(pin, deviceMeta);
+                // Save device record in database with user relationship
+                const device = await prisma.device.upsert({
+                    where: { id },
+                    update: deviceRecord,
+                    create: deviceRecord,
+                });
 
-            //     logger.info(`Device registered: ${deviceId}`, { 
-            //         type: deviceRecord.type,
-            //         claimed: !!deviceMeta.claimedAt,
-            //         apiKeyId: apiKey.id
-            //     });
+                // Remove from PIN store after successful save
+                await pinSharedStore.removeMember(pin, deviceMeta);
 
-            // return {
-            //     id: device.id,
-            //     apiKey: apiKey.key,
-            //     name: device.name,
-            //     type: device.type,
-            //     createdAt: device.createdAt
-            // };
 
-            return {
-                id: '',
-                apiKey: '',
-                name: '',
-                type: '',
-                createdAt: new Date()
-            }
-        } catch (error: { message: any; }) {
-            // logger.error(`Failed to register device ${deviceId}:`, error);
-            throw new Error(`Device registration failed: ${error.message}`);
+                return {
+                    id: device.id,
+                    apiKey: device.apiKey,
+                    name: device.name,
+                    type: device.type,
+                    createdAt: device.createdAt
+                }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            // logger.error(`Failed to register device ${id}:`, error);
+            throw new Error(`Device registration failed: ${errorMessage}`);
         }
     }
 

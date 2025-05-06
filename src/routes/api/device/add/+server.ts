@@ -27,7 +27,7 @@ import type { RequestHandler } from './$types';
  *   }
  * }
  */
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
     const data = await request.json();
 
     // Extract device information from the request
@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
     //Print the data
     logger.debug(`Data: ${JSON.stringify(data)}`);
 
-    DeviceManager.addDevice(data);
+    DeviceManager.addDevice(data, locals.prisma);
 
     return json({
         success: true,

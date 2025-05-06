@@ -125,6 +125,7 @@ class DummyDevice:
                                 
                                 print(f"Data: {json.dumps(data, indent=2)}")
 
+                                self.id = data.get('payload', {}).get('id')
                                 self.senderId = data.get('senderId')
                                 self.senderConnectionId = data.get('senderConnectionId')
                                 self.senderConnectionProtocol = data.get('senderConnectionProtocol')
@@ -174,7 +175,7 @@ class DummyDevice:
             
             
             # Send device info to api/device/add
-            device_info['id'] = 'f2a70ec2-3d6a-4ed1-b73f-f2568a1e9da8'  # Provided device ID
+            device_info['id'] = self.id  # Provided device ID
             device_info['pin'] = self.pin  # Include the generated PIN
             device_info['senderId'] = self.senderId
             device_info['senderConnectionId'] = self.senderConnectionId
