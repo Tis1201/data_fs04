@@ -160,16 +160,18 @@ export const actions: Actions = {
             try {
                 // Generate a new API key
                 const apiKey = crypto.randomUUID();
+
+                logger.info(`Generating new API key for device ${id}: ${apiKey}`);
                 
                 // Update device with new API key
-                const updatedDevice = await locals.prisma.device.update({
-                    where: { id },
-                    data: {
-                        apiKey,
-                        apiKeyCreatedAt: new Date(),
-                        apiKeyRotatedAt: new Date()
-                    }
-                });
+                // const updatedDevice = await locals.prisma.device.update({
+                //     where: { id },
+                //     data: {
+                //         apiKey,
+                //         apiKeyCreatedAt: new Date(),
+                //         apiKeyRotatedAt: new Date()
+                //     }
+                // });
                 
                 return {
                     success: true,

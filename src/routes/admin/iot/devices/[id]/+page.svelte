@@ -48,27 +48,29 @@
         taintedMessage: null
     });
 
-    // Handle API key generation
-    async function generateApiKey() {
-        try {
-            const response = await fetch(`?/generateApiKey`, {
-                method: 'POST'
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                toast.success(result.message);
+    // Handle API key generation using a form submission
+    const { form: apiKeyForm, enhance: apiKeyEnhance, submitting: apiKeySubmitting } = superForm(data.form, {
+        resetForm: false,
+        taintedMessage: null,
+        onSubmit: ({ action }) => {
+            // Only handle the generateApiKey action
+            if (action !== '?/generateApiKey') {
+                return;
+            }
+        },
+        onResult: ({ result }) => {
+            if (result.type === 'success') {
+                toast.success('API key generated successfully');
                 // Refresh the page to show the new API key
                 goto(`/admin/iot/devices/${device.id}`, { invalidateAll: true });
-            } else {
-                toast.error(result.error || "Failed to generate API key");
+            } else if (result.type === 'failure') {
+                toast.error(result.data?.error || 'Failed to generate API key');
             }
-        } catch (error) {
-            toast.error("An error occurred while generating API key");
-            console.error(error);
+        },
+        onError: () => {
+            toast.error('An error occurred while generating API key');
         }
-    }
+    });
 
     // Format connection status
     function getConnectionStatusBadge(connected: boolean) {
@@ -195,7 +197,7 @@
 
                 <!-- Device Technical Details Card -->
                 <Card.Root class="mt-6">
-                    <Card.Header>
+                    <Card.Header class="pb-3">
                         <Card.Title class="flex items-center">
                             <Info class="mr-2 h-5 w-5" />
                             Technical Details
@@ -204,94 +206,95 @@
                             Hardware and software information
                         </Card.Description>
                     </Card.Header>
-                    <Card.Content>
-                        <div class="grid grid-cols-2 gap-4">
-                            <!-- Device Type -->
-                            <div>
-                                <div class="text-sm font-medium mb-1 flex items-center">
-                                    <Tag class="mr-1.5 h-3.5 w-3.5" />
-                                    Device Type
-                                </div>
-                                <div class="text-sm">
-                                    {device.deviceType || '—'}
-                                </div>
-                            </div>
-
-                            <!-- Model -->
-                            <div>
-                                <div class="text-sm font-medium mb-1">Model</div>
-                                <div class="text-sm">
-                                    {device.model || '—'}
-                                </div>
-                            </div>
-
-                            <!-- Manufacturer -->
-                            <div>
-                                <div class="text-sm font-medium mb-1">Manufacturer</div>
-                                <div class="text-sm">
-                                    {device.manufacturer || '—'}
-                                </div>
-                            </div>
-
-                            <!-- Hardware ID -->
-                            <div>
-                                <div class="text-sm font-medium mb-1">Hardware ID</div>
-                                <div class="text-sm font-mono">
-                                    {device.hardwareId || '—'}
-                                </div>
-                            </div>
-
-                            <!-- Firmware Version -->
-                            <div>
-                                <div class="text-sm font-medium mb-1 flex items-center">
-                                    <Cpu class="mr-1.5 h-3.5 w-3.5" />
-                                    Firmware Version
-                                </div>
-                                <div class="text-sm">
-                                    {device.firmwareVersion || '—'}
-                                </div>
-                            </div>
-
-                            <!-- OS Version -->
-                            <div>
-                                <div class="text-sm font-medium mb-1">OS Version</div>
-                                <div class="text-sm">
-                                    {device.osVersion || '—'}
-                                </div>
-                            </div>
-                        </div>
-
-                        <Separator class="my-4" />
-
-                        <!-- Network Information -->
-                        <div>
-                            <h3 class="text-sm font-medium mb-3 flex items-center">
-                                <Wifi class="mr-1.5 h-4 w-4" />
-                                Network Information
-                            </h3>
-
-                            <div class="grid grid-cols-3 gap-4">
-                                <!-- IP Address -->
+                    <Card.Content class="pt-0">
+                        <div class="space-y-5">
+                            <!-- Device Type & Model -->
+                            <div class="grid grid-cols-2 gap-6">
                                 <div>
-                                    <div class="text-sm font-medium mb-1">IP Address</div>
-                                    <div class="text-sm font-mono">
-                                        {device.ipAddress || '—'}
+                                    <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
+                                        <Tag class="mr-1.5 h-3.5 w-3.5" />
+                                        Device Type
+                                    </div>
+                                    <div>
+                                        {device.deviceType || '—'}
                                     </div>
                                 </div>
 
-                                <!-- WiFi MAC -->
                                 <div>
-                                    <div class="text-sm font-medium mb-1">WiFi MAC</div>
-                                    <div class="text-sm font-mono">
-                                        {device.wifiMac || '—'}
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">Model</div>
+                                    <div>
+                                        {device.model || '—'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Manufacturer & Hardware ID -->
+                            <div class="grid grid-cols-2 gap-6">
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">Manufacturer</div>
+                                    <div>
+                                        {device.manufacturer || '—'}
                                     </div>
                                 </div>
 
-                                <!-- LAN MAC -->
                                 <div>
-                                    <div class="text-sm font-medium mb-1">LAN MAC</div>
-                                    <div class="text-sm font-mono">
-                                        {device.lanMac || '—'}
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">Hardware ID</div>
+                                    <div class="font-mono">
+                                        {device.hardwareId || '—'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Firmware & OS Version -->
+                            <div class="grid grid-cols-2 gap-6">
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
+                                        <Cpu class="mr-1.5 h-3.5 w-3.5" />
+                                        Firmware Version
+                                    </div>
+                                    <div>
+                                        {device.firmwareVersion || '—'}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">OS Version</div>
+                                    <div>
+                                        {device.osVersion || '—'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Network Information -->
+                            <div>
+                                <h3 class="text-sm font-medium mb-3 flex items-center">
+                                    <Wifi class="mr-1.5 h-4 w-4" />
+                                    Network Information
+                                </h3>
+
+                                <div class="grid grid-cols-3 gap-6">
+                                    <!-- IP Address -->
+                                    <div>
+                                        <div class="text-sm font-medium text-muted-foreground mb-1">IP Address</div>
+                                        <div class="font-mono">
+                                            {device.ipAddress || '—'}
+                                        </div>
+                                    </div>
+
+                                    <!-- WiFi MAC -->
+                                    <div>
+                                        <div class="text-sm font-medium text-muted-foreground mb-1">WiFi MAC</div>
+                                        <div class="font-mono">
+                                            {device.wifiMac || '—'}
+                                        </div>
+                                    </div>
+
+                                    <!-- LAN MAC -->
+                                    <div>
+                                        <div class="text-sm font-medium text-muted-foreground mb-1">LAN MAC</div>
+                                        <div class="font-mono">
+                                            {device.lanMac || '—'}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -352,16 +355,18 @@
                                     <Key class="mr-1.5 h-3.5 w-3.5" />
                                     API Key
                                 </div>
-                                <Button 
-                                    type="button" 
-                                    variant="outline" 
-                                    size="sm"
-                                    on:click={generateApiKey}
-                                    class="flex items-center"
-                                >
-                                    <RefreshCw class="mr-2 h-3 w-3" />
-                                    Generate New Key
-                                </Button>
+                                <form action="?/generateApiKey" method="POST" use:apiKeyEnhance>
+                                    <Button 
+                                        type="submit" 
+                                        variant="outline" 
+                                        size="sm"
+                                        disabled={$apiKeySubmitting}
+                                        class="flex items-center"
+                                    >
+                                        <RefreshCw class="mr-2 h-3 w-3" />
+                                        {$apiKeySubmitting ? 'Generating...' : 'Generate New Key'}
+                                    </Button>
+                                </form>
                             </div>
                             
                             {#if device.apiKey}
