@@ -2,6 +2,19 @@ import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import { socketStore } from './websocket-store';
 
+interface DeviceMessage {
+    type: string;
+    payload: {
+        action: 'error' | 'registered' | 'claimed';
+        details?: string;
+        error?: string;
+        id?: string;
+        deviceId?: string;
+        deviceName?: string;
+        success?: boolean;
+    };
+}
+
 // Define types for device store
 export type DeviceClaimStatus = 'idle' | 'claiming' | 'claimed' | 'failed';
 
@@ -42,73 +55,50 @@ function createDeviceStore() {
 
     // Set up WebSocket listener if in browser environment
     if (browser) {
-        // Listen for device-related events
-        // socketStore.on('device:claimed', (message: any) => {
-        //     console.log('[DEVICE_STORE] Received device:claimed event:', message);
-
-        //     if (message && message.data) {
-        //         const { deviceId, name, deviceType, status } = message.data;
-
-        //         update(state => ({
-        //             ...state,
-        //             deviceId,
-        //             name,
-        //             deviceType,
-        //             status: status || 'ACTIVE',
-        //             claimStatus: 'claimed'
-        //         }));
-        //     }
-        // });
-
-        // // Listen for device claim errors
-        // socketStore.on('device:claim_error', (message: any) => {
-        //     console.log('[DEVICE_STORE] Received device:claim_error event:', message);
-
-        //     if (message && message.data && message.data.error) {
-        //         update(state => ({
-        //             ...state,
-        //             claimStatus: 'failed',
-        //             error: message.data.error
-        //         }));
-        //     }
-        // });
-        socketStore.on('device', (message: any) => {
+        socketStore.on('device', (message: DeviceMessage) => {
             console.log('[DEVICE_STORE] Received device event:', message);
             
-            // Handle error events
-            if (message && message.payload && message.payload.action === 'error') {
-                const errorDetails = message.payload.details || message.payload.error || 'Unknown error';
-                console.log('[DEVICE_STORE] Error received:', errorDetails);
-                
-                update(state => ({
-                    ...state,
-                    claimStatus: 'failed',
-                    error: errorDetails
-                }));
-            }
+            if (!message?.payload?.action) return;
             
-            // Handle successful device registration
-            else if (message && message.payload && message.payload.action === 'registered') {
-                console.log('[DEVICE_STORE] Device registered:', message.payload);
+            switch (message.payload.action) {
+                case 'error': {
+                    const errorDetails = message.payload.details || message.payload.error || 'Unknown error';
+                    console.log('[DEVICE_STORE] Error received:', errorDetails);
+                    
+                    update(state => ({
+                        ...state,
+                        claimStatus: 'failed',
+                        error: errorDetails
+                    }));
+                    break;
+                }
                 
-                update(state => ({
-                    ...state,
-                    deviceId: message.payload.id,
-                    claimStatus: 'claimed'
-                }));
-            }
-            
-            // Handle successful device claim
-            else if (message && message.payload && message.payload.action === 'claimed' && message.payload.success) {
-                console.log('[DEVICE_STORE] Device claimed successfully:', message.payload);
-                
-                update(state => ({
-                    ...state,
-                    deviceId: message.payload.deviceId,
-                    name: message.payload.deviceName,
-                    claimStatus: 'claimed',
-                    error: null
-                }));
+                case 'registered':
+                    console.log('[DEVICE_STORE] Device registered:', message.payload);
+                    
+                    update(state => ({
+                        ...state,
+                        deviceId: message.payload.id,
+                        claimStatus: 'claimed'
+                    }));
+                    break;
+                    
+                case 'claimed':
+                    if (message.payload.success) {
+                        console.log('[DEVICE_STORE] Device claimed successfully:', message.payload);
+                        
+                        update(state => ({
+                            ...state,
+                            deviceId: message.payload.deviceId,
+                            name: message.payload.deviceName,
+                            claimStatus: 'claimed',
+                            error: null
+                        }));
+                    }
+                    break;
+                    
+                default:
+                    console.log('[DEVICE_STORE] Unhandled action:', message.payload.action);
             }
         });
 
