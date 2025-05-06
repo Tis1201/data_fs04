@@ -57,9 +57,9 @@ async function handleClaim(message: InMessage): Promise<void> {
       
       const errorResponse = MessageFactory.toRoutingMessage({
         ...message,
-        type: 'device:claim_error',
+        type: 'device',
         payload: {
-          action: 'device:claim_error',
+          action: 'error',
           success: false,
           error: 'Verification Failed',
           details: errorMessage,
@@ -76,38 +76,39 @@ async function handleClaim(message: InMessage): Promise<void> {
     logger.info(`[DeviceHandler] Device registered, next step wait for device to connect: ${device.id} by user ${userInfo.id}`);
 
     // Send success response to the client
-    const response = MessageFactory.toRoutingMessage({
-      ...message,
-      type: 'device:claimed',
-      payload: {
-        action: 'device:claimed',
-        success: true,
-        message: {
-          type: 'success',
-          text: 'Device claimed successfully!',
-          timestamp: new Date().toISOString()
-        },
-        device: {
-          id: device.id,
-          name: device.name,
-          deviceType: device.deviceType,
-          status: device.status
-        },
-        timestamp: new Date().toISOString()
-      }
-    } as InMessage);
+    // const response = MessageFactory.toRoutingMessage({
+    //   ...message,
+    //   type: 'device',
+    //   payload: {
+    //     action: 'device',
+    //     success: true,
+    //     message: {
+    //       type: 'success',
+    //       text: 'Device claimed successfully!',
+    //       timestamp: new Date().toISOString()
+    //     },
+    //     device: {
+    //       id: device.id,
+    //       name: device.name,
+    //       deviceType: device.deviceType,
+    //       status: device.status
+    //     },
+    //     timestamp: new Date().toISOString()
+    //   }
+    // } as InMessage);
 
-    await publisher.publish(response);
-  } catch (error) {
+    // await publisher.publish(response);
+
+  } catch (error:any) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[DeviceHandler] Device claim failed:`, errorMessage);
     
     // Send error response
     const errorResponse = MessageFactory.toRoutingMessage({
       ...message,
-      type: 'device:claim_error',
+      type: 'device',
       payload: {
-        action: 'device:claim_error',
+        action: 'device',
         success: false,
         error: 'Claim Failed',
         details: errorMessage,

@@ -43,27 +43,37 @@ function createDeviceStore() {
     // Set up WebSocket listener if in browser environment
     if (browser) {
         // Listen for device-related events
-        socketStore.on('device:claimed', (message: any) => {
-            console.log('[DEVICE_STORE] Received device:claimed event:', message);
+        // socketStore.on('device:claimed', (message: any) => {
+        //     console.log('[DEVICE_STORE] Received device:claimed event:', message);
 
-            if (message && message.data) {
-                const { deviceId, name, deviceType, status } = message.data;
-                
-                update(state => ({
-                    ...state,
-                    deviceId,
-                    name,
-                    deviceType,
-                    status: status || 'ACTIVE',
-                    claimStatus: 'claimed'
-                }));
-            }
-        });
+        //     if (message && message.data) {
+        //         const { deviceId, name, deviceType, status } = message.data;
 
-        // Listen for device claim errors
-        socketStore.on('device:claim_error', (message: any) => {
-            console.log('[DEVICE_STORE] Received device:claim_error event:', message);
+        //         update(state => ({
+        //             ...state,
+        //             deviceId,
+        //             name,
+        //             deviceType,
+        //             status: status || 'ACTIVE',
+        //             claimStatus: 'claimed'
+        //         }));
+        //     }
+        // });
 
+        // // Listen for device claim errors
+        // socketStore.on('device:claim_error', (message: any) => {
+        //     console.log('[DEVICE_STORE] Received device:claim_error event:', message);
+
+        //     if (message && message.data && message.data.error) {
+        //         update(state => ({
+        //             ...state,
+        //             claimStatus: 'failed',
+        //             error: message.data.error
+        //         }));
+        //     }
+        // });
+        socketStore.on('device', (message: any) => {
+            console.log('[DEVICE_STORE] Received device event:', message);
             if (message && message.data && message.data.error) {
                 update(state => ({
                     ...state,
@@ -72,11 +82,13 @@ function createDeviceStore() {
                 }));
             }
         });
+
+
     }
 
     return {
         subscribe,
-        
+
         // Update device information
         updateDevice: (deviceInfo: Partial<DeviceState>) => {
             update(state => ({
@@ -84,7 +96,7 @@ function createDeviceStore() {
                 ...deviceInfo
             }));
         },
-        
+
         // Set claim status
         setClaimStatus: (status: DeviceClaimStatus, error: string | null = null) => {
             update(state => ({
@@ -93,7 +105,7 @@ function createDeviceStore() {
                 error
             }));
         },
-        
+
         // Clear error
         clearError: () => {
             update(state => ({
@@ -101,7 +113,7 @@ function createDeviceStore() {
                 error: null
             }));
         },
-        
+
         // Reset store to initial state
         reset: () => {
             set(initialState);
