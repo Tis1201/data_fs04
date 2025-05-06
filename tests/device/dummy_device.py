@@ -1,3 +1,4 @@
+from textwrap import indent
 import requests
 import json
 import time
@@ -10,6 +11,7 @@ import uuid
 import psutil
 import os
 from datetime import datetime
+from pprint import pprint
 
 class DummyDevice:
     def __init__(self, base_url="http://localhost:5173"):
@@ -196,6 +198,7 @@ class DummyDevice:
                                 # Handle commands in listen mode
                                 elif self.registered and action not in ['ping', 'connected']:
                                     print(f"Received command: {action}")
+                                    print(f"{json.dumps(data, indent=2)}")
                                     print(f"Command data: {json.dumps(data.get('payload', {}), indent=2)}")
                                     # Here you would implement command handling logic
                             if msg.event == 'message' and data.get('payload', {}).get('action') == 'ping':

@@ -4,6 +4,7 @@ import { MessageFactory } from '../interfaces/message';
 import { publisher } from '../core/publisher';
 import { logger } from '$lib/server/logger';
 import { DeviceManager } from '$lib/server/device/deviceManager';
+import { messageHandler } from './messageHandler';
 
 export const deviceHandler: Handler = {
   supports(type: string): boolean {
@@ -11,8 +12,11 @@ export const deviceHandler: Handler = {
   },
 
   async handle(message: InMessage): Promise<void> {
-    const { payload } = message;
+    const { type, payload, scope } = message;
     const { action } = payload;
+
+
+    logger.debug(`[DeviceHandler] Received message: ${JSON.stringify(message)}, ${action}`);
 
     switch (action) {
       case 'claim':
@@ -23,6 +27,9 @@ export const deviceHandler: Handler = {
         break;
       case 'status':
         await handleStatusUpdate(message);
+        break;
+      case 'message':
+        await messageHandler.handle(message);
         break;
       default:
         logger.warn(`[DeviceHandler] Unhandled device action: ${action}`);
@@ -193,3 +200,6 @@ async function handleStatusUpdate(message: InMessage): Promise<void> {
   // TODO: Update device status in database
   // TODO: Notify relevant users about status change
 }
+
+
+

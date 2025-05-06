@@ -22,7 +22,7 @@ export const messageHandler: Handler = {
     const { payload } = message;
     const { content } = payload;
 
-    payload.content = "echo: " + content;
+    // payload.content = "echo: " + content;
 
     const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message);
       
