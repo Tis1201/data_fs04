@@ -27,7 +27,7 @@ class DefaultConnectionManager {
     const connSet = this.userConnections.get(userInfo.id) ?? new Set();
     connSet.add(id);
 
-    logger.debug(`[ConnectionManager] Registered connection: ${id} for user: ${userInfo.id}`);
+    logger.debug(`[ConnectionManager] Registered connection: ${id}, [${connection.meta.protocol}] for user: ${userInfo.id}`);
 
     this.userConnections.set(userInfo.id, connSet);
 

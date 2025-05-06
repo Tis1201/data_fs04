@@ -25,6 +25,9 @@ export interface RoutingMessage extends InMessage {
   id: string;
   systemGenerated?: boolean;
   echoToSender?: boolean;
+  senderId?: string;
+  senderConnectionId?: string;
+  senderConnectionProtocol?: ConnectionProtocol;
 }
   
 /**
@@ -68,9 +71,10 @@ export const MessageFactory = {
       type: routingMessage.type,
       scope: routingMessage.scope,
       payload: routingMessage.payload,
-      senderId: routingMessage.userInfo?.id,
-      senderConnectionId: routingMessage.connectionId,
-      senderConnectionProtocol: routingMessage.protocol,
+      // Use explicit sender properties if available, otherwise fall back to default values
+      senderId: routingMessage.senderId || routingMessage.userInfo?.id,
+      senderConnectionId: routingMessage.senderConnectionId || routingMessage.connectionId,
+      senderConnectionProtocol: routingMessage.senderConnectionProtocol || routingMessage.protocol,
       ...overrides
     };
   },

@@ -1,7 +1,7 @@
 // src/lib/server/messaging/core/subscriptionRegistry.ts
 import type { SubscriptionMeta, SubscriptionRegistry } from "../interfaces/subscriptionRegistry";
 import { v4 as uuidv4 } from 'uuid';
-import { subscriptionSharedStore } from "./stores/subscriptionSharedStore copy";
+import { subscriptionSharedStore } from "./stores/subscriptionSharedStore";
 import { logger } from "$lib/server/logger";
 
 export const subscriptionRegistry: SubscriptionRegistry = {

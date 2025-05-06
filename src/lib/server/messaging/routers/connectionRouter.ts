@@ -8,14 +8,24 @@ import type { UserInfo } from '$lib/server/types/user';
  */
 export const connectionRouter: Router = {
   async resolve(senderInfo: UserInfo, scope: string): Promise<string[]> {
+    logger.debug(`[ConnectionRouter] Resolving connection scope: ${scope}`);
     
     const [kind, id] = scope.split(':');
-
-    //Check if connection exists
-    const connection = await ConnectionManager.getConnection(id);
-    if (!connection) return []; 
     
+    if (!id) {
+      logger.warn(`[ConnectionRouter] Invalid connection ID in scope: ${scope}`);
+      return [];
+    }
+
+    // Check if connection exists
+    const connection = await ConnectionManager.getConnection(id);
+    
+    if (!connection) {
+      logger.warn(`[ConnectionRouter] Connection not found: ${id}`);
+      return [];
+    }
+    
+    logger.debug(`[ConnectionRouter] Found connection: ${id} for user: ${connection.meta.userInfo?.id || 'unknown'}`);
     return [id];
-  
   }
 };
