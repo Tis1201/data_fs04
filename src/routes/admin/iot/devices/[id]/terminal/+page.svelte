@@ -8,21 +8,48 @@
 	import { page } from "$app/stores";
 	import { socketStore } from "$lib/stores/websocket-store";
 	import { onDestroy } from "svelte";
+	import { ArrowLeft, Terminal as TerminalIcon } from "lucide-svelte";
+	import { Button } from "$lib/components/ui/button";
+	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+	import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
 
 	// Get device ID from URL
 	const deviceId = $page.params.id;
 
 	// Track terminal instance
 	let terminalInstance: Terminal;
+	
+	// Define breadcrumbs for this page
+	const pageCrumbs = [
+		["Admin", "/admin"],
+		["IoT", "/admin/iot"],
+		["Devices", "/admin/iot/devices"],
+		["Device", `/admin/iot/devices/${deviceId}`],
+		["Terminal", ""]
+	];
+	
+	// Page title
+	const title = "Device Terminal";
 
 	// Terminal options
 	let options: ITerminalOptions & ITerminalInitOnlyOptions = {
-		fontFamily: "Consolas",
+		fontFamily: "'Menlo', 'Consolas', 'Monaco', monospace",
+		fontSize: 14,
+		lineHeight: 1.0,  // Reduced line height for tighter spacing
+		letterSpacing: 0,
 		theme: {
 			background: "#1e1e1e",
 			foreground: "#f0f0f0",
+			cursor: "#ffffff",
+			cursorAccent: "#000000",
+			selection: "rgba(255, 255, 255, 0.3)"
 		},
 		cursorBlink: true,
+		cursorStyle: "block",
+		rendererType: "canvas",
+		allowTransparency: false
 	};
 
 	// Function to initialize device connection
@@ -152,19 +179,52 @@
 	}
 </script>
 
-<div
-	class="terminal-container h-[500px] w-full border rounded-md overflow-hidden"
->
-	<Xterm {options} on:load={onLoad} on:data={onData} on:key={onKey} />
-</div>
+<PageContainer crumbs={pageCrumbs}>
+	<div class="flex justify-between items-center mb-6">
+		<div class="flex items-center gap-3">
+			<h1 class="text-2xl font-bold tracking-tight">{title}</h1>
+		</div>
+		
+		<!-- Actions -->
+		<div class="flex items-center space-x-2">
+			<Button variant="outline" href="/admin/iot/devices/{deviceId}">
+				<ArrowLeft class="mr-2 h-4 w-4" />
+				Back to Device
+			</Button>
+		</div>
+	</div>
+
+	<PageContent>
+		<div class="space-y-6">
+			<FormCard
+				title="Terminal Connection"
+				description="Interact with the device through this terminal interface. Commands sent here will be executed on the device."
+			>
+				<div class="terminal-container h-[500px] w-full border rounded-md overflow-hidden">
+					<Xterm {options} on:load={onLoad} on:data={onData} on:key={onKey} />
+				</div>
+			</FormCard>
+		</div>
+	</PageContent>
+</PageContainer>
 
 <style>
 	.terminal-container {
 		background-color: #1e1e1e;
+		position: relative;
 	}
 	:global(.terminal-container .xterm) {
 		height: 100%;
 		width: 100%;
-		padding: 0.5rem;
+		padding: 0.75rem;
+	}
+	:global(.terminal-container .xterm-viewport) {
+		overflow-y: auto !important;
+	}
+	:global(.terminal-container .xterm-screen) {
+		padding: 0.25rem;
+	}
+	:global(.terminal-container canvas) {
+		padding: 0;
 	}
 </style>
