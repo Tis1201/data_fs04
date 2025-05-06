@@ -48,8 +48,7 @@
     // State management
     const isEditMode = writable(false);
     const activeTab = writable("overview");
-    const isTerminalOpen = writable(false);
-    const terminalOutput = writable([]);
+    // Terminal state is now managed in the terminal page
     const isLoading = writable(false);
     const actionStatus = writable({ action: "", status: "", message: "" });
 
@@ -100,28 +99,9 @@
     const connectionStatus = getConnectionStatusBadge(device.connected);
 
     // Device action handlers
-    async function accessRemoteTerminal() {
-        isTerminalOpen.set(true);
-        isLoading.set(true);
-        actionStatus.set({ action: "terminal", status: "loading", message: "Connecting to device terminal..." });
-        
-        try {
-            // Simulate terminal connection
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            terminalOutput.update(output => [
-                ...output,
-                { type: "system", content: "Connected to device terminal." },
-                { type: "prompt", content: "device@" + device.name + ":~$ " }
-            ]);
-            
-            actionStatus.set({ action: "terminal", status: "success", message: "Terminal connected" });
-        } catch (error) {
-            actionStatus.set({ action: "terminal", status: "error", message: "Failed to connect to terminal" });
-            toast.error("Failed to connect to device terminal");
-        } finally {
-            isLoading.set(false);
-        }
+    function accessRemoteTerminal() {
+        // Navigate to the terminal page
+        goto(`/admin/iot/devices/${device.id}/terminal`);
     }
 
     async function retrieveSnapshot() {
@@ -196,23 +176,6 @@
         }
     }
 
-    // Terminal command handling
-    function handleTerminalCommand(event) {
-        if (event.key === "Enter") {
-            const command = event.target.value;
-            event.target.value = "";
-            
-            if (command.trim()) {
-                terminalOutput.update(output => [
-                    ...output,
-                    { type: "command", content: command },
-                    { type: "response", content: `Executed: ${command}` },
-                    { type: "prompt", content: "device@" + device.name + ":~$ " }
-                ]);
-            }
-        }
-    }
-
     // Toggle edit mode
     function toggleEditMode() {
         isEditMode.update(value => !value);
@@ -280,13 +243,8 @@
                             variant="outline" 
                             class="flex flex-col items-center justify-center h-24 space-y-2"
                             on:click={accessRemoteTerminal}
-                            disabled={$isLoading && $actionStatus.action === 'terminal'}
                         >
-                            {#if $isLoading && $actionStatus.action === 'terminal'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
-                            {:else}
-                                <Terminal class="h-6 w-6" />
-                            {/if}
+                            <Terminal class="h-6 w-6" />
                             <span>Terminal</span>
                         </Button>
 
@@ -370,382 +328,325 @@
             </Card.Root>
         {/if}
 
-        <div class="grid gap-6 md:grid-cols-1 lg:grid-cols-6">
-            <!-- Left column (2/3) - Main device info and editable fields -->
-            <div class="lg:col-span-4">
-                <!-- Device Info Card -->
-                <FormCard
-                    title="Device Information"
-                    description={$isEditMode ? "Edit basic details for this IoT device" : "Basic details about this device"}
-                    loading={$submitting}
-                    delayed={$delayed}
-                >
-                    {#if $isEditMode}
-                        <!-- Edit Mode: Form with editable fields -->
-                        <FormContainer id="device-edit-form" {enhance} action="?/save">
-                            <!-- Editable fields -->
-                            <FormRow columns={2}>
-                                <!-- Name -->
-                                <FormField
-                                    label="Device Name"
-                                    required={true}
-                                    error={$errors.name}
-                                >
-                                    <Input
-                                        name="name"
-                                        placeholder="Enter device name"
-                                        bind:value={$form.name}
-                                    />
-                                </FormField>
-
-                                <!-- Status -->
-                                <FormField
-                                    label="Status"
-                                    required={true}
-                                    error={$errors.status}
-                                >
-                                    <EnhancedSelect
-                                        name="status"
-                                        options={DEVICE_STATUSES}
-                                        bind:value={$form.status}
-                                    />
-                                </FormField>
-                            </FormRow>
-
-                            <!-- Description -->
+        <div class="space-y-6">
+            <!-- Device Info Card -->
+            <FormCard
+                title="Device Information"
+                description={$isEditMode ? "Edit basic details for this IoT device" : "Basic details about this device"}
+                loading={$submitting}
+                delayed={$delayed}
+            >
+                {#if $isEditMode}
+                    <!-- Edit Mode: Form with editable fields -->
+                    <FormContainer id="device-edit-form" {enhance} action="?/save">
+                        <!-- Editable fields -->
+                        <FormRow columns={2}>
+                            <!-- Name -->
                             <FormField
-                                label="Description"
-                                error={$errors.description}
+                                label="Device Name"
+                                required={true}
+                                error={$errors.name}
                             >
-                                <Textarea
-                                    name="description"
-                                    placeholder="Enter device description"
-                                    bind:value={$form.description}
-                                    rows={3}
+                                <Input
+                                    name="name"
+                                    placeholder="Enter device name"
+                                    bind:value={$form.name}
                                 />
                             </FormField>
 
-                            <!-- Hidden ID field -->
-                            <input type="hidden" name="id" bind:value={$form.id} />
-                        </FormContainer>
-                    {:else}
-                        <!-- View Mode: Read-only display -->
-                        <div class="space-y-6">
-                            <!-- Basic Info -->
-                            <div class="grid grid-cols-2 gap-6">
-                                <!-- Name -->
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">Device Name</div>
-                                    <div class="text-lg font-medium">{device.name}</div>
-                                </div>
+                            <!-- Status -->
+                            <FormField
+                                label="Status"
+                                required={true}
+                                error={$errors.status}
+                            >
+                                <EnhancedSelect
+                                    name="status"
+                                    options={DEVICE_STATUSES}
+                                    bind:value={$form.status}
+                                />
+                            </FormField>
+                        </FormRow>
 
-                                <!-- Status -->
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">Status</div>
-                                    <Badge 
-                                        variant={device.status === 'ACTIVE' ? 'default' : 
-                                                device.status === 'INACTIVE' ? 'secondary' : 
-                                                device.status === 'PENDING' ? 'warning' : 'outline'}
-                                    >
-                                        {device.status}
-                                    </Badge>
-                                </div>
-                            </div>
+                        <!-- Description -->
+                        <FormField
+                            label="Description"
+                            error={$errors.description}
+                        >
+                            <Textarea
+                                name="description"
+                                placeholder="Enter device description"
+                                bind:value={$form.description}
+                                rows={3}
+                            />
+                        </FormField>
 
-                            <!-- Description -->
+                        <!-- Hidden ID field -->
+                        <input type="hidden" name="id" bind:value={$form.id} />
+                    </FormContainer>
+                {:else}
+                    <!-- View Mode: Read-only display -->
+                    <div class="space-y-6">
+                        <!-- Basic Info -->
+                        <div class="grid grid-cols-2 gap-6">
+                            <!-- Name -->
                             <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">Description</div>
-                                <div class="text-sm">{device.description || '—'}</div>
-                            </div>
-                        </div>
-                    {/if}
-
-                    <svelte:fragment slot="footer">
-                        {#if device}
-                            <div class="mt-4 pt-3 border-t border-muted">
-                                <div class="flex items-center text-xs text-muted-foreground">
-                                    <Clock size={12} class="mr-1.5" />
-                                    <div>
-                                        Created <RelativeDate date={device.createdAt} />
-                                        {#if device.createdBy && device.user}
-                                            by {device.user.name || device.user.email}
-                                        {/if}
-                                    </div>
-                                </div>
-                                
-                                {#if device.updatedAt && device.updatedAt.toString() !== device.createdAt.toString()}
-                                    <div class="flex items-center text-xs text-muted-foreground mt-1">
-                                        <Clock size={12} class="mr-1.5" />
-                                        <div>Updated <RelativeDate date={device.updatedAt} /></div>
-                                    </div>
-                                {/if}
-                                
-                                {#if device.lastUsedAt}
-                                    <div class="flex items-center text-xs text-muted-foreground mt-1">
-                                        <Clock size={12} class="mr-1.5" />
-                                        <div>Last used <RelativeDate date={device.lastUsedAt} /></div>
-                                    </div>
-                                {/if}
-                            </div>
-                        {:else}
-                            <div class="mt-4 pt-3 border-t border-muted">
-                                <div class="space-y-2">
-                                    <Skeleton class="h-3 w-3/4" />
-                                    <Skeleton class="h-3 w-1/2" />
-                                </div>
-                            </div>
-                        {/if}
-                    </svelte:fragment>
-                </FormCard>
-
-                <!-- Device Technical Details Card -->
-                <Card.Root class="mt-6">
-                    <Card.Header class="pb-3">
-                        <Card.Title class="flex items-center">
-                            <Info class="mr-2 h-5 w-5" />
-                            Technical Details
-                        </Card.Title>
-                        <Card.Description>
-                            Hardware and software information
-                        </Card.Description>
-                    </Card.Header>
-                    <Card.Content class="pt-0">
-                        <div class="space-y-5">
-                            <!-- Device Type & Model -->
-                            <div class="grid grid-cols-2 gap-6">
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                                        <Tag class="mr-1.5 h-3.5 w-3.5" />
-                                        Device Type
-                                    </div>
-                                    <div>
-                                        {device.deviceType || '—'}
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">Model</div>
-                                    <div>
-                                        {device.model || '—'}
-                                    </div>
-                                </div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">Device Name</div>
+                                <div class="text-lg font-medium">{device.name}</div>
                             </div>
 
-                            <!-- Manufacturer & Hardware ID -->
-                            <div class="grid grid-cols-2 gap-6">
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">Manufacturer</div>
-                                    <div>
-                                        {device.manufacturer || '—'}
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">Hardware ID</div>
-                                    <div class="font-mono">
-                                        {device.hardwareId || '—'}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Firmware & OS Version -->
-                            <div class="grid grid-cols-2 gap-6">
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                                        <Cpu class="mr-1.5 h-3.5 w-3.5" />
-                                        Firmware Version
-                                    </div>
-                                    <div>
-                                        {device.firmwareVersion || '—'}
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">OS Version</div>
-                                    <div>
-                                        {device.osVersion || '—'}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Network Information -->
+                            <!-- Status -->
                             <div>
-                                <h3 class="text-sm font-medium mb-3 flex items-center">
-                                    <Wifi class="mr-1.5 h-4 w-4" />
-                                    Network Information
-                                </h3>
-
-                                <div class="grid grid-cols-3 gap-6">
-                                    <!-- IP Address -->
-                                    <div>
-                                        <div class="text-sm font-medium text-muted-foreground mb-1">IP Address</div>
-                                        <div class="font-mono">
-                                            {device.ipAddress || '—'}
-                                        </div>
-                                    </div>
-
-                                    <!-- WiFi MAC -->
-                                    <div>
-                                        <div class="text-sm font-medium text-muted-foreground mb-1">WiFi MAC</div>
-                                        <div class="font-mono">
-                                            {device.wifiMac || '—'}
-                                        </div>
-                                    </div>
-
-                                    <!-- LAN MAC -->
-                                    <div>
-                                        <div class="text-sm font-medium text-muted-foreground mb-1">LAN MAC</div>
-                                        <div class="font-mono">
-                                            {device.lanMac || '—'}
-                                        </div>
-                                    </div>
-                                </div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">Status</div>
+                                <Badge 
+                                    variant={device.status === 'ACTIVE' ? 'default' : 
+                                            device.status === 'INACTIVE' ? 'secondary' : 
+                                            device.status === 'PENDING' ? 'warning' : 'outline'}
+                                >
+                                    {device.status}
+                                </Badge>
                             </div>
                         </div>
-                    </Card.Content>
-                </Card.Root>
-            </div>
 
-            <!-- Right column (1/3) - Status and security -->
-            <div class="lg:col-span-2">
-                <!-- Connection Status Card -->
-                <Card.Root>
-                    <Card.Header>
-                        <Card.Title class="flex items-center">
-                            <Server class="mr-2 h-5 w-5" />
-                            Connection Status
-                        </Card.Title>
-                    </Card.Header>
-                    <Card.Content>
-                        <div class="flex items-center space-x-2 mb-3">
-                            <Badge variant={connectionStatus.variant} class="px-3 py-1">
-                                {connectionStatus.label}
-                            </Badge>
+                        <!-- Description -->
+                        <div>
+                            <div class="text-sm font-medium text-muted-foreground mb-1">Description</div>
+                            <div class="text-sm">{device.description || '—'}</div>
                         </div>
-                        
-                        {#if device.connected && device.connectedAt}
-                            <div class="text-sm">
-                                <div class="font-medium mb-1">Connected since</div>
-                                <div class="flex items-center">
-                                    <Clock class="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                                    <RelativeDate date={device.connectedAt} />
-                                </div>
-                            </div>
-                        {:else if device.disconnectedAt}
-                            <div class="text-sm">
-                                <div class="font-medium mb-1">Last seen</div>
-                                <div class="flex items-center">
-                                    <Clock class="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                                    <RelativeDate date={device.disconnectedAt} />
-                                </div>
-                            </div>
-                        {/if}
-                    </Card.Content>
-                </Card.Root>
+                    </div>
+                {/if}
 
-                <!-- Security Card -->
-                <Card.Root class="mt-6">
-                    <Card.Header>
-                        <Card.Title class="flex items-center">
-                            <Shield class="mr-2 h-5 w-5" />
-                            Security
-                        </Card.Title>
-                    </Card.Header>
-                    <Card.Content>
-                        <div class="mb-3">
-                            <div class="flex items-center justify-between mb-2">
-                                <div class="font-medium flex items-center text-sm">
-                                    <Key class="mr-1.5 h-3.5 w-3.5" />
-                                    API Key
+                <svelte:fragment slot="footer">
+                    {#if device}
+                        <div class="mt-4 pt-3 border-t border-muted">
+                            <div class="flex items-center text-xs text-muted-foreground">
+                                <Clock size={12} class="mr-1.5" />
+                                <div>
+                                    Created <RelativeDate date={device.createdAt} />
+                                    {#if device.createdBy && device.user}
+                                        by {device.user.name || device.user.email}
+                                    {/if}
                                 </div>
-                                <form action="?/generateApiKey" method="POST" use:apiKeyEnhance>
-                                    <Button 
-                                        type="submit" 
-                                        variant="outline" 
-                                        size="sm"
-                                        disabled={$apiKeySubmitting}
-                                        class="flex items-center"
-                                    >
-                                        <RefreshCw class="mr-2 h-3 w-3" />
-                                        {$apiKeySubmitting ? 'Generating...' : 'Generate New Key'}
-                                    </Button>
-                                </form>
                             </div>
                             
-                            {#if device.apiKey}
-                                <div class="font-mono text-xs bg-muted p-2 rounded border break-all">
-                                    {device.apiKey}
+                            {#if device.updatedAt && device.updatedAt.toString() !== device.createdAt.toString()}
+                                <div class="flex items-center text-xs text-muted-foreground mt-1">
+                                    <Clock size={12} class="mr-1.5" />
+                                    <div>Updated <RelativeDate date={device.updatedAt} /></div>
                                 </div>
-                                <div class="text-xs text-muted-foreground mt-1">
-                                    {#if device.apiKeyCreatedAt}
-                                        Created <RelativeDate date={device.apiKeyCreatedAt} />
-                                    {/if}
-                                    {#if device.apiKeyRotatedAt && device.apiKeyRotatedAt !== device.apiKeyCreatedAt}
-                                        • Rotated <RelativeDate date={device.apiKeyRotatedAt} />
-                                    {/if}
-                                </div>
-                            {:else}
-                                <div class="text-sm text-muted-foreground italic">
-                                    No API key has been generated for this device
+                            {/if}
+                            
+                            {#if device.lastUsedAt}
+                                <div class="flex items-center text-xs text-muted-foreground mt-1">
+                                    <Clock size={12} class="mr-1.5" />
+                                    <div>Last used <RelativeDate date={device.lastUsedAt} /></div>
                                 </div>
                             {/if}
                         </div>
-                    </Card.Content>
-                </Card.Root>
-            </div>
+                    {:else}
+                        <div class="mt-4 pt-3 border-t border-muted">
+                            <div class="space-y-2">
+                                <Skeleton class="h-3 w-3/4" />
+                                <Skeleton class="h-3 w-1/2" />
+                            </div>
+                        </div>
+                    {/if}
+                </svelte:fragment>
+            </FormCard>
+
+            <!-- Connection Status Card -->
+            <Card.Root>
+                <Card.Header>
+                    <Card.Title class="flex items-center">
+                        <Server class="mr-2 h-5 w-5" />
+                        Connection Status
+                    </Card.Title>
+                </Card.Header>
+                <Card.Content>
+                    <div class="flex items-center space-x-2 mb-3">
+                        <Badge variant={connectionStatus.variant} class="px-3 py-1">
+                            {connectionStatus.label}
+                        </Badge>
+                    </div>
+                    
+                    {#if device.connected && device.connectedAt}
+                        <div class="text-sm">
+                            <div class="font-medium mb-1">Connected since</div>
+                            <div class="flex items-center">
+                                <Clock class="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                                <RelativeDate date={device.connectedAt} />
+                            </div>
+                        </div>
+                    {:else if device.disconnectedAt}
+                        <div class="text-sm">
+                            <div class="font-medium mb-1">Last seen</div>
+                            <div class="flex items-center">
+                                <Clock class="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                                <RelativeDate date={device.disconnectedAt} />
+                            </div>
+                        </div>
+                    {/if}
+                </Card.Content>
+            </Card.Root>
+
+            <!-- Security Card -->
+            <Card.Root>
+                <Card.Header>
+                    <Card.Title class="flex items-center">
+                        <Shield class="mr-2 h-5 w-5" />
+                        Security
+                    </Card.Title>
+                </Card.Header>
+                <Card.Content>
+                    <div class="mb-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="font-medium flex items-center text-sm">
+                                <Key class="mr-1.5 h-3.5 w-3.5" />
+                                API Key
+                            </div>
+                            <form action="?/generateApiKey" method="POST" use:apiKeyEnhance>
+                                <Button 
+                                    type="submit" 
+                                    variant="outline" 
+                                    size="sm"
+                                    disabled={$apiKeySubmitting}
+                                    class="flex items-center"
+                                >
+                                    <RefreshCw class="mr-2 h-3 w-3" />
+                                    {$apiKeySubmitting ? 'Generating...' : 'Generate New Key'}
+                                </Button>
+                            </form>
+                        </div>
+                        
+                        {#if device.apiKey}
+                            <div class="font-mono text-xs bg-muted p-2 rounded border break-all">
+                                {device.apiKey}
+                            </div>
+                            <div class="text-xs text-muted-foreground mt-1">
+                                {#if device.apiKeyCreatedAt}
+                                    Created <RelativeDate date={device.apiKeyCreatedAt} />
+                                {/if}
+                                {#if device.apiKeyRotatedAt && device.apiKeyRotatedAt !== device.apiKeyCreatedAt}
+                                    • Rotated <RelativeDate date={device.apiKeyRotatedAt} />
+                                {/if}
+                            </div>
+                        {:else}
+                            <div class="text-sm text-muted-foreground italic">
+                                No API key has been generated for this device
+                            </div>
+                        {/if}
+                    </div>
+                </Card.Content>
+            </Card.Root>
+
+            <!-- Device Technical Details Card -->
+            <Card.Root>
+                <Card.Header class="pb-3">
+                    <Card.Title class="flex items-center">
+                        <Info class="mr-2 h-5 w-5" />
+                        Technical Details
+                    </Card.Title>
+                    <Card.Description>
+                        Hardware and software information
+                    </Card.Description>
+                </Card.Header>
+                <Card.Content class="pt-0">
+                    <div class="space-y-5">
+                        <!-- Device Type & Model -->
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
+                                    <Tag class="mr-1.5 h-3.5 w-3.5" />
+                                    Device Type
+                                </div>
+                                <div>
+                                    {device.deviceType || '—'}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">Model</div>
+                                <div>
+                                    {device.model || '—'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Manufacturer & Hardware ID -->
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">Manufacturer</div>
+                                <div>
+                                    {device.manufacturer || '—'}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">Hardware ID</div>
+                                <div class="font-mono">
+                                    {device.hardwareId || '—'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Firmware & OS Version -->
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
+                                    <Cpu class="mr-1.5 h-3.5 w-3.5" />
+                                    Firmware Version
+                                </div>
+                                <div>
+                                    {device.firmwareVersion || '—'}
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">OS Version</div>
+                                <div>
+                                    {device.osVersion || '—'}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Network Information -->
+                        <div>
+                            <h3 class="text-sm font-medium mb-3 flex items-center">
+                                <Wifi class="mr-1.5 h-4 w-4" />
+                                Network Information
+                            </h3>
+
+                            <div class="grid grid-cols-3 gap-6">
+                                <!-- IP Address -->
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">IP Address</div>
+                                    <div class="font-mono">
+                                        {device.ipAddress || '—'}
+                                    </div>
+                                </div>
+
+                                <!-- WiFi MAC -->
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">WiFi MAC</div>
+                                    <div class="font-mono">
+                                        {device.wifiMac || '—'}
+                                    </div>
+                                </div>
+
+                                <!-- LAN MAC -->
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">LAN MAC</div>
+                                    <div class="font-mono">
+                                        {device.lanMac || '—'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Card.Content>
+            </Card.Root>
         </div>
     </PageContent>
 </PageContainer>
 
-<!-- Terminal Dialog -->
-<Dialog.Root open={$isTerminalOpen} onOpenChange={(open) => isTerminalOpen.set(open)}>
-    <Dialog.Content class="max-w-4xl h-[80vh] flex flex-col">
-        <Dialog.Header>
-            <Dialog.Title class="flex items-center">
-                <Terminal class="mr-2 h-5 w-5" />
-                Remote Terminal: {device.name}
-            </Dialog.Title>
-            <Dialog.Description>
-                Execute commands on the device remotely
-            </Dialog.Description>
-        </Dialog.Header>
-        
-        <div class="flex-1 bg-black text-green-400 p-4 rounded font-mono text-sm overflow-y-auto mb-4">
-            {#each $terminalOutput as line}
-                {#if line.type === 'system'}
-                    <div class="text-blue-400 mb-1">{line.content}</div>
-                {:else if line.type === 'command'}
-                    <div class="mb-1">
-                        <span class="text-yellow-400">device@{device.name}:~$</span> {line.content}
-                    </div>
-                {:else if line.type === 'response'}
-                    <div class="mb-1">{line.content}</div>
-                {:else if line.type === 'prompt'}
-                    <div class="mb-1">
-                        <span class="text-yellow-400">{line.content}</span>
-                    </div>
-                {/if}
-            {/each}
-        </div>
-        
-        <div class="relative">
-            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                <span class="text-yellow-400 font-mono">device@{device.name}:~$</span>
-            </div>
-            <Input 
-                class="pl-[calc(1rem+{device.name.length}ch+12ch)] bg-black text-green-400 font-mono" 
-                placeholder="Type command and press Enter"
-                on:keydown={handleTerminalCommand}
-            />
-        </div>
-        
-        <Dialog.Footer class="flex justify-between">
-            <div class="text-sm text-muted-foreground">
-                Press ESC to close the terminal
-            </div>
-            <Button variant="outline" on:click={() => isTerminalOpen.set(false)}>
-                Close Terminal
-            </Button>
-        </Dialog.Footer>
-    </Dialog.Content>
-</Dialog.Root>
+<!-- Terminal Dialog has been replaced with a dedicated terminal page -->
