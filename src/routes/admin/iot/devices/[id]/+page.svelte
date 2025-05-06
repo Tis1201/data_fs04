@@ -2,17 +2,25 @@
     import { goto } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
+    import { onMount } from "svelte";
+    import { writable } from "svelte/store";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
     import * as Card from "$lib/components/ui/card";
+    import * as Dialog from "$lib/components/ui/dialog";
+    import * as Tabs from "$lib/components/ui/tabs";
     import * as Select from "$lib/components/ui/select/index.js";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
     import { Separator } from "$lib/components/ui/separator";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import { Clock, RefreshCw, Key, Wifi, Cpu, Server, Shield, Info, Settings, Tag } from "lucide-svelte";
+    import { 
+        Clock, RefreshCw, Key, Wifi, Cpu, Server, Shield, Info, Settings, Tag, 
+        Terminal, Camera, RotateCcw, Upload, FileText, Edit, Save, X, PlayCircle, 
+        StopCircle, AlertCircle, CheckCircle, Loader2 
+    } from "lucide-svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
@@ -27,7 +35,7 @@
 
     export let data: PageData;
     const { device } = data;
-    const title = "Edit Device";
+    const title = device.name || "Device Details";
 
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -37,11 +45,21 @@
         [device.name || "Device", ""]
     ];
 
+    // State management
+    const isEditMode = writable(false);
+    const activeTab = writable("overview");
+    const isTerminalOpen = writable(false);
+    const terminalOutput = writable([]);
+    const isLoading = writable(false);
+    const actionStatus = writable({ action: "", status: "", message: "" });
+
     // Setup the form
     const { form, errors, enhance, submitting, delayed } = superForm(data.form, {
         onUpdated: ({ form }) => {
             if (form.data.success) {
                 toast.success(form.data.message || "Device updated successfully");
+                // Exit edit mode after successful update
+                isEditMode.set(false);
             }
         },
         resetForm: false,
@@ -80,6 +98,125 @@
     }
 
     const connectionStatus = getConnectionStatusBadge(device.connected);
+
+    // Device action handlers
+    async function accessRemoteTerminal() {
+        isTerminalOpen.set(true);
+        isLoading.set(true);
+        actionStatus.set({ action: "terminal", status: "loading", message: "Connecting to device terminal..." });
+        
+        try {
+            // Simulate terminal connection
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            terminalOutput.update(output => [
+                ...output,
+                { type: "system", content: "Connected to device terminal." },
+                { type: "prompt", content: "device@" + device.name + ":~$ " }
+            ]);
+            
+            actionStatus.set({ action: "terminal", status: "success", message: "Terminal connected" });
+        } catch (error) {
+            actionStatus.set({ action: "terminal", status: "error", message: "Failed to connect to terminal" });
+            toast.error("Failed to connect to device terminal");
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    async function retrieveSnapshot() {
+        isLoading.set(true);
+        actionStatus.set({ action: "snapshot", status: "loading", message: "Retrieving device snapshot..." });
+        
+        try {
+            // Simulate snapshot retrieval
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            actionStatus.set({ action: "snapshot", status: "success", message: "Snapshot retrieved" });
+            toast.success("Device snapshot retrieved successfully");
+        } catch (error) {
+            actionStatus.set({ action: "snapshot", status: "error", message: "Failed to retrieve snapshot" });
+            toast.error("Failed to retrieve device snapshot");
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    async function restartDevice() {
+        isLoading.set(true);
+        actionStatus.set({ action: "restart", status: "loading", message: "Sending restart command..." });
+        
+        try {
+            // Simulate device restart
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            actionStatus.set({ action: "restart", status: "success", message: "Restart command sent" });
+            toast.success("Device restart initiated");
+        } catch (error) {
+            actionStatus.set({ action: "restart", status: "error", message: "Failed to restart device" });
+            toast.error("Failed to restart device");
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    async function updateFirmware() {
+        isLoading.set(true);
+        actionStatus.set({ action: "firmware", status: "loading", message: "Initiating firmware update..." });
+        
+        try {
+            // Simulate firmware update
+            await new Promise(resolve => setTimeout(resolve, 2500));
+            
+            actionStatus.set({ action: "firmware", status: "success", message: "Firmware update initiated" });
+            toast.success("Firmware update has been initiated");
+        } catch (error) {
+            actionStatus.set({ action: "firmware", status: "error", message: "Failed to update firmware" });
+            toast.error("Failed to initiate firmware update");
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    async function viewLogs() {
+        isLoading.set(true);
+        actionStatus.set({ action: "logs", status: "loading", message: "Fetching device logs..." });
+        
+        try {
+            // Simulate logs retrieval
+            await new Promise(resolve => setTimeout(resolve, 1800));
+            
+            actionStatus.set({ action: "logs", status: "success", message: "Logs retrieved" });
+            toast.success("Device logs retrieved successfully");
+        } catch (error) {
+            actionStatus.set({ action: "logs", status: "error", message: "Failed to retrieve logs" });
+            toast.error("Failed to retrieve device logs");
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    // Terminal command handling
+    function handleTerminalCommand(event) {
+        if (event.key === "Enter") {
+            const command = event.target.value;
+            event.target.value = "";
+            
+            if (command.trim()) {
+                terminalOutput.update(output => [
+                    ...output,
+                    { type: "command", content: command },
+                    { type: "response", content: `Executed: ${command}` },
+                    { type: "prompt", content: "device@" + device.name + ":~$ " }
+                ]);
+            }
+        }
+    }
+
+    // Toggle edit mode
+    function toggleEditMode() {
+        isEditMode.update(value => !value);
+    }
 </script>
 
 <PageContainer crumbs={pageCrumbs}>

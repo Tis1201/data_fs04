@@ -6,6 +6,9 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../users/schema';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { v4 as uuidv4 } from 'uuid';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -66,7 +69,7 @@ export const load = restrict(
                     lanMac: device.lanMac || "",
                     ipAddress: device.ipAddress || "",
                     apiKey: device.apiKey || "",
-                }, 
+                },
                 zod(deviceEditSchema)
             );
 
@@ -88,7 +91,9 @@ export const actions: Actions = {
      */
     save: restrict(
         async ({ request, params, locals }) => {
+            
             const id = params.id;
+
             const form = await superValidate(request, zod(deviceEditSchema));
             logger.debug('Update device form data:', form);
 
@@ -103,14 +108,14 @@ export const actions: Actions = {
                     const existingDevice = await tx.device.findUnique({
                         where: { id }
                     });
-                    
+
                     if (!existingDevice) {
                         return fail(404, {
                             form,
                             error: 'Device not found'
                         });
                     }
-                    
+
                     // Prepare update data
                     const updateData = {
                         name: form.data.name,
@@ -126,13 +131,13 @@ export const actions: Actions = {
                         lanMac: form.data.lanMac || null,
                         ipAddress: form.data.ipAddress || null,
                     };
-                    
+
                     // Update device
                     const updatedDevice = await tx.device.update({
                         where: { id },
                         data: updateData
                     });
-                    
+
                     return {
                         form,
                         success: true,
@@ -149,20 +154,26 @@ export const actions: Actions = {
         },
         [SystemRole.ADMIN] // Only allow admin role to access this action
     ),
-    
+
     /**
      * Generate new API key for the device
      */
     generateApiKey: restrict(
         async ({ params, locals }) => {
+
+            const auth:any = await locals.auth.validate();
+            const senderInfo = auth.user;
+
+            logger.debug(`Generating new API key for device: ${JSON.stringify(senderInfo)}`);
+
             const id = params.id;
-            
+
             try {
                 // Generate a new API key
                 const apiKey = crypto.randomUUID();
 
                 logger.info(`Generating new API key for device ${id}: ${apiKey}`);
-                
+
                 // Update device with new API key
                 // const updatedDevice = await locals.prisma.device.update({
                 //     where: { id },
@@ -172,14 +183,39 @@ export const actions: Actions = {
                 //         apiKeyRotatedAt: new Date()
                 //     }
                 // });
-                
+
+                //
+                // Create success message
+                const message = {
+                    id: uuidv4(),
+                    scope: `subscription:device:${id}`,
+                    senderId: 'system',
+                    timestamp: new Date().toISOString(),
+                    userInfo: senderInfo
+                };
+
+                const updateMessage = MessageFactory.toRoutingMessage({
+                    ...message,
+                    type: 'device',
+                    payload: {
+                        action: 'rotateKey',
+                        success: true,
+                        requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
+                        timestamp: new Date().toISOString()
+                    }
+                } as any);
+
+                await publisher.publish(updateMessage);
+                                
+
+
                 return {
                     success: true,
                     message: 'API key generated successfully',
                     apiKey
                 };
             } catch (e) {
-                logger.error('Error generating API key:', e);
+                logger.error(`Error generating API key: ${e}`);
                 return fail(500, {
                     error: 'Failed to generate API key'
                 });
