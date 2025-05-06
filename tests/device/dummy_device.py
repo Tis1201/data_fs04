@@ -15,14 +15,35 @@ class DummyDevice:
     def __init__(self, base_url="http://localhost:5173"):
         self.base_url = base_url
         self.register_endpoint = f"{self.base_url}/api/device/register"
-        self.pin = self.generate_pin()
-        self.headers = {
-            'X-Device-PIN': self.pin,
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Content-Type': 'application/json'
-        }
-        print(f"Generated PIN: {self.pin}")
+        self.listen_endpoint = f"{self.base_url}/api/device/listen"
+        self.device_info_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'workings', 'deviceId.txt')
+        
+        # Check if device is already registered
+        self.device_id = None
+        self.api_key = None
+        self.registered = self.load_device_credentials()
+        
+        if not self.registered:
+            # Generate a new PIN for registration
+            self.pin = self.generate_pin()
+            self.headers = {
+                'X-Device-PIN': self.pin,
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Content-Type': 'application/json'
+            }
+            print(f"Generated PIN: {self.pin}")
+            print("Device is in REGISTRATION mode")
+        else:
+            # Use API key for authenticated connection
+            self.headers = {
+                'X-API-KEY': self.api_key,
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Content-Type': 'application/json'
+            }
+            print(f"Using existing device ID: {self.device_id}")
+            print("Device is in LISTEN mode")
 
     def generate_pin(self, length=6):
         """Generate a 6-digit PIN"""
@@ -102,9 +123,33 @@ class DummyDevice:
             'bootTime': psutil.boot_time()
         }
 
+    def load_device_credentials(self):
+        """Load device credentials from file if available"""
+        try:
+            if os.path.exists(self.device_info_path):
+                with open(self.device_info_path, 'r') as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        if line.startswith('Device ID:'):
+                            self.device_id = line.split(':', 1)[1].strip()
+                        elif line.startswith('API Key:'):
+                            self.api_key = line.split(':', 1)[1].strip()
+                
+                if self.device_id and self.api_key:
+                    return True
+            return False
+        except Exception as e:
+            print(f"Error loading device credentials: {e}")
+            return False
+
     def connect(self):
-        url = f"{self.register_endpoint}?pin={self.pin}"
-        print(f"Connecting to {url}")
+        """Connect to the appropriate endpoint based on device state"""
+        if self.registered:
+            url = self.listen_endpoint
+            print(f"Connecting to listen endpoint: {url}")
+        else:
+            url = f"{self.register_endpoint}?pin={self.pin}"
+            print(f"Connecting to registration endpoint: {url}")
 
         try:
             session = requests.Session()
@@ -123,23 +168,36 @@ class DummyDevice:
                             data = json.loads(msg.data)
                             # print(f"Data: {json.dumps(data, indent=2)}")
 
-                            if msg.event == 'message' and data.get('payload', {}).get('action') == 'registered':
+                            # Handle different message types based on device state
+                            if msg.event == 'message':
+                                action = data.get('payload', {}).get('action')
                                 
-                                print(f"Data: {json.dumps(data, indent=2)}")
+                                # Registration confirmation in claim mode
+                                if not self.registered and action == 'registered':
+                                    print(f"Data: {json.dumps(data, indent=2)}")
 
-                                self.id = data.get('payload', {}).get('id')
-                                self.senderId = data.get('senderId')
-                                self.senderConnectionId = data.get('senderConnectionId')
-                                self.senderConnectionProtocol = data.get('senderConnectionProtocol')
+                                    self.id = data.get('payload', {}).get('id')
+                                    self.senderId = data.get('senderId')
+                                    self.senderConnectionId = data.get('senderConnectionId')
+                                    self.senderConnectionProtocol = data.get('senderConnectionProtocol')
 
-
-                                print(f"Sender connection ID: {self.senderConnectionId}")
-                                print(f"Sender connection protocol: {self.senderConnectionProtocol}")
-
+                                    print(f"Sender connection ID: {self.senderConnectionId}")
+                                    print(f"Sender connection protocol: {self.senderConnectionProtocol}")
+                                    
+                                    # Send device info when registration is confirmed
+                                    self.send_device_info()
                                 
-                                # Send device info when registration is confirmed
-                                self.send_device_info()
-                                # break
+                                # Connection confirmation in listen mode
+                                elif self.registered and action == 'connected':
+                                    print(f"Successfully connected to listen endpoint")
+                                    print(f"Connection ID: {data.get('connectionId')}")
+                                    print(f"Device ID: {data.get('deviceId')}")
+                                
+                                # Handle commands in listen mode
+                                elif self.registered and action not in ['ping', 'connected']:
+                                    print(f"Received command: {action}")
+                                    print(f"Command data: {json.dumps(data.get('payload', {}), indent=2)}")
+                                    # Here you would implement command handling logic
                             if msg.event == 'message' and data.get('payload', {}).get('action') == 'ping':
                                 print(f"Ping received from server {data.get('payload', {}).get('deviceId')}")
                              
@@ -234,5 +292,27 @@ class DummyDevice:
             print(f"Error sending device info: {str(e)}")
 
 if __name__ == "__main__":
-    dummy_device = DummyDevice()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Dummy IoT Device')
+    parser.add_argument('--force-register', action='store_true', help='Force registration mode even if credentials exist')
+    parser.add_argument('--url', default='http://localhost:5173', help='Base URL of the server')
+    
+    args = parser.parse_args()
+    
+    dummy_device = DummyDevice(base_url=args.url)
+    
+    # Override registration status if forced
+    if args.force_register and dummy_device.registered:
+        print("Forcing registration mode despite existing credentials")
+        dummy_device.registered = False
+        dummy_device.pin = dummy_device.generate_pin()
+        dummy_device.headers = {
+            'X-Device-PIN': dummy_device.pin,
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Content-Type': 'application/json'
+        }
+        print(f"Generated PIN: {dummy_device.pin}")
+    
     dummy_device.connect()

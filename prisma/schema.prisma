@@ -189,11 +189,14 @@ model Device {
   wifiMac         String?
   lanMac          String?
   ipAddress       String?
-  apiKey          String?
+  apiKey          String?   @unique()
   apiKeyCreatedAt DateTime?
   apiKeyRotatedAt DateTime?
   claimedAt       DateTime?
   claimedBy       String?
+  connected       Boolean   @default(false)
+  connectedAt     DateTime?
+  disconnectedAt  DateTime?
 
   @@index([createdBy])
   @@index([hardwareId])

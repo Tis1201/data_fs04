@@ -37,20 +37,50 @@ This section summarizes the latest, stable, production-ready flow for device onb
 
 ## Implementation Details
 
-### Device Registration
-- The `registerDevice` function ensures that each device is registered with a unique PIN.
-- The function is asynchronous, using `await` for database operations to check PIN availability before registration.
-- Logs are added to track the registration process and any errors encountered.
+### Device Registration & Claiming
+- The `registerDevice` and `addDevice` flows ensure that each device is registered with a unique PIN and securely claimed by a user.
+- Device ID and PIN are validated for correctness and uniqueness.
+- Upon successful claim, an API key is generated and securely sent to the device.
+- The claim and registration process uses structured logging for all major events and errors.
 
-### SSE Connection
-- A ping mechanism is implemented to keep the SSE connection alive.
-- Error handling is in place for connection failures and message sending issues.
+### Error Handling & Messaging
+- Error handling is robust: all errors are logged with context and stack traces in development.
+- Error and success messages are routed using either connection or user scope, depending on the stage:
+    - **Claim errors**: sent to the user's connection for accurate UI feedback.
+    - **Success (claimed/registered)**: sent to the user's connection or user scope for UI updates.
+- Messages use a consistent JSON structure: `{ type, payload: { action, success, ... }, ... }`.
+- All error messages include a code, details, and a unique requestId for traceability.
 
-### Device Manager
-- Manages device onboarding, PIN validation, and user claiming processes.
-- Ensures devices are registered with unique PINs to prevent conflicts.
+### Device Store (Frontend)
+- The SvelteKit frontend uses a device store (`device-store.ts`) with a robust state machine:
+    - Listens for all device events via WebSocket.
+    - Handles `error`, `registered`, and `claimed` actions using a `switch` statement for maintainability.
+    - Updates state reactively for UI display (claim status, error, device info).
+    - TypeScript interfaces ensure type safety for all message payloads.
+
+### Testing & Dummy Device Script
+- The `/tests/device/dummy_device.py` script is used for end-to-end testing:
+    - Simulates device registration, SSE connection, and claim flow.
+    - Prints all received server events and errors for debugging.
+    - Validates that error and success messages are delivered and formatted correctly.
+
+### Logging & Security
+- All sensitive operations are authenticated and authorized.
+- All registration, claim, and connection events are logged for audit and troubleshooting.
+- Device credentials (API keys) are never exposed to unauthorized users.
 
 ---
+
+## Recent Improvements (2025-05)
+
+- **Error Handling**: Improved error propagation and UI display for device registration and claim failures.
+- **Message Routing**: All claim/registration events are routed to the correct user or connection, ensuring reliable delivery.
+- **Type Safety**: Device store and backend messaging now use strict TypeScript interfaces.
+- **Testing**: Dummy device script enhanced for better error reporting and flow validation.
+- **Frontend**: Device claim UI now updates reactively on success or error, using the improved store logic.
+
+---
+
 
 ## Structure
 

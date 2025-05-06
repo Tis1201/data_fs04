@@ -259,7 +259,7 @@ model Device {
   ipAddress     String?
 
   // Security & credentials
-  apiKey        String?  // Device API key for auth
+  apiKey        String?  @unique // Device API key for auth
   apiKeyCreatedAt DateTime?
   apiKeyRotatedAt DateTime?
   
@@ -269,6 +269,11 @@ model Device {
 
   // Relationships
   // logs          Log[]?    // Uncomment if you have a Log model
+
+  // Connection status
+  connected     Boolean  @default(false)
+  connectedAt   DateTime?
+  disconnectedAt DateTime?
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@index([createdBy])
