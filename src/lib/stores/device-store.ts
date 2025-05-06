@@ -74,11 +74,27 @@ function createDeviceStore() {
         // });
         socketStore.on('device', (message: any) => {
             console.log('[DEVICE_STORE] Received device event:', message);
-            if (message && message.data && message.data.error) {
+            
+            // Handle error events
+            if (message && message.payload && message.payload.action === 'error') {
+                const errorDetails = message.payload.details || message.payload.error || 'Unknown error';
+                console.log('[DEVICE_STORE] Error received:', errorDetails);
+                
                 update(state => ({
                     ...state,
                     claimStatus: 'failed',
-                    error: message.data.error
+                    error: errorDetails
+                }));
+            }
+            
+            // Handle successful device registration
+            else if (message && message.payload && message.payload.action === 'registered') {
+                console.log('[DEVICE_STORE] Device registered:', message.payload);
+                
+                update(state => ({
+                    ...state,
+                    deviceId: message.payload.id,
+                    claimStatus: 'claimed'
                 }));
             }
         });

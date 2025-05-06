@@ -123,7 +123,7 @@
                 </div>
                 <div class="w-full">
                   <p class="font-medium">Verification Failed</p>
-                  <p class="text-sm">{$deviceStore.errorMessage || "The device could not be claimed. Please try again."}</p>
+                  <p class="text-sm">{$deviceStore.error || "The device could not be claimed. Please try again."}</p>
                 </div>
               </div>
             {:else if $deviceStore.claimStatus === 'claiming'}

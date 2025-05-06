@@ -12,10 +12,15 @@ import type { Authorizer } from '../interfaces/authorizer';
  */
 export const connectionAuthorizer: Authorizer = {
   isAllowed(userInfo: UserInfo | undefined, scope: string, type: string, connectionIds: string[]): boolean {
-    if (!userInfo) return false;
+    logger.debug(`[ConnectionAuthorizer] ENTER isAllowed with scope=${scope}, type=${type}, connectionIds=${JSON.stringify(connectionIds)}`);
+    
+    if (!userInfo) {
+      logger.debug(`[ConnectionAuthorizer] No userInfo provided, denying access`);
+      return false;
+    }
 
     const [kind, targetId] = scope.split(':');
-    logger.debug(`[ConnectionAuthorizer] Checking if ${userInfo.id} is allowed to publish to ${scope}`);
+    logger.debug(`[ConnectionAuthorizer] Checking if ${userInfo.id} is allowed to publish to ${scope} with ${connectionIds.length} connection IDs`);
 
     // Admins can publish to any connection
     if (userInfo.systemRole === 'ADMIN') {
@@ -24,14 +29,33 @@ export const connectionAuthorizer: Authorizer = {
     }
 
     // Check if all target connections belong to the user
+    if (connectionIds.length === 0) {
+      logger.debug(`[ConnectionAuthorizer] No connection IDs provided, allowing access for scope ${scope}`);
+      return true;
+    }
+    
     for (const connectionId of connectionIds) {
       const connection = ConnectionManager.getConnection(connectionId);
-      if (connection?.meta.userInfo.id !== userInfo.id) {
-        logger.warn(`[ConnectionAuthorizer] User ${userInfo.id} attempted unauthorized publish to connection ${connectionId}`);
+      
+      if (!connection) {
+        logger.warn(`[ConnectionAuthorizer] Connection ${connectionId} not found`);
+        return false;
+      }
+      
+      if (!connection.meta.userInfo) {
+        logger.warn(`[ConnectionAuthorizer] Connection ${connectionId} has no user info`);
+        return false;
+      }
+      
+      logger.debug(`[ConnectionAuthorizer] Comparing connection user ${connection.meta.userInfo.id} with sender ${userInfo.id}`);
+      
+      if (connection.meta.userInfo.id !== userInfo.id) {
+        logger.warn(`[ConnectionAuthorizer] User ${userInfo.id} vs ${connection.meta.userInfo.id} attempted unauthorized publish to connection ${connectionId}`);
         return false;
       }
     }
 
+    logger.debug(`[ConnectionAuthorizer] Access allowed for user ${userInfo.id} to scope ${scope}`);
     return true;
   }
 };

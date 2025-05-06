@@ -1,7 +1,8 @@
 import { pinSharedStore, deviceSharedStore } from './deviceSharedStore';
-import type { DeviceMeta } from './deviceMeta';
-import { logger } from '$lib/server/logger';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '$lib/server/logger';
+import { prisma } from '$lib/server/prisma';
+import { userInfoByUserId } from '$lib/server/security/auth-utils';
 // Import the WebSocket manager for broadcasting messages
 import { WebSocketManager } from '$lib/server/websocket/WebSocketManager';
 import type { UserInfo } from '../types/user';
@@ -10,6 +11,7 @@ import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import * as crypto from 'crypto';
 import { generateId } from 'lucia';
 import type { PrismaClient } from '@prisma/client';
+import { userInfo } from 'os';
 
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
@@ -54,12 +56,12 @@ export class DefaultDeviceManager {
      */
     async claimDevice(pin: string, userInfo: UserInfo, senderConnectionId: string, senderConnectionProtocol: string): Promise<any> {
 
-        logger.info(`Attempting to claim device with PIN ${pin}`, { userId: userInfo.id });
+        logger.info(`Attempting to claim device with PIN ${pin} over ${senderConnectionId}[${senderConnectionProtocol}]`);
 
         // Get device from PIN store
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
-        
+
 
         if (!deviceMeta || !deviceMeta.id) {
             logger.warn(`No device found with PIN ${pin}`);
@@ -144,77 +146,116 @@ export class DefaultDeviceManager {
      * @param systemInfo Device system information
      * @returns Device information including API key
      */
-    async addDevice(data: any, prisma: any): Promise<{any: any}> {
+    async addDevice(data: any, prisma: any): Promise<{ any: any }> {
 
-        const { pin, id, senderId,senderConnectionId, senderConnectionProtocol } = data;
+        const { pin, id, senderId, senderConnectionId, senderConnectionProtocol } = data;
 
         logger.debug(`Device claimed by user connection ID: ${pin}, ${id}, ${senderId},${senderConnectionId}, ${senderConnectionProtocol}`);
 
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
-        if (!deviceMeta) {
-            throw new Error(`No device found with PIN ${pin}`);
-        }
+
 
         logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
 
-        // Check deviceId matches
-        if (deviceMeta.id === id) {
-            throw new Error(`Device ID ${id} does not match PIN ${pin}`);
-        }
 
         try {
 
-            
+            if (!deviceMeta) {
+                throw new Error(`No device found with PIN ${pin}`);
+            }
 
-                // Generate API key and create device record
-                const apiKeyValue = generateId(32);
-                const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
-                const deviceType = data.deviceType || 'unknown';
-                // Create device record with system info
-                const deviceRecord = {
-                    id: id,
-                    name: data.deviceType || 'dummy',
-                    deviceType: data.deviceType || 'dummy',
-                    model: data.model,
-                    manufacturer: data.manufacturer,
-                    osVersion: data.osVersion,
-                    firmwareVersion: data.firmwareVersion,
-                    hardwareId: data.hardwareId,
-                    wifiMac: data.wifiMac,
-                    lanMac: data.lanMac,
-                    ipAddress: data.ipAddress,
-                    apiKey: apiKeyValue,
-                    apiKeyCreatedAt: new Date(),
-                    apiKeyRotatedAt: new Date(),
-                    status: 'ACTIVE',
-                    createdAt: new Date(),
-                    updatedAt: new Date(),
-                    claimedAt: new Date(),
-                    claimedBy: senderId,
-                    description: `Device registered on ${new Date().toISOString()}`,
-                    // pin: pin,
-                    user: {
-                        connect: { id: senderId }
-                    }
-                };
+            // Check deviceId matches
+            if (deviceMeta.id === id) {
+                throw new Error(`Device ID ${id} does not match PIN ${pin}`);
+            }
 
-                // Save device record in database with user relationship
-                const device = await prisma.device.upsert({
-                    where: { id },
-                    update: deviceRecord,
-                    create: deviceRecord,
-                });
+            // Generate API key and create device record
+            const apiKeyValue = generateId(32);
+            const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
+            const deviceType = data.deviceType || 'unknown';
+            // Create device record with system info
+            const deviceRecord = {
+                id: id,
+                name: data.deviceType || 'dummy',
+                deviceType: data.deviceType || 'dummy',
+                model: data.model,
+                manufacturer: data.manufacturer,
+                osVersion: data.osVersion,
+                firmwareVersion: data.firmwareVersion,
+                hardwareId: data.hardwareId,
+                wifiMac: data.wifiMac,
+                lanMac: data.lanMac,
+                ipAddress: data.ipAddress,
+                apiKey: apiKeyValue,
+                apiKeyCreatedAt: new Date(),
+                apiKeyRotatedAt: new Date(),
+                status: 'ACTIVE',
+                createdAt: new Date(),
+                updatedAt: new Date(),
+                claimedAt: new Date(),
+                claimedBy: senderId,
+                description: `Device registered on ${new Date().toISOString()}`,
+                // pin: pin,
+                user: {
+                    connect: { id: senderId }
+                }
+            };
 
-                // Remove from PIN store after successful save
-                await pinSharedStore.removeMember(pin, deviceMeta);
+            // Save device record in database with user relationship
+            const device = await prisma.device.upsert({
+                where: { id },
+                update: deviceRecord,
+                create: deviceRecord,
+            });
+
+            // Remove from PIN store after successful save
+            await pinSharedStore.removeMember(pin, deviceMeta);
 
 
-                return device
-                
+            return device
+
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            // logger.error(`Failed to register device ${id}:`, error);
+            logger.error(`Failed to register device ${id}:`, error);
+
+            const senderInfo = await userInfoByUserId(senderId);
+            
+            if (!senderInfo) {
+                logger.error(`Failed to find user info for sender: ${senderId}`);
+                throw new Error('User information not found');
+            }
+
+            const message = {
+                id: uuidv4(),
+                scope: `connection:${senderConnectionId}`,
+                senderId: senderId || 'system',
+                senderConnectionId,
+                senderConnectionProtocol,
+                timestamp: new Date().toISOString(),
+                userInfo: senderInfo
+            };
+
+            const errorResponse = MessageFactory.toRoutingMessage({
+                ...message,
+                type: 'device',
+                payload: {
+                    action: 'error',
+                    success: false,
+                    error: 'Device Registration Failed',
+                    details: errorMessage,
+                    code: "500",
+                    requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
+                    timestamp: new Date().toISOString()
+                }
+            } as any);
+
+            logger.debug(`Published error response to messaging system: ${senderConnectionId} [${senderConnectionProtocol}]`);
+
+            await publisher.publish(errorResponse);
+            
+
+            // Always throw the error to be handled by the API endpoint
             throw new Error(`Device registration failed: ${errorMessage}`);
         }
     }
