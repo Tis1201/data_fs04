@@ -8,6 +8,8 @@ import platform
 import socket
 import uuid
 import psutil
+import os
+from datetime import datetime
 
 class DummyDevice:
     def __init__(self, base_url="http://localhost:5173"):
@@ -190,9 +192,41 @@ class DummyDevice:
                     json=device_info,
                     headers={'Content-Type': 'application/json'}
                 )
-                response.raise_for_status()
-                print("Device info sent successfully")
-                print(f"Response: {response.json()}")
+                
+                try:
+                    response.raise_for_status()
+                    response_data = response.json()
+                    print("Device info sent successfully")
+                    print(f"Response: {response_data}")
+                except requests.exceptions.HTTPError as http_err:
+                    print(f"HTTP error occurred: {http_err}")
+                    if response.content:
+                        try:
+                            error_data = response.json()
+                            print(f"Error details: {json.dumps(error_data, indent=2)}")
+                        except ValueError:
+                            print(f"Response content: {response.text}")
+                    raise
+                except json.JSONDecodeError as json_err:
+                    print(f"Failed to parse JSON response: {json_err}")
+                    print(f"Response content: {response.text}")
+                    raise
+                except Exception as err:
+                    print(f"Unexpected error: {err}")
+                    print(f"Response content: {response.text}" if hasattr(response, 'text') else "No response content")
+                    raise
+                
+                # Save device ID and API key to file
+                if response_data.get('success') and response_data.get('deviceId') and response_data.get('deviceApiKey'):
+                    device_info_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'workings')
+                    os.makedirs(device_info_dir, exist_ok=True)
+                    
+                    with open(os.path.join(device_info_dir, 'deviceId.txt'), 'w') as f:
+                        f.write(f"Device ID: {response_data['deviceId']}\n")
+                        f.write(f"API Key: {response_data['deviceApiKey']}\n")
+                        f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                    
+                    print(f"Device information saved to workings/deviceId.txt")
             except requests.exceptions.RequestException as e:
                 print(f"Failed to send device info: {e}")
             

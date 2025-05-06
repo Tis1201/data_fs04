@@ -28,31 +28,55 @@ import type { RequestHandler } from './$types';
  * }
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
-    const data = await request.json();
+    try {
+        const data = await request.json();
 
-    // Extract device information from the request
-    const {
-        deviceType,
-        model,
-        manufacturer,
-        osVersion,
-        firmwareVersion,
-        hardwareId,
-        wifiMac,
-        lanMac,
-        ipAddress,
-        publicIpAddress,
-        additionalInfo
-    } = data;
+        // Extract device information from the request
+        const {
+            deviceType,
+            model,
+            manufacturer,
+            osVersion,
+            firmwareVersion,
+            hardwareId,
+            wifiMac,
+            lanMac,
+            ipAddress,
+            publicIpAddress,
+            additionalInfo,
+            pin,
+            id
+        } = data;
 
-    //Print the data
-    logger.debug(`Data: ${JSON.stringify(data)}`);
+        // Validate required fields
+        if (!pin || !id) {
+            return json({
+                success: false,
+                error: 'PIN and device ID are required',
+                message: 'Missing required fields'
+            }, { status: 400 });
+        }
 
-    DeviceManager.addDevice(data, locals.prisma);
+        // Print the data
+        logger.debug(`Data: ${JSON.stringify(data)}`);
 
-    return json({
-        success: true,
-        message: 'Device registration endpoint is working'
-    });
+        const device: any = await DeviceManager.addDevice(data, locals.prisma);
 
+        logger.debug(`Device registered successfully: ${device.id}`);
+``
+        return json({
+            success: true,
+            deviceId: device.id,
+            deviceApiKey: device.apiKey,
+            message: 'Device registered successfully'
+        });
+    } catch (error:any) {
+        logger.error(`Device registration failed: ${error}`);
+        
+        return json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error occurred',
+            message: 'Device registration failed'
+        }, { status: error.status || 500 });
+    }
 };

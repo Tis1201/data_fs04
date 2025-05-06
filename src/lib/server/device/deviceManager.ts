@@ -144,13 +144,7 @@ export class DefaultDeviceManager {
      * @param systemInfo Device system information
      * @returns Device information including API key
      */
-    async addDevice(data: any, prisma: any): Promise<{
-        id: string;
-        apiKey: string;
-        name: string;
-        type: string;
-        createdAt: Date;
-    }> {
+    async addDevice(data: any, prisma: any): Promise<{any: any}> {
 
         const { pin, id, senderId,senderConnectionId, senderConnectionProtocol } = data;
 
@@ -165,7 +159,7 @@ export class DefaultDeviceManager {
         logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
 
         // Check deviceId matches
-        if (deviceMeta.id !== id) {
+        if (deviceMeta.id === id) {
             throw new Error(`Device ID ${id} does not match PIN ${pin}`);
         }
 
@@ -216,13 +210,8 @@ export class DefaultDeviceManager {
                 await pinSharedStore.removeMember(pin, deviceMeta);
 
 
-                return {
-                    id: device.id,
-                    apiKey: device.apiKey,
-                    name: device.name,
-                    type: device.type,
-                    createdAt: device.createdAt
-                }
+                return device
+                
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             // logger.error(`Failed to register device ${id}:`, error);
