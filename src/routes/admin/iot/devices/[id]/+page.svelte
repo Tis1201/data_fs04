@@ -220,79 +220,245 @@
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
-    <PageHeader {title} />
+    <div class="flex justify-between items-center mb-6">
+        <div class="flex items-center gap-3">
+            <h1 class="text-2xl font-bold tracking-tight">{title}</h1>
+            {#if !$isEditMode}
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm"
+                    on:click={toggleEditMode}
+                    class="h-8"
+                >
+                    <Edit class="h-3.5 w-3.5" />
+                </Button>
+            {/if}
+        </div>
+        
+        {#if $isEditMode}
+            <!-- Edit mode actions -->
+            <div class="flex items-center space-x-2">
+                <Button 
+                    type="submit" 
+                    form="device-edit-form"
+                    disabled={$submitting}
+                    variant="default"
+                >
+                    <Save class="mr-2 h-4 w-4" />
+                    {$submitting ? 'Saving...' : 'Save Changes'}
+                </Button>
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    on:click={toggleEditMode}
+                >
+                    <X class="mr-2 h-4 w-4" />
+                    Cancel
+                </Button>
+            </div>
+        {/if}
+    </div>
 
     <PageContent>
+        <!-- Device Action Buttons (only in view mode) -->
+        {#if !$isEditMode}
+            <Card.Root class="mb-6">
+                <Card.Header class="pb-3">
+                    <Card.Title class="flex items-center">
+                        <Settings class="mr-2 h-5 w-5" />
+                        Device Actions
+                    </Card.Title>
+                    <Card.Description>
+                        Manage and interact with this device
+                    </Card.Description>
+                </Card.Header>
+                <Card.Content>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                        <!-- Remote Terminal -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            on:click={accessRemoteTerminal}
+                            disabled={$isLoading && $actionStatus.action === 'terminal'}
+                        >
+                            {#if $isLoading && $actionStatus.action === 'terminal'}
+                                <Loader2 class="h-6 w-6 animate-spin" />
+                            {:else}
+                                <Terminal class="h-6 w-6" />
+                            {/if}
+                            <span>Terminal</span>
+                        </Button>
+
+                        <!-- Snapshot -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            on:click={retrieveSnapshot}
+                            disabled={$isLoading && $actionStatus.action === 'snapshot'}
+                        >
+                            {#if $isLoading && $actionStatus.action === 'snapshot'}
+                                <Loader2 class="h-6 w-6 animate-spin" />
+                            {:else}
+                                <Camera class="h-6 w-6" />
+                            {/if}
+                            <span>Snapshot</span>
+                        </Button>
+
+                        <!-- Restart -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            on:click={restartDevice}
+                            disabled={$isLoading && $actionStatus.action === 'restart'}
+                        >
+                            {#if $isLoading && $actionStatus.action === 'restart'}
+                                <Loader2 class="h-6 w-6 animate-spin" />
+                            {:else}
+                                <RotateCcw class="h-6 w-6" />
+                            {/if}
+                            <span>Restart</span>
+                        </Button>
+
+                        <!-- Update Firmware -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            on:click={updateFirmware}
+                            disabled={$isLoading && $actionStatus.action === 'firmware'}
+                        >
+                            {#if $isLoading && $actionStatus.action === 'firmware'}
+                                <Loader2 class="h-6 w-6 animate-spin" />
+                            {:else}
+                                <Upload class="h-6 w-6" />
+                            {/if}
+                            <span>Update Firmware</span>
+                        </Button>
+
+                        <!-- View Logs -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            on:click={viewLogs}
+                            disabled={$isLoading && $actionStatus.action === 'logs'}
+                        >
+                            {#if $isLoading && $actionStatus.action === 'logs'}
+                                <Loader2 class="h-6 w-6 animate-spin" />
+                            {:else}
+                                <FileText class="h-6 w-6" />
+                            {/if}
+                            <span>View Logs</span>
+                        </Button>
+                    </div>
+
+                    <!-- Status message for actions -->
+                    {#if $actionStatus.status}
+                        <div class="mt-4 p-3 rounded-md text-sm flex items-center" class:bg-muted={$actionStatus.status === 'loading'} class:bg-green-50={$actionStatus.status === 'success'} class:bg-red-50={$actionStatus.status === 'error'}>
+                            {#if $actionStatus.status === 'loading'}
+                                <Loader2 class="mr-2 h-4 w-4 animate-spin text-muted-foreground" />
+                            {:else if $actionStatus.status === 'success'}
+                                <CheckCircle class="mr-2 h-4 w-4 text-green-500" />
+                            {:else if $actionStatus.status === 'error'}
+                                <AlertCircle class="mr-2 h-4 w-4 text-red-500" />
+                            {/if}
+                            <span class:text-muted-foreground={$actionStatus.status === 'loading'} class:text-green-700={$actionStatus.status === 'success'} class:text-red-700={$actionStatus.status === 'error'}>
+                                {$actionStatus.message}
+                            </span>
+                        </div>
+                    {/if}
+                </Card.Content>
+            </Card.Root>
+        {/if}
+
         <div class="grid gap-6 md:grid-cols-1 lg:grid-cols-6">
             <!-- Left column (2/3) - Main device info and editable fields -->
             <div class="lg:col-span-4">
                 <!-- Device Info Card -->
                 <FormCard
                     title="Device Information"
-                    description="Edit basic details for this IoT device"
+                    description={$isEditMode ? "Edit basic details for this IoT device" : "Basic details about this device"}
                     loading={$submitting}
                     delayed={$delayed}
                 >
-                    <FormContainer {enhance} action="?/save">
-                        <!-- Editable fields -->
-                        <FormRow columns={2}>
-                            <!-- Name -->
+                    {#if $isEditMode}
+                        <!-- Edit Mode: Form with editable fields -->
+                        <FormContainer id="device-edit-form" {enhance} action="?/save">
+                            <!-- Editable fields -->
+                            <FormRow columns={2}>
+                                <!-- Name -->
+                                <FormField
+                                    label="Device Name"
+                                    required={true}
+                                    error={$errors.name}
+                                >
+                                    <Input
+                                        name="name"
+                                        placeholder="Enter device name"
+                                        bind:value={$form.name}
+                                    />
+                                </FormField>
+
+                                <!-- Status -->
+                                <FormField
+                                    label="Status"
+                                    required={true}
+                                    error={$errors.status}
+                                >
+                                    <EnhancedSelect
+                                        name="status"
+                                        options={DEVICE_STATUSES}
+                                        bind:value={$form.status}
+                                    />
+                                </FormField>
+                            </FormRow>
+
+                            <!-- Description -->
                             <FormField
-                                label="Device Name"
-                                required={true}
-                                error={$errors.name}
+                                label="Description"
+                                error={$errors.description}
                             >
-                                <Input
-                                    name="name"
-                                    placeholder="Enter device name"
-                                    bind:value={$form.name}
+                                <Textarea
+                                    name="description"
+                                    placeholder="Enter device description"
+                                    bind:value={$form.description}
+                                    rows={3}
                                 />
                             </FormField>
 
-                            <!-- Status -->
-                            <FormField
-                                label="Status"
-                                required={true}
-                                error={$errors.status}
-                            >
-                                <EnhancedSelect
-                                    name="status"
-                                    options={DEVICE_STATUSES}
-                                    bind:value={$form.status}
-                                />
-                            </FormField>
-                        </FormRow>
+                            <!-- Hidden ID field -->
+                            <input type="hidden" name="id" bind:value={$form.id} />
+                        </FormContainer>
+                    {:else}
+                        <!-- View Mode: Read-only display -->
+                        <div class="space-y-6">
+                            <!-- Basic Info -->
+                            <div class="grid grid-cols-2 gap-6">
+                                <!-- Name -->
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">Device Name</div>
+                                    <div class="text-lg font-medium">{device.name}</div>
+                                </div>
 
-                        <!-- Description -->
-                        <FormField
-                            label="Description"
-                            error={$errors.description}
-                        >
-                            <Textarea
-                                name="description"
-                                placeholder="Enter device description"
-                                bind:value={$form.description}
-                                rows={3}
-                            />
-                        </FormField>
+                                <!-- Status -->
+                                <div>
+                                    <div class="text-sm font-medium text-muted-foreground mb-1">Status</div>
+                                    <Badge 
+                                        variant={device.status === 'ACTIVE' ? 'default' : 
+                                                device.status === 'INACTIVE' ? 'secondary' : 
+                                                device.status === 'PENDING' ? 'warning' : 'outline'}
+                                    >
+                                        {device.status}
+                                    </Badge>
+                                </div>
+                            </div>
 
-                        <!-- Form Actions -->
-                        <FormActions>
-                            <Button type="submit" disabled={$submitting}>
-                                {$submitting ? 'Saving...' : 'Save Changes'}
-                            </Button>
-                            <Button 
-                                type="button" 
-                                variant="outline" 
-                                on:click={() => goto('/admin/iot/devices')}
-                            >
-                                Cancel
-                            </Button>
-                        </FormActions>
-
-                        <!-- Hidden ID field -->
-                        <input type="hidden" name="id" bind:value={$form.id} />
-                    </FormContainer>
+                            <!-- Description -->
+                            <div>
+                                <div class="text-sm font-medium text-muted-foreground mb-1">Description</div>
+                                <div class="text-sm">{device.description || '—'}</div>
+                            </div>
+                        </div>
+                    {/if}
 
                     <svelte:fragment slot="footer">
                         {#if device}
@@ -530,3 +696,56 @@
         </div>
     </PageContent>
 </PageContainer>
+
+<!-- Terminal Dialog -->
+<Dialog.Root open={$isTerminalOpen} onOpenChange={(open) => isTerminalOpen.set(open)}>
+    <Dialog.Content class="max-w-4xl h-[80vh] flex flex-col">
+        <Dialog.Header>
+            <Dialog.Title class="flex items-center">
+                <Terminal class="mr-2 h-5 w-5" />
+                Remote Terminal: {device.name}
+            </Dialog.Title>
+            <Dialog.Description>
+                Execute commands on the device remotely
+            </Dialog.Description>
+        </Dialog.Header>
+        
+        <div class="flex-1 bg-black text-green-400 p-4 rounded font-mono text-sm overflow-y-auto mb-4">
+            {#each $terminalOutput as line}
+                {#if line.type === 'system'}
+                    <div class="text-blue-400 mb-1">{line.content}</div>
+                {:else if line.type === 'command'}
+                    <div class="mb-1">
+                        <span class="text-yellow-400">device@{device.name}:~$</span> {line.content}
+                    </div>
+                {:else if line.type === 'response'}
+                    <div class="mb-1">{line.content}</div>
+                {:else if line.type === 'prompt'}
+                    <div class="mb-1">
+                        <span class="text-yellow-400">{line.content}</span>
+                    </div>
+                {/if}
+            {/each}
+        </div>
+        
+        <div class="relative">
+            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                <span class="text-yellow-400 font-mono">device@{device.name}:~$</span>
+            </div>
+            <Input 
+                class="pl-[calc(1rem+{device.name.length}ch+12ch)] bg-black text-green-400 font-mono" 
+                placeholder="Type command and press Enter"
+                on:keydown={handleTerminalCommand}
+            />
+        </div>
+        
+        <Dialog.Footer class="flex justify-between">
+            <div class="text-sm text-muted-foreground">
+                Press ESC to close the terminal
+            </div>
+            <Button variant="outline" on:click={() => isTerminalOpen.set(false)}>
+                Close Terminal
+            </Button>
+        </Dialog.Footer>
+    </Dialog.Content>
+</Dialog.Root>
