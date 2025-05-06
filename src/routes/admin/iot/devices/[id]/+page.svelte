@@ -2,36 +2,26 @@
     import { goto } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
-    import { onMount } from "svelte";
     import { writable } from "svelte/store";
     import { Button } from "$lib/components/ui/button";
-    import { Input } from "$lib/components/ui/input";
-    import { Textarea } from "$lib/components/ui/textarea";
     import * as Card from "$lib/components/ui/card";
-    import * as Dialog from "$lib/components/ui/dialog";
-    import * as Tabs from "$lib/components/ui/tabs";
-    import * as Select from "$lib/components/ui/select/index.js";
-    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
-    import { Separator } from "$lib/components/ui/separator";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import { 
         Clock, RefreshCw, Key, Wifi, Cpu, Server, Shield, Info, Settings, Tag, 
-        Terminal, Camera, RotateCcw, Upload, FileText, Edit, Save, X, PlayCircle, 
-        StopCircle, AlertCircle, CheckCircle, Loader2 
+        Terminal, Camera, RotateCcw, Upload, FileText, Edit, AlertCircle, CheckCircle, Loader2 
     } from "lucide-svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
-    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
-    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
-    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
     import { DEVICE_STATUSES, DEVICE_TYPES } from "./schema";
+
 
     export let data: PageData;
     const { device } = data;
@@ -46,27 +36,14 @@
     ];
 
     // State management
-    const isEditMode = writable(false);
     const activeTab = writable("overview");
     // Terminal state is now managed in the terminal page
     const isLoading = writable(false);
     const actionStatus = writable({ action: "", status: "", message: "" });
 
-    // Setup the form
-    const { form, errors, enhance, submitting, delayed } = superForm(data.form, {
-        onUpdated: ({ form }) => {
-            if (form.data.success) {
-                toast.success(form.data.message || "Device updated successfully");
-                // Exit edit mode after successful update
-                isEditMode.set(false);
-            }
-        },
-        resetForm: false,
-        taintedMessage: null
-    });
-
-    // Handle API key generation using a form submission
+    // Setup the form for API key generation
     const { form: apiKeyForm, enhance: apiKeyEnhance, submitting: apiKeySubmitting } = superForm(data.form, {
+        id: 'api-key-form', // Add a unique ID to avoid duplicate form ID errors
         resetForm: false,
         taintedMessage: null,
         onSubmit: ({ action }) => {
@@ -88,6 +65,8 @@
             toast.error('An error occurred while generating API key');
         }
     });
+
+    
 
     // Format connection status
     function getConnectionStatusBadge(connected: boolean) {
@@ -176,56 +155,25 @@
         }
     }
 
-    // Toggle edit mode
-    function toggleEditMode() {
-        isEditMode.update(value => !value);
+    // Navigate to edit page
+    function navigateToEdit() {
+        goto(`/admin/iot/devices/${device.id}/edit`);
     }
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
-    <div class="flex justify-between items-center mb-6">
-        <div class="flex items-center gap-3">
-            <h1 class="text-2xl font-bold tracking-tight">{title}</h1>
-            {#if !$isEditMode}
-                <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm"
-                    on:click={toggleEditMode}
-                    class="h-8"
-                >
-                    <Edit class="h-3.5 w-3.5" />
-                </Button>
-            {/if}
-        </div>
-        
-        {#if $isEditMode}
-            <!-- Edit mode actions -->
-            <div class="flex items-center space-x-2">
-                <Button 
-                    type="submit" 
-                    form="device-edit-form"
-                    disabled={$submitting}
-                    variant="default"
-                >
-                    <Save class="mr-2 h-4 w-4" />
-                    {$submitting ? 'Saving...' : 'Save Changes'}
-                </Button>
-                <Button 
-                    type="button" 
-                    variant="outline" 
-                    on:click={toggleEditMode}
-                >
-                    <X class="mr-2 h-4 w-4" />
-                    Cancel
-                </Button>
-            </div>
-        {/if}
-    </div>
+    <PageHeader title={title}>
+        <svelte:fragment slot="action">
+            <ActionButton
+                label="Edit"
+                icon={Edit}
+                onClick={navigateToEdit}
+            />
+        </svelte:fragment>
+    </PageHeader>
 
     <PageContent>
-        <!-- Device Action Buttons (only in view mode) -->
-        {#if !$isEditMode}
+        <!-- Device Action Buttons -->
             <Card.Root class="mb-6">
                 <Card.Header class="pb-3">
                     <Card.Title class="flex items-center">
@@ -326,65 +274,13 @@
                     {/if}
                 </Card.Content>
             </Card.Root>
-        {/if}
 
         <div class="space-y-6">
             <!-- Device Info Card -->
             <FormCard
                 title="Device Information"
-                description={$isEditMode ? "Edit basic details for this IoT device" : "Basic details about this device"}
-                loading={$submitting}
-                delayed={$delayed}
+                description="Basic details about this device"
             >
-                {#if $isEditMode}
-                    <!-- Edit Mode: Form with editable fields -->
-                    <FormContainer id="device-edit-form" {enhance} action="?/save">
-                        <!-- Editable fields -->
-                        <FormRow columns={2}>
-                            <!-- Name -->
-                            <FormField
-                                label="Device Name"
-                                required={true}
-                                error={$errors.name}
-                            >
-                                <Input
-                                    name="name"
-                                    placeholder="Enter device name"
-                                    bind:value={$form.name}
-                                />
-                            </FormField>
-
-                            <!-- Status -->
-                            <FormField
-                                label="Status"
-                                required={true}
-                                error={$errors.status}
-                            >
-                                <EnhancedSelect
-                                    name="status"
-                                    options={DEVICE_STATUSES}
-                                    bind:value={$form.status}
-                                />
-                            </FormField>
-                        </FormRow>
-
-                        <!-- Description -->
-                        <FormField
-                            label="Description"
-                            error={$errors.description}
-                        >
-                            <Textarea
-                                name="description"
-                                placeholder="Enter device description"
-                                bind:value={$form.description}
-                                rows={3}
-                            />
-                        </FormField>
-
-                        <!-- Hidden ID field -->
-                        <input type="hidden" name="id" bind:value={$form.id} />
-                    </FormContainer>
-                {:else}
                     <!-- View Mode: Read-only display -->
                     <div class="space-y-6">
                         <!-- Basic Info -->
@@ -414,7 +310,6 @@
                             <div class="text-sm">{device.description || '—'}</div>
                         </div>
                     </div>
-                {/if}
 
                 <svelte:fragment slot="footer">
                     {#if device}
@@ -504,7 +399,7 @@
                                 <Key class="mr-1.5 h-3.5 w-3.5" />
                                 API Key
                             </div>
-                            <form action="?/generateApiKey" method="POST" use:apiKeyEnhance>
+                            <form id="api-key-form" action="?/generateApiKey" method="POST" use:apiKeyEnhance>
                                 <Button 
                                     type="submit" 
                                     variant="outline" 
@@ -518,23 +413,12 @@
                             </form>
                         </div>
                         
-                        {#if device.apiKey}
-                            <div class="font-mono text-xs bg-muted p-2 rounded border break-all">
-                                {device.apiKey}
-                            </div>
-                            <div class="text-xs text-muted-foreground mt-1">
-                                {#if device.apiKeyCreatedAt}
-                                    Created <RelativeDate date={device.apiKeyCreatedAt} />
-                                {/if}
-                                {#if device.apiKeyRotatedAt && device.apiKeyRotatedAt !== device.apiKeyCreatedAt}
-                                    • Rotated <RelativeDate date={device.apiKeyRotatedAt} />
-                                {/if}
-                            </div>
-                        {:else}
-                            <div class="text-sm text-muted-foreground italic">
-                                No API key has been generated for this device
-                            </div>
-                        {/if}
+                        <SecureKeyDisplay 
+                            apiKey={device.apiKey || ""}
+                            createdAt={device.apiKeyCreatedAt}
+                            rotatedAt={device.apiKeyRotatedAt}
+                            loading={$apiKeySubmitting}
+                        />
                     </div>
                 </Card.Content>
             </Card.Root>

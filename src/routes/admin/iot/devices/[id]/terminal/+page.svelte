@@ -139,7 +139,13 @@
 	onDestroy(() => {
 		// Clean up any connections if needed
 		if (connectionStatus === 'connected') {
-			disconnect();
+			// Change connection status to disconnected
+			connectionStatus = 'disconnected';
+			
+			// Clean up any event listeners
+			if (browser) {
+				window.removeEventListener('resize', () => {});
+			}
 		}
 	});
 </script>

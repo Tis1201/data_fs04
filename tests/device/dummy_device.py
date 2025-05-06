@@ -285,6 +285,25 @@ class DummyDevice:
                         f.write(f"Timestamp: {datetime.now().isoformat()}\n")
                     
                     print(f"Device information saved to workings/deviceId.txt")
+                    
+                    # Update device properties with the new credentials
+                    self.device_id = response_data['deviceId']
+                    self.api_key = response_data['deviceApiKey']
+                    self.registered = True
+                    
+                    # Update headers for authenticated connection
+                    self.headers = {
+                        'X-API-KEY': self.api_key,
+                        'Accept': 'text/event-stream',
+                        'Cache-Control': 'no-cache',
+                        'Content-Type': 'application/json'
+                    }
+                    
+                    print("Registration complete. Disconnecting current SSE connection...")
+                    print("Device will reconnect in listen mode in 2 seconds...")
+                    
+                    # Signal to the main loop that we should disconnect and reconnect
+                    self.should_reconnect = True
             except requests.exceptions.RequestException as e:
                 print(f"Failed to send device info: {e}")
             
