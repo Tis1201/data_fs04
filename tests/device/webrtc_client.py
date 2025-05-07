@@ -174,7 +174,7 @@ class WebRTCClient:
                 offer_msg['scope'] = f"connection:{message['senderConnectionId']}"
             
             # Send the offer through the device
-            await self.device.send_message(offer_msg)
+            self.device.send_message(offer_msg)
             logger.info("Sent WebRTC offer in response to connect request")
             
         except Exception as e:
@@ -223,7 +223,7 @@ class WebRTCClient:
             }
             
             # Send through the device
-            await self.device.send_message(candidate_msg)
+            self.device.send_message(candidate_msg)
             logger.debug(f"Sent ICE candidate: {event.candidate.candidate[:30]}...")
             
         except Exception as e:
