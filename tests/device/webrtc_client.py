@@ -121,6 +121,11 @@ class WebRTCClient:
     async def handle_answer(self, message):
         """Handle an incoming WebRTC answer."""
         try:
+            # First check if we have a valid peer connection
+            if not self.pc:
+                logger.error("No peer connection available")
+                return
+                
             payload = message.get('payload', {})
             sdp = payload.get('sdp')
             
@@ -129,39 +134,70 @@ class WebRTCClient:
                 return
                 
             answer = RTCSessionDescription(sdp=sdp, type='answer')
-            await self.pc.setRemoteDescription(answer)
+            
+            # Create a task for setting remote description
+            task = asyncio.create_task(self.pc.setRemoteDescription(answer))
+            await task
+            
             logger.info("Set remote description from answer")
             
+            # If we have a data channel, send a test message
+            if self.dc and self.dc.readyState == "open":
+                test_message = {
+                    "text": "Hello from device!",
+                    "timestamp": datetime.now().isoformat()
+                }
+                await self.send_data(test_message)
+                
         except Exception as e:
             logger.error(f"Error handling answer: {str(e)}")
+            logger.exception("Detailed error trace:")
     
     async def handle_ice_candidate(self, message):
         """Handle an incoming ICE candidate."""
         try:
-            payload = message.get('payload', {})
-            candidate_data = payload.get('candidate', {})
-            
             # Skip if this is our own message
-            msg_id = payload.get('_clientMessageId')
-            if msg_id and msg_id in self.sent_message_ids:
+            msg_id = message.get('payload', {}).get('_clientMessageId')
+            if msg_id in self.sent_message_ids:
                 logger.debug(f"Skipping our own ICE candidate: {msg_id}")
                 return
-                
-            if not candidate_data:
-                logger.warning("No candidate data in message")
+            
+            payload = message.get('payload', {})
+            candidate_info = payload.get('candidate')
+            
+            if not candidate_info:
+                logger.error("No candidate info in message")
                 return
                 
-            candidate = RTCIceCandidate(
-                candidate=candidate_data.get('candidate', ''),
-                sdpMid=candidate_data.get('sdpMid'),
-                sdpMLineIndex=candidate_data.get('sdpMLineIndex')
-            )
+            # Parse the candidate string
+            candidate_str = candidate_info.get('candidate', '')
+            parts = candidate_str.split()
             
-            await self.pc.addIceCandidate(candidate)
-            logger.info("Added remote ICE candidate")
+            if len(parts) >= 8 and parts[0].startswith('candidate:'):
+                foundation = parts[0].split(':')[1]
+                # Create candidate with proper parameters
+                candidate = RTCIceCandidate(
+                    component=int(parts[1]),
+                    foundation=foundation,
+                    ip=parts[4],
+                    port=int(parts[5]),
+                    priority=int(parts[3]),
+                    protocol=parts[2],
+                    type=parts[7],
+                    sdpMid=candidate_info.get('sdpMid'),
+                    sdpMLineIndex=candidate_info.get('sdpMLineIndex')
+                )
+                
+                # Create a task for adding the candidate
+                task = asyncio.create_task(self.pc.addIceCandidate(candidate))
+                await task
+                logger.debug(f"Added ICE candidate: {candidate_str[:30]}...")
+            else:
+                logger.error(f"Invalid ICE candidate format: {candidate_str}")
             
         except Exception as e:
             logger.error(f"Error handling ICE candidate: {str(e)}")
+            logger.exception("Detailed error trace:")
     
     async def handle_connect(self, message):
         """Handle a WebRTC connect request."""

@@ -180,39 +180,89 @@ class DummyDevice:
         
 
 
-    def handle_message(self, message):
+    async def handle_message(self, message):
         """Handle incoming messages"""
-        print(f"Received message: {message.get('payload', {}).get('action')}")
-        print(f"{json.dumps(message, indent=2)}")
-
-        payload = message.get('payload', {})
-        message_type = payload.get('type', '')
-        
-        # Handle different WebRTC message types
-
-        
-
-        if message_type.startswith('webrtc:'):
-            # Initialize WebRTC client if not already done
-            if not hasattr(self, 'webrtc_client'):
-                from webrtc_client import WebRTCClient
-                self.webrtc_client = WebRTCClient(self)
-                print("WebRTC client initialized")
+        try:
+            print(f"Received message: {message.get('type')}")
+            print(f"{json.dumps(message, indent=2)}")
             
-            # Handle specific WebRTC message types
-            if message_type == 'webrtc:connect':
-                asyncio.run(self.webrtc_client.handle_connect(message))
-            elif message_type == 'webrtc:answer':
-                asyncio.run(self.webrtc_client.handle_answer(message))
-            elif message_type == 'webrtc:candidate':
-                asyncio.run(self.webrtc_client.handle_ice_candidate(message))
-            else:
-                print(f"Unhandled WebRTC message type: {message_type}")
+            # Get message type and action
+            payload = message.get('payload', {})
+            action = payload.get('action')
+            msg_type = payload.get('type')
             
+            if action == 'message' and msg_type == 'webrtc:connect':
+                # Initialize WebRTC client if not already done
+                if not hasattr(self, 'webrtc_client'):
+                    from webrtc_client import WebRTCClient
+                    self.webrtc_client = WebRTCClient(self)
+                    print("WebRTC client initialized")
+                
+                # Handle the WebRTC connect request
+                await self.webrtc_client.handle_connect(message)
+                
+            elif action == 'message' and msg_type == 'webrtc:answer':
+                if hasattr(self, 'webrtc_client'):
+                    await self.webrtc_client.handle_answer(message)
+                else:
+                    print("No WebRTC client available to handle answer")
+                    
+            elif action == 'message' and msg_type == 'webrtc:ice-candidate':
+                if hasattr(self, 'webrtc_client'):
+                    await self.webrtc_client.handle_ice_candidate(message)
+                else:
+                    print("No WebRTC client available to handle ICE candidate")
+                    
+        except Exception as e:
+            print(f"Error processing message: {str(e)}")
 
 
+    async def process_message(self, msg):
+        """Process a single SSE message"""
+        if not hasattr(msg, 'data') or not msg.data:
+            print("No data in message")
+            return
 
-    def connect(self):
+        try:
+            data = json.loads(msg.data)
+            if msg.event == 'message':
+                action = data.get('payload', {}).get('action')
+                
+                # Registration confirmation in claim mode
+                if not self.registered and action == 'registered':
+                    print(f"Data: {json.dumps(data, indent=2)}")
+                    self.id = data.get('payload', {}).get('id')
+                    self.senderId = data.get('senderId')
+                    self.senderConnectionId = data.get('senderConnectionId')
+                    self.senderConnectionProtocol = data.get('senderConnectionProtocol')
+                    print(f"Sender connection ID: {self.senderConnectionId}")
+                    print(f"Sender connection protocol: {self.senderConnectionProtocol}")
+                    self.send_device_info()
+                
+                # Connection confirmation in listen mode
+                elif self.registered and action == 'connected':
+                    print(f"Successfully connected to listen endpoint")
+                    print(f"Connection ID: {data.get('connectionId')}")
+                    print(f"Device ID: {data.get('deviceId')}")
+                
+                elif self.registered and action == 'message':
+                    await self.handle_message(data)
+                
+                # Handle commands in listen mode
+                elif self.registered and action not in ['ping', 'connected']:
+                    print(f"Received command: {action}")
+                    print(f"{json.dumps(data, indent=2)}")
+                    print(f"Command data: {json.dumps(data.get('payload', {}), indent=2)}")
+
+            if msg.event == 'message' and data.get('payload', {}).get('action') == 'ping':
+                print(f"Ping received from server {data.get('payload', {}).get('deviceId')}")
+                
+        except json.JSONDecodeError:
+            print(f"Data (raw): {msg.data}")
+        except Exception as e:
+            print(f"Error processing message: {str(e)}")
+            
+    async def connect(self):
         """Connect to the appropriate endpoint based on device state"""
         if self.registered:
             url = self.listen_endpoint
@@ -221,6 +271,7 @@ class DummyDevice:
             url = f"{self.register_endpoint}?pin={self.pin}"
             print(f"Connecting to registration endpoint: {url}")
 
+        session = None
         try:
             session = requests.Session()
             session.headers.update(self.headers)
@@ -229,71 +280,16 @@ class DummyDevice:
             print("SSE client created, waiting for events...")
 
             for msg in sse_client.events():
-                try:
-                    print(f"\n--- New Event ---")
-                    # print(f"Event: {msg.event}")
-
-                    if hasattr(msg, 'data') and msg.data:
-                        try:
-                            data = json.loads(msg.data)
-                            # print(f"Data: {json.dumps(data, indent=2)}")
-
-                            # Handle different message types based on device state
-                            if msg.event == 'message':
-                                action = data.get('payload', {}).get('action')
-                                
-                                # Registration confirmation in claim mode
-                                if not self.registered and action == 'registered':
-                                    print(f"Data: {json.dumps(data, indent=2)}")
-
-                                    self.id = data.get('payload', {}).get('id')
-                                    self.senderId = data.get('senderId')
-                                    self.senderConnectionId = data.get('senderConnectionId')
-                                    self.senderConnectionProtocol = data.get('senderConnectionProtocol')
-
-                                    print(f"Sender connection ID: {self.senderConnectionId}")
-                                    print(f"Sender connection protocol: {self.senderConnectionProtocol}")
-                                    
-                                    # Send device info when registration is confirmed
-                                    self.send_device_info()
-                                
-                                # Connection confirmation in listen mode
-                                elif self.registered and action == 'connected':
-                                    print(f"Successfully connected to listen endpoint")
-                                    print(f"Connection ID: {data.get('connectionId')}")
-                                    print(f"Device ID: {data.get('deviceId')}")
-                                
-                                elif self.registered and action == 'message':
-                                    
-                                    self.handle_message(data)
-                                
-                                # Handle commands in listen mode
-                                elif self.registered and action not in ['ping', 'connected']:
-                                    print(f"Received command: {action}")
-                                    print(f"{json.dumps(data, indent=2)}")
-                                    print(f"Command data: {json.dumps(data.get('payload', {}), indent=2)}")
-                                    # Here you would implement command handling logic
-                            if msg.event == 'message' and data.get('payload', {}).get('action') == 'ping':
-                                print(f"Ping received from server {data.get('payload', {}).get('deviceId')}")
-                             
-
-                        except json.JSONDecodeError:
-                            print(f"Data (raw): {msg.data}")
-                    else:
-                        print("No data in message")
-
-                    time.sleep(0.1)
-
-                except Exception as e:
-                    print(f"Error processing message: {str(e)}")
-                    continue
+                print(f"\n--- New Event ---")
+                await self.process_message(msg)
+                await asyncio.sleep(0.1)
 
         except KeyboardInterrupt:
             print("\nSSE connection closed by user")
         except Exception as e:
             print(f"Error: {str(e)}")
         finally:
-            if 'session' in locals():
+            if session:
                 session.close()
             print("Test completed")
 
@@ -409,4 +405,8 @@ if __name__ == "__main__":
         }
         print(f"Generated PIN: {dummy_device.pin}")
     
-    dummy_device.connect()
+    # Run the async main
+    try:
+        asyncio.run(dummy_device.connect())
+    except KeyboardInterrupt:
+        print("\nDevice stopped by user")
