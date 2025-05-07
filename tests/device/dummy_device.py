@@ -2,6 +2,7 @@ from textwrap import indent
 import requests
 import json
 import time
+import asyncio
 from sseclient import SSEClient
 import random
 import string
@@ -144,6 +145,73 @@ class DummyDevice:
             print(f"Error loading device credentials: {e}")
             return False
 
+    async def handle_webrtc_connect(self, message):
+        """Handle webrtc connect message"""
+        print(f"Received webrtc connect message: {message.get('payload', {}).get('action')}")
+        print(f"{json.dumps(message, indent=2)}")
+
+        # Initialize WebRTC client if not already done
+        if not hasattr(self, 'webrtc_client'):
+            from webrtc_client import WebRTCClient
+            self.webrtc_client = WebRTCClient(self)
+            print("WebRTC client initialized")
+
+        # Handle the WebRTC connect request
+        await self.webrtc_client.handle_connect(message)
+
+
+    def send_message(self, message):
+        """Send a message to the server"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/device/message",
+                json=message,
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-API-Key': self.api_key
+                }
+            )
+            response.raise_for_status()
+            print("Message sent successfully")
+            return response.json()
+        except Exception as e:
+            print(f"Failed to send message: {e}")
+            return None
+        
+
+
+    def handle_message(self, message):
+        """Handle incoming messages"""
+        print(f"Received message: {message.get('payload', {}).get('action')}")
+        print(f"{json.dumps(message, indent=2)}")
+
+        payload = message.get('payload', {})
+        message_type = payload.get('type', '')
+        
+        # Handle different WebRTC message types
+
+        
+
+        if message_type.startswith('webrtc:'):
+            # Initialize WebRTC client if not already done
+            if not hasattr(self, 'webrtc_client'):
+                from webrtc_client import WebRTCClient
+                self.webrtc_client = WebRTCClient(self)
+                print("WebRTC client initialized")
+            
+            # Handle specific WebRTC message types
+            if message_type == 'webrtc:connect':
+                asyncio.run(self.webrtc_client.handle_connect(message))
+            elif message_type == 'webrtc:answer':
+                asyncio.run(self.webrtc_client.handle_answer(message))
+            elif message_type == 'webrtc:candidate':
+                asyncio.run(self.webrtc_client.handle_ice_candidate(message))
+            else:
+                print(f"Unhandled WebRTC message type: {message_type}")
+            
+
+
+
     def connect(self):
         """Connect to the appropriate endpoint based on device state"""
         if self.registered:
@@ -194,6 +262,10 @@ class DummyDevice:
                                     print(f"Successfully connected to listen endpoint")
                                     print(f"Connection ID: {data.get('connectionId')}")
                                     print(f"Device ID: {data.get('deviceId')}")
+                                
+                                elif self.registered and action == 'message':
+                                    
+                                    self.handle_message(data)
                                 
                                 # Handle commands in listen mode
                                 elif self.registered and action not in ['ping', 'connected']:
