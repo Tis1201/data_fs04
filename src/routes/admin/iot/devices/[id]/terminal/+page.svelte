@@ -140,6 +140,101 @@
 		}
 	}
 	
+	// WebRTC peer connection and data channel
+	let peerConnection: RTCPeerConnection | null = null;
+	let dataChannel: RTCDataChannel | null = null;
+	
+	// Initialize WebRTC peer connection
+	function initializePeerConnection() {
+		if (peerConnection) {
+			// Close existing connection if it exists
+			peerConnection.close();
+		}
+		
+		console.log("Initializing WebRTC peer connection");
+		peerConnection = new RTCPeerConnection({
+			iceServers: [
+				{ urls: 'stun:stun.l.google.com:19302' }
+			]
+		});
+		
+		// Set up ICE candidate handling
+		peerConnection.onicecandidate = (event) => {
+			if (event.candidate) {
+				console.log(`[Terminal WebRTC] Local ICE candidate: ${event.candidate.candidate}`);
+				
+				// Send ICE candidate to the device
+				const iceCandidateMessage = {
+					type: "device",
+					scope: `subscription:device:${deviceId}`,
+					payload: {
+						action: "message",
+						type: "webrtc:ice-candidate",
+						deviceId: deviceId,
+						candidate: {
+							candidate: event.candidate.candidate,
+							sdpMid: event.candidate.sdpMid,
+							sdpMLineIndex: event.candidate.sdpMLineIndex
+						},
+						_clientMessageId: `ice-${new Date().toISOString()}-${Math.random().toString(36).substring(2, 10)}`
+					}
+				};
+				
+				socketStore.send(iceCandidateMessage);
+			} else {
+				console.log('[Terminal WebRTC] ICE candidate gathering complete');
+			}
+		};
+		
+		// Monitor connection state changes
+		peerConnection.oniceconnectionstatechange = () => {
+			const iceState = peerConnection?.iceConnectionState;
+			console.log(`[Terminal WebRTC] ICE connection state changed to: ${iceState}`);
+			
+			if (iceState === 'connected' || iceState === 'completed') {
+				console.log('[Terminal WebRTC] Connection established');
+				if (terminalInstance) {
+					terminalInstance.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+				}
+			} else if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed') {
+				console.error('[Terminal WebRTC] Connection failed or closed');
+				if (terminalInstance) {
+					terminalInstance.write("\r\n\x1b[1;31mWebRTC connection failed or closed.\x1b[0m\r\n");
+				}
+			}
+		};
+		
+		// Handle incoming data channels
+		peerConnection.ondatachannel = (event) => {
+			console.log('[Terminal WebRTC] Data channel received:', event.channel.label);
+			dataChannel = event.channel;
+			
+			// Set up data channel event handlers
+			dataChannel.onmessage = (msgEvent) => {
+				console.log('[Terminal WebRTC] Data channel message received:', msgEvent.data);
+				if (terminalInstance) {
+					terminalInstance.write(`\r\n[WebRTC] ${msgEvent.data}\r\n`);
+				}
+			};
+			
+			dataChannel.onopen = () => {
+				console.log('[Terminal WebRTC] Data channel opened');
+				if (terminalInstance) {
+					terminalInstance.write("\r\n\x1b[1;32mWebRTC data channel opened!\x1b[0m\r\n");
+				}
+			};
+			
+			dataChannel.onclose = () => {
+				console.log('[Terminal WebRTC] Data channel closed');
+				if (terminalInstance) {
+					terminalInstance.write("\r\n\x1b[1;31mWebRTC data channel closed.\x1b[0m\r\n");
+				}
+			};
+		};
+		
+		return peerConnection;
+	}
+
 	// Handle WebRTC messages from the deviceStore
 	function handleWebRTCMessage(message) {
 		if (!message) return;
@@ -151,20 +246,122 @@
 		
 		console.log("Processing WebRTC message:", message);
 		
-		// Here you would handle different WebRTC message types
-		// For now, we're just logging them for debugging
+		// Handle different WebRTC message types
 		switch (message.type) {
 			case "webrtc:offer":
 				console.log("Received WebRTC offer:", message);
-				// In a real implementation, you would process the offer
+				
+				// Initialize peer connection if it doesn't exist
+				if (!peerConnection) {
+					peerConnection = initializePeerConnection();
+				}
+				
+				// Ensure we have a valid SDP
+				if (!message.sdp) {
+					console.error("Missing SDP in offer message");
+					return;
+				}
+				
+				// Create a proper RTCSessionDescription object
+				const offerDesc = new RTCSessionDescription({
+					type: 'offer',
+					sdp: message.sdp
+				});
+				
+				console.log('[Terminal WebRTC] Setting remote description for offer');
+				peerConnection.setRemoteDescription(offerDesc)
+					.then(() => {
+						console.log('[Terminal WebRTC] Creating answer...');
+						return peerConnection.createAnswer();
+					})
+					.then(answer => {
+						console.log('[Terminal WebRTC] Setting local description for answer');
+						return peerConnection.setLocalDescription(answer);
+					})
+					.then(() => {
+						console.log('[Terminal WebRTC] Sending answer to device');
+						
+						// Create a proper WebRTC answer message
+						const answerMessage = {
+							type: "device",
+							scope: `subscription:device:${deviceId}`,
+							payload: {
+								action: "message",
+								type: "webrtc:answer",
+								deviceId: deviceId,
+								sdp: peerConnection.localDescription.sdp,
+								_clientMessageId: `answer-${new Date().toISOString()}-${Math.random().toString(36).substring(2, 10)}`
+							}
+						};
+						
+						// Send the answer message via socketStore
+						console.log("Sending WebRTC answer:", answerMessage);
+						socketStore.send(answerMessage);
+					})
+					.catch(error => {
+						console.error('[Terminal WebRTC] Error handling offer:', error);
+					});
 				break;
 				
 			case "webrtc:answer":
 				console.log("Received WebRTC answer:", message);
+				
+				// Ensure we have a peer connection and valid SDP
+				if (!peerConnection) {
+					console.error("No peer connection available for answer");
+					return;
+				}
+				
+				if (!message.sdp) {
+					console.error("Missing SDP in answer message");
+					return;
+				}
+				
+				// Create a proper RTCSessionDescription object
+				const answerDesc = new RTCSessionDescription({
+					type: 'answer',
+					sdp: message.sdp
+				});
+				
+				console.log('[Terminal WebRTC] Setting remote description for answer');
+				peerConnection.setRemoteDescription(answerDesc)
+					.then(() => {
+						console.log('[Terminal WebRTC] Remote description set successfully');
+					})
+					.catch(error => {
+						console.error('[Terminal WebRTC] Error setting remote description:', error);
+					});
 				break;
 				
 			case "webrtc:ice-candidate":
 				console.log("Received WebRTC ICE candidate:", message);
+				
+				// Ensure we have a peer connection and valid candidate
+				if (!peerConnection) {
+					console.error("No peer connection available for ICE candidate");
+					return;
+				}
+				
+				if (!message.candidate) {
+					console.error("Missing candidate data in ICE candidate message");
+					return;
+				}
+				
+				// Create a proper RTCIceCandidate object
+				const iceCandidate = new RTCIceCandidate({
+					candidate: message.candidate.candidate,
+					sdpMid: message.candidate.sdpMid,
+					sdpMLineIndex: message.candidate.sdpMLineIndex
+				});
+				
+				console.log('[Terminal WebRTC] Adding ICE candidate');
+				peerConnection.addIceCandidate(iceCandidate)
+					.then(() => {
+						console.log('[Terminal WebRTC] ICE candidate added successfully');
+					})
+					.catch(error => {
+						console.error('[Terminal WebRTC] Error adding ICE candidate:', error);
+					});
 				break;
 		}
 	}
@@ -202,11 +399,26 @@
 		});
 	});
 
-	// Clean up subscription on component destroy
+	// Clean up subscription and WebRTC connection on component destroy
 	onDestroy(() => {
+		// Unsubscribe from device store
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
 		}
+		
+		// Close data channel if it exists
+		if (dataChannel) {
+			dataChannel.close();
+			dataChannel = null;
+		}
+		
+		// Close peer connection if it exists
+		if (peerConnection) {
+			peerConnection.close();
+			peerConnection = null;
+		}
+		
+		console.log('[Terminal WebRTC] Cleaned up WebRTC resources');
 	});
 
 	// Terminal load event handler
