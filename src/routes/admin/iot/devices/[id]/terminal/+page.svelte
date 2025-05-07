@@ -140,9 +140,39 @@
 		}
 	}
 	
-	// Subscribe to the deviceStore for all device-related events including terminal messages
+	// Handle WebRTC messages from the deviceStore
+	function handleWebRTCMessage(message) {
+		if (!message) return;
+		
+		// Only process messages for this specific device
+		if (message.deviceId && message.deviceId !== deviceId) {
+			return;
+		}
+		
+		console.log("Processing WebRTC message:", message);
+		
+		// Here you would handle different WebRTC message types
+		// For now, we're just logging them for debugging
+		switch (message.type) {
+			case "webrtc:offer":
+				console.log("Received WebRTC offer:", message);
+				// In a real implementation, you would process the offer
+				break;
+				
+			case "webrtc:answer":
+				console.log("Received WebRTC answer:", message);
+				break;
+				
+			case "webrtc:ice-candidate":
+				console.log("Received WebRTC ICE candidate:", message);
+				break;
+		}
+	}
+
+	// Subscribe to the deviceStore for all device-related events
 	let unsubscribeDevice: () => void;
-	let previousLatestMessage: any = null;
+	let previousTerminalMessage: any = null;
+	let previousWebRTCMessage: any = null;
 	
 	onMount(() => {
 		unsubscribeDevice = deviceStore.subscribe(state => {
@@ -154,13 +184,20 @@
 						"\r\n\x1b[1;31mDevice disconnected. Terminal session ended.\x1b[0m\r\n"
 					);
 				}
-				
-				// Process new terminal messages
-				if (state.latestTerminalMessage && 
-				    state.latestTerminalMessage !== previousLatestMessage) {
-					previousLatestMessage = state.latestTerminalMessage;
-					handleTerminalMessage(state.latestTerminalMessage);
-				}
+			}
+			
+			// Process new terminal messages
+			if (state.latestTerminalMessage && 
+			    state.latestTerminalMessage !== previousTerminalMessage) {
+				previousTerminalMessage = state.latestTerminalMessage;
+				handleTerminalMessage(state.latestTerminalMessage);
+			}
+			
+			// Process new WebRTC messages
+			if (state.latestWebRTCMessage && 
+			    state.latestWebRTCMessage !== previousWebRTCMessage) {
+				previousWebRTCMessage = state.latestWebRTCMessage;
+				handleWebRTCMessage(state.latestWebRTCMessage);
 			}
 		});
 	});
