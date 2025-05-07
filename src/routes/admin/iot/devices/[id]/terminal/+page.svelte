@@ -6,8 +6,9 @@
 		Terminal,
 	} from "@battlefieldduck/xterm-svelte";
 	import { page } from "$app/stores";
+	import { deviceStore } from "$lib/stores/device-store";
 	import { socketStore } from "$lib/stores/websocket-store";
-	import { onDestroy } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { ArrowLeft, Terminal as TerminalIcon } from "lucide-svelte";
 	import { Button } from "$lib/components/ui/button";
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
@@ -106,29 +107,69 @@
 		}
 	}
 
-	// Set up WebSocket message handler
-	const unsubscribe = socketStore.on("device", (message) => {
-		if (!terminalInstance) return;
-
-		console.log("Received device message:", message);
-
-		// Handle different message types
-		if (message.type === "terminal-response") {
-			terminalInstance.write(`${message.payload.output}\r\n`);
-		} else if (message.type === "terminal-connected") {
-			terminalInstance.write(
-				"\r\n\x1b[1;32mConnected to device terminal!\x1b[0m\r\n",
-			);
-		} else if (message.type === "terminal-error") {
-			terminalInstance.write(
-				`\r\n\x1b[1;31mError: ${message.payload.error}\x1b[0m\r\n`,
-			);
+	// Handle terminal messages from the deviceStore
+	function handleTerminalMessage(message) {
+		if (!terminalInstance || !message) return;
+		
+		// Only process messages for this specific device
+		if (message.deviceId !== deviceId) {
+			return;
 		}
+		
+		console.log("Processing terminal message:", message);
+		
+		// Handle different terminal message types
+		switch (message.type) {
+			case "terminal-response":
+				if (message.output) {
+					terminalInstance.write(`${message.output}\r\n`);
+				}
+				break;
+				
+			case "terminal-connected":
+				terminalInstance.write(
+					"\r\n\x1b[1;32mConnected to device terminal!\x1b[0m\r\n"
+				);
+				break;
+				
+			case "terminal-error":
+				terminalInstance.write(
+					`\r\n\x1b[1;31mError: ${message.error || 'Unknown error'}\x1b[0m\r\n`
+				);
+				break;
+		}
+	}
+	
+	// Subscribe to the deviceStore for all device-related events including terminal messages
+	let unsubscribeDevice: () => void;
+	let previousLatestMessage: any = null;
+	
+	onMount(() => {
+		unsubscribeDevice = deviceStore.subscribe(state => {
+			// Handle device status changes
+			if (terminalInstance && state.deviceId === deviceId) {
+				// Show disconnection message if device goes offline
+				if (state.status === 'offline') {
+					terminalInstance.write(
+						"\r\n\x1b[1;31mDevice disconnected. Terminal session ended.\x1b[0m\r\n"
+					);
+				}
+				
+				// Process new terminal messages
+				if (state.latestTerminalMessage && 
+				    state.latestTerminalMessage !== previousLatestMessage) {
+					previousLatestMessage = state.latestTerminalMessage;
+					handleTerminalMessage(state.latestTerminalMessage);
+				}
+			}
+		});
 	});
 
 	// Clean up subscription on component destroy
 	onDestroy(() => {
-		unsubscribe();
+		if (unsubscribeDevice) {
+			unsubscribeDevice();
+		}
 	});
 
 	// Terminal load event handler

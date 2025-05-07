@@ -5,13 +5,15 @@ import { socketStore } from './websocket-store';
 interface DeviceMessage {
     type: string;
     payload: {
-        action: 'error' | 'registered' | 'claimed';
+        action: 'error' | 'registered' | 'claimed' | 'message';
         details?: string;
         error?: string;
         id?: string;
         deviceId?: string;
         deviceName?: string;
         success?: boolean;
+        type?: string; // For message types like 'terminal-response', 'terminal-connected', etc.
+        output?: string; // For terminal output
     };
 }
 
@@ -30,6 +32,14 @@ export interface Device {
     claimedBy?: string;
 }
 
+export interface TerminalMessage {
+    type: 'terminal-response' | 'terminal-connected' | 'terminal-error';
+    deviceId: string;
+    output?: string;
+    error?: string;
+    timestamp: string;
+}
+
 export interface DeviceState {
     deviceId: string | null;
     name: string | null;
@@ -37,6 +47,8 @@ export interface DeviceState {
     status: string | null;
     claimStatus: DeviceClaimStatus;
     error: string | null;
+    terminalMessages: TerminalMessage[]; // Store terminal messages
+    latestTerminalMessage: TerminalMessage | null; // Latest terminal message
 }
 
 // Initial state
@@ -46,7 +58,9 @@ const initialState: DeviceState = {
     deviceType: null,
     status: null,
     claimStatus: 'idle',
-    error: null
+    error: null,
+    terminalMessages: [],
+    latestTerminalMessage: null
 };
 
 // Create the store
@@ -61,6 +75,39 @@ function createDeviceStore() {
             if (!message?.payload?.action) return;
             
             switch (message.payload.action) {
+                case 'message': {
+                    // Handle terminal-related messages
+                    if (message.payload.type && message.payload.type.startsWith('terminal-')) {
+                        const terminalMessageType = message.payload.type as 'terminal-response' | 'terminal-connected' | 'terminal-error';
+                        const deviceId = message.payload.deviceId || '';
+                        
+                        // Create a terminal message object
+                        const terminalMessage: TerminalMessage = {
+                            type: terminalMessageType,
+                            deviceId,
+                            output: message.payload.output,
+                            error: message.payload.error,
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        console.log('[DEVICE_STORE] Terminal message received:', terminalMessage);
+                        
+                        // Update the store with the new terminal message
+                        update(state => {
+                            // Only store messages for the current device
+                            if (state.deviceId && state.deviceId === deviceId) {
+                                return {
+                                    ...state,
+                                    terminalMessages: [...state.terminalMessages, terminalMessage],
+                                    latestTerminalMessage: terminalMessage
+                                };
+                            }
+                            return state;
+                        });
+                    }
+                    break;
+                }
+                
                 case 'error': {
                     const errorDetails = message.payload.details || message.payload.error || 'Unknown error';
                     console.log('[DEVICE_STORE] Error received:', errorDetails);
