@@ -157,7 +157,7 @@ class WebRTCClient:
         ))
         
         # Set up event handlers
-        self.pc.on("icecandidate", self._on_ice_candidate)
+        self.pc.on("icecandidate", self._on_ice_candidate_wrapper)
         self.pc.on("connectionstatechange", self._on_connection_state_change)
         self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
         self.pc.on("datachannel", self._on_data_channel)
@@ -245,6 +245,11 @@ class WebRTCClient:
                 logger.debug(f"Skipping our own ICE candidate: {msg_id}")
                 return
             
+            # Skip if we don't have a peer connection
+            if not self.pc:
+                logger.error("No peer connection available for ICE candidate")
+                return
+            
             payload = message.get('payload', {})
             candidate_info = payload.get('candidate')
             
@@ -255,6 +260,24 @@ class WebRTCClient:
             # Parse the candidate string
             candidate_str = candidate_info.get('candidate', '')
             parts = candidate_str.split()
+            
+            # Check current ICE connection state
+            current_ice_state = self.pc.iceConnectionState
+            
+            # If we're already connected or completed, be more selective about adding candidates
+            # if current_ice_state in ['connected', 'completed']:
+            #     # For already connected sessions, only add candidates that might improve the connection
+            #     # This helps prevent unnecessary connection state changes
+            #     candidate_type = parts[7] if len(parts) >= 8 else ''
+            #     candidate_lower = candidate_str.lower()
+                
+            #     # Only add certain types of candidates when already connected
+            #     # Typically relay candidates or srflx (STUN-derived) might be useful even after connection
+            #     if 'relay' in candidate_lower or 'srflx' in candidate_lower or candidate_type == 'relay' or candidate_type == 'srflx':
+            #         logger.info(f"Adding potential improvement candidate despite already being connected: {candidate_type}")
+            #     else:
+            #         logger.info(f"Ignoring redundant ICE candidate as connection is already established: {candidate_type}")
+            #         return  # Skip adding this candidate
             
             if len(parts) >= 8 and parts[0].startswith('candidate:'):
                 foundation = parts[0].split(':')[1]
@@ -328,12 +351,30 @@ class WebRTCClient:
             logger.error(f"Error sending data: {str(e)}")
             return False
     
-    async def _on_ice_candidate(self, event):
+    def _on_ice_candidate_wrapper(self, candidate):
+        """Non-async wrapper for handling ICE candidates"""
+        # In aiortc, the event is directly the candidate, not an event object with a candidate property
+        if candidate:
+            print(f"ICE candidate generated: {candidate.candidate}")
+            # Create a task to handle the ICE candidate asynchronously
+            asyncio.create_task(self._on_ice_candidate(candidate))
+
+    async def _on_ice_candidate(self, candidate):
         """Handle local ICE candidate generation."""
-        if not event.candidate:
+        print(f"Processing ICE candidate: {candidate.candidate}")
+        if not candidate:
             return
             
         try:
+            # Skip sending ICE candidates if we're already connected
+            # This helps prevent connection instability
+            if self.pc and self.pc.iceConnectionState in ['connected', 'completed']:
+                # Only send relay or srflx candidates when already connected
+                candidate_str = candidate.candidate.lower()
+                if not ('relay' in candidate_str or 'srflx' in candidate_str):
+                    logger.info(f"Skipping sending host candidate when already connected")
+                    return
+            
             # Create message ID for deduplication
             message_id = f"ice-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
             self.sent_message_ids.add(message_id)
@@ -344,22 +385,31 @@ class WebRTCClient:
                 "type": "device",
                 "payload": {
                     "action": "message",
-                    "type": "webrtc:candidate",
+                    "type": "webrtc:ice-candidate",
+                    "deviceId": self.device.device_id,  # Make sure to include the device ID
                     "candidate": {
-                        "candidate": event.candidate.candidate,
-                        "sdpMid": event.candidate.sdpMid,
-                        "sdpMLineIndex": event.candidate.sdpMLineIndex,
+                        "candidate": candidate.candidate,
+                        "sdpMid": candidate.sdpMid,
+                        "sdpMLineIndex": candidate.sdpMLineIndex,
+                        "usernameFragment": candidate.usernameFragment
                     },
                     "_clientMessageId": message_id
                 }
             }
             
             # Send through the device
-            self.device.send_message(candidate_msg)
-            logger.info(f"Sent ICE candidate: {event.candidate.candidate[:30]}...")
+            success = self.device.send_message(candidate_msg)
+            
+            print(candidate_msg)
+
+            if success:
+                logger.info(f"Sent ICE candidate: {candidate.candidate[:30]}...")
+            else:
+                logger.error("Failed to send ICE candidate message")
             
         except Exception as e:
             logger.error(f"Error sending ICE candidate: {str(e)}")
+            logger.exception("Detailed error trace:")
     
     def _on_connection_state_change(self):
         """Handle connection state changes."""
