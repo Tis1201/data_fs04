@@ -85,7 +85,7 @@
 
 		// Send the message via WebSocket
 		try {
-			socketStore.send("device", message);
+			socketStore.send(message);
 			terminal.write(`\r\n> ${command}\r\n`);
 		} catch (error) {
 			console.error("Error sending command:", error);
@@ -128,10 +128,6 @@
 		}
 	}
 	
-
-
-
-
 	// Subscribe to the deviceStore for all device-related events
 	let unsubscribeDevice: () => void;
 	let previousTerminalMessage: any = null;

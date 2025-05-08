@@ -112,13 +112,19 @@ export class WebRTCClient {
         if (this.terminalCallback) {
           this.terminalCallback("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
         }
-      } else if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed') {
-        console.error('[Terminal WebRTC] Connection failed or closed');
+      } else if (iceState === 'failed') {
+        // Only treat 'failed' as a definite error, not 'disconnected' or 'closed'
+        console.error('[Terminal WebRTC] Connection failed');
         webrtcStore.setConnected(false);
         if (this.terminalCallback) {
-          this.terminalCallback("\r\n\x1b[1;31mWebRTC connection failed or closed.\x1b[0m\r\n");
+          this.terminalCallback("\r\n\x1b[1;31mWebRTC connection failed.\x1b[0m\r\n");
         }
+      } else if (iceState === 'closed') {
+        // Handle 'closed' state separately - this is a normal state when connection is deliberately closed
+        console.log('[Terminal WebRTC] Connection closed');
+        webrtcStore.setConnected(false);
       }
+      // Note: 'disconnected' is a temporary state and might recover, so we don't treat it as an error
     };
     
     // Handle incoming data channels
