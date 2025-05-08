@@ -26,6 +26,19 @@ class WebRTCClient:
     # Connection states
     CONNECTED_STATES = ['connected', 'completed']
     FAILED_STATES = ['failed', 'closed']
+
+    ###############################################################################
+    #
+    # Convenience Methods
+    #
+    ###############################################################################
+
+    def _generate_message_id(self, prefix="msg"):
+        """Generate a unique message ID for deduplication."""
+        message_id = f"{prefix}-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
+        self.sent_message_ids.add(message_id)
+        return message_id
+
     
     ###############################################################################
     #
@@ -219,7 +232,7 @@ class WebRTCClient:
             iceServers=self.ICE_SERVERS
         ))
         
-        self.pc.on("icecandidate", self._on_ice_candidate_wrapper)
+        self.pc.on("icecandidate", self._on_ice_candidate)
         self.pc.on("connectionstatechange", self._on_connection_state_change)
         self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
         self.pc.on("datachannel", self._on_data_channel)
@@ -234,37 +247,14 @@ class WebRTCClient:
         
         logger.info("WebRTC client initialized")
     
-    
-    def _setup_data_channel_handlers(self, channel):
-        """Set up data channel event handlers."""
-        channel.on("open", self._on_data_channel_open)
-        channel.on("message", self._on_data_channel_message)
-        channel.on("close", self._on_data_channel_close)
-        channel.on("error", self._on_data_channel_error)
-        
-    def _generate_message_id(self, prefix="msg"):
-        """Generate a unique message ID for deduplication."""
-        message_id = f"{prefix}-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
-        self.sent_message_ids.add(message_id)
-        return message_id
-
+    ################################################################################
+    #
+    # Create Offer
+    #
+    ################################################################################
     async def create_offer(self, ice_restart=False):
-        """Create and return a WebRTC offer.
         
-        Args:
-            ice_restart: Whether to restart ICE during offer creation
-        
-        Returns:
-            Dict containing the formatted offer message
-        """
-        if not self.pc:
-            self.initialize()
-        
-        # Create offer with optional ICE restart
-        if ice_restart:
-            offer = await self.pc.createOffer(iceRestart=True)
-        else:
-            offer = await self.pc.createOffer()
+        offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
         
         # Generate message ID and create message
@@ -287,45 +277,28 @@ class WebRTCClient:
     
     
     
-    
-    async def send_data(self, data):
-        """Send data through the data channel.
-        
-        Args:
-            data: The data to send. Can be a string, dict, or list.
-                 Dicts and lists will be converted to JSON strings.
-        
-        Returns:
-            bool: True if the data was sent successfully, False otherwise.
-        """
-        if not self.dc or self.dc.readyState != "open":
-            logger.warning("Data channel not open, queuing message")
-            self.pending_messages.append(data)
-            return False
-            
-        try:
-            # If data is a dict or list, convert it to JSON
-            if isinstance(data, (dict, list)):
-                data = json.dumps(data)
-                
-            # For plain text, we'll just send it directly
-            # The browser side will handle it as a text message
-            logger.info(f"Sending data: {data[:50]}{'...' if len(str(data)) > 50 else ''}")
-            self.dc.send(data)
-            return True
-        except Exception as e:
-            logger.error(f"Error sending data: {str(e)}")
-            return False
-    
-    def _on_ice_candidate_wrapper(self, candidate):
-        """Non-async wrapper for handling ICE candidates"""
-        # In aiortc, the event is directly the candidate, not an event object with a candidate property
-        if candidate:
-            logger.debug(f"Generated local ICE candidate: {candidate.candidate}")
-            # Create a task to handle the ICE candidate asynchronously
-            asyncio.create_task(self._on_ice_candidate(candidate))
-
+    ################################################################################
+    #
+    # [Ice Candidate]
+    #
+    ################################################################################
     async def _on_ice_candidate(self, candidate):
+
+        logger.debug("Entry to _on_ice_candidate")
+        """Handle local ICE candidate generation."""
+        if not candidate:
+            return
+            
+        logger.debug(f"Generated local ICE candidate: {candidate.candidate}")
+        
+        # Skip sending ICE candidates if we're already connected
+        # This helps prevent connection instability
+        if self.pc and self.pc.iceConnectionState in ['connected', 'completed']:
+            # Only send relay or srflx candidates when already connected
+            candidate_str = candidate.candidate.lower()
+            if not ('relay' in candidate_str or 'srflx' in candidate_str):
+                logger.info(f"Skipping sending host candidate when already connected")
+                return
         """Handle local ICE candidate generation."""
         if not candidate:
             return
@@ -372,7 +345,14 @@ class WebRTCClient:
         except Exception as e:
             logger.error(f"Error sending ICE candidate: {str(e)}")
             logger.exception("Detailed error trace:")
+
     
+    
+    ################################################################################
+    #
+    # Connection State
+    #
+    ################################################################################
     def _on_connection_state_change(self):
         """Handle connection state changes."""
         if not self.pc:
@@ -392,8 +372,9 @@ class WebRTCClient:
                 'message': 'Connection established from device',
                 'timestamp': datetime.now().isoformat()
             }
-            if self.dc and self.dc.readyState == "open":
-                asyncio.create_task(self.send_data(hello_msg))
+
+            # if self.dc and self.dc.readyState == "open":
+            #     asyncio.create_task(self.send_data(hello_msg))
                 
             # Start the console input loop
             if self.input_task is None or self.input_task.done():
@@ -419,37 +400,36 @@ class WebRTCClient:
             if self.input_task and not self.input_task.done():
                 self.input_task.cancel()
     
+    ################################################################################
+    #
+    # On ICE Connection State
+    #
+    ################################################################################
     def _on_ice_connection_state_change(self):
         """Handle ICE connection state changes."""
         if not self.pc:
             return
 
         state = self.pc.iceConnectionState
-        logger.info(f"ICE connection state changed: {state}")
-        
-        if state == "connected" or state == "completed":
-            # Reset reconnection attempts on successful connection
-            self.reconnect_attempts = 0
-            
-            # Send any pending messages that may have been queued during reconnection
-            if self.pending_messages and self.dc and self.dc.readyState == "open":
-                logger.info(f"Sending {len(self.pending_messages)} pending messages after reconnection")
-                for msg in self.pending_messages:
-                    asyncio.create_task(self.send_data(msg))
-                self.pending_messages.clear()
-                
-        elif state == "disconnected":
-            logger.warning("ICE connection disconnected - waiting for automatic recovery")
-            # Schedule a delayed restart if we stay disconnected
-            if not hasattr(self, 'ice_restart_timer') or self.ice_restart_timer is None:
-                self.ice_restart_timer = asyncio.create_task(self._delayed_ice_restart())
-            
-        elif state == "failed":
-            logger.error("ICE connection failed - attempting ICE restart")
-            # Try to restart ICE immediately
-            if self.pc:
-                asyncio.create_task(self._restart_ice())
+        # logger.info(f"ICE connection state changed: {state}")
     
+    ################################################################################
+    #
+    # [Data Channel] Setup Handlers
+    #
+    ################################################################################
+    def _setup_data_channel_handlers(self, channel):
+        """Set up data channel event handlers."""
+        channel.on("open", self._on_data_channel_open)
+        channel.on("message", self._on_data_channel_message)
+        channel.on("close", self._on_data_channel_close)
+        channel.on("error", self._on_data_channel_error)
+
+    ################################################################################
+    #
+    # [Data Channel] Initiated by Remote Peer
+    #
+    ################################################################################
     def _on_data_channel(self, channel):
         """Handle incoming data channel."""
         logger.info(f"Received data channel: {channel.label}")
@@ -461,6 +441,11 @@ class WebRTCClient:
             # Log current state
             logger.info(f"Data channel state: {self.dc.readyState}")
     
+    ################################################################################
+    #
+    # [Data Channel] Open
+    #
+    ################################################################################
     def _on_data_channel_open(self):
         """Handle data channel open event."""
         logger.info("Data channel opened")
@@ -468,19 +453,74 @@ class WebRTCClient:
         # Log data channel info
         if self.dc:
             logger.info(f"Data channel info - Label: {self.dc.label}, State: {self.dc.readyState}, Buffered: {self.dc.bufferedAmount}")
-        
-        # Send any pending messages
-        if self.pending_messages:
-            logger.info(f"Sending {len(self.pending_messages)} pending messages")
-            for msg in self.pending_messages:
-                asyncio.create_task(self.send_data(msg))
-            self.pending_messages.clear()
             
         # Start the console input task
         if self.input_task:
             self.input_task.cancel()
         self.input_task = asyncio.create_task(self._console_input_loop())
     
+    ################################################################################
+    #
+    # [Data Channel] Close
+    #
+    ################################################################################
+    def _on_data_channel_close(self):
+        """Handle data channel close event."""
+        logger.info("Data channel closed")
+        if self.dc:
+            logger.info(f"Data channel final state - Label: {self.dc.label}, State: {self.dc.readyState}")
+            self.dc = None
+
+    ################################################################################
+    #
+    # [Data Channel] Error
+    #
+    ################################################################################
+    def _on_data_channel_error(self, error):
+        """Handle data channel error event."""
+        logger.error(f"Data channel error: {error}")
+        if self.dc:
+            logger.error(f"Data channel error state - Label: {self.dc.label}, State: {self.dc.readyState}")
+    
+    ################################################################################
+    #
+    # [Data Channel] Send over Data Channel
+    #
+    ################################################################################
+    async def send_data(self, data):
+        """Send data through the data channel.
+        
+        Args:
+            data: The data to send. Can be a string, dict, or list.
+                 Dicts and lists will be converted to JSON strings.
+        
+        Returns:
+            bool: True if the data was sent successfully, False otherwise.
+        """
+        if not self.dc or self.dc.readyState != "open":
+            logger.warning("Data channel not open, queuing message")
+            self.pending_messages.append(data)
+            return False
+            
+        try:
+            # If data is a dict or list, convert it to JSON
+            if isinstance(data, (dict, list)):
+                data = json.dumps(data)
+                
+            # For plain text, we'll just send it directly
+            # The browser side will handle it as a text message
+            logger.info(f"Sending data: {data[:50]}{'...' if len(str(data)) > 50 else ''}")
+            self.dc.send(data)
+            return True
+        except Exception as e:
+            logger.error(f"Error sending data: {str(e)}")
+            return False
+    
+    ################################################################################
+    #
+    # [Data Channel] On Data Channel
+    #
+    ################################################################################
     def _on_data_channel_message(self, message):
         """Handle incoming data channel message."""
         logger.info(f"Received data channel message: {message}")
@@ -507,6 +547,11 @@ class WebRTCClient:
         except Exception as e:
             logger.error(f"Error processing data channel message: {str(e)}")
     
+    ################################################################################
+    #
+    # [Message] Ping
+    #
+    ################################################################################
     def _handle_ping_message(self, msg_data):
         """Handle ping messages with pong response."""
         pong_msg = {
@@ -517,6 +562,11 @@ class WebRTCClient:
         logger.info("Received ping, sending pong response")
         asyncio.create_task(self.send_data(pong_msg))
     
+    ################################################################################
+    #
+    # [Message] Close
+    #
+    ################################################################################    
     def _handle_close_message(self, msg_data):
         """Handle close messages with acknowledgment."""
         logger.info("Received close signal from browser")
@@ -526,18 +576,6 @@ class WebRTCClient:
         }
         asyncio.create_task(self.send_data(ack_msg))
     
-    def _on_data_channel_close(self):
-        """Handle data channel close event."""
-        logger.info("Data channel closed")
-        if self.dc:
-            logger.info(f"Data channel final state - Label: {self.dc.label}, State: {self.dc.readyState}")
-            self.dc = None
-            
-    def _on_data_channel_error(self, error):
-        """Handle data channel error event."""
-        logger.error(f"Data channel error: {error}")
-        if self.dc:
-            logger.error(f"Data channel error state - Label: {self.dc.label}, State: {self.dc.readyState}")
     
     async def _console_input_loop(self):
         """Read user input from console and send over WebRTC data channel."""
