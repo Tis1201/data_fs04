@@ -91,31 +91,6 @@ import { webRTCStore } from "$lib/stores/webrtc-store";
 
 	/****************************************************************************
 	 * 
-	 * Send Message over WebSocket
-	 * 
-	 ****************************************************************************/
-	function sendCommand(terminal: Terminal, command: string) {
-		// Create message to send command to device
-		const message = createClientMessage("device", `device:${deviceId}`, {
-			action: "terminal-command",
-			deviceId,
-			command,
-		});
-
-		// Send the message via WebSocket
-		try {
-			socketStore.send(message);
-			terminal.write(`\r\n> ${command}\r\n`);
-		} catch (error) {
-			console.error("Error sending command:", error);
-			terminal.write(
-				`\r\n\x1b[1;31mError sending command: ${error.message}\x1b[0m\r\n`,
-			);
-		}
-	}
-
-	/****************************************************************************
-	 * 
 	 * Handle Terminal Messages 
 	 * 
 	 ****************************************************************************/
