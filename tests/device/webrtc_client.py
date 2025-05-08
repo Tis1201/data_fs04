@@ -11,9 +11,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, Vi
 from aiortc.mediastreams import VideoFrame
 import numpy as np
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 class DummyVideoStreamTrack(VideoStreamTrack):
@@ -139,6 +137,28 @@ class WebRTCClient:
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5  # Increased from 3
         self.ice_restart_timer = None
+
+    async def handle_message(self, message):
+        """Handle incoming WebRTC messages."""
+        logger.debug(f"Entry to handle_message")
+        try:
+            payload = message.get('payload', {})
+            action = payload.get('action')
+            msg_type = payload.get('type')
+
+            logger.debug(f"Received message: {action}:{msg_type}")
+            
+            if action == 'message' and msg_type == 'webrtc:connect':
+                await self.handle_connect(message)
+            elif action == 'message' and msg_type == 'webrtc:answer':
+                await self.handle_answer(message)
+            elif action == 'message' and msg_type == 'webrtc:ice-candidate':
+                await self.handle_ice_candidate(message)
+            else:
+                logger.warning(f"Unknown message type: {msg_type}")
+        except Exception as e:
+            logger.error(f"Error handling WebRTC message: {str(e)}")
+            logger.exception("Detailed error trace:")
         
     def initialize(self):
         """Initialize the WebRTC connection with STUN servers."""
@@ -238,6 +258,9 @@ class WebRTCClient:
     
     async def handle_ice_candidate(self, message):
         """Handle an incoming ICE candidate."""
+
+        # logger.debug(f"Received ICE candidate: {message}")
+
         try:
             # Skip if this is our own message
             msg_id = message.get('payload', {}).get('_clientMessageId')

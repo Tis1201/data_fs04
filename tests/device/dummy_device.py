@@ -15,6 +15,7 @@ import psutil
 import os
 from datetime import datetime
 from pprint import pprint
+from loguru import logger
 
 class DummyDevice:
     def __init__(self, base_url="http://localhost:5173"):
@@ -205,44 +206,24 @@ class DummyDevice:
         """Handle incoming messages"""
         try:
             print(f"Received message: {message.get('type')}")
-            # print(f"{json.dumps(message, indent=2)}")
             
-            # Get message type and action
-            payload = message.get('payload', {})
-            action = payload.get('action')
-            msg_type = payload.get('type')
+            # Initialize WebRTC client if not already done
+            if not hasattr(self, 'webrtc_client') or self.webrtc_client is None:
+                from webrtc_client import WebRTCClient
+                self.webrtc_client = WebRTCClient(self)
+                print("WebRTC client initialized")
+                
+                # Start console input thread if not already running
+                if self.input_thread is None or not self.input_thread.is_alive():
+                    self.start_console_input_thread()
             
-            print(f"Action: {action}, Type: {msg_type}")
-
-            if action == 'message' and msg_type == 'webrtc:connect':
-                # Initialize WebRTC client if not already done
-                if not hasattr(self, 'webrtc_client') or self.webrtc_client is None:
-                    from webrtc_client import WebRTCClient
-                    self.webrtc_client = WebRTCClient(self)
-                    print("WebRTC client initialized")
-                    
-                    # Start console input thread if not already running
-                    if self.input_thread is None or not self.input_thread.is_alive():
-                        self.start_console_input_thread()
+            # Ensure webrtc_client is not None before handling message
+            if self.webrtc_client is not None:
+                # logger.debug("Pass to webrtc_client")
+                await self.webrtc_client.handle_message(message)
+            else:
+                print("ERROR: WebRTC client is None, cannot handle message")
                 
-                # Ensure webrtc_client is not None before calling handle_connect
-                if self.webrtc_client is not None:
-                    await self.webrtc_client.handle_connect(message)
-                else:
-                    print("ERROR: WebRTC client is None, cannot handle connect message")
-                
-            elif action == 'message' and msg_type == 'webrtc:answer':
-                if hasattr(self, 'webrtc_client') and self.webrtc_client is not None:
-                    await self.webrtc_client.handle_answer(message)
-                else:
-                    print("No WebRTC client available to handle answer")
-                    
-            elif action == 'message' and msg_type == 'webrtc:ice-candidate':
-                if hasattr(self, 'webrtc_client') and self.webrtc_client is not None:
-                    await self.webrtc_client.handle_ice_candidate(message)
-                else:
-                    print("No WebRTC client available to handle ICE candidate")
-                    
         except Exception as e:
             print(f"Error processing message: {str(e)}")
             import traceback
@@ -256,7 +237,11 @@ class DummyDevice:
             return
 
         try:
+            
+            # logger.debug(f"Received message: {msg.event}")
+            
             data = json.loads(msg.data)
+
             if msg.event == 'message':
                 action = data.get('payload', {}).get('action')
                 
@@ -312,7 +297,7 @@ class DummyDevice:
             print("SSE client created, waiting for events...")
 
             for msg in sse_client.events():
-                print(f"\n--- New Event ---")
+                logger.debug(f"\n--- New Event ---")
                 await self.process_message(msg)
                 await asyncio.sleep(0.1)
 
