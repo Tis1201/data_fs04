@@ -49,18 +49,10 @@ export class WebRTCClient {
             }
         }
 
-        this.peerConnection = new RTCPeerConnection({
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-            ],
-            iceTransportPolicy: 'all',
-            iceCandidatePoolSize: 10,
-            // These settings help with connection stability
-            // Especially in challenging network environments
-            bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+        this.peerConnection = this.peerConnection = new RTCPeerConnection({
+            iceServers:  [
+                { urls: 'stun:stun.l.google.com:19302' }
+            ]
         });
 
         // Set up ICE candidate handling
@@ -76,7 +68,12 @@ export class WebRTCClient {
                         action: "message",
                         type: "webrtc:ice-candidate",
                         deviceId: this.deviceId,
-                        candidate: event.candidate,
+                        candidate: {
+                            candidate: event.candidate.candidate,
+                            sdpMid: event.candidate.sdpMid,
+                            sdpMLineIndex: event.candidate.sdpMLineIndex,
+                            usernameFragment: event.candidate.usernameFragment
+                        },
                         _clientMessageId: `ice-${new Date().toISOString()}-${Math.random().toString(36).substring(2, 10)}`
                     }
                 };
@@ -118,14 +115,76 @@ export class WebRTCClient {
         //     // and the connection often recovers automatically
         // };
 
+        // Add a grace period timer for ICE disconnections
+        let disconnectionTimer: ReturnType<typeof setTimeout> | null = null;
+        
         this.peerConnection.oniceconnectionstatechange = () => {
             const iceState = this.peerConnection?.iceConnectionState;
             console.log(`[WebRTC] ICE connection state changed to: ${iceState}`);
 
             if (iceState === 'connected' || iceState === 'completed') {
                 console.log('[WebRTC] ICE connection established');
+                
+                // Clear any pending disconnection timer
+                if (disconnectionTimer) {
+                    clearTimeout(disconnectionTimer);
+                    disconnectionTimer = null;
+                }
+                
+                // Update the store to connected state
+                webRTCStore.update(state => ({
+                    ...state,
+                    connectionStatus: 'connected'
+                }));
+                
+                if (this.terminalCallback) {
+                    this.terminalCallback("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+                }
+            } else if (iceState === 'disconnected') {
+                // Don't immediately mark as disconnected - this can happen temporarily
+                // especially in mobile networks or when network conditions change
+                console.log('[WebRTC] ICE connection disconnected, waiting for recovery...');
+                
+                // Set a timer to mark as disconnected only if it doesn't recover within 5 seconds
+                if (!disconnectionTimer) {
+                    disconnectionTimer = setTimeout(() => {
+                        console.log('[WebRTC] ICE connection still disconnected after grace period');
+                        webRTCStore.update(state => ({
+                            ...state,
+                            connectionStatus: 'disconnected'
+                        }));
+                        disconnectionTimer = null;
+                    }, 5000); // 5 second grace period
+                }
             } else if (iceState === 'failed') {
                 console.error('[WebRTC] ICE connection failed');
+                
+                // Clear any pending disconnection timer
+                if (disconnectionTimer) {
+                    clearTimeout(disconnectionTimer);
+                    disconnectionTimer = null;
+                }
+                
+                webRTCStore.update(state => ({
+                    ...state,
+                    connectionStatus: 'error',
+                    error: 'ICE connection failed'
+                }));
+                
+                if (this.terminalCallback) {
+                    this.terminalCallback("\r\n\x1b[1;31mWebRTC connection failed.\x1b[0m\r\n");
+                }
+            } else if (iceState === 'closed') {
+                // Clear any pending disconnection timer
+                if (disconnectionTimer) {
+                    clearTimeout(disconnectionTimer);
+                    disconnectionTimer = null;
+                }
+                
+                webRTCStore.update(state => ({
+                    ...state,
+                    connectionStatus: 'disconnected'
+                }));
             }
         };
 
@@ -207,145 +266,166 @@ export class WebRTCClient {
         // Handle different WebRTC message types
         switch (message.type) {
             case "webrtc:offer":
-                console.log("Received WebRTC offer:", message);
-
-                // Check if we're in a state where we can process an offer
-                if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
-                    console.log('[Terminal WebRTC] Ignoring offer in non-stable state:', this.peerConnection.signalingState);
-                    return;
-                }
-
-                // Initialize peer connection if it doesn't exist
-                if (!this.peerConnection) {
-                    this.peerConnection = this.initializePeerConnection();
-                }
-
-                // Ensure we have a valid SDP
-                if (!message.sdp) {
-                    console.error("Missing SDP in offer message");
-                    webRTCStore.update(state => ({ ...state, error: "Missing SDP in offer message" }));
-                    return;
-                }
-
-                // Create a proper RTCSessionDescription object
-                const offerDesc = new RTCSessionDescription({
-                    type: 'offer',
-                    sdp: message.sdp
-                });
-
-                console.log('[Terminal WebRTC] Setting remote description for offer');
-                this.peerConnection.setRemoteDescription(offerDesc)
-                    .then(() => {
-                        console.log('[Terminal WebRTC] Creating answer...');
-                        return this.peerConnection!.createAnswer();
-                    })
-                    .then(answer => {
-                        console.log('[Terminal WebRTC] Setting local description for answer');
-                        return this.peerConnection!.setLocalDescription(answer);
-                    })
-                    .then(() => {
-                        console.log('[Terminal WebRTC] Sending answer to device');
-
-                        // Create a proper WebRTC answer message
-                        const answerMessage = {
-                            type: "device",
-                            scope: `subscription:device:${this.deviceId}`,
-                            payload: {
-                                action: "message",
-                                type: "webrtc:answer",
-                                deviceId: this.deviceId,
-                                sdp: this.peerConnection!.localDescription!.sdp,
-                                _clientMessageId: `answer-${new Date().toISOString()}-${Math.random().toString(36).substring(2, 10)}`
-                            }
-                        };
-
-                        // Send the answer message via socketStore
-                        console.log("Sending WebRTC answer:", answerMessage);
-                        socketStore.send(answerMessage);
-                    })
-                    .catch(error => {
-                        console.error('[Terminal WebRTC] Error handling offer:', error);
-                        webRTCStore.update(state => ({ ...state, error: `Error handling offer: ${error.message}` }));
-                    });
+                this.handleOffer(message);
                 break;
-
             case "webrtc:answer":
-                console.log("Received WebRTC answer:", message);
-
-                // Ensure we have a peer connection and valid SDP
-                if (!this.peerConnection) {
-                    console.error("No peer connection available for answer");
-                    webRTCStore.update(state => ({ ...state, error: "No peer connection available for answer" }));
-                    return;
-                }
-
-                // Check if we're in the right state to receive an answer
-                if (this.peerConnection.signalingState !== 'have-local-offer') {
-                    console.log(`[Terminal WebRTC] Ignoring answer in wrong state: ${this.peerConnection.signalingState}`);
-                    return;
-                }
-
-                if (!message.sdp) {
-                    console.error("Missing SDP in answer message");
-                    webRTCStore.update(state => ({ ...state, error: "Missing SDP in answer message" }));
-                    return;
-                }
-
-                // Create a proper RTCSessionDescription object
-                const answerDesc = new RTCSessionDescription({
-                    type: 'answer',
-                    sdp: message.sdp
-                });
-
-                console.log('[Terminal WebRTC] Setting remote description for answer');
-                this.peerConnection.setRemoteDescription(answerDesc)
-                    .then(() => {
-                        console.log('[Terminal WebRTC] Remote description set successfully');
-                    })
-                    .catch(error => {
-                        console.error('[Terminal WebRTC] Error setting remote description:', error);
-                        webRTCStore.update(state => ({ ...state, error: `Error setting remote description: ${error.message}` }));
-                    });
+                this.handleAnswer(message);
                 break;
-
             case "webrtc:ice-candidate":
-                console.log("Received WebRTC ICE candidate:", message);
-
-                // Ensure we have a peer connection and valid candidate
-                if (!this.peerConnection) {
-                    console.error("No peer connection available for ICE candidate");
-                    webRTCStore.update(state => ({ ...state, error: "No peer connection available for ICE candidate" }));
-                    return;
-                }
-
-                if (!message.candidate) {
-                    console.warn("[Terminal WebRTC] Received empty ICE candidate, ignoring");
-                    return;
-                }
-
-                // Log the actual candidate string for debugging
-                if (message.candidate.candidate) {
-                    console.log(`[Terminal WebRTC] Adding ICE candidate: ${message.candidate.candidate}`);
-                }
-
-                // Create a proper RTCIceCandidate object
-                const iceCandidate = new RTCIceCandidate({
-                    candidate: message.candidate.candidate,
-                    sdpMid: message.candidate.sdpMid,
-                    sdpMLineIndex: message.candidate.sdpMLineIndex
-                });
-
-                console.log('[Terminal WebRTC] Adding ICE candidate');
-                this.peerConnection.addIceCandidate(iceCandidate)
-                    .then(() => {
-                        console.log('[Terminal WebRTC] ICE candidate added successfully');
-                    })
-                    .catch(error => {
-                        console.error('[Terminal WebRTC] Error adding ICE candidate:', error);
-                        webRTCStore.update(state => ({ ...state, error: `Error adding ICE candidate: ${error.message}` }));
-                    });
+                this.handleIceCandidate(message);
                 break;
+            default:
+                console.log(`[Terminal WebRTC] Unhandled message type: ${message.type}`);
         }
+    }
+
+    /**
+     * Handle WebRTC offer messages
+     */
+    private handleOffer(message: any) {
+        console.log("Received WebRTC offer:", message);
+
+        // Check if we're in a state where we can process an offer
+        if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
+            console.log('[Terminal WebRTC] Ignoring offer in non-stable state:', this.peerConnection.signalingState);
+            return;
+        }
+
+        // Initialize peer connection if it doesn't exist
+        if (!this.peerConnection) {
+            this.peerConnection = this.initializePeerConnection();
+        }
+
+        // Ensure we have a valid SDP
+        if (!message.sdp) {
+            console.error("Missing SDP in offer message");
+            webRTCStore.update(state => ({ ...state, error: "Missing SDP in offer message" }));
+            return;
+        }
+
+        // Create a proper RTCSessionDescription object
+        const offerDesc = new RTCSessionDescription({
+            type: 'offer',
+            sdp: message.sdp
+        });
+
+        console.log('[Terminal WebRTC] Setting remote description for offer');
+        this.peerConnection.setRemoteDescription(offerDesc)
+            .then(() => {
+                console.log('[Terminal WebRTC] Creating answer...');
+                return this.peerConnection!.createAnswer();
+            })
+            .then(answer => {
+                console.log('[Terminal WebRTC] Setting local description for answer');
+                return this.peerConnection!.setLocalDescription(answer);
+            })
+            .then(() => {
+                console.log('[Terminal WebRTC] Sending answer to device');
+
+                // Create a proper WebRTC answer message
+                const answerMessage = {
+                    type: "device",
+                    scope: `subscription:device:${this.deviceId}`,
+                    payload: {
+                        action: "message",
+                        type: "webrtc:answer",
+                        deviceId: this.deviceId,
+                        sdp: this.peerConnection!.localDescription!.sdp,
+                        _clientMessageId: `answer-${new Date().toISOString()}-${Math.random().toString(36).substring(2, 10)}`
+                    }
+                };
+
+                // Send the answer message via socketStore
+                console.log("Sending WebRTC answer:", answerMessage);
+                socketStore.send(answerMessage);
+            })
+            .catch(error => {
+                console.error('[Terminal WebRTC] Error handling offer:', error);
+                webRTCStore.update(state => ({ ...state, error: `Error handling offer: ${error.message}` }));
+            });
+    }
+
+    /**
+     * Handle WebRTC answer messages
+     */
+    private handleAnswer(message: any) {
+        console.log("Received WebRTC answer:", message);
+
+        // Ensure we have a peer connection and valid SDP
+        if (!this.peerConnection) {
+            console.error("No peer connection available for answer");
+            webRTCStore.update(state => ({ ...state, error: "No peer connection available for answer" }));
+            return;
+        }
+
+        // Check if we're in the right state to receive an answer
+        if (this.peerConnection.signalingState !== 'have-local-offer') {
+            console.log(`[Terminal WebRTC] Ignoring answer in wrong state: ${this.peerConnection.signalingState}`);
+            return;
+        }
+
+        if (!message.sdp) {
+            console.error("Missing SDP in answer message");
+            webRTCStore.update(state => ({ ...state, error: "Missing SDP in answer message" }));
+            return;
+        }
+
+        // Create a proper RTCSessionDescription object
+        const answerDesc = new RTCSessionDescription({
+            type: 'answer',
+            sdp: message.sdp
+        });
+
+        console.log('[Terminal WebRTC] Setting remote description for answer');
+        this.peerConnection.setRemoteDescription(answerDesc)
+            .then(() => {
+                console.log('[Terminal WebRTC] Remote description set successfully');
+            })
+            .catch(error => {
+                console.error('[Terminal WebRTC] Error setting remote description:', error);
+                webRTCStore.update(state => ({ ...state, error: `Error setting remote description: ${error.message}` }));
+            });
+    }
+
+    /**
+     * Handle WebRTC ICE candidate messages
+     */
+    private handleIceCandidate(message: any) {
+        console.log("Received WebRTC ICE candidate:", message);
+
+        // Ensure we have a peer connection and valid candidate
+        if (!this.peerConnection) {
+            console.error("No peer connection available for ICE candidate");
+            webRTCStore.update(state => ({ ...state, error: "No peer connection available for ICE candidate" }));
+            return;
+        }
+
+        if (!message.candidate) {
+            console.warn("[Terminal WebRTC] Received empty ICE candidate, ignoring");
+            return;
+        }
+
+        // Log the actual candidate string for debugging
+        if (message.candidate.candidate) {
+            console.log(`[Terminal WebRTC] Adding ICE candidate: ${message.candidate.candidate}`);
+        }
+
+        // Create a proper RTCIceCandidate object
+        const iceCandidate = new RTCIceCandidate({
+            candidate: message.candidate.candidate,
+            sdpMid: message.candidate.sdpMid,
+            sdpMLineIndex: message.candidate.sdpMLineIndex
+        });
+
+        console.log('[Terminal WebRTC] Adding ICE candidate');
+        this.peerConnection.addIceCandidate(iceCandidate)
+            .then(() => {
+                console.log('[Terminal WebRTC] ICE candidate added successfully');
+            })
+            .catch(error => {
+                console.error('[Terminal WebRTC] Error adding ICE candidate:', error);
+                webRTCStore.update(state => ({ ...state, error: `Error adding ICE candidate: ${error.message}` }));
+            });
     }
 
     /**

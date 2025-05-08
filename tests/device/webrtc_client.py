@@ -411,39 +411,41 @@ class WebRTCClient:
         """Handle ICE connection state changes."""
         if not self.pc:
             return
+
+        print(self.pc.iceConnectionState)
             
-        state = self.pc.iceConnectionState
-        logger.info(f"ICE connection state changed: {state}")
+        # state = self.pc.iceConnectionState
+        # logger.info(f"ICE connection state changed: {state}")
         
-        if state == "connected" or state == "completed":
-            # Reset reconnection attempts on successful connection
-            self.reconnect_attempts = 0
+        # if state == "connected" or state == "completed":
+        #     # Reset reconnection attempts on successful connection
+        #     self.reconnect_attempts = 0
             
-            # Send any pending messages that may have been queued during reconnection
-            if self.pending_messages and self.dc and self.dc.readyState == "open":
-                logger.info(f"Sending {len(self.pending_messages)} pending messages after reconnection")
-                for msg in self.pending_messages:
-                    asyncio.create_task(self.send_data(msg))
-                self.pending_messages.clear()
+        #     # Send any pending messages that may have been queued during reconnection
+        #     if self.pending_messages and self.dc and self.dc.readyState == "open":
+        #         logger.info(f"Sending {len(self.pending_messages)} pending messages after reconnection")
+        #         for msg in self.pending_messages:
+        #             asyncio.create_task(self.send_data(msg))
+        #         self.pending_messages.clear()
                 
-            # Ensure console input loop is running
-            if (self.input_task is None or self.input_task.done()) and self.dc and self.dc.readyState == "open":
-                logger.info("Starting console input loop after ICE connection established")
-                self.input_task = asyncio.create_task(self._console_input_loop())
+        #     # Ensure console input loop is running
+        #     if (self.input_task is None or self.input_task.done()) and self.dc and self.dc.readyState == "open":
+        #         logger.info("Starting console input loop after ICE connection established")
+        #         self.input_task = asyncio.create_task(self._console_input_loop())
                 
-        elif state == "disconnected":
-            logger.warning("ICE connection disconnected - waiting for automatic recovery")
-            # Don't immediately schedule a restart - give WebRTC time to recover on its own
-            # This matches the TypeScript client's approach which ignores temporary disconnections
-            # Only schedule a delayed restart if we stay disconnected
-            if not hasattr(self, 'ice_restart_timer') or self.ice_restart_timer is None:
-                self.ice_restart_timer = asyncio.create_task(self._delayed_ice_restart())
+        # elif state == "disconnected":
+        #     logger.warning("ICE connection disconnected - waiting for automatic recovery")
+        #     # Don't immediately schedule a restart - give WebRTC time to recover on its own
+        #     # This matches the TypeScript client's approach which ignores temporary disconnections
+        #     # Only schedule a delayed restart if we stay disconnected
+        #     if not hasattr(self, 'ice_restart_timer') or self.ice_restart_timer is None:
+        #         self.ice_restart_timer = asyncio.create_task(self._delayed_ice_restart())
             
-        elif state == "failed":
-            logger.error("ICE connection failed - attempting ICE restart")
-            # Try to restart ICE immediately
-            if self.pc:
-                asyncio.create_task(self._restart_ice())
+        # elif state == "failed":
+        #     logger.error("ICE connection failed - attempting ICE restart")
+        #     # Try to restart ICE immediately
+        #     if self.pc:
+        #         asyncio.create_task(self._restart_ice())
     
     def _on_data_channel(self, channel):
         """Handle incoming data channel."""
