@@ -577,6 +577,11 @@ class WebRTCClient:
         asyncio.create_task(self.send_data(ack_msg))
     
     
+    ################################################################################
+    #
+    # [Console] Read from Console
+    #
+    ################################################################################    
     async def _console_input_loop(self):
         """Read user input from console and send over WebRTC data channel."""
         try:
@@ -607,6 +612,11 @@ class WebRTCClient:
                 await asyncio.sleep(1)
                 self.input_task = asyncio.create_task(self._console_input_loop())
     
+    ################################################################################
+    #
+    # [Console] Send user input
+    #
+    ################################################################################    
     async def _send_user_input(self, user_input):
         """Send user input over the data channel."""
         # Send the user input if data channel is open
@@ -627,92 +637,11 @@ class WebRTCClient:
             logger.warning(f"Data channel not open (state: {self.dc.readyState if self.dc else 'None'}), can't send message")
             print("WebRTC data channel not open. Message not sent.")
                 
-    async def _delayed_ice_restart(self):
-        """Schedule a delayed ICE restart if the connection doesn't recover on its own."""
-        try:
-            # Wait a longer time to see if ICE reconnects on its own (increased from 3s to 8s)
-            # This matches better with the TypeScript client's more patient approach
-            await asyncio.sleep(8)
-            
-            # Check if we still need to restart ICE
-            if self.pc and self.pc.iceConnectionState == "disconnected":
-                logger.info("ICE still disconnected after delay, attempting restart")
-                await self._restart_ice()
-            else:
-                logger.info("Connection recovered on its own, no ICE restart needed")
-        except Exception as e:
-            logger.error(f"Error in delayed ICE restart: {str(e)}")
-
-    async def _restart_ice(self):
-        """Attempt to restart ICE negotiation."""
-        try:
-            if not self.pc:
-                logger.error("Cannot restart ICE - no peer connection")
-                return
-                
-            logger.info("Attempting ICE restart")
-            
-            # Create and send a new offer with ICE restart flag
-            offer_msg = await self.create_offer(ice_restart=True)
-            
-            # Send through the device
-            self.device.send_message(offer_msg)
-            logger.info("Sent ICE restart offer")
-            
-        except Exception as e:
-            logger.error(f"Error restarting ICE: {str(e)}")
-            # If ICE restart fails, try a full reconnection
-            asyncio.create_task(self._attempt_reconnection())
-            
-    async def _schedule_reconnection(self, delay_seconds=0):
-        """Schedule a reconnection attempt with a delay."""
-        if delay_seconds > 0:
-            await asyncio.sleep(delay_seconds)
-        await self._attempt_reconnection()
-    
-    async def _attempt_reconnection(self):
-        """Attempt to reconnect after connection failure."""
-        try:
-            self.reconnect_attempts += 1
-            
-            if self.reconnect_attempts > self.max_reconnect_attempts:
-                logger.error(f"Exceeded maximum reconnection attempts ({self.max_reconnect_attempts})")
-                return
-                
-            # Wait before attempting reconnection with exponential backoff
-            wait_time = 2 * self.reconnect_attempts
-            logger.info(f"Waiting {wait_time} seconds before reconnection attempt {self.reconnect_attempts}")
-            await asyncio.sleep(wait_time)
-            
-            # Clean up existing tasks
-            await self._cleanup_tasks()
-            
-            # Try to restart ICE first if connection still exists
-            if self.pc and self.pc.connectionState != "closed":
-                await self._restart_ice()
-            else:
-                # Reinitialize if connection is fully closed
-                logger.info("Reinitializing WebRTC connection")
-                self.initialize()
-                # Create and send a new offer
-                offer_msg = await self.create_offer()
-                self.device.send_message(offer_msg)
-                
-        except Exception as e:
-            logger.error(f"Error during reconnection attempt: {str(e)}")
-    
-    async def _cleanup_tasks(self):
-        """Clean up any running tasks."""
-        # Cancel any existing input task
-        if self.input_task and not self.input_task.done():
-            self.input_task.cancel()
-            self.input_task = None
-        
-        # Clear any pending ICE restart timer
-        if hasattr(self, 'ice_restart_timer') and self.ice_restart_timer and not self.ice_restart_timer.done():
-            self.ice_restart_timer.cancel()
-            self.ice_restart_timer = None
-    
+    ################################################################################
+    #
+    # [Cleanup] Close
+    #
+    ################################################################################    
     async def close(self):
         """Close the WebRTC connection."""
         if self.video_track:
