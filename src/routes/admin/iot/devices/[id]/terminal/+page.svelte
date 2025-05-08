@@ -17,6 +17,11 @@
 	import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
 	import { WebRTCClient, webrtcStore, createClientMessage } from "./webrtc-client";
 
+	/****************************************************************************
+	 * 
+	 * Variables 
+	 * 
+	 ****************************************************************************/
 	// Get device ID from URL
 	const deviceId = $page.params.id;
 
@@ -25,6 +30,11 @@
 	
 	// Initialize WebRTC client
 	let webrtcClient = new WebRTCClient(deviceId);
+
+	// Subscribe to the deviceStore for all device-related events
+	let unsubscribeDevice: () => void;
+	let previousTerminalMessage: any = null;
+	let previousWebRTCMessage: any = null;
 	
 	// Define breadcrumbs for this page
 	const pageCrumbs = [
@@ -57,7 +67,11 @@
 		allowTransparency: false
 	};
 
-	// Function to initialize device connection
+	/****************************************************************************
+	 * 
+	 * Init Device Connection 
+	 * 
+	 ****************************************************************************/
 	function initDevice(terminal: Terminal) {
 		terminal.write(
 			"\r\n\x1b[1;33mInitializing connection to device...\x1b[0m\r\n",
@@ -74,7 +88,11 @@
 		webrtcClient.connect();
 	}
 
-	// Function to send command to device
+	/****************************************************************************
+	 * 
+	 * Send Message over WebSocket
+	 * 
+	 ****************************************************************************/
 	function sendCommand(terminal: Terminal, command: string) {
 		// Create message to send command to device
 		const message = createClientMessage("device", `device:${deviceId}`, {
@@ -95,7 +113,11 @@
 		}
 	}
 
-	// Handle terminal messages from the deviceStore
+	/****************************************************************************
+	 * 
+	 * Handle Terminal Messages 
+	 * 
+	 ****************************************************************************/
 	function handleTerminalMessage(message) {
 		if (!terminalInstance || !message) return;
 		
@@ -128,11 +150,12 @@
 		}
 	}
 	
-	// Subscribe to the deviceStore for all device-related events
-	let unsubscribeDevice: () => void;
-	let previousTerminalMessage: any = null;
-	let previousWebRTCMessage: any = null;
 	
+	/****************************************************************************
+	 * 
+	 * Lifecycle - OnMount 
+	 * 
+	 ****************************************************************************/
 	onMount(() => {
 		unsubscribeDevice = deviceStore.subscribe(state => {
 			// Handle device status changes
@@ -161,6 +184,11 @@
 		});
 	});
 
+	/****************************************************************************
+	 * 
+	 * Lifecycle - OnDestroy 
+	 * 
+	 ****************************************************************************/
 	// Clean up subscription and WebRTC connection on component destroy
 	onDestroy(() => {
 		// Unsubscribe from device store
@@ -172,7 +200,11 @@
 		webrtcClient.cleanup();
 	});
 
-	// Terminal load event handler
+	/****************************************************************************
+	 * 
+	 * Terminal Component onLoad 
+	 * 
+	 ****************************************************************************/
 	async function onLoad(event: CustomEvent<{ terminal: Terminal }>) {
 		console.log("Terminal component loaded");
 		const terminal = event.detail.terminal;
@@ -200,7 +232,11 @@
 		});
 	}
 
-	// Terminal data event handler (user input)
+	/****************************************************************************
+	 * 
+	 * Handle User Input 
+	 * 
+	 ****************************************************************************/
 	function onData(event: CustomEvent<string>) {
 		const data = event.detail;
 		console.log("User input:", data);
@@ -214,7 +250,11 @@
 		}
 	}
 
-	// Terminal key event handler
+	/****************************************************************************
+	 * 
+	 * Handle onKey 
+	 * 
+	 ****************************************************************************/	
 	function onKey(
 		event: CustomEvent<{ key: string; domEvent: KeyboardEvent }>,
 	) {
