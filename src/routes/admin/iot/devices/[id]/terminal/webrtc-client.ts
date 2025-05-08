@@ -116,7 +116,7 @@ export class WebRTCClient {
     this.pc?.close();
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      // iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
     /* ---------- local ICE candidates ------------- */
@@ -139,22 +139,23 @@ export class WebRTCClient {
       console.log("[WebRTC] ice state", s);
       switch (s) {
         case "connected":
+
         case "completed":
-          clearTimeout(this.disconnectTimer as unknown as number);
-          this.disconnectTimer = null;
-          this.reconnectAttempts = 0;
+          // clearTimeout(this.disconnectTimer as unknown as number);
+          // this.disconnectTimer = null;
+          // this.reconnectAttempts = 0;
           webRTCStore.update((st) => ({ ...st, connectionStatus: "connected" }));
           this.startPing();
           break;
 
         case "disconnected":
-          if (!this.disconnectTimer) {
-            this.disconnectTimer = setTimeout(() => this.attemptRecovery(), 4000);
-          }
+          // if (!this.disconnectTimer) {
+          //   this.disconnectTimer = setTimeout(() => this.attemptRecovery(), 4000);
+          // }
           break;
 
         case "failed":
-          this.attemptRecovery(true);
+          // this.attemptRecovery(true);
           break;
       }
     };
