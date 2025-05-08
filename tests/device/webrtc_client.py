@@ -135,9 +135,7 @@ class WebRTCClient:
         self.video_track = None
         self.sent_message_ids = set()
         self.pending_messages = []
-        self.last_ping_time = time.time()
-        self.ping_interval = 5  # Send ping every 5 seconds (reduced from 10)
-        self.ping_task = None
+        self.input_task = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5  # Increased from 3
         self.ice_restart_timer = None
@@ -302,15 +300,28 @@ class WebRTCClient:
             logger.error(f"Error handling connect request: {str(e)}")
     
     async def send_data(self, data):
-        """Send data through the data channel."""
+        """Send data through the data channel.
+        
+        Args:
+            data: The data to send. Can be a string, dict, or list.
+                 Dicts and lists will be converted to JSON strings.
+        
+        Returns:
+            bool: True if the data was sent successfully, False otherwise.
+        """
         if not self.dc or self.dc.readyState != "open":
             logger.warning("Data channel not open, queuing message")
             self.pending_messages.append(data)
             return False
             
         try:
+            # If data is a dict or list, convert it to JSON
             if isinstance(data, (dict, list)):
                 data = json.dumps(data)
+                
+            # For plain text, we'll just send it directly
+            # The browser side will handle it as a text message
+            logger.info(f"Sending data: {data[:50]}{'...' if len(str(data)) > 50 else ''}")
             self.dc.send(data)
             return True
         except Exception as e:
@@ -360,6 +371,9 @@ class WebRTCClient:
         
         if state == "connected":
             logger.info("WebRTC connection established")
+            # Reset reconnection attempts on successful connection
+            self.reconnect_attempts = 0
+            
             # Send a hello message to confirm connection
             hello_msg = {
                 'type': 'hello',
@@ -369,27 +383,29 @@ class WebRTCClient:
             if self.dc and self.dc.readyState == "open":
                 asyncio.create_task(self.send_data(hello_msg))
                 
-            # Start the ping loop to keep the connection alive
-            if self.ping_task is None or self.ping_task.done():
-                logger.info("Starting ping loop to maintain connection")
-                self.ping_task = asyncio.create_task(self._ping_loop())
+            # Start the console input loop
+            if self.input_task is None or self.input_task.done():
+                logger.info("Starting console input loop")
+                self.input_task = asyncio.create_task(self._console_input_loop())
                 
         elif state == "disconnected":
             logger.info("WebRTC connection temporarily disconnected")
             # Don't close resources yet, allow for reconnection
-            # Try an immediate ICE restart to recover quickly
-            asyncio.create_task(self._restart_ice())
+            # Don't immediately try to restart ICE - this matches the TypeScript client approach
+            # which is more tolerant of temporary disconnections
             
         elif state == "failed":
             logger.error("WebRTC connection failed")
-            # Schedule a delayed reconnection attempt
-            asyncio.create_task(self._attempt_reconnection())
+            # Don't immediately attempt reconnection - give it a moment
+            # This aligns with the TypeScript client's approach
+            logger.info("Scheduling reconnection attempt after brief delay")
+            asyncio.create_task(self._schedule_reconnection(2))  # 2 second delay
             
         elif state == "closed":
             logger.error("WebRTC connection closed")
-            # Cancel ping task if it's running
-            if self.ping_task and not self.ping_task.done():
-                self.ping_task.cancel()
+            # Cancel input task if it's running
+            if self.input_task and not self.input_task.done():
+                self.input_task.cancel()
     
     def _on_ice_connection_state_change(self):
         """Handle ICE connection state changes."""
@@ -410,15 +426,18 @@ class WebRTCClient:
                     asyncio.create_task(self.send_data(msg))
                 self.pending_messages.clear()
                 
-            # Ensure ping loop is running
-            if (self.ping_task is None or self.ping_task.done()) and self.dc and self.dc.readyState == "open":
-                logger.info("Starting ping loop after ICE connection established")
-                self.ping_task = asyncio.create_task(self._ping_loop())
+            # Ensure console input loop is running
+            if (self.input_task is None or self.input_task.done()) and self.dc and self.dc.readyState == "open":
+                logger.info("Starting console input loop after ICE connection established")
+                self.input_task = asyncio.create_task(self._console_input_loop())
                 
         elif state == "disconnected":
-            logger.warning("ICE connection disconnected - may recover automatically")
-            # Schedule a delayed ICE restart if it doesn't recover quickly
-            asyncio.create_task(self._delayed_ice_restart())
+            logger.warning("ICE connection disconnected - waiting for automatic recovery")
+            # Don't immediately schedule a restart - give WebRTC time to recover on its own
+            # This matches the TypeScript client's approach which ignores temporary disconnections
+            # Only schedule a delayed restart if we stay disconnected
+            if not hasattr(self, 'ice_restart_timer') or self.ice_restart_timer is None:
+                self.ice_restart_timer = asyncio.create_task(self._delayed_ice_restart())
             
         elif state == "failed":
             logger.error("ICE connection failed - attempting ICE restart")
@@ -455,11 +474,10 @@ class WebRTCClient:
                 asyncio.create_task(self.send_data(msg))
             self.pending_messages.clear()
             
-        # Start the ping task to keep the connection alive
-        self.last_ping_time = time.time()
-        if self.ping_task:
-            self.ping_task.cancel()
-        self.ping_task = asyncio.create_task(self._ping_loop())
+        # Start the console input task
+        if self.input_task:
+            self.input_task.cancel()
+        self.input_task = asyncio.create_task(self._console_input_loop())
     
     def _on_data_channel_message(self, message):
         """Handle incoming data channel message."""
@@ -513,52 +531,71 @@ class WebRTCClient:
         if self.dc:
             logger.error(f"Data channel error state - Label: {self.dc.label}, State: {self.dc.readyState}")
     
-    async def _ping_loop(self):
-        """Send periodic pings to keep the connection alive."""
+    async def _console_input_loop(self):
+        """Read user input from console and send over WebRTC data channel."""
         try:
-            logger.info("Ping loop started")
+            logger.info("Console input loop started - type messages to send over WebRTC")
+            logger.info("Press Ctrl+C to exit")
+            
             while True:
                 # Check if we should continue
                 if not self.pc or self.pc.connectionState in ["failed", "closed"]:
-                    logger.warning("Connection no longer active, stopping ping loop")
+                    logger.warning("Connection no longer active, stopping console input loop")
                     break
-                    
-                # Wait for ping interval (shorter interval for better connection maintenance)
-                await asyncio.sleep(self.ping_interval)
                 
-                # Send ping if data channel is open
-                if self.dc and self.dc.readyState == "open":
-                    ping_msg = {
-                        'type': 'ping',
-                        'timestamp': datetime.now().isoformat(),
-                        'id': str(uuid.uuid4())[:8]  # Add unique ID to prevent deduplication issues
-                    }
-                    await self.send_data(ping_msg)
-                    logger.debug("Sent keep-alive ping")
-                    self.last_ping_time = time.time()
-                else:
-                    logger.warning(f"Data channel not open (state: {self.dc.readyState if self.dc else 'None'}), pausing pings")
-                    # Don't break, just wait and try again
+                # Use asyncio to read from stdin without blocking
+                # We'll poll for input every 0.1 seconds
+                await asyncio.sleep(0.1)
+                
+                # Check if there's input available
+                import sys
+                import select
+                
+                # Check if there's data to read from stdin (non-blocking)
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    user_input = sys.stdin.readline().strip()
+                    
+                    # Send the user input if data channel is open
+                    if self.dc and self.dc.readyState == "open":
+                        message = {
+                            'type': 'console',
+                            'message': user_input,
+                            'timestamp': datetime.now().isoformat(),
+                            'id': str(uuid.uuid4())[:8]
+                        }
+                        
+                        success = await self.send_data(message)
+                        if success:
+                            logger.info(f"Sent message: {user_input}")
+                        else:
+                            logger.warning(f"Failed to send message: {user_input}")
+                    else:
+                        logger.warning(f"Data channel not open (state: {self.dc.readyState if self.dc else 'None'}), can't send message")
+                        print("WebRTC data channel not open. Message not sent.")
+                
         except asyncio.CancelledError:
-            logger.debug("Ping loop cancelled")
+            logger.debug("Console input loop cancelled")
         except Exception as e:
-            logger.error(f"Error in ping loop: {str(e)}")
-            # Restart the ping loop after a short delay if there was an error
-            if self.pc and self.pc.connectionState == "connected" and self.dc and self.dc.readyState == "open":
-                logger.info("Restarting ping loop after error")
+            logger.error(f"Error in console input loop: {str(e)}")
+            # Restart the console input loop after a short delay if there was an error
+            if self.pc and self.pc.connectionState == "connected":
+                logger.info("Restarting console input loop after error")
                 await asyncio.sleep(1)
-                self.ping_task = asyncio.create_task(self._ping_loop())
+                self.input_task = asyncio.create_task(self._console_input_loop())
                 
     async def _delayed_ice_restart(self):
         """Schedule a delayed ICE restart if the connection doesn't recover on its own."""
         try:
-            # Wait a short time to see if ICE reconnects on its own
-            await asyncio.sleep(3)
+            # Wait a longer time to see if ICE reconnects on its own (increased from 3s to 8s)
+            # This matches better with the TypeScript client's more patient approach
+            await asyncio.sleep(8)
             
             # Check if we still need to restart ICE
             if self.pc and self.pc.iceConnectionState == "disconnected":
                 logger.info("ICE still disconnected after delay, attempting restart")
                 await self._restart_ice()
+            else:
+                logger.info("Connection recovered on its own, no ICE restart needed")
         except Exception as e:
             logger.error(f"Error in delayed ICE restart: {str(e)}")
 
@@ -599,6 +636,12 @@ class WebRTCClient:
             # If ICE restart fails, try a full reconnection
             asyncio.create_task(self._attempt_reconnection())
             
+    async def _schedule_reconnection(self, delay_seconds=0):
+        """Schedule a reconnection attempt with a delay."""
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+        await self._attempt_reconnection()
+    
     async def _attempt_reconnection(self):
         """Attempt to reconnect after connection failure."""
         try:
@@ -613,10 +656,15 @@ class WebRTCClient:
             logger.info(f"Waiting {wait_time} seconds before reconnection attempt {self.reconnect_attempts}")
             await asyncio.sleep(wait_time)
             
-            # Cancel any existing ping task
-            if self.ping_task and not self.ping_task.done():
-                self.ping_task.cancel()
-                self.ping_task = None
+            # Cancel any existing input task
+            if self.input_task and not self.input_task.done():
+                self.input_task.cancel()
+                self.input_task = None
+            
+            # Clear any pending ICE restart timer
+            if hasattr(self, 'ice_restart_timer') and self.ice_restart_timer and not self.ice_restart_timer.done():
+                self.ice_restart_timer.cancel()
+                self.ice_restart_timer = None
             
             # Try to restart ICE first if connection still exists
             if self.pc and self.pc.connectionState != "closed":

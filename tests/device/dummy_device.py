@@ -3,6 +3,8 @@ import requests
 import json
 import time
 import asyncio
+import threading
+import sys
 from sseclient import SSEClient
 import random
 import string
@@ -25,6 +27,15 @@ class DummyDevice:
         self.device_id = None
         self.api_key = None
         self.registered = self.load_device_credentials()
+        
+        # WebRTC client will be initialized when needed
+        self.webrtc_client = None
+        
+        # Flag to control console input thread
+        self.running = True
+        
+        # Console input thread
+        self.input_thread = None
         
         if not self.registered:
             # Generate a new PIN for registration
@@ -150,14 +161,24 @@ class DummyDevice:
         print(f"Received webrtc connect message: {message.get('payload', {}).get('action')}")
         print(f"{json.dumps(message, indent=2)}")
 
-        # Initialize WebRTC client if not already done
-        if not hasattr(self, 'webrtc_client'):
-            from webrtc_client import WebRTCClient
-            self.webrtc_client = WebRTCClient(self)
-            print("WebRTC client initialized")
+        try:
+            # Initialize WebRTC client if not already done
+            if not hasattr(self, 'webrtc_client') or self.webrtc_client is None:
+                from webrtc_client import WebRTCClient
+                self.webrtc_client = WebRTCClient(self)
+                print("WebRTC client initialized")
+                
+                # Start console input thread if not already running
+                if self.input_thread is None or not self.input_thread.is_alive():
+                    self.start_console_input_thread()
 
-        # Handle the WebRTC connect request
-        await self.webrtc_client.handle_connect(message)
+            # Handle the WebRTC connect request
+            if self.webrtc_client is not None:
+                await self.webrtc_client.handle_connect(message)
+            else:
+                print("ERROR: WebRTC client is None, cannot handle connect message")
+        except Exception as e:
+            print(f"Error in handle_webrtc_connect: {str(e)}")
 
 
     def send_message(self, message):
@@ -193,28 +214,37 @@ class DummyDevice:
             
             if action == 'message' and msg_type == 'webrtc:connect':
                 # Initialize WebRTC client if not already done
-                if not hasattr(self, 'webrtc_client'):
+                if not hasattr(self, 'webrtc_client') or self.webrtc_client is None:
                     from webrtc_client import WebRTCClient
                     self.webrtc_client = WebRTCClient(self)
                     print("WebRTC client initialized")
+                    
+                    # Start console input thread if not already running
+                    if self.input_thread is None or not self.input_thread.is_alive():
+                        self.start_console_input_thread()
                 
-                # Handle the WebRTC connect request
-                await self.webrtc_client.handle_connect(message)
+                # Ensure webrtc_client is not None before calling handle_connect
+                if self.webrtc_client is not None:
+                    await self.webrtc_client.handle_connect(message)
+                else:
+                    print("ERROR: WebRTC client is None, cannot handle connect message")
                 
             elif action == 'message' and msg_type == 'webrtc:answer':
-                if hasattr(self, 'webrtc_client'):
+                if hasattr(self, 'webrtc_client') and self.webrtc_client is not None:
                     await self.webrtc_client.handle_answer(message)
                 else:
                     print("No WebRTC client available to handle answer")
                     
             elif action == 'message' and msg_type == 'webrtc:ice-candidate':
-                if hasattr(self, 'webrtc_client'):
+                if hasattr(self, 'webrtc_client') and self.webrtc_client is not None:
                     await self.webrtc_client.handle_ice_candidate(message)
                 else:
                     print("No WebRTC client available to handle ICE candidate")
                     
         except Exception as e:
             print(f"Error processing message: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
 
     async def process_message(self, msg):
@@ -381,6 +411,56 @@ class DummyDevice:
         except Exception as e:
             print(f"Error sending device info: {str(e)}")
 
+    def start_console_input_thread(self):
+        """Start a thread to read console input and send over WebRTC"""
+        if self.input_thread is None or not self.input_thread.is_alive():
+            print("\nStarting console input thread. Type messages to send over WebRTC.")
+            print("Type 'exit' to quit.\n")
+            self.running = True
+            self.input_thread = threading.Thread(target=self.console_input_loop, daemon=True)
+            self.input_thread.start()
+            return True
+        return False
+    
+    def console_input_loop(self):
+        """Thread function to read console input and send via WebRTC"""
+        while self.running:
+            try:
+                # Use input() to get user input (blocks until Enter is pressed)
+                user_input = input("Enter message to send: ")
+                
+                if not user_input:
+                    continue
+                    
+                if user_input.lower() == 'exit':
+                    print("Exiting console input thread...")
+                    self.running = False
+                    break
+                
+                # Send the message if WebRTC client is available
+                if self.webrtc_client:
+                    # Create a simple text message
+                    message = user_input
+                    
+                    # Use asyncio to run the coroutine in the thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    # Send the raw text message
+                    success = loop.run_until_complete(self.webrtc_client.send_data(message))
+                    loop.close()
+                    
+                    if success:
+                        print(f"✓ Message sent: {user_input}")
+                    else:
+                        print(f"✗ Failed to send message: {user_input}")
+                else:
+                    print("WebRTC client not initialized or connected yet. Message not sent.")
+                    
+            except Exception as e:
+                print(f"Error in console input thread: {str(e)}")
+                time.sleep(1)  # Wait before retrying
+
 if __name__ == "__main__":
     import argparse
     
@@ -410,3 +490,7 @@ if __name__ == "__main__":
         asyncio.run(dummy_device.connect())
     except KeyboardInterrupt:
         print("\nDevice stopped by user")
+        dummy_device.running = False  # Stop the console input thread
+    finally:
+        # Ensure we exit cleanly
+        dummy_device.running = False
