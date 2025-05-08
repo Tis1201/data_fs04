@@ -14,8 +14,9 @@ from loguru import logger
 # Import VideoStreamTrack from aiortc
 from aiortc import VideoStreamTrack
 
-# Import the video track implementation
+# Import the video track and data channel implementations
 from video_track import DummyVideoStreamTrack
+from data_channel import DataChannelHandler
 
 class WebRTCClient:
     """WebRTC client for the dummy device to handle WebRTC connections."""
@@ -56,11 +57,13 @@ class WebRTCClient:
         self.dc = None
         self.video_track = None
         self.sent_message_ids = set()
-        self.pending_messages = []
         self.input_task = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
         self.ice_restart_timer = None
+        
+        # Initialize data channel handler
+        self.dc_handler = DataChannelHandler(self)
 
         self.initialize()
 
@@ -151,7 +154,7 @@ class WebRTCClient:
                     "text": "Hello from device!",
                     "timestamp": datetime.now().isoformat()
                 }
-                await self.device.send_data(test_message)
+                await self.send_data(test_message)
                 
         except Exception as e:
             logger.error(f"Error handling answer: {str(e)}")
@@ -420,10 +423,7 @@ class WebRTCClient:
     ################################################################################
     def _setup_data_channel_handlers(self, channel):
         """Set up data channel event handlers."""
-        channel.on("open", self._on_data_channel_open)
-        channel.on("message", self._on_data_channel_message)
-        channel.on("close", self._on_data_channel_close)
-        channel.on("error", self._on_data_channel_error)
+        self.dc_handler.setup_handlers(channel)
 
     ################################################################################
     #
@@ -443,138 +443,12 @@ class WebRTCClient:
     
     ################################################################################
     #
-    # [Data Channel] Open
-    #
-    ################################################################################
-    def _on_data_channel_open(self):
-        """Handle data channel open event."""
-        logger.info("Data channel opened")
-        
-        # Log data channel info
-        if self.dc:
-            logger.info(f"Data channel info - Label: {self.dc.label}, State: {self.dc.readyState}, Buffered: {self.dc.bufferedAmount}")
-            
-        # Start the console input task
-        if self.input_task:
-            self.input_task.cancel()
-        self.input_task = asyncio.create_task(self._console_input_loop())
-    
-    ################################################################################
-    #
-    # [Data Channel] Close
-    #
-    ################################################################################
-    def _on_data_channel_close(self):
-        """Handle data channel close event."""
-        logger.info("Data channel closed")
-        if self.dc:
-            logger.info(f"Data channel final state - Label: {self.dc.label}, State: {self.dc.readyState}")
-            self.dc = None
-
-    ################################################################################
-    #
-    # [Data Channel] Error
-    #
-    ################################################################################
-    def _on_data_channel_error(self, error):
-        """Handle data channel error event."""
-        logger.error(f"Data channel error: {error}")
-        if self.dc:
-            logger.error(f"Data channel error state - Label: {self.dc.label}, State: {self.dc.readyState}")
-    
-    ################################################################################
-    #
-    # [Data Channel] Send over Data Channel
+    # [Data Channel] Operations
     #
     ################################################################################
     async def send_data(self, data):
-        """Send data through the data channel.
-        
-        Args:
-            data: The data to send. Can be a string, dict, or list.
-                 Dicts and lists will be converted to JSON strings.
-        
-        Returns:
-            bool: True if the data was sent successfully, False otherwise.
-        """
-        if not self.dc or self.dc.readyState != "open":
-            logger.warning("Data channel not open, queuing message")
-            self.pending_messages.append(data)
-            return False
-            
-        try:
-            # If data is a dict or list, convert it to JSON
-            if isinstance(data, (dict, list)):
-                data = json.dumps(data)
-                
-            # For plain text, we'll just send it directly
-            # The browser side will handle it as a text message
-            logger.info(f"Sending data: {data[:50]}{'...' if len(str(data)) > 50 else ''}")
-            self.dc.send(data)
-            return True
-        except Exception as e:
-            logger.error(f"Error sending data: {str(e)}")
-            return False
-    
-    ################################################################################
-    #
-    # [Data Channel] On Data Channel
-    #
-    ################################################################################
-    def _on_data_channel_message(self, message):
-        """Handle incoming data channel message."""
-        logger.info(f"Received data channel message: {message}")
-        
-        try:
-            # Parse the message if it's JSON
-            if isinstance(message, str) and message.startswith('{'): 
-                msg_data = json.loads(message)
-                msg_type = msg_data.get('type')
-                
-                # Handle special message types
-                handlers = {
-                    'ping': self._handle_ping_message,
-                    'close': self._handle_close_message
-                }
-                
-                if msg_type in handlers:
-                    handlers[msg_type](msg_data)
-                    return
-            
-            # For other messages, echo them back (for testing)
-            asyncio.create_task(self.send_data(message))
-            
-        except Exception as e:
-            logger.error(f"Error processing data channel message: {str(e)}")
-    
-    ################################################################################
-    #
-    # [Message] Ping
-    #
-    ################################################################################
-    def _handle_ping_message(self, msg_data):
-        """Handle ping messages with pong response."""
-        pong_msg = {
-            'type': 'pong',
-            'timestamp': datetime.now().isoformat(),
-            'echo': msg_data.get('timestamp')
-        }
-        logger.info("Received ping, sending pong response")
-        asyncio.create_task(self.send_data(pong_msg))
-    
-    ################################################################################
-    #
-    # [Message] Close
-    #
-    ################################################################################    
-    def _handle_close_message(self, msg_data):
-        """Handle close messages with acknowledgment."""
-        logger.info("Received close signal from browser")
-        ack_msg = {
-            'type': 'close-ack',
-            'timestamp': datetime.now().isoformat()
-        }
-        asyncio.create_task(self.send_data(ack_msg))
+        """Send data through the data channel."""
+        return await self.dc_handler.send_data(data)
     
     
     ################################################################################
@@ -619,23 +493,7 @@ class WebRTCClient:
     ################################################################################    
     async def _send_user_input(self, user_input):
         """Send user input over the data channel."""
-        # Send the user input if data channel is open
-        if self.dc and self.dc.readyState == "open":
-            message = {
-                'type': 'console',
-                'message': user_input,
-                'timestamp': datetime.now().isoformat(),
-                'id': str(uuid.uuid4())[:8]
-            }
-            
-            success = await self.send_data(message)
-            if success:
-                logger.info(f"Sent message: {user_input}")
-            else:
-                logger.warning(f"Failed to send message: {user_input}")
-        else:
-            logger.warning(f"Data channel not open (state: {self.dc.readyState if self.dc else 'None'}), can't send message")
-            print("WebRTC data channel not open. Message not sent.")
+        await self.dc_handler.send_user_input(user_input)
                 
     ################################################################################
     #
@@ -657,7 +515,7 @@ class WebRTCClient:
                     'message': 'Device closing connection',
                     'timestamp': datetime.now().isoformat()
                 }
-                self.dc.send(json.dumps(goodbye_msg))
+                await self.send_data(goodbye_msg)
                 logger.info("Sent goodbye message before closing")
             except Exception as e:
                 logger.error(f"Error sending goodbye message: {str(e)}")
