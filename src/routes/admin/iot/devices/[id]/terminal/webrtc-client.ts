@@ -24,11 +24,20 @@ function createWebRTCStore() {
   };
 
   const { subscribe, set, update } = writable<WebRTCState>(initialState);
+  
+  // Store the current state locally to avoid having to subscribe
+  let currentState = initialState;
+  
+  // Subscribe to our own store to keep the current state updated
+  subscribe(state => {
+    currentState = state;
+  });
 
   return {
     subscribe,
     reset: () => set(initialState),
     setConnected: (isConnected: boolean) => update(state => ({ ...state, isConnected })),
+    getConnected: () => currentState.isConnected,
     setError: (error: string | null) => update(state => ({ ...state, error })),
     setLastMessage: (lastMessage: string | null) => update(state => ({ ...state, lastMessage })),
     setPeerConnection: (peerConnection: RTCPeerConnection | null) => 
@@ -67,10 +76,28 @@ export class WebRTCClient {
     }
     
     console.log("Initializing WebRTC peer connection");
+    
+    // Close existing connection if it exists
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.close();
+      } catch (e) {
+        console.warn('[Terminal WebRTC] Error closing existing peer connection:', e);
+      }
+    }
+    
     this.peerConnection = new RTCPeerConnection({
       iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }
-      ]
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+      ],
+      iceTransportPolicy: 'all',
+      iceCandidatePoolSize: 10,
+      // These settings help with connection stability
+      // Especially in challenging network environments
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require'
     });
     
     // Set up ICE candidate handling
@@ -108,23 +135,55 @@ export class WebRTCClient {
       
       if (iceState === 'connected' || iceState === 'completed') {
         console.log('[Terminal WebRTC] Connection established');
-        webrtcStore.setConnected(true);
-        if (this.terminalCallback) {
-          this.terminalCallback("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+        // Only update UI and store if we're transitioning from a non-connected state
+        // This prevents repeated notifications when the state cycles between connected and disconnected
+        if (!webrtcStore.getConnected()) {
+          webrtcStore.setConnected(true);
+          if (this.terminalCallback) {
+            this.terminalCallback("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+          }
         }
       } else if (iceState === 'failed') {
-        // Only treat 'failed' as a definite error, not 'disconnected' or 'closed'
+        // Only treat 'failed' as a definite error
         console.error('[Terminal WebRTC] Connection failed');
         webrtcStore.setConnected(false);
         if (this.terminalCallback) {
           this.terminalCallback("\r\n\x1b[1;31mWebRTC connection failed.\x1b[0m\r\n");
         }
       } else if (iceState === 'closed') {
-        // Handle 'closed' state separately - this is a normal state when connection is deliberately closed
+        // Handle 'closed' state - this is a normal state when connection is deliberately closed
         console.log('[Terminal WebRTC] Connection closed');
         webrtcStore.setConnected(false);
       }
-      // Note: 'disconnected' is a temporary state and might recover, so we don't treat it as an error
+      // Note: We're intentionally ignoring 'disconnected' state as it's temporary
+      // and the connection often recovers automatically
+    };
+    
+    // Add connection state change handler for additional stability
+    this.peerConnection.onconnectionstatechange = () => {
+      const connectionState = this.peerConnection?.connectionState;
+      console.log(`[Terminal WebRTC] Connection state changed to: ${connectionState}`);
+      
+      // Only update on definitive states
+      if (connectionState === 'connected') {
+        webrtcStore.setConnected(true);
+      } else if (connectionState === 'failed') {
+        // Don't immediately mark as disconnected - this can happen temporarily
+        // especially in mobile networks or when network conditions change
+        console.log('[Terminal WebRTC] Connection state is failed, but not treating as error yet');
+        
+        // We don't set webrtcStore.setConnected(false) here to avoid disrupting the user experience
+        // The connection might recover, especially with the ICE restart mechanism
+      } else if (connectionState === 'closed') {
+        // Only mark as disconnected when explicitly closed
+        webrtcStore.setConnected(false);
+      }
+    };
+    
+    // Add negotiation needed handler
+    this.peerConnection.onnegotiationneeded = () => {
+      console.log('[Terminal WebRTC] Negotiation needed event fired');
+      // We don't automatically renegotiate, but log this for debugging
     };
     
     // Handle incoming data channels
@@ -178,6 +237,12 @@ export class WebRTCClient {
     switch (message.type) {
       case "webrtc:offer":
         console.log("Received WebRTC offer:", message);
+        
+        // Check if we're in a state where we can process an offer
+        if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
+          console.log('[Terminal WebRTC] Ignoring offer in non-stable state:', this.peerConnection.signalingState);
+          return;
+        }
         
         // Initialize peer connection if it doesn't exist
         if (!this.peerConnection) {
@@ -243,6 +308,12 @@ export class WebRTCClient {
           return;
         }
         
+        // Check if we're in the right state to receive an answer
+        if (this.peerConnection.signalingState !== 'have-local-offer') {
+          console.log(`[Terminal WebRTC] Ignoring answer in wrong state: ${this.peerConnection.signalingState}`);
+          return;
+        }
+        
         if (!message.sdp) {
           console.error("Missing SDP in answer message");
           webrtcStore.setError("Missing SDP in answer message");
@@ -277,9 +348,13 @@ export class WebRTCClient {
         }
         
         if (!message.candidate) {
-          console.error("Missing candidate data in ICE candidate message");
-          webrtcStore.setError("Missing candidate data in ICE candidate message");
+          console.warn("[Terminal WebRTC] Received empty ICE candidate, ignoring");
           return;
+        }
+        
+        // Log the actual candidate string for debugging
+        if (message.candidate.candidate) {
+          console.log(`[Terminal WebRTC] Adding ICE candidate: ${message.candidate.candidate}`);
         }
         
         // Create a proper RTCIceCandidate object
@@ -359,16 +434,34 @@ export class WebRTCClient {
    * Clean up WebRTC resources
    */
   cleanup() {
+    console.log('[Terminal WebRTC] Starting cleanup of WebRTC resources');
+    
     // Close data channel if it exists
     if (this.dataChannel) {
-      this.dataChannel.close();
+      try {
+        this.dataChannel.close();
+      } catch (e) {
+        console.warn('[Terminal WebRTC] Error closing data channel:', e);
+      }
       this.dataChannel = null;
       webrtcStore.setDataChannel(null);
     }
     
     // Close peer connection if it exists
     if (this.peerConnection) {
-      this.peerConnection.close();
+      try {
+        // Remove all event listeners before closing
+        this.peerConnection.onicecandidate = null;
+        this.peerConnection.oniceconnectionstatechange = null;
+        this.peerConnection.onconnectionstatechange = null;
+        this.peerConnection.ondatachannel = null;
+        this.peerConnection.onnegotiationneeded = null;
+        
+        // Close the connection
+        this.peerConnection.close();
+      } catch (e) {
+        console.warn('[Terminal WebRTC] Error closing peer connection:', e);
+      }
       this.peerConnection = null;
       webrtcStore.setPeerConnection(null);
     }
