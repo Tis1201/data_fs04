@@ -65,7 +65,6 @@ export interface DeviceState {
     error: string | null;
     terminalMessages: TerminalMessage[]; // Store terminal messages
     latestTerminalMessage: TerminalMessage | null; // Latest terminal message
-    webrtcMessages: WebRTCMessage[]; // Store WebRTC messages
     latestWebRTCMessage: WebRTCMessage | null; // Latest WebRTC message
 }
 
@@ -79,7 +78,6 @@ const initialState: DeviceState = {
     error: null,
     terminalMessages: [],
     latestTerminalMessage: null,
-    webrtcMessages: [],
     latestWebRTCMessage: null
 };
 
@@ -147,11 +145,10 @@ function createDeviceStore() {
                         
                         // Update the store with the new WebRTC message
                         update(state => {
-                            // Store WebRTC messages for the current device
+                            // Only store the latest WebRTC message for the current device
                             if (!state.deviceId || state.deviceId === deviceId) {
                                 return {
                                     ...state,
-                                    webrtcMessages: [...state.webrtcMessages, webrtcMessage],
                                     latestWebRTCMessage: webrtcMessage
                                 };
                             }
