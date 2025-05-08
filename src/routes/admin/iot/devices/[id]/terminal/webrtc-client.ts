@@ -1,52 +1,6 @@
 import { socketStore } from "$lib/stores/websocket-store";
-import { writable, type Writable } from "svelte/store";
-
-// WebRTC store for state management
-export const webrtcStore = createWebRTCStore();
-
-// WebRTC state interface
-interface WebRTCState {
-  isConnected: boolean;
-  peerConnection: RTCPeerConnection | null;
-  dataChannel: RTCDataChannel | null;
-  lastMessage: string | null;
-  error: string | null;
-}
-
-// Create WebRTC store with initial state
-function createWebRTCStore() {
-  const initialState: WebRTCState = {
-    isConnected: false,
-    peerConnection: null,
-    dataChannel: null,
-    lastMessage: null,
-    error: null
-  };
-
-  const { subscribe, set, update } = writable<WebRTCState>(initialState);
-  
-  // Store the current state locally to avoid having to subscribe
-  let currentState = initialState;
-  
-  // Subscribe to our own store to keep the current state updated
-  subscribe(state => {
-    currentState = state;
-  });
-
-  return {
-    subscribe,
-    reset: () => set(initialState),
-    setConnected: (isConnected: boolean) => update(state => ({ ...state, isConnected })),
-    getConnected: () => currentState.isConnected,
-    setError: (error: string | null) => update(state => ({ ...state, error })),
-    setLastMessage: (lastMessage: string | null) => update(state => ({ ...state, lastMessage })),
-    setPeerConnection: (peerConnection: RTCPeerConnection | null) => 
-      update(state => ({ ...state, peerConnection })),
-    setDataChannel: (dataChannel: RTCDataChannel | null) => 
-      update(state => ({ ...state, dataChannel })),
-    // Additional methods can be added here
-  };
-}
+import { webRTCStore } from "$lib/stores/webrtc-store";
+import type { WebRTCMessage, DataChannelMessage } from "$lib/stores/webrtc-store";
 
 // WebRTC client class for handling WebRTC operations
 export class WebRTCClient {
@@ -137,8 +91,8 @@ export class WebRTCClient {
         console.log('[Terminal WebRTC] Connection established');
         // Only update UI and store if we're transitioning from a non-connected state
         // This prevents repeated notifications when the state cycles between connected and disconnected
-        if (!webrtcStore.getConnected()) {
-          webrtcStore.setConnected(true);
+        if (webRTCStore.connectionStatus !== 'connected') {
+          webRTCStore.update(state => ({ ...state, connectionStatus: 'connected' }));
           if (this.terminalCallback) {
             this.terminalCallback("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
           }
@@ -146,14 +100,14 @@ export class WebRTCClient {
       } else if (iceState === 'failed') {
         // Only treat 'failed' as a definite error
         console.error('[Terminal WebRTC] Connection failed');
-        webrtcStore.setConnected(false);
+        webRTCStore.update(state => ({ ...state, connectionStatus: 'disconnected' }));
         if (this.terminalCallback) {
           this.terminalCallback("\r\n\x1b[1;31mWebRTC connection failed.\x1b[0m\r\n");
         }
       } else if (iceState === 'closed') {
         // Handle 'closed' state - this is a normal state when connection is deliberately closed
         console.log('[Terminal WebRTC] Connection closed');
-        webrtcStore.setConnected(false);
+        webRTCStore.update(state => ({ ...state, connectionStatus: 'disconnected' }));
       }
       // Note: We're intentionally ignoring 'disconnected' state as it's temporary
       // and the connection often recovers automatically
@@ -166,7 +120,7 @@ export class WebRTCClient {
       
       // Only update on definitive states
       if (connectionState === 'connected') {
-        webrtcStore.setConnected(true);
+        webRTCStore.update(state => ({ ...state, connectionStatus: 'connected' }));
       } else if (connectionState === 'failed') {
         // Don't immediately mark as disconnected - this can happen temporarily
         // especially in mobile networks or when network conditions change
@@ -176,7 +130,7 @@ export class WebRTCClient {
         // The connection might recover, especially with the ICE restart mechanism
       } else if (connectionState === 'closed') {
         // Only mark as disconnected when explicitly closed
-        webrtcStore.setConnected(false);
+        webRTCStore.update(state => ({ ...state, connectionStatus: 'disconnected' }));
       }
     };
     
@@ -190,12 +144,21 @@ export class WebRTCClient {
     this.peerConnection.ondatachannel = (event) => {
       console.log('[Terminal WebRTC] Data channel received:', event.channel.label);
       this.dataChannel = event.channel;
-      webrtcStore.setDataChannel(this.dataChannel);
+      webRTCStore.update(state => ({ ...state, dataChannel: this.dataChannel, dataChannelStatus: 'open' }));
       
       // Set up data channel event handlers
       this.dataChannel.onmessage = (msgEvent) => {
         console.log('[Terminal WebRTC] Data channel message received:', msgEvent.data);
-        webrtcStore.setLastMessage(msgEvent.data);
+        const message: DataChannelMessage = {
+          content: msgEvent.data,
+          timestamp: new Date().toISOString(),
+          direction: 'received'
+        };
+        webRTCStore.update(state => ({
+          ...state,
+          lastDataChannelMessage: msgEvent.data,
+          dataChannelMessages: [...(state.dataChannelMessages || []), message]
+        }));
         if (this.terminalCallback) {
           this.terminalCallback(`\r\n[WebRTC] ${msgEvent.data}\r\n`);
         }
@@ -216,7 +179,7 @@ export class WebRTCClient {
       };
     };
     
-    webrtcStore.setPeerConnection(this.peerConnection);
+    webRTCStore.update(state => ({ ...state, peerConnection: this.peerConnection }));
     return this.peerConnection;
   }
 
@@ -252,7 +215,7 @@ export class WebRTCClient {
         // Ensure we have a valid SDP
         if (!message.sdp) {
           console.error("Missing SDP in offer message");
-          webrtcStore.setError("Missing SDP in offer message");
+          webRTCStore.update(state => ({ ...state, error: "Missing SDP in offer message" }));
           return;
         }
         
@@ -294,7 +257,7 @@ export class WebRTCClient {
           })
           .catch(error => {
             console.error('[Terminal WebRTC] Error handling offer:', error);
-            webrtcStore.setError(`Error handling offer: ${error.message}`);
+            webRTCStore.update(state => ({ ...state, error: `Error handling offer: ${error.message}` }));
           });
         break;
         
@@ -304,7 +267,7 @@ export class WebRTCClient {
         // Ensure we have a peer connection and valid SDP
         if (!this.peerConnection) {
           console.error("No peer connection available for answer");
-          webrtcStore.setError("No peer connection available for answer");
+          webRTCStore.update(state => ({ ...state, error: "No peer connection available for answer" }));
           return;
         }
         
@@ -316,7 +279,7 @@ export class WebRTCClient {
         
         if (!message.sdp) {
           console.error("Missing SDP in answer message");
-          webrtcStore.setError("Missing SDP in answer message");
+          webRTCStore.update(state => ({ ...state, error: "Missing SDP in answer message" }));
           return;
         }
         
@@ -333,7 +296,7 @@ export class WebRTCClient {
           })
           .catch(error => {
             console.error('[Terminal WebRTC] Error setting remote description:', error);
-            webrtcStore.setError(`Error setting remote description: ${error.message}`);
+            webRTCStore.update(state => ({ ...state, error: `Error setting remote description: ${error.message}` }));
           });
         break;
         
@@ -343,7 +306,7 @@ export class WebRTCClient {
         // Ensure we have a peer connection and valid candidate
         if (!this.peerConnection) {
           console.error("No peer connection available for ICE candidate");
-          webrtcStore.setError("No peer connection available for ICE candidate");
+          webRTCStore.update(state => ({ ...state, error: "No peer connection available for ICE candidate" }));
           return;
         }
         
@@ -371,7 +334,7 @@ export class WebRTCClient {
           })
           .catch(error => {
             console.error('[Terminal WebRTC] Error adding ICE candidate:', error);
-            webrtcStore.setError(`Error adding ICE candidate: ${error.message}`);
+            webRTCStore.update(state => ({ ...state, error: `Error adding ICE candidate: ${error.message}` }));
           });
         break;
     }
@@ -420,7 +383,7 @@ export class WebRTCClient {
       return true;
     } catch (error) {
       console.error("Error sending WebRTC connection request:", error);
-      webrtcStore.setError(`Error sending connection request: ${error.message}`);
+      webRTCStore.update(state => ({ ...state, error: `Error sending connection request: ${error.message}` }));
       if (this.terminalCallback) {
         this.terminalCallback(
           `\r\n\x1b[1;31mError sending WebRTC connection request: ${error.message}\x1b[0m\r\n`,
@@ -444,7 +407,7 @@ export class WebRTCClient {
         console.warn('[Terminal WebRTC] Error closing data channel:', e);
       }
       this.dataChannel = null;
-      webrtcStore.setDataChannel(null);
+      webRTCStore.update(state => ({ ...state, dataChannel: null, dataChannelStatus: 'closed' }));
     }
     
     // Close peer connection if it exists
@@ -463,10 +426,10 @@ export class WebRTCClient {
         console.warn('[Terminal WebRTC] Error closing peer connection:', e);
       }
       this.peerConnection = null;
-      webrtcStore.setPeerConnection(null);
+      webRTCStore.update(state => ({ ...state, peerConnection: null }));
     }
     
-    webrtcStore.setConnected(false);
+    webRTCStore.update(state => ({ ...state, connectionStatus: 'disconnected' }));
     console.log('[Terminal WebRTC] Cleaned up WebRTC resources');
   }
 }
