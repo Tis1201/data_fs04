@@ -93,14 +93,42 @@ class WebRTCClient:
             return
         
         try:
-            # Create an RTCIceCandidate from the candidate string
-            candidate = RTCIceCandidate({
-                'candidate': ci.get('candidate'),
-                'sdpMid': ci.get('sdpMid'),
-                'sdpMLineIndex': ci.get('sdpMLineIndex')
-            })
-            await self.pc.addIceCandidate(candidate)
-            logger.debug("Added remote ICE candidate")
+            # Log the full candidate message for debugging
+            logger.debug(f"Received ICE candidate message: {message}")
+            
+            # Extract candidate information
+            candidate_str = ci.get('candidate', '')
+            sdp_mid = ci.get('sdpMid', '')
+            sdp_mline_index = ci.get('sdpMLineIndex', 0)
+            
+            # Parse the candidate string
+            parts = candidate_str.split()
+            if len(parts) >= 8 and parts[0].startswith('candidate:'):
+                foundation = parts[0].split(':')[1]
+                component = int(parts[1])
+                ip = parts[4]
+                port = int(parts[5])
+                protocol = parts[6]
+                type_ = parts[7]
+                
+                # Create the ICE candidate with all required parameters
+                candidate = RTCIceCandidate(
+                    component=component,
+                    foundation=foundation,
+                    ip=ip,
+                    port=port,
+                    priority=int(parts[3]),
+                    protocol=protocol,
+                    type=type_,
+                    sdpMid=sdp_mid,
+                    sdpMLineIndex=sdp_mline_index
+                )
+                
+                logger.debug(f"Parsed ICE candidate: {candidate}")
+                await self.pc.addIceCandidate(candidate)
+                logger.debug("Added remote ICE candidate")
+            else:
+                logger.error(f"Invalid candidate string format: {candidate_str}")
         except Exception as e:
             logger.error(f"Error handling ICE candidate: {e}")
 
