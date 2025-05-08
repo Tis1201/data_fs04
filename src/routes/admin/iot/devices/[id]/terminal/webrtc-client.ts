@@ -391,8 +391,6 @@ export class WebRTCClient {
      * Handle WebRTC ICE candidate messages
      */
     private handleIceCandidate(message: any) {
-        console.log("Received WebRTC ICE candidate:", message);
-
         // Ensure we have a peer connection and valid candidate
         if (!this.peerConnection) {
             console.error("No peer connection available for ICE candidate");
@@ -405,9 +403,30 @@ export class WebRTCClient {
             return;
         }
 
+        // Check connection state before processing new ICE candidates
+        const currentIceState = this.peerConnection.iceConnectionState;
+        const currentConnectionState = this.peerConnection.connectionState;
+        
         // Log the actual candidate string for debugging
         if (message.candidate.candidate) {
-            console.log(`[Terminal WebRTC] Adding ICE candidate: ${message.candidate.candidate}`);
+            console.log(`[Terminal WebRTC] Received ICE candidate: ${message.candidate.candidate}`);
+            console.log(`[Terminal WebRTC] Current ICE state: ${currentIceState}, Connection state: ${currentConnectionState}`);
+        }
+
+        // If we're already connected or completed, be more selective about adding candidates
+        if (currentIceState === 'connected' || currentIceState === 'completed') {
+            // For already connected sessions, only add candidates that might improve the connection
+            // This helps prevent unnecessary connection state changes
+            const candidateStr = message.candidate.candidate.toLowerCase();
+            
+            // Only add certain types of candidates when already connected
+            // Typically relay candidates might be useful even after connection
+            if (candidateStr.includes('relay') || candidateStr.includes('srflx')) {
+                console.log('[Terminal WebRTC] Adding potential improvement candidate despite already being connected');
+            } else {
+                console.log('[Terminal WebRTC] Ignoring redundant ICE candidate as connection is already established');
+                return; // Skip adding this candidate
+            }
         }
 
         // Create a proper RTCIceCandidate object

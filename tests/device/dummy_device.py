@@ -205,13 +205,15 @@ class DummyDevice:
         """Handle incoming messages"""
         try:
             print(f"Received message: {message.get('type')}")
-            print(f"{json.dumps(message, indent=2)}")
+            # print(f"{json.dumps(message, indent=2)}")
             
             # Get message type and action
             payload = message.get('payload', {})
             action = payload.get('action')
             msg_type = payload.get('type')
             
+            print(f"Action: {action}, Type: {msg_type}")
+
             if action == 'message' and msg_type == 'webrtc:connect':
                 # Initialize WebRTC client if not already done
                 if not hasattr(self, 'webrtc_client') or self.webrtc_client is None:
