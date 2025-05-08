@@ -1,125 +1,34 @@
 import asyncio
 import json
-import logging
 import time
 import uuid
+import sys
+import select
 from datetime import datetime
-from typing import Dict, Any, Callable, Awaitable
+from typing import Dict, Any, Optional, Union, List
 from fractions import Fraction
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, VideoStreamTrack, RTCConfiguration, RTCIceServer
-from aiortc.mediastreams import VideoFrame
-import numpy as np
-
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, RTCConfiguration, RTCIceServer
 from loguru import logger
 
 
-class DummyVideoStreamTrack(VideoStreamTrack):
-    """A video track that generates test patterns for the dummy device."""
-    def __init__(self):
-        super().__init__()
-        self.counter = 0
-        self.frames_per_second = 15  # Reduced from 30 to lower bandwidth
-        self.frame_time = 1 / self.frames_per_second
-        self.last_frame_time = time.time()
-        self.last_frame = None
-        self.stopped = False
-        self._backpressure_sleep = 0.001  # Start with 1ms sleep
-        self._max_backpressure_sleep = 0.1  # Max 100ms sleep
-        
-        # Error tracking
-        self._error_count = 0
-        self._max_errors = 5  # Max consecutive errors before reducing quality
-        self._recovery_time = time.time()
-        self._recovery_interval = 10  # Seconds between recovery attempts
-        self._current_quality = 1.0  # Quality multiplier (1.0 = full quality)
+# Import VideoStreamTrack from aiortc
+from aiortc import VideoStreamTrack
 
-    def stop(self):
-        """Stop the video track."""
-        self.stopped = True
+# Import the video track implementation
+from video_track import DummyVideoStreamTrack
 
-    async def recv(self):
-        if self.stopped:
-            return None
-
-        try:
-            # Dynamic rate limiting with backpressure
-            now = time.time()
-            elapsed = now - self.last_frame_time
-            
-            # If we're falling behind, increase backpressure
-            if elapsed < self.frame_time:
-                self._backpressure_sleep = max(0.001, self._backpressure_sleep * 0.9)  # Reduce sleep time
-            else:
-                self._backpressure_sleep = min(self._max_backpressure_sleep, 
-                                              self._backpressure_sleep * 1.1)  # Increase sleep time
-            
-            # Apply rate limiting
-            wait_time = max(0, self.frame_time - elapsed)
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-            
-            # Additional backpressure sleep
-            await asyncio.sleep(self._backpressure_sleep)
-            
-            self.last_frame_time = time.time()
-            self.counter += 1
-            
-            # Apply quality settings
-            width = int(320 * self._current_quality)
-            height = int(240 * self._current_quality)
-            width = max(160, width - (width % 2))  # Ensure even dimensions
-            height = max(120, height - (height % 2))
-            
-            # Create a frame with changing colors (dynamic size based on quality)
-            img = np.zeros((height, width, 3), dtype=np.uint8)
-            img[:, :, 0] = (self.counter * 5) % 256  # Red channel
-            img[:, :, 1] = (self.counter * 7) % 256  # Green channel
-            img[:, :, 2] = (self.counter * 11) % 256  # Blue channel
-            
-            # Create VideoFrame from numpy array
-            frame = VideoFrame.from_ndarray(img, format="bgr24")
-            frame.pts = self.counter
-            frame.time_base = Fraction(1, 90000)  # MPEG clock rate
-            
-            # Reset error count on successful frame
-            self._error_count = 0
-            
-            # Try to recover quality if we've been stable
-            if (time.time() - self._recovery_time > self._recovery_interval and 
-                self._current_quality < 1.0):
-                self._current_quality = min(1.0, self._current_quality + 0.1)
-                self._recovery_time = time.time()
-                logger.info(f"Increasing video quality to {self._current_quality:.1f}")
-            
-            self.last_frame = frame
-            return frame
-            
-        except Exception as e:
-            logger.error(f"Error in video track: {str(e)}")
-            self._error_count += 1
-            
-            # Reduce quality if we're getting too many errors
-            if self._error_count >= self._max_errors:
-                self._current_quality = max(0.5, self._current_quality - 0.1)
-                logger.warning(f"Reducing video quality to {self._current_quality:.1f} due to errors")
-                self._error_count = 0
-                self._recovery_time = time.time()
-            
-            # On error, return the last frame if available, otherwise create a black frame
-            if self.last_frame:
-                return self.last_frame
-            
-            # Create a black frame as fallback
-            img = np.zeros((240, 320, 3), dtype=np.uint8)
-            frame = VideoFrame.from_ndarray(img, format="bgr24")
-            frame.pts = self.counter
-            frame.time_base = Fraction(1, 90000)
-            return frame
 
 
 class WebRTCClient:
     """WebRTC client for the dummy device to handle WebRTC connections."""
+    
+    # STUN server configuration
+    ICE_SERVERS = [RTCIceServer(urls=['stun:stun.l.google.com:19302'])]
+    
+    # Connection states
+    CONNECTED_STATES = ['connected', 'completed']
+    FAILED_STATES = ['failed', 'closed']
     
     def __init__(self, device):
         """Initialize the WebRTC client.
@@ -135,7 +44,7 @@ class WebRTCClient:
         self.pending_messages = []
         self.input_task = None
         self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5  # Increased from 3
+        self.max_reconnect_attempts = 5
         self.ice_restart_timer = None
 
     async def handle_message(self, message):
@@ -148,12 +57,15 @@ class WebRTCClient:
 
             logger.debug(f"Received message: {action}:{msg_type}")
             
-            if action == 'message' and msg_type == 'webrtc:connect':
-                await self.handle_connect(message)
-            elif action == 'message' and msg_type == 'webrtc:answer':
-                await self.handle_answer(message)
-            elif action == 'message' and msg_type == 'webrtc:ice-candidate':
-                await self.handle_ice_candidate(message)
+            # Map message types to handler methods
+            handlers = {
+                'webrtc:connect': self.handle_connect,
+                'webrtc:answer': self.handle_answer,
+                'webrtc:ice-candidate': self.handle_ice_candidate
+            }
+            
+            if action == 'message' and msg_type in handlers:
+                await handlers[msg_type](message)
             else:
                 logger.warning(f"Unknown message type: {msg_type}")
         except Exception as e:
@@ -171,16 +83,11 @@ class WebRTCClient:
         
         # Create peer connection with STUN server
         self.pc = RTCPeerConnection(configuration=RTCConfiguration(
-            iceServers=[RTCIceServer(
-                urls=['stun:stun.l.google.com:19302']
-            )]
+            iceServers=self.ICE_SERVERS
         ))
         
         # Set up event handlers
-        self.pc.on("icecandidate", self._on_ice_candidate_wrapper)
-        self.pc.on("connectionstatechange", self._on_connection_state_change)
-        self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
-        self.pc.on("datachannel", self._on_data_channel)
+        self._setup_event_handlers()
         
         # Add video track
         self.video_track = DummyVideoStreamTrack()
@@ -188,23 +95,51 @@ class WebRTCClient:
         
         # Create data channel
         self.dc = self.pc.createDataChannel("dummy-device")
-        self.dc.on("open", self._on_data_channel_open)
-        self.dc.on("message", self._on_data_channel_message)
-        self.dc.on("close", self._on_data_channel_close)
+        self._setup_data_channel_handlers(self.dc)
         
         logger.info("WebRTC client initialized")
+    
+    def _setup_event_handlers(self):
+        """Set up WebRTC event handlers."""
+        self.pc.on("icecandidate", self._on_ice_candidate_wrapper)
+        self.pc.on("connectionstatechange", self._on_connection_state_change)
+        self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
+        self.pc.on("datachannel", self._on_data_channel)
+    
+    def _setup_data_channel_handlers(self, channel):
+        """Set up data channel event handlers."""
+        channel.on("open", self._on_data_channel_open)
+        channel.on("message", self._on_data_channel_message)
+        channel.on("close", self._on_data_channel_close)
+        channel.on("error", self._on_data_channel_error)
         
-    async def create_offer(self):
-        """Create and return a WebRTC offer."""
+    def _generate_message_id(self, prefix="msg"):
+        """Generate a unique message ID for deduplication."""
+        message_id = f"{prefix}-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
+        self.sent_message_ids.add(message_id)
+        return message_id
+
+    async def create_offer(self, ice_restart=False):
+        """Create and return a WebRTC offer.
+        
+        Args:
+            ice_restart: Whether to restart ICE during offer creation
+        
+        Returns:
+            Dict containing the formatted offer message
+        """
         if not self.pc:
             self.initialize()
-            
-        offer = await self.pc.createOffer()
+        
+        # Create offer with optional ICE restart
+        if ice_restart:
+            offer = await self.pc.createOffer(iceRestart=True)
+        else:
+            offer = await self.pc.createOffer()
         await self.pc.setLocalDescription(offer)
         
-        # Create message ID for deduplication
-        message_id = f"offer-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
-        self.sent_message_ids.add(message_id)
+        # Generate message ID and create message
+        message_id = self._generate_message_id("offer")
         
         # Format the offer message for the device to send
         offer_msg = {
@@ -218,24 +153,25 @@ class WebRTCClient:
             }
         }
         
-        logger.info("Created WebRTC offer")
+        logger.info("Created WebRTC offer" + (" with ICE restart" if ice_restart else ""))
         return offer_msg
     
     async def handle_answer(self, message):
         """Handle an incoming WebRTC answer."""
         try:
-            # First check if we have a valid peer connection
-            if not self.pc:
-                logger.error("No peer connection available")
-                return
-                
+            logger.info("Received WebRTC answer")
+            
             payload = message.get('payload', {})
             sdp = payload.get('sdp')
             
             if not sdp:
                 logger.error("No SDP in answer message")
                 return
-                
+            
+            # Wait for local ICE candidates to be generated
+            logger.info("Waiting for local ICE candidates...")
+            await asyncio.sleep(1.0)  # Wait 1 second for local candidates
+            
             answer = RTCSessionDescription(sdp=sdp, type='answer')
             
             # Create a task for setting remote description
@@ -378,13 +314,12 @@ class WebRTCClient:
         """Non-async wrapper for handling ICE candidates"""
         # In aiortc, the event is directly the candidate, not an event object with a candidate property
         if candidate:
-            print(f"ICE candidate generated: {candidate.candidate}")
+            logger.debug(f"Generated local ICE candidate: {candidate.candidate}")
             # Create a task to handle the ICE candidate asynchronously
             asyncio.create_task(self._on_ice_candidate(candidate))
 
     async def _on_ice_candidate(self, candidate):
         """Handle local ICE candidate generation."""
-        print(f"Processing ICE candidate: {candidate.candidate}")
         if not candidate:
             return
             
@@ -399,8 +334,7 @@ class WebRTCClient:
                     return
             
             # Create message ID for deduplication
-            message_id = f"ice-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
-            self.sent_message_ids.add(message_id)
+            message_id = self._generate_message_id("ice")
             
             # Format the candidate message for the device to send
             candidate_msg = {
@@ -409,7 +343,7 @@ class WebRTCClient:
                 "payload": {
                     "action": "message",
                     "type": "webrtc:ice-candidate",
-                    "deviceId": self.device.device_id,  # Make sure to include the device ID
+                    "deviceId": self.device.device_id,
                     "candidate": {
                         "candidate": candidate.candidate,
                         "sdpMid": candidate.sdpMid,
@@ -423,8 +357,6 @@ class WebRTCClient:
             # Send through the device
             success = self.device.send_message(candidate_msg)
             
-            print(candidate_msg)
-
             if success:
                 logger.info(f"Sent ICE candidate: {candidate.candidate[:30]}...")
             else:
@@ -485,40 +417,31 @@ class WebRTCClient:
         if not self.pc:
             return
 
-        print(self.pc.iceConnectionState)
-            
-        # state = self.pc.iceConnectionState
-        # logger.info(f"ICE connection state changed: {state}")
+        state = self.pc.iceConnectionState
+        logger.info(f"ICE connection state changed: {state}")
         
-        # if state == "connected" or state == "completed":
-        #     # Reset reconnection attempts on successful connection
-        #     self.reconnect_attempts = 0
+        if state == "connected" or state == "completed":
+            # Reset reconnection attempts on successful connection
+            self.reconnect_attempts = 0
             
-        #     # Send any pending messages that may have been queued during reconnection
-        #     if self.pending_messages and self.dc and self.dc.readyState == "open":
-        #         logger.info(f"Sending {len(self.pending_messages)} pending messages after reconnection")
-        #         for msg in self.pending_messages:
-        #             asyncio.create_task(self.send_data(msg))
-        #         self.pending_messages.clear()
+            # Send any pending messages that may have been queued during reconnection
+            if self.pending_messages and self.dc and self.dc.readyState == "open":
+                logger.info(f"Sending {len(self.pending_messages)} pending messages after reconnection")
+                for msg in self.pending_messages:
+                    asyncio.create_task(self.send_data(msg))
+                self.pending_messages.clear()
                 
-        #     # Ensure console input loop is running
-        #     if (self.input_task is None or self.input_task.done()) and self.dc and self.dc.readyState == "open":
-        #         logger.info("Starting console input loop after ICE connection established")
-        #         self.input_task = asyncio.create_task(self._console_input_loop())
-                
-        # elif state == "disconnected":
-        #     logger.warning("ICE connection disconnected - waiting for automatic recovery")
-        #     # Don't immediately schedule a restart - give WebRTC time to recover on its own
-        #     # This matches the TypeScript client's approach which ignores temporary disconnections
-        #     # Only schedule a delayed restart if we stay disconnected
-        #     if not hasattr(self, 'ice_restart_timer') or self.ice_restart_timer is None:
-        #         self.ice_restart_timer = asyncio.create_task(self._delayed_ice_restart())
+        elif state == "disconnected":
+            logger.warning("ICE connection disconnected - waiting for automatic recovery")
+            # Schedule a delayed restart if we stay disconnected
+            if not hasattr(self, 'ice_restart_timer') or self.ice_restart_timer is None:
+                self.ice_restart_timer = asyncio.create_task(self._delayed_ice_restart())
             
-        # elif state == "failed":
-        #     logger.error("ICE connection failed - attempting ICE restart")
-        #     # Try to restart ICE immediately
-        #     if self.pc:
-        #         asyncio.create_task(self._restart_ice())
+        elif state == "failed":
+            logger.error("ICE connection failed - attempting ICE restart")
+            # Try to restart ICE immediately
+            if self.pc:
+                asyncio.create_task(self._restart_ice())
     
     def _on_data_channel(self, channel):
         """Handle incoming data channel."""
@@ -526,10 +449,7 @@ class WebRTCClient:
         
         if not self.dc:
             self.dc = channel
-            self.dc.on("open", self._on_data_channel_open)
-            self.dc.on("message", self._on_data_channel_message)
-            self.dc.on("close", self._on_data_channel_close)
-            self.dc.on("error", self._on_data_channel_error)
+            self._setup_data_channel_handlers(channel)
             
             # Log current state
             logger.info(f"Data channel state: {self.dc.readyState}")
@@ -564,27 +484,14 @@ class WebRTCClient:
                 msg_data = json.loads(message)
                 msg_type = msg_data.get('type')
                 
-                # Handle ping messages specially
-                if msg_type == 'ping':
-                    # Send a pong response
-                    pong_msg = {
-                        'type': 'pong',
-                        'timestamp': datetime.now().isoformat(),
-                        'echo': msg_data.get('timestamp')
-                    }
-                    logger.info(f"Received ping, sending pong response")
-                    asyncio.create_task(self.send_data(pong_msg))
-                    return
-                    
-                # Handle close messages
-                if msg_type == 'close':
-                    logger.info(f"Received close signal from browser")
-                    # Don't close immediately, just acknowledge
-                    ack_msg = {
-                        'type': 'close-ack',
-                        'timestamp': datetime.now().isoformat()
-                    }
-                    asyncio.create_task(self.send_data(ack_msg))
+                # Handle special message types
+                handlers = {
+                    'ping': self._handle_ping_message,
+                    'close': self._handle_close_message
+                }
+                
+                if msg_type in handlers:
+                    handlers[msg_type](msg_data)
                     return
             
             # For other messages, echo them back (for testing)
@@ -592,6 +499,25 @@ class WebRTCClient:
             
         except Exception as e:
             logger.error(f"Error processing data channel message: {str(e)}")
+    
+    def _handle_ping_message(self, msg_data):
+        """Handle ping messages with pong response."""
+        pong_msg = {
+            'type': 'pong',
+            'timestamp': datetime.now().isoformat(),
+            'echo': msg_data.get('timestamp')
+        }
+        logger.info("Received ping, sending pong response")
+        asyncio.create_task(self.send_data(pong_msg))
+    
+    def _handle_close_message(self, msg_data):
+        """Handle close messages with acknowledgment."""
+        logger.info("Received close signal from browser")
+        ack_msg = {
+            'type': 'close-ack',
+            'timestamp': datetime.now().isoformat()
+        }
+        asyncio.create_task(self.send_data(ack_msg))
     
     def _on_data_channel_close(self):
         """Handle data channel close event."""
@@ -614,39 +540,17 @@ class WebRTCClient:
             
             while True:
                 # Check if we should continue
-                if not self.pc or self.pc.connectionState in ["failed", "closed"]:
+                if not self.pc or self.pc.connectionState in self.FAILED_STATES:
                     logger.warning("Connection no longer active, stopping console input loop")
                     break
                 
                 # Use asyncio to read from stdin without blocking
-                # We'll poll for input every 0.1 seconds
                 await asyncio.sleep(0.1)
-                
-                # Check if there's input available
-                import sys
-                import select
                 
                 # Check if there's data to read from stdin (non-blocking)
                 if select.select([sys.stdin], [], [], 0)[0]:
                     user_input = sys.stdin.readline().strip()
-                    
-                    # Send the user input if data channel is open
-                    if self.dc and self.dc.readyState == "open":
-                        message = {
-                            'type': 'console',
-                            'message': user_input,
-                            'timestamp': datetime.now().isoformat(),
-                            'id': str(uuid.uuid4())[:8]
-                        }
-                        
-                        success = await self.send_data(message)
-                        if success:
-                            logger.info(f"Sent message: {user_input}")
-                        else:
-                            logger.warning(f"Failed to send message: {user_input}")
-                    else:
-                        logger.warning(f"Data channel not open (state: {self.dc.readyState if self.dc else 'None'}), can't send message")
-                        print("WebRTC data channel not open. Message not sent.")
+                    await self._send_user_input(user_input)
                 
         except asyncio.CancelledError:
             logger.debug("Console input loop cancelled")
@@ -657,6 +561,26 @@ class WebRTCClient:
                 logger.info("Restarting console input loop after error")
                 await asyncio.sleep(1)
                 self.input_task = asyncio.create_task(self._console_input_loop())
+    
+    async def _send_user_input(self, user_input):
+        """Send user input over the data channel."""
+        # Send the user input if data channel is open
+        if self.dc and self.dc.readyState == "open":
+            message = {
+                'type': 'console',
+                'message': user_input,
+                'timestamp': datetime.now().isoformat(),
+                'id': str(uuid.uuid4())[:8]
+            }
+            
+            success = await self.send_data(message)
+            if success:
+                logger.info(f"Sent message: {user_input}")
+            else:
+                logger.warning(f"Failed to send message: {user_input}")
+        else:
+            logger.warning(f"Data channel not open (state: {self.dc.readyState if self.dc else 'None'}), can't send message")
+            print("WebRTC data channel not open. Message not sent.")
                 
     async def _delayed_ice_restart(self):
         """Schedule a delayed ICE restart if the connection doesn't recover on its own."""
@@ -682,25 +606,9 @@ class WebRTCClient:
                 return
                 
             logger.info("Attempting ICE restart")
-            # Create a new offer with ICE restart flag
-            offer = await self.pc.createOffer({"iceRestart": True})
-            await self.pc.setLocalDescription(offer)
             
-            # Create message ID for deduplication
-            message_id = f"restart-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
-            self.sent_message_ids.add(message_id)
-            
-            # Format the offer message for the device to send
-            offer_msg = {
-                "id": message_id,
-                "type": "device",
-                "payload": {
-                    "action": "message",
-                    "type": "webrtc:offer",
-                    "sdp": offer.sdp,
-                    "_clientMessageId": message_id
-                }
-            }
+            # Create and send a new offer with ICE restart flag
+            offer_msg = await self.create_offer(ice_restart=True)
             
             # Send through the device
             self.device.send_message(offer_msg)
@@ -726,20 +634,13 @@ class WebRTCClient:
                 logger.error(f"Exceeded maximum reconnection attempts ({self.max_reconnect_attempts})")
                 return
                 
-            # Wait before attempting reconnection
-            wait_time = 2 * self.reconnect_attempts  # Exponential backoff
+            # Wait before attempting reconnection with exponential backoff
+            wait_time = 2 * self.reconnect_attempts
             logger.info(f"Waiting {wait_time} seconds before reconnection attempt {self.reconnect_attempts}")
             await asyncio.sleep(wait_time)
             
-            # Cancel any existing input task
-            if self.input_task and not self.input_task.done():
-                self.input_task.cancel()
-                self.input_task = None
-            
-            # Clear any pending ICE restart timer
-            if hasattr(self, 'ice_restart_timer') and self.ice_restart_timer and not self.ice_restart_timer.done():
-                self.ice_restart_timer.cancel()
-                self.ice_restart_timer = None
+            # Clean up existing tasks
+            await self._cleanup_tasks()
             
             # Try to restart ICE first if connection still exists
             if self.pc and self.pc.connectionState != "closed":
@@ -754,6 +655,18 @@ class WebRTCClient:
                 
         except Exception as e:
             logger.error(f"Error during reconnection attempt: {str(e)}")
+    
+    async def _cleanup_tasks(self):
+        """Clean up any running tasks."""
+        # Cancel any existing input task
+        if self.input_task and not self.input_task.done():
+            self.input_task.cancel()
+            self.input_task = None
+        
+        # Clear any pending ICE restart timer
+        if hasattr(self, 'ice_restart_timer') and self.ice_restart_timer and not self.ice_restart_timer.done():
+            self.ice_restart_timer.cancel()
+            self.ice_restart_timer = None
     
     async def close(self):
         """Close the WebRTC connection."""
