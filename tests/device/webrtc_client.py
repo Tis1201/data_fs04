@@ -11,14 +11,11 @@ from fractions import Fraction
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, RTCConfiguration, RTCIceServer
 from loguru import logger
 
-
 # Import VideoStreamTrack from aiortc
 from aiortc import VideoStreamTrack
 
 # Import the video track implementation
 from video_track import DummyVideoStreamTrack
-
-
 
 class WebRTCClient:
     """WebRTC client for the dummy device to handle WebRTC connections."""
@@ -30,6 +27,11 @@ class WebRTCClient:
     CONNECTED_STATES = ['connected', 'completed']
     FAILED_STATES = ['failed', 'closed']
     
+    ###############################################################################
+    #
+    # Constructor
+    #
+    ###############################################################################
     def __init__(self, device):
         """Initialize the WebRTC client.
         
@@ -47,6 +49,17 @@ class WebRTCClient:
         self.max_reconnect_attempts = 5
         self.ice_restart_timer = None
 
+        self.initialize()
+
+       
+
+       
+    
+    ###############################################################################
+    #
+    # Handling WebRTC messages over Messaging Framework
+    #
+    ###############################################################################
     async def handle_message(self, message):
         """Handle incoming WebRTC messages."""
         logger.debug(f"Entry to handle_message")
@@ -72,6 +85,11 @@ class WebRTCClient:
             logger.error(f"Error handling WebRTC message: {str(e)}")
             logger.exception("Detailed error trace:")
         
+    ################################################################################
+    #
+    # Initialize WebRTC connection
+    #
+    ################################################################################
     def initialize(self):
         """Initialize the WebRTC connection with STUN servers."""
         # Clean up any existing connection first
@@ -86,9 +104,12 @@ class WebRTCClient:
             iceServers=self.ICE_SERVERS
         ))
         
-        # Set up event handlers
-        self._setup_event_handlers()
         
+        self.pc.on("icecandidate", self._on_ice_candidate_wrapper)
+        self.pc.on("connectionstatechange", self._on_connection_state_change)
+        self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
+        self.pc.on("datachannel", self._on_data_channel)
+
         # Add video track
         self.video_track = DummyVideoStreamTrack()
         self.pc.addTrack(self.video_track)
@@ -99,12 +120,6 @@ class WebRTCClient:
         
         logger.info("WebRTC client initialized")
     
-    def _setup_event_handlers(self):
-        """Set up WebRTC event handlers."""
-        self.pc.on("icecandidate", self._on_ice_candidate_wrapper)
-        self.pc.on("connectionstatechange", self._on_connection_state_change)
-        self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
-        self.pc.on("datachannel", self._on_data_channel)
     
     def _setup_data_channel_handlers(self, channel):
         """Set up data channel event handlers."""
