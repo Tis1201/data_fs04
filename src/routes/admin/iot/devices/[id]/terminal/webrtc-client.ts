@@ -76,11 +76,134 @@ export class WebRTCClient {
 
   /******************************************************************************
    * 
+   *  Send Terminal Input
+   * 
+   ******************************************************************************/
+  sendTerminalInput(input: string) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send terminal input: data channel not open');
+      if (this.terminalCB) {
+        this.terminalCB("\r\n\x1b[1;31mError: Data channel not open\x1b[0m\r\n");
+      }
+      return;
+    }
+
+    // Handle special keys and escape sequences
+    let processedInput = input;
+    
+    // Special handling for carriage return
+    // Some terminals need both CR and LF for proper line endings
+    if (processedInput === '\r') {
+      console.log('[WebRTC] Converting CR to CR+LF');
+      // The server side will handle this conversion
+    }
+    
+    // Create the terminal input message
+    const message = {
+      type: 'terminal:input',
+      data: processedInput,
+      timestamp: Date.now()
+    };
+
+    // Send the message
+    try {
+      const jsonMessage = JSON.stringify(message);
+      this.dataChannel.send(jsonMessage);
+      
+      // Only log non-control characters to avoid console spam
+      if (processedInput.length === 1 && processedInput.charCodeAt(0) < 32) {
+        console.log(`[WebRTC] Sent control character: ${processedInput.charCodeAt(0)}`);
+      } else {
+        console.log(`[WebRTC] Sent terminal input: ${JSON.stringify(processedInput)}`);
+      }
+    } catch (error) {
+      console.error('[WebRTC] Error sending terminal input:', error);
+      if (this.terminalCB) {
+        this.terminalCB(`\r\n\x1b[1;31mError sending command: ${error.message}\x1b[0m\r\n`);
+      }
+    }
+  }
+
+  /******************************************************************************
+   * 
+   *  Send Terminal Resize
+   * 
+   ******************************************************************************/
+  sendTerminalResize(rows: number, cols: number) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send terminal resize: data channel not open');
+      return;
+    }
+
+    // Create the terminal resize message
+    const message = {
+      type: 'terminal:resize',
+      rows: rows,
+      cols: cols,
+      timestamp: Date.now()
+    };
+
+    // Send the message
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log('[WebRTC] Sent terminal resize:', rows, cols);
+    } catch (error) {
+      console.error('[WebRTC] Error sending terminal resize:', error);
+    }
+  }
+
+  /******************************************************************************
+   * 
+   *  Send Ping
+   * 
+   ******************************************************************************/
+  sendPing() {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send ping: data channel not open');
+      return;
+    }
+
+    // Create the ping message
+    const message = {
+      type: 'ping',
+      timestamp: Date.now()
+    };
+
+    // Send the message
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log('[WebRTC] Sent ping');
+    } catch (error) {
+      console.error('[WebRTC] Error sending ping:', error);
+    }
+  }
+
+  /******************************************************************************
+   * 
    *  Cleanup
    * 
    ******************************************************************************/
   cleanup() {
+    // Close the data channel if it exists
+    if (this.dataChannel) {
+      this.dataChannel.close();
+      this.dataChannel = null;
+    }
 
+    // Close the peer connection if it exists
+    if (this.peerConnection) {
+      this.peerConnection.close();
+      this.peerConnection = null;
+    }
+
+    // Update the WebRTC store
+    webRTCStore.update(state => ({
+      ...state,
+      dataChannelStatus: 'closed',
+      dataChannel: null
+    }));
+
+    console.log('[WebRTC] Cleaned up resources');
   }
 
   /******************************************************************************
@@ -108,6 +231,80 @@ export class WebRTCClient {
         break;
       default:
         console.log('Unknown message type:', msg_type);
+    }
+  }
+
+  /******************************************************************************
+   * 
+   *  Handle Data Channel Message
+   * 
+   ******************************************************************************/
+  private handleDataChannelMessage(data: string) {
+    // Skip empty data
+    if (!data || data.length === 0) {
+      console.warn('[WebRTC] Received empty data');
+      return;
+    }
+
+    try {
+      // Parse the message as JSON
+      const message = JSON.parse(data);
+      
+      // Only log non-terminal output messages to avoid console spam
+      if (message.type !== 'terminal:output') {
+        console.log('[WebRTC] Parsed data channel message:', message);
+      } else {
+        // Log terminal output size for debugging
+        console.log(`[WebRTC] Received terminal output: ${message.data ? message.data.length : 0} bytes`);
+      }
+
+      // Handle different message types
+      switch (message.type) {
+        case 'pong':
+          // Calculate latency if needed
+          if (message.replyTo) {
+            const latency = Date.now() - message.replyTo;
+            console.log(`[WebRTC] Ping latency: ${latency}ms`);
+          }
+          break;
+
+        case 'terminal:output':
+          // Send the terminal output to the terminal callback
+          if (this.terminalCB && message.data) {
+            // Debug log a sample of the output
+            const sample = message.data.length > 20 ? 
+              message.data.substring(0, 20) + '...' : 
+              message.data;
+            console.log(`[WebRTC] Terminal output sample: ${JSON.stringify(sample)}`);
+            
+            // Send the data to the terminal
+            this.terminalCB(message.data);
+          } else if (!message.data) {
+            console.warn('[WebRTC] Received empty terminal output');
+          }
+          break;
+
+        case 'terminal:error':
+          console.log('[WebRTC] Received terminal error:', message);
+          // Send the terminal error to the terminal callback
+          if (this.terminalCB && message.data) {
+            this.terminalCB(`\r\n\x1b[1;31mError: ${message.data}\x1b[0m\r\n`);
+          }
+          break;
+
+        default:
+          console.log('[WebRTC] Unknown data channel message type:', message.type);
+      }
+    } catch (error) {
+      console.error('[WebRTC] Error parsing data channel message:', error);
+      // If it's not JSON, treat it as raw terminal output
+      if (this.terminalCB) {
+        console.log('[WebRTC] Treating message as raw terminal output:', data.length, 'bytes');
+        // Log a sample of the data for debugging
+        const sample = data.length > 20 ? data.substring(0, 20) + '...' : data;
+        console.log(`[WebRTC] Raw output sample: ${JSON.stringify(sample)}`);
+        this.terminalCB(data);
+      }
     }
   }
 
@@ -186,7 +383,18 @@ export class WebRTCClient {
           // Set up event handlers for the data channel
           this.dataChannel.onmessage = (msgEvent) => {
             console.log('[WebRTC] Data channel message received:', msgEvent.data);
-            // this.handleDataChannelMessage({ data: msgEvent.data });
+            
+            // Check if the message is binary (ArrayBuffer)
+            if (msgEvent.data instanceof ArrayBuffer) {
+              // Convert ArrayBuffer to string
+              const decoder = new TextDecoder('utf-8');
+              const text = decoder.decode(msgEvent.data);
+              console.log('[WebRTC] Converted binary data to text:', text.length, 'bytes');
+              this.handleDataChannelMessage(text);
+            } else {
+              // Handle as normal text
+              this.handleDataChannelMessage(msgEvent.data);
+            }
           };
 
           this.dataChannel.onopen = () => {

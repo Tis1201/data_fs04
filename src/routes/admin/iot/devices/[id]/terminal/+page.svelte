@@ -53,19 +53,42 @@
 	let options: ITerminalOptions & ITerminalInitOnlyOptions = {
 		fontFamily: "'Menlo', 'Consolas', 'Monaco', monospace",
 		fontSize: 14,
-		lineHeight: 1.0,  // Reduced line height for tighter spacing
+		lineHeight: 1.2,  // Slightly increased for better readability
 		letterSpacing: 0,
 		theme: {
 			background: "#1e1e1e",
 			foreground: "#f0f0f0",
 			cursor: "#ffffff",
 			cursorAccent: "#000000",
-			selection: "rgba(255, 255, 255, 0.3)"
+			selection: "rgba(255, 255, 255, 0.3)",
+			black: "#000000",
+			red: "#cd3131",
+			green: "#0dbc79",
+			yellow: "#e5e510",
+			blue: "#2472c8",
+			magenta: "#bc3fbc",
+			cyan: "#11a8cd",
+			white: "#e5e5e5",
+			brightBlack: "#666666",
+			brightRed: "#f14c4c",
+			brightGreen: "#23d18b",
+			brightYellow: "#f5f543",
+			brightBlue: "#3b8eea",
+			brightMagenta: "#d670d6",
+			brightCyan: "#29b8db",
+			brightWhite: "#e5e5e5"
 		},
 		cursorBlink: true,
 		cursorStyle: "block",
 		rendererType: "canvas",
-		allowTransparency: false
+		allowTransparency: false,
+		convertEol: true, // Convert '\n' to '\r\n'
+		disableStdin: false, // Enable user input
+		scrollback: 10000, // Increase scrollback buffer
+		tabStopWidth: 8, // Standard tab width
+		altClickMovesCursor: true, // Allow clicking to move cursor
+		macOptionClickForcesSelection: true, // Better selection on Mac
+		macOptionIsMeta: true // Make Option key work as Meta
 	};
 
 	/****************************************************************************
@@ -81,12 +104,36 @@
 		// Set terminal callback for WebRTC client
 		webrtcClient.setTerminalCallback((message) => {
 			if (terminalInstance) {
+				// Log the received message for debugging
+				console.log(`Terminal received message: ${message.length} bytes`);
+				
+				// Write the message to the terminal
 				terminalInstance.write(message);
+				
+				// For debugging, log a sample of the message
+				if (message.length > 0) {
+					const sample = message.length > 20 ? 
+						message.substring(0, 20) + '...' : 
+						message;
+					console.log(`Terminal message sample: ${JSON.stringify(sample)}`);
+				}
 			}
 		});
 
 		// Initialize WebRTC connection
 		webrtcClient.connect();
+
+		// Start ping interval
+		const pingInterval = setInterval(() => {
+			if ($webRTCStore.dataChannelStatus === 'open') {
+				webrtcClient.sendPing();
+			}
+		}, 10000); // Send ping every 10 seconds
+
+		// Clean up ping interval on component destroy
+		onDestroy(() => {
+			clearInterval(pingInterval);
+		});
 	}
 
 	/****************************************************************************
@@ -186,9 +233,21 @@
 		const terminal = event.detail.terminal;
 		terminalInstance = terminal;
 
-		// FitAddon Usage
+		// Load addons for better terminal experience
 		const fitAddon = new (await XtermAddon.FitAddon()).FitAddon();
+		const webLinksAddon = new (await XtermAddon.WebLinksAddon()).WebLinksAddon(
+			(event, uri) => {
+				window.open(uri, '_blank');
+			}
+		);
+		const searchAddon = new (await XtermAddon.SearchAddon()).SearchAddon();
+		
+		// Load all addons
 		terminal.loadAddon(fitAddon);
+		terminal.loadAddon(webLinksAddon);
+		terminal.loadAddon(searchAddon);
+		
+		// Fit terminal to container
 		fitAddon.fit();
 
 		// Welcome message
@@ -198,13 +257,47 @@
 		// Initialize device connection
 		initDevice(terminal);
 
-		// Set up window resize handler
+		// Set up window resize handler with debounce
+		let resizeTimeout: ReturnType<typeof setTimeout>;
 		window.addEventListener("resize", () => {
-			try {
-				fitAddon.fit();
-			} catch (error) {
-				console.error("Error fitting terminal on resize:", error);
+			clearTimeout(resizeTimeout);
+			resizeTimeout = setTimeout(() => {
+				try {
+					fitAddon.fit();
+					// Send terminal resize event when WebRTC is connected
+					if ($webRTCStore.dataChannelStatus === 'open') {
+						const dimensions = fitAddon.proposeDimensions();
+						if (dimensions) {
+							webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
+							console.log(`Terminal resized to ${dimensions.rows} rows x ${dimensions.cols} columns`);
+						}
+					}
+				} catch (error) {
+					console.error("Error fitting terminal on resize:", error);
+				}
+			}, 100); // Debounce resize events
+		});
+
+		// Send initial terminal dimensions when WebRTC connects
+		const unsubscribeWebRTC = webRTCStore.subscribe(state => {
+			if (state.dataChannelStatus === 'open') {
+				try {
+					const dimensions = fitAddon.proposeDimensions();
+					if (dimensions) {
+						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
+						terminal.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
+					}
+				} catch (error) {
+					console.error("Error sending terminal dimensions:", error);
+				}
 			}
+		});
+		
+		// Clean up on destroy
+		onDestroy(() => {
+			unsubscribeWebRTC();
+			clearTimeout(resizeTimeout);
 		});
 	}
 
@@ -219,8 +312,16 @@
 
 		// Send command to device
 		if (terminalInstance) {
-			// Try to send via WebRTC first, fall back to WebSocket
-			if (!webrtcClient.sendMessage(data)) {
+			// Check if WebRTC data channel is open
+			if ($webRTCStore.dataChannelStatus === 'open') {
+				// Send via WebRTC
+				webrtcClient.sendTerminalInput(data);
+				
+				// For better UX, we could echo the character locally if needed
+				// This is usually not necessary as the terminal will echo back from the server
+				// terminalInstance.write(data);
+			} else {
+				// Fall back to WebSocket
 				sendCommand(terminalInstance, data);
 			}
 		}
@@ -235,7 +336,14 @@
 		event: CustomEvent<{ key: string; domEvent: KeyboardEvent }>,
 	) {
 		const data = event.detail;
-		console.log("Key pressed:", data.key);
+		
+		// Special key handling
+		if (data.domEvent.ctrlKey && data.domEvent.key === 'c') {
+			// Handle Ctrl+C - send SIGINT
+			if ($webRTCStore.dataChannelStatus === 'open') {
+				webrtcClient.sendTerminalInput('\x03'); // ASCII code for Ctrl+C
+			}
+		}
 	}
 </script>
 
