@@ -23,11 +23,14 @@ from data_channel import DataChannelHandler
 class WebRTCClient:
     """WebRTC client for the dummy device to handle WebRTC connections."""
 
-    
+        
     def __init__(self, device: Any):
         self.device = device
-        self.create_peer_connection()
         self._force_connecting = False
+        self._ice_gathering_complete = asyncio.Event()
+        self.create_peer_connection()
+        
+    
         
 
     def handle_message(self, message: Dict[str, Any]) -> None:
@@ -52,13 +55,14 @@ class WebRTCClient:
             asyncio.create_task(self.handle_ice_candidate(message))
 
     def create_peer_connection(self):
-        
+        """Create a new RTCPeerConnection and set up event handlers."""
         # Configure with STUN server using the correct aiortc format
-        
         self.pc = RTCPeerConnection(configuration=RTCConfiguration(
-            iceServers=[RTCIceServer(
-                urls=['stun:stun.l.google.com:19302']
-            )]
+            iceServers=[
+                RTCIceServer(urls="stun:stun.l.google.com:19302"),
+                # Optional TURN server for reliability behind NAT/firewalls:
+                # RTCIceServer(urls="turn:your.turn.server:3478", username="user", credential="pass")
+            ]
         ))
         
         # Setup event handlers
@@ -66,21 +70,33 @@ class WebRTCClient:
         self.pc.on('connectionstatechange', self.on_connection_state_change)
         self.pc.on('iceconnectionstatechange', self.on_ice_connection_state_change)
         
-        # Add video track from file
-        video_track = DummyVideoStreamTrack()
-        self.video_sender = self.pc.addTrack(video_track)
-
         # Create data channel
         self.dc = self.pc.createDataChannel('chat')
         
         # Add event handlers
         self.dc.on('open', self.on_datachannel_open)
         
-        # Add state change handler for debugging
+        # Start ICE gathering by creating an offer
+        # This will trigger the icecandidate event
+        # async def start_ice_gathering():
+        #     try:
+        #         offer = await self.pc.createOffer()
+        #         await self.pc.setLocalDescription(offer)
+        #         logger.debug("Started ICE gathering")
+        #     except Exception as e:
+        #         logger.error(f"Error starting ICE gathering: {str(e)}")
+        
+        # Start ICE gathering in the background
+        # asyncio.create_task(start_ice_gathering())
         def on_datachannel_state_change():
             logger.debug(f"Data channel state changed: {self.dc.readyState}")
             
         self.dc.on('statechange', on_datachannel_state_change)
+
+        def _on_icegatheringstatechange():
+            if self.pc.iceGatheringState == "complete":
+                self._ice_gathering_complete.set()
+        self.pc.on("icegatheringstatechange", _on_icegatheringstatechange)
 
     def on_datachannel_message(self, event):
         """Handle incoming messages on the data channel."""
@@ -99,25 +115,42 @@ class WebRTCClient:
     # Create Offer
     #
     ################################################################################
-    async def create_offer(self, message):
+    ################################################################################
+    # Create & send offer – only after ICE gathering is finished
+    ################################################################################
+    async def create_offer(self, message: dict):
+        # make connectionId available to the ICE‑candidate callback
+        self.connectionId = message["senderConnectionId"]
 
-        self.connectionId = message.get('senderConnectionId')
-
-        """Create and send an offer"""
+        # 1) create the SDP offer (no candidates yet)
         offer = await self.pc.createOffer()
+
+        # 2) apply it – this *starts* gathering
         await self.pc.setLocalDescription(offer)
-        
-        # Send offer using device's message sending mechanism
+
+        # 3)  wait for "gathering‑complete" or timeout after 5 s
+        try:
+            await asyncio.wait_for(self._ice_gathering_complete.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            logger.warning("ICE gathering timed out after 5 s")
+
+        # 4)  pc.localDescription now contains a=candidate lines
+        full_offer = self.pc.localDescription
+
+        # 5)  send the offer through your signalling layer
         self.device.send_message({
-            'type': 'device',
-            'payload': {
-                'action': 'message',
-                'type': 'webrtc:offer',
-                'sdp': offer.sdp,
-                'deviceId': self.device.device_id
-            },
-            'scope': f'connection:{self.connectionId}'  # Use connection ID for proper routing
+            "type": "device",
+            "scope": f"connection:{self.connectionId}",
+            "payload": {
+                "action":   "message",
+                "type":     "webrtc:offer",
+                "sdp":      full_offer.sdp,
+                "deviceId": self.device.device_id,
+            }
         })
+
+        logger.debug(f"Sent offer with local candidates: {full_offer.sdp}")
+
        
     ################################################################################
     #
@@ -147,6 +180,9 @@ class WebRTCClient:
     ################################################################################
     async def handle_local_ice_candidate(self, event):
         """Send local ICE candidate to remote peer via signaling server, with timestamp and message ID."""
+        
+        logger.debug(f"Received local ICE candidate: {event.candidate}")
+       
         try:
             if event.candidate:
                 from datetime import datetime
@@ -162,15 +198,16 @@ class WebRTCClient:
                 if not hasattr(self, 'sent_message_ids'):
                     self.sent_message_ids = set()
                 self.sent_message_ids.add(message_id)
-                await self.websocket_client.send({
-                    "type": "webrtc",
-                    "action": "ice-candidate",
-                    "data": {
-                        "roomId": self.roomId,
-                        "candidate": candidate_data,
-                        "timestamp": timestamp,
-                        "_clientMessageId": message_id
-                    }
+                self.device.send_message({
+                    'type': 'device',
+                    'payload': {
+                        'action': 'message',
+                        'type': 'webrtc:ice-candidate',
+                        'candidate': candidate_data,
+                        'timestamp': timestamp,
+                        '_clientMessageId': message_id
+                    },
+                    'scope': f'connection:{self.connectionId}'
                 })
                 logger.debug(f"Sent local ICE candidate: {candidate_data} (ID: {message_id})")
         except Exception as e:
@@ -194,9 +231,18 @@ class WebRTCClient:
                 return
 
             candidate_info = data.get('candidate')
+
+            logger.debug(f"Received ICE candidate: {json.dumps(candidate_info,indent=2)}")
+
             if not candidate_info:
                 logger.warning("No candidate info in ICE candidate message")
                 return
+
+            # if candidate_info["type"] == "srflx":
+            #     logger.debug("Skipping srflx candidate")
+            #     return   
+
+            
             candidate_str = candidate_info.get("candidate", "")
             sdp_mid = candidate_info.get("sdpMid", "")
             sdp_mline_index = candidate_info.get("sdpMLineIndex", 0)

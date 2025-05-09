@@ -117,9 +117,11 @@ export class WebRTCClient {
    * 
    ******************************************************************************/
   
-  private handleIceCandidate(message: any) {
-    console.log('[WebRTC] Received ICE candidate from remote peer:', message.candidate);
-
+  private async handleIceCandidate(message: any) {
+    const cand = message.payload.candidate;
+    // when Python sends `null` you must pass null
+    await this.peerConnection?.addIceCandidate(cand);  
+    console.log('[WebRTC] Applied remote ICE candidate', cand);
   }
   /******************************************************************************
    * 
@@ -155,7 +157,7 @@ export class WebRTCClient {
                 action: 'message',
                 type: 'webrtc:ice-candidate',
                 deviceId: this.deviceId,
-                candidate: event.candidate
+                candidate: event.candidate ? event.candidate.toJSON() : null
               },
               scope: "subscription:device:" + this.deviceId
             };

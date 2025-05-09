@@ -1,3 +1,10 @@
+# webrtc_client.py (or dummy_device.py), very first lines:
+import aioice
+from aioice import Connection
+
+# answer Chrome’s STUN pings every 2 s instead of every 15 s
+Connection.PING_INTERVAL = 2.0
+
 from textwrap import indent
 import requests
 import json
