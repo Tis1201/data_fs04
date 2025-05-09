@@ -33,7 +33,7 @@ import { userInfoByUserId } from '$lib/server/security/auth-utils';
 
 export const GET: RequestHandler = async ({ params, locals, request }) => {
 
-    const apiKey = request.headers.get('X-API-Key');
+    const apiKey = request.headers.get('x-api-Key');
 
     if (!apiKey) {
         logger.warn('No API Key provided');

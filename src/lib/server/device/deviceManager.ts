@@ -82,28 +82,15 @@ export class DefaultDeviceManager {
         // Log the connection information for debugging
         logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
 
-        // Create the message with all required properties in one step
-        const routingMessage = {
-            id: uuidv4(),
-            type: 'device',
-            scope: `connection:${deviceMeta.connectionId}`,
-            protocol: 'sse',  // This is the protocol for the device connection
-            connectionId: deviceMeta.connectionId || '',  // Ensure connectionId is always a string
-            userInfo: userInfo,
-            payload: {
-                id: deviceMeta.id,
-                action: 'registered',
-                userId: userInfo.id,
-                claimedAt: new Date().toISOString()
-            },
-            // System message properties
-            systemGenerated: true,
-            echoToSender: false,
-            // Explicit sender information for the client that initiated the claim
-            senderId: userInfo.id,
-            senderConnectionId: senderConnectionId,
-            senderConnectionProtocol: senderConnectionProtocol
-        };
+        // Create the message with the new helper method
+        const routingMessage = MessageFactory.createDeviceMessage(
+            'registered',
+            deviceMeta.id,
+            deviceMeta.connectionId || '',
+            userInfo,
+            senderConnectionId,
+            senderConnectionProtocol
+        );
 
         // Publish the routing message
         await publisher.publish(routingMessage);

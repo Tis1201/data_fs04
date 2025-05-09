@@ -78,5 +78,65 @@ export const MessageFactory = {
       ...overrides
     };
   },
+  
+  // Create a system-generated routing message with common defaults
+  createSystemMessage(
+    type: string,
+    scope: string,
+    payload: Record<string, unknown>,
+    userInfo: UserInfo,
+    options?: {
+      targetConnectionId?: string;
+      targetProtocol?: ConnectionProtocol;
+      senderConnectionId?: string;
+      senderConnectionProtocol?: ConnectionProtocol;
+      echoToSender?: boolean;
+    }
+  ): RoutingMessage {
+    return {
+      id: uuidv4(),
+      type,
+      scope,
+      protocol: options?.targetProtocol || 'sse',
+      connectionId: options?.targetConnectionId || '',
+      userInfo,
+      payload,
+      systemGenerated: true,
+      echoToSender: options?.echoToSender ?? false,
+      senderId: userInfo.id,
+      senderConnectionId: options?.senderConnectionId || '',
+      senderConnectionProtocol: options?.senderConnectionProtocol || 'websocket'
+    };
+  },
+  
+  // Specialized helper for device-related messages
+  createDeviceMessage(
+    action: string,
+    deviceId: string,
+    targetConnectionId: string,
+    userInfo: UserInfo,
+    senderConnectionId: string,
+    senderConnectionProtocol: ConnectionProtocol,
+    additionalPayload?: Record<string, unknown>
+  ): RoutingMessage {
+    return this.createSystemMessage(
+      'device',
+      `connection:${targetConnectionId}`,
+      {
+        id: deviceId,
+        action,
+        userId: userInfo.id,
+        claimedAt: new Date().toISOString(),
+        ...additionalPayload
+      },
+      userInfo,
+      {
+        targetConnectionId,
+        targetProtocol: 'sse',
+        senderConnectionId,
+        senderConnectionProtocol,
+        echoToSender: false
+      }
+    );
+  }
 };
-
