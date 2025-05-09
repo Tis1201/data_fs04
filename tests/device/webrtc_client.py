@@ -27,6 +27,7 @@ class WebRTCClient:
     def __init__(self, device: Any):
         self.device = device
         self.create_peer_connection()
+        self._force_connecting = False
         
 
     def handle_message(self, message: Dict[str, Any]) -> None:
@@ -71,14 +72,26 @@ class WebRTCClient:
 
         # Create data channel
         self.dc = self.pc.createDataChannel('chat')
-        # self.dc.on('open', self.on_datachannel_open)
-        # self.dc.on('message', self.on_datachannel_message)
+        
+        # Add event handlers
+        self.dc.on('open', self.on_datachannel_open)
         
         # Add state change handler for debugging
         def on_datachannel_state_change():
             logger.debug(f"Data channel state changed: {self.dc.readyState}")
             
         self.dc.on('statechange', on_datachannel_state_change)
+
+    def on_datachannel_message(self, event):
+        """Handle incoming messages on the data channel."""
+        message = json.loads(event.data)
+        logger.debug(f"Received message: {message}")
+        
+        # Echo the message back
+        self.dc.send(json.dumps({
+            "text": f"Echo: {message['text']}",
+            "timestamp": datetime.now().isoformat()
+        }))
 
 
     ################################################################################
@@ -114,25 +127,19 @@ class WebRTCClient:
     async def handle_answer(self, message: dict):
 
         data = message['payload']
+
+        sdp = data['sdp']
        
-        logger.debug(f"Handling answer: {data}")
+        logger.debug(f"Handling answer: {sdp}")
         
         # Create RTCSessionDescription from the answer
-        answer = RTCSessionDescription(sdp=data['sdp'], type='answer')
+        answer = RTCSessionDescription(sdp=sdp, type='answer')
         
         # Set the remote description
         await self.pc.setRemoteDescription(answer)
         logger.debug("Set remote description successfully")
         
-        # If we have a data channel, send a test message
-        if self.dc and self.dc.readyState == "open":
-            test_message = {
-                "text": "Hello from Python client!",
-                "timestamp": datetime.now().isoformat()
-            }
-            self.dc.send(json.dumps(test_message))
-            logger.debug(f"Sent test message: {test_message}")
-                
+       
     ################################################################################
     #
     # Handle Local ICE Candidate
@@ -240,7 +247,7 @@ class WebRTCClient:
                 elif self.dc.readyState == "connecting":
                     logger.debug("Data channel still connecting after delay. Attempting to use it anyway.")
                     # Set a flag to indicate we're forcing usage of a connecting channel
-                    self._force_connecting = True
+                    # self._force_connecting = True
                     self.on_datachannel_open()
             
             asyncio.create_task(check_datachannel_state())
@@ -267,13 +274,10 @@ class WebRTCClient:
             logger.error("Data channel is None, cannot proceed")
             return
             
-        # If we're in forced mode and the channel is still connecting, be extra careful
-        if self._force_connecting and self.dc.readyState == "connecting":
-            logger.warning("Using data channel in connecting state - some operations may fail")
-        
-        # Process any buffered messages first
-        if self._pending_echo:
-            logger.debug(f"Processing {len(self._pending_echo)} buffered messages")
-            
-            
-       
+        # Send a test message to verify the connection
+        test_message = {
+            "text": "Hello from Python client!",
+            "timestamp": datetime.now().isoformat()
+        }
+        self.dc.send(json.dumps(test_message))
+        logger.debug(f"Sent test message: {test_message}")
