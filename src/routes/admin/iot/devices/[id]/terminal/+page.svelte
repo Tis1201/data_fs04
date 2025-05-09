@@ -15,8 +15,8 @@
 	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
 	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
 	import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
-	import { WebRTCClient, createClientMessage } from "./webrtc-client";
-import { webRTCStore } from "$lib/stores/webrtc-store";
+	import { WebRTCClient } from "./webrtc-client";
+	import { webRTCStore } from "$lib/stores/webrtc-store";
 
 	/****************************************************************************
 	 * 

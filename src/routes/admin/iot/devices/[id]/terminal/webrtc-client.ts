@@ -14,226 +14,281 @@ import type {
   WebRTCMessage,
   DataChannelMessage,
 } from "$lib/stores/webrtc-store";
+import { get } from 'svelte/store';
 
-/* -------------------------------------------------------------------------- */
-/*  Helper                                                                     */
-/* -------------------------------------------------------------------------- */
-export function createClientMessage(
-  type: string,
-  scope: string,
-  payload: Record<string, unknown>,
-) {
-  return {
-    type,
-    scope: `subscription:${scope}`,
-    payload: {
-      ...payload,
-      timestamp: new Date().toISOString(),
-      _clientMessageId: `${type}-${Date.now().toString(36)}-${Math.random()
-        .toString(36)
-        .slice(2, 8)}`,
-    },
-  } as const;
-}
 
 /* -------------------------------------------------------------------------- */
 /*  WebRTC client                                                              */
 /* -------------------------------------------------------------------------- */
 export class WebRTCClient {
-  private pc: RTCPeerConnection | null = null;
-  private dc: RTCDataChannel | null = null;
-  private pingTimer: ReturnType<typeof setInterval> | null = null;
-  private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempts = 0;
+  private peerConnection: RTCPeerConnection | null = null;
+  private dataChannel: RTCDataChannel | null = null;
+  private _processedMessages = new Set<string>();
+
   private terminalCB: ((m: string) => void) | null = null;
+  config: any;
 
-  constructor(private deviceId: string) {}
+  constructor(private deviceId: string) {
+    console.log(`WebRTCClient: ${this.deviceId}`);
 
-  /* ---------------- public API ------------------------------------------- */
-  setTerminalCallback(cb: (s: string) => void) {
+    this.config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }
+      ]
+    };
+  }
+
+  /******************************************************************************
+   * 
+   *  Connect
+   * 
+   ******************************************************************************/
+  connect() {
+    console.log(`Connecting: ${this.deviceId}`);
+
+    // Send WebRTC connect message
+    const message = {
+      type: 'device',
+      payload: {
+        action: 'message',
+        type: 'webrtc:connect',
+        deviceId: this.deviceId
+      },
+      scope: `subscription:device:${this.deviceId}`
+    };
+
+    socketStore.send(message);
+
+    // Log the message in terminal
+    if (this.terminalCB) {
+      this.terminalCB("\r\n\x1b[1;32mWebRTC connect request sent\x1b[0m\r\n");
+    }
+  }
+
+  /******************************************************************************
+   * 
+   *  Callback
+   * 
+   ******************************************************************************/
+  setTerminalCallback(cb: (m: string) => void) {
     this.terminalCB = cb;
   }
 
-  connect() {
-    this.buildPeer();
-    this.signal(
-      createClientMessage("device", `device:${this.deviceId}`, {
-        action: "message",
-        type: "webrtc:connect",
-        deviceId: this.deviceId,
-      }),
-    );
-    this.log("\r\n\x1b[1;32mWebRTC connect request sent\x1b[0m\r\n");
-  }
-
+  /******************************************************************************
+   * 
+   *  Cleanup
+   * 
+   ******************************************************************************/
   cleanup() {
-    this.stopPing();
-    this.dc?.close();
-    this.pc?.close();
-    this.pc = null;
+
   }
 
-  /* ---------------- signalling dispatcher -------------------------------- */
-  handleWebRTCMessage(msg: WebRTCMessage) {
-    if (msg.deviceId && msg.deviceId !== this.deviceId) return;
-    if (!this.pc) this.buildPeer();
-    const pc = this.pc!;
+  /******************************************************************************
+   * 
+   *  Handle Message
+   * 
+   ******************************************************************************/
+  handleWebRTCMessage(message: WebRTCMessage) {
+    console.log('Received message:', message);
 
-    switch (msg.type) {
-      case "webrtc:offer":
-        pc.setRemoteDescription({ type: "offer", sdp: msg.sdp })
-          .then(() => pc.createAnswer())
-          .then((ans) => pc.setLocalDescription(ans))
-          .then(() => {
-            this.signal(
-              createClientMessage("device", `device:${this.deviceId}`, {
-                action: "message",
-                type: "webrtc:answer",
+    const msg_type = message.type;
+
+    switch (msg_type) {
+      case 'webrtc:offer':
+        console.log('Received offer:', message);
+        this.handleOffer(message);
+        break;
+      case 'webrtc:answer':
+        console.log('Received answer:', message);
+        // this.handleAnswer(message);
+        break;
+      case 'webrtc:ice-candidate':
+        console.log('Received ice candidate:', message);
+        this.handleIceCandidate(message);
+        break;
+      default:
+        console.log('Unknown message type:', msg_type);
+    }
+  }
+
+  /******************************************************************************
+   * 
+   *  Handle Offer
+   * 
+   ******************************************************************************/
+  
+  private handleIceCandidate(message: any) {
+    console.log('[WebRTC] Received ICE candidate from remote peer:', message.candidate);
+
+  }
+  /******************************************************************************
+   * 
+   *  Handle Offer
+   * 
+   ******************************************************************************/
+  private handleOffer(message: any) {
+    try {
+      console.log('[WebRTC] Handling offer:', message);
+
+      // Check if we're the initiator (we created the offer)
+      // If we are, we shouldn't be receiving an offer
+      if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
+        console.log('[WebRTC] Ignoring offer in non-stable state');
+        return;
+      }
+
+      // Initialize peer connection if it doesn't exist
+      if (!this.peerConnection) {
+        this.peerConnection = new RTCPeerConnection({
+          iceServers: this.config.iceServers || [
+            { urls: 'stun:stun.l.google.com:19302' }
+          ]
+        });
+
+        this.peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            console.log(`[WebRTC] Local ICE candidate: ${event.candidate.candidate}`);
+            // Always include the current roomId from roomStore
+            const iceMessage = {
+              type: 'device',
+              payload: {
+                action: 'message',
+                type: 'webrtc:ice-candidate',
                 deviceId: this.deviceId,
-                sdp: pc.localDescription!.sdp,
-              }),
-            );
-          });
-        break;
-      case "webrtc:answer":
-        if (pc.signalingState === "have-local-offer")
-          pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
-        break;
-      case "webrtc:ice-candidate":
-        if (msg.candidate?.candidate)
-          pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-        break;
-    }
-  }
+                candidate: event.candidate
+              },
+              scope: "subscription:device:" + this.deviceId
+            };
+            socketStore.send(iceMessage);
+          } else {
+            console.log('[WebRTC] ICE candidate gathering complete');
+          }
+        };
 
-  /* ---------------------------------------------------------------------- */
-  /*  Internals                                                              */
-  /* ---------------------------------------------------------------------- */
+        // Add ice connection state change listener
+        this.peerConnection.oniceconnectionstatechange = () => {
+          const iceState = this.peerConnection?.iceConnectionState;
+          console.log(`[WebRTC] ICE connection state changed to: ${iceState}`);
 
-  private buildPeer() {
-    // fresh pc every time – simpler than untangling old handlers
-    this.stopPing();
-    this.pc?.close();
+          if (iceState === 'connected' || iceState === 'completed') {
+            console.log('[WebRTC] ICE connection established');
+          } else if (iceState === 'failed') {
+            console.error('[WebRTC] ICE connection failed');
+          }
+        };
 
-    const pc = new RTCPeerConnection({
-      // iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
+        this.peerConnection.ondatachannel = (event) => {
+          console.log('[WebRTC] Data channel received:', event.channel.label);
+          this.dataChannel = event.channel;
 
-    /* ---------- local ICE candidates ------------- */
-    pc.onicecandidate = (e) => {
-      if (!e.candidate) return;
-      if (pc.iceConnectionState === "connected") return; // don't spam when stable
-      this.signal(
-        createClientMessage("device", `device:${this.deviceId}`, {
-          action: "message",
-          type: "webrtc:ice-candidate",
-          deviceId: this.deviceId,
-          candidate: e.candidate.toJSON(),
-        }),
-      );
-    };
+          // Set up event handlers for the data channel
+          this.dataChannel.onmessage = (msgEvent) => {
+            console.log('[WebRTC] Data channel message received:', msgEvent.data);
+            // this.handleDataChannelMessage({ data: msgEvent.data });
+          };
 
-    /* ---------- connection state ----------------- */
-    pc.oniceconnectionstatechange = () => {
-      const s = pc.iceConnectionState;
-      console.log("[WebRTC] ice state", s);
-      switch (s) {
-        case "connected":
+          this.dataChannel.onopen = () => {
+            console.log('[WebRTC] Data channel opened');
+            webRTCStore.update(state => ({
+              ...state,
+              dataChannelStatus: 'open'
+            }));
+          };
 
-        case "completed":
-          // clearTimeout(this.disconnectTimer as unknown as number);
-          // this.disconnectTimer = null;
-          // this.reconnectAttempts = 0;
-          webRTCStore.update((st) => ({ ...st, connectionStatus: "connected" }));
-          this.startPing();
-          break;
+          this.dataChannel.onclose = () => {
+            console.log('[WebRTC] Data channel closed');
+            webRTCStore.update(state => ({
+              ...state,
+              dataChannelStatus: 'closed'
+            }));
+          };
 
-        case "disconnected":
-          // if (!this.disconnectTimer) {
-          //   this.disconnectTimer = setTimeout(() => this.attemptRecovery(), 4000);
-          // }
-          break;
+          webRTCStore.update(state => ({
+            ...state,
+            dataChannel: this.dataChannel
+          }));
+        };
 
-        case "failed":
-          // this.attemptRecovery(true);
-          break;
+        // Add connection state change listener
+        this.peerConnection.onconnectionstatechange = () => {
+          const connectionState = this.peerConnection?.connectionState;
+          console.log(`[WebRTC] Connection state changed to: ${connectionState}`);
+
+          if (connectionState === 'connected') {
+            console.log('[WebRTC] Connection established with remote peer!');
+          } else if (connectionState === 'failed' || connectionState === 'disconnected' || connectionState === 'closed') {
+            console.log('[WebRTC] Connection lost or failed');
+          }
+        };
+
+        // Add track event handler
+        this.peerConnection.ontrack = (event) => {
+          console.log('[WebRTC] Track received:', event);
+
+          if (event.streams && event.streams[0]) {
+            const stream = event.streams[0];
+            console.log('[WebRTC] Received remote stream:', stream);
+
+            webRTCStore.update(state => ({
+              ...state,
+              videoStream: stream
+            }));
+          } else {
+            console.warn('[WebRTC] Received track but no stream');
+          }
+        };
+
+       
       }
-    };
 
-    /* ---------- remote tracks -------------------- */
-    pc.ontrack = (ev) => {
-      if (ev.streams[0])
-        webRTCStore.update((s) => ({ ...s, videoStream: ev.streams[0] }));
-    };
-
-    /* ---------- data‑channel --------------------- */
-    pc.ondatachannel = (ev) => this.attachDC(ev.channel);
-
-    this.pc = pc;
-    webRTCStore.update((s) => ({ ...s, peerConnection: pc }));
-  }
-
-  private attachDC(dc: RTCDataChannel) {
-    this.dc = dc;
-
-    dc.onopen = () => {
-      webRTCStore.update((s) => ({ ...s, dataChannelStatus: "open" }));
-      this.startPing();
-    };
-
-    dc.onclose = () => {
-      webRTCStore.update((s) => ({ ...s, dataChannelStatus: "closed" }));
-      this.stopPing();
-    };
-
-    dc.onmessage = (ev) => {
-      try {
-        const m: DataChannelMessage = JSON.parse(ev.data);
-        if (m.type === "ping") {
-          this.dc?.send(JSON.stringify({ type: "pong", echo: m.timestamp }));
-          return;
-        }
-      } catch {/* plain text – ignore */}
-      console.log("[WebRTC] data", ev.data);
-    };
-  }
-
-  /* ---------- keep‑alive ping ------------------- */
-  private startPing() {
-    this.stopPing();
-    if (!this.dc) return;
-    this.pingTimer = setInterval(() => {
-      if (this.dc && this.dc.readyState === "open") {
-        this.dc.send(
-          JSON.stringify({ type: "ping", timestamp: Date.now() }),
-        );
+      // Ensure we have a valid SDP
+      if (!message.sdp) {
+        throw new Error('Missing SDP in offer message');
       }
-    }, 10000);
-  }
-  private stopPing() {
-    if (this.pingTimer) clearInterval(this.pingTimer);
-    this.pingTimer = null;
-  }
 
-  /* ---------- recovery logic -------------------- */
-  private attemptRecovery(full = false) {
-    if (full) {
-      this.reconnectAttempts += 1;
-      if (this.reconnectAttempts > 5) return;
-      console.warn("[WebRTC] ICE failed – full reconnect", this.reconnectAttempts);
-      this.connect();
-    } else if (this.pc) {
-      console.warn("[WebRTC] ICE disconnected – restarting ICE");
-      this.pc.restartIce();
+      // Create a proper RTCSessionDescription object
+      const offerDesc = new RTCSessionDescription({
+        type: 'offer',
+        sdp: message.sdp
+      });
+
+      console.log('[WebRTC] Setting remote description for offer');
+      this.peerConnection.setRemoteDescription(offerDesc)
+        .then(() => {
+          console.log('[WebRTC] Creating answer...');
+          return this.peerConnection?.createAnswer();
+        })
+        .then(answer => {
+          console.log('[WebRTC] Setting local description for answer');
+          return this.peerConnection?.setLocalDescription(answer);
+        })
+        .then(() => {
+          console.log('[WebRTC] Sending answer to remote peer');
+          const answerMessage = {
+            type: 'device',
+            payload: {
+              action: 'message',
+              type: 'webrtc:answer',
+              deviceId: this.deviceId,
+              sdp: this.peerConnection?.localDescription?.sdp
+            },
+            scope: "subscription:device:" + this.deviceId
+          };
+          socketStore.send(answerMessage);
+        })
+        .catch(error => {
+          console.error('[WebRTC] Error handling offer:', error);
+          webRTCStore.update(state => ({
+            ...state,
+            error: `Error handling offer: ${error.message}`
+          }));
+        });
+    } catch (error) {
+      console.error('[WebRTC] Exception in handleOffer:', error);
+      webRTCStore.update(state => ({
+        ...state,
+        error: `Exception in handleOffer: ${error.message}`
+      }));
     }
-  }
-
-  /* ---------- misc helpers ---------------------- */
-  private signal(obj: Record<string, unknown>) {
-    socketStore.send(obj);
-  }
-
-  private log(m: string) {
-    this.terminalCB?.(m);
   }
 }
