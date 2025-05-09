@@ -184,6 +184,9 @@ class DummyDevice:
 
     def send_message(self, message):
         """Send a message to the server"""
+
+        logger.debug(f"Send message: {json.dumps(message, indent=2)}")
+
         try:
             response = requests.post(
                 f"{self.base_url}/api/device/message",
@@ -220,7 +223,7 @@ class DummyDevice:
             # Ensure webrtc_client is not None before handling message
             if self.webrtc_client is not None:
                 # logger.debug("Pass to webrtc_client")
-                await self.webrtc_client.handle_message(message)
+                self.webrtc_client.handle_message(message)
             else:
                 print("ERROR: WebRTC client is None, cannot handle message")
                 

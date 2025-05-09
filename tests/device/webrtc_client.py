@@ -5,7 +5,9 @@ import select
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-
+from aiortc import RTCConfiguration, RTCIceServer
+from video_track import DummyVideoStreamTrack
+        
 from aiortc import (
     RTCPeerConnection,
     RTCSessionDescription,
@@ -21,384 +23,257 @@ from data_channel import DataChannelHandler
 class WebRTCClient:
     """WebRTC client for the dummy device to handle WebRTC connections."""
 
-    CONNECTED_STATES = ['connected', 'completed']
-    FAILED_STATES = ['failed', 'closed']
-
-    def _generate_message_id(self, prefix: str = "msg") -> str:
-        message_id = f"{prefix}-{datetime.now().isoformat()}-{uuid.uuid4().hex[:8]}"
-        self.sent_message_ids.add(message_id)
-        return message_id
-
+    
     def __init__(self, device: Any):
         self.device = device
-        self.pc: Optional[RTCPeerConnection] = None
-        self.dc = None
-        self.sent_message_ids: set[str] = set()
-        self.pending_local_candidates: List[Any] = []
-        self.input_task = None
-        self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5
-        self.dc_handler = DataChannelHandler(self)
-
-    async def handle_message(self, message: Dict[str, Any]) -> None:
-        logger.debug("Entry to handle_message")
-        payload = message.get('payload', {})
-        action = payload.get('action')
-        msg_type = payload.get('type')
-        handlers = {
-            'webrtc:connect': self.handle_connect,
-            'webrtc:answer': self.handle_answer,
-            'webrtc:ice-candidate': self.handle_remote_ice_candidate,
-        }
-        if action == 'message' and msg_type in handlers:
-            await handlers[msg_type](message)
-        else:
-            logger.warning(f"Unknown message type: {msg_type}")
-
-    async def handle_connect(self, message: Dict[str, Any]) -> None:
-        self.initialize()
-        offer_msg = await self.create_offer()
-        if 'senderConnectionId' in message:
-            offer_msg['scope'] = f"connection:{message['senderConnectionId']}"
-        self.device.send_message(offer_msg)
-        logger.info("Sent WebRTC offer in response to connect request")
+        self.create_peer_connection()
         
-        # After sending the offer, explicitly send all local ICE candidates
-        await self._send_all_local_ice_candidates(message.get('senderConnectionId'))
 
-    async def handle_answer(self, message: Dict[str, Any]) -> None:
-        logger.info("Received WebRTC answer")
-        payload = message.get('payload', {})
-        sdp = payload.get('sdp')
-        if not sdp:
-            logger.error("No SDP in answer message")
-            return
-        answer = RTCSessionDescription(sdp=sdp, type='answer')
+    def handle_message(self, message: Dict[str, Any]) -> None:
+        # logger.debug(f"Entry to handle_message: {json.dumps(message,indent=2)}")
+
+        payload     = message.get('payload', {})
+        action      = payload.get('action')
+        msg_type    = payload.get('type')
+        
+        logger.debug(f"Received message: {action}: {msg_type}")
+
+        if msg_type=="webrtc:connect":
+            logger.debug(f"Entry to create offer")
+            asyncio.create_task(self.create_offer(message))
+
+        if msg_type=="webrtc:answer":
+            logger.debug(f"Entry to handle answer")
+            asyncio.create_task(self.handle_answer(message))
+
+        if msg_type=="webrtc:ice-candidate":
+            logger.debug(f"Entry to handle ice-candidate")
+            asyncio.create_task(self.handle_ice_candidate(message))
+
+    def create_peer_connection(self):
+        
+        # Configure with STUN server using the correct aiortc format
+        
+        self.pc = RTCPeerConnection(configuration=RTCConfiguration(
+            iceServers=[RTCIceServer(
+                urls=['stun:stun.l.google.com:19302']
+            )]
+        ))
+        
+        # Setup event handlers
+        self.pc.on('icecandidate', self.handle_local_ice_candidate)
+        self.pc.on('connectionstatechange', self.on_connection_state_change)
+        self.pc.on('iceconnectionstatechange', self.on_ice_connection_state_change)
+        
+        # Add video track from file
+        video_track = DummyVideoStreamTrack()
+        self.video_sender = self.pc.addTrack(video_track)
+
+        # Create data channel
+        self.dc = self.pc.createDataChannel('chat')
+        # self.dc.on('open', self.on_datachannel_open)
+        # self.dc.on('message', self.on_datachannel_message)
+        
+        # Add state change handler for debugging
+        def on_datachannel_state_change():
+            logger.debug(f"Data channel state changed: {self.dc.readyState}")
+            
+        self.dc.on('statechange', on_datachannel_state_change)
+
+
+    ################################################################################
+    #
+    # Create Offer
+    #
+    ################################################################################
+    async def create_offer(self, message):
+
+        self.connectionId = message.get('senderConnectionId')
+
+        """Create and send an offer"""
+        offer = await self.pc.createOffer()
+        await self.pc.setLocalDescription(offer)
+        
+        # Send offer using device's message sending mechanism
+        self.device.send_message({
+            'type': 'device',
+            'payload': {
+                'action': 'message',
+                'type': 'webrtc:offer',
+                'sdp': offer.sdp,
+                'deviceId': self.device.device_id
+            },
+            'scope': f'connection:{self.connectionId}'  # Use connection ID for proper routing
+        })
+       
+    ################################################################################
+    #
+    # Handle Answer
+    #
+    ################################################################################
+    async def handle_answer(self, message: dict):
+
+        data = message['payload']
+       
+        logger.debug(f"Handling answer: {data}")
+        
+        # Create RTCSessionDescription from the answer
+        answer = RTCSessionDescription(sdp=data['sdp'], type='answer')
+        
+        # Set the remote description
         await self.pc.setRemoteDescription(answer)
-        logger.info("Set remote description from answer")
+        logger.debug("Set remote description successfully")
         
-        # Send any pending local candidates now that we have the remote description
-        connection_id = message.get('senderConnectionId')
-        for cand in self.pending_local_candidates:
-            try:
-                await self._send_ice_candidate(cand, connection_id)
-            except Exception as e:
-                logger.error(f"Error sending pending ICE candidate: {e}")
-        self.pending_local_candidates.clear()
-        
-        # Also send all local candidates that might not have been sent yet
-        await self._send_all_local_ice_candidates(connection_id)
-        
-        # Send initial message if data channel is open
+        # If we have a data channel, send a test message
         if self.dc and self.dc.readyState == "open":
-            msg = {"text": "Hello from device!", "timestamp": datetime.now().isoformat()}
-            await self.send_data(msg)
-
-    async def handle_remote_ice_candidate(self, message: Dict[str, Any]) -> None:
-        payload = message.get('payload', {})
-        ci = payload.get('candidate', {})
-        
-        if not isinstance(ci, dict):
-            logger.error("ICE candidate format invalid or missing")
-            return
-        
-        msg_id = payload.get('_clientMessageId')
-        if msg_id in self.sent_message_ids:
-            return
-        
-        try:
-            # Log the full candidate message for debugging
-            logger.debug(f"Received ICE candidate message: {message}")
-            
-            # Extract candidate information
-            candidate_str = ci.get('candidate', '')
-            sdp_mid = ci.get('sdpMid', '')
-            sdp_mline_index = ci.get('sdpMLineIndex', 0)
-            
-            # Parse the candidate string
-            parts = candidate_str.split()
-            if len(parts) >= 8 and parts[0].startswith('candidate:'):
-                foundation = parts[0].split(':')[1]
-                component = int(parts[1])
-                ip = parts[4]
-                port = int(parts[5])
-                protocol = parts[6]
-                type_ = parts[7]
+            test_message = {
+                "text": "Hello from Python client!",
+                "timestamp": datetime.now().isoformat()
+            }
+            self.dc.send(json.dumps(test_message))
+            logger.debug(f"Sent test message: {test_message}")
                 
-                # Create the ICE candidate with all required parameters
+    ################################################################################
+    #
+    # Handle Local ICE Candidate
+    #
+    ################################################################################
+    async def handle_local_ice_candidate(self, event):
+        """Send local ICE candidate to remote peer via signaling server, with timestamp and message ID."""
+        try:
+            if event.candidate:
+                from datetime import datetime
+                import uuid
+                candidate_data = {
+                    "candidate": event.candidate.candidate,
+                    "sdpMid": event.candidate.sdpMid,
+                    "sdpMLineIndex": event.candidate.sdpMLineIndex,
+                }
+                timestamp = datetime.now().isoformat()
+                message_id = f"ice-candidate-{timestamp}-{uuid.uuid4()}"
+                # Track sent message IDs to avoid processing our own
+                if not hasattr(self, 'sent_message_ids'):
+                    self.sent_message_ids = set()
+                self.sent_message_ids.add(message_id)
+                await self.websocket_client.send({
+                    "type": "webrtc",
+                    "action": "ice-candidate",
+                    "data": {
+                        "roomId": self.roomId,
+                        "candidate": candidate_data,
+                        "timestamp": timestamp,
+                        "_clientMessageId": message_id
+                    }
+                })
+                logger.debug(f"Sent local ICE candidate: {candidate_data} (ID: {message_id})")
+        except Exception as e:
+            logger.error(f"Error sending local ICE candidate: {str(e)}")
+
+    ################################################################################
+    #
+    # Handle ICE Candidate
+    #
+    ################################################################################
+    async def handle_ice_candidate(self, message: dict):
+        data = message['payload']
+        """Handle incoming ICE candidate, skipping those we sent ourselves."""
+        try:
+            # Deduplicate: skip if this is our own message
+            msg_id = None
+            if isinstance(data, dict):
+                msg_id = data.get("_clientMessageId") or (data.get("candidate", {}) or {}).get("_clientMessageId")
+            if hasattr(self, 'sent_message_ids') and msg_id and msg_id in self.sent_message_ids:
+                logger.debug(f"Skipping ICE candidate with our own message ID: {msg_id}")
+                return
+
+            candidate_info = data.get('candidate')
+            if not candidate_info:
+                logger.warning("No candidate info in ICE candidate message")
+                return
+            candidate_str = candidate_info.get("candidate", "")
+            sdp_mid = candidate_info.get("sdpMid", "")
+            sdp_mline_index = candidate_info.get("sdpMLineIndex", 0)
+            parts = candidate_str.split()
+            if len(parts) >= 8 and parts[0].startswith("candidate:"):
+                foundation = parts[0].split(":")[1]
                 candidate = RTCIceCandidate(
-                    component=component,
+                    component=int(parts[1]),
                     foundation=foundation,
-                    ip=ip,
-                    port=port,
+                    ip=parts[4],
+                    port=int(parts[5]),
                     priority=int(parts[3]),
-                    protocol=protocol,
-                    type=type_,
+                    protocol=parts[2],
+                    type=parts[7],
                     sdpMid=sdp_mid,
                     sdpMLineIndex=sdp_mline_index
                 )
-                
-                logger.debug(f"Parsed ICE candidate: {candidate}")
                 await self.pc.addIceCandidate(candidate)
-                logger.debug("Added remote ICE candidate")
+                logger.debug(f"Added ICE candidate: {candidate}")
             else:
-                logger.error(f"Invalid candidate string format: {candidate_str}")
+                logger.error(f"Invalid ICE candidate: {candidate_str}")
         except Exception as e:
-            logger.error(f"Error handling ICE candidate: {e}")
+            logger.error(f"Error handling ICE candidate: {str(e)}")
 
-    def initialize(self) -> None:
-        if self.pc:
-            asyncio.create_task(self.close())
-        self.reconnect_attempts = 0
+    ################################################################################
+    #
+    # Connection State Change
+    #
+    ################################################################################
+    def on_connection_state_change(self):
+        logger.debug(f"Connection state changed: {self.pc.connectionState}")
         
-        # Create RTCPeerConnection with ICE servers configuration
-        ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
-        config = RTCConfiguration(iceServers=ice_servers)
-        self.pc = RTCPeerConnection(configuration=config)
-        
-        # Set up event handlers
-        self.pc.on("icecandidate", self._on_ice_candidate)
-        self.pc.on("connectionstatechange", self._on_connection_state_change)
-        self.pc.on("iceconnectionstatechange", self._on_ice_connection_state_change)
-        self.pc.on("icegatheringstatechange", self._on_ice_gathering_state_change)
-        self.pc.on("datachannel", self._on_data_channel)
-        
-        # Create data channel
-        self.dc = self.pc.createDataChannel("dummy-device")
-        self._setup_data_channel_handlers(self.dc)
-        logger.info("WebRTC client initialized with STUN server")
-
-    async def create_offer(self, ice_restart: bool = False) -> Dict[str, Any]:
-        # Create offer with ice_restart option if specified
-        offer_options = {}
-        if ice_restart:
-            offer_options = {'iceRestart': True}
+        # If connection is connected but data channel isn't open yet, check its state
+        if self.pc.connectionState == "connected" and self.dc and self.dc.readyState == "connecting":
+            logger.debug("Connection is connected but data channel still connecting. Checking in 1 second...")
             
-        offer = await self.pc.createOffer(**offer_options)
-        logger.debug(f"Created offer: {offer.sdp}")
-        
-        # Set local description to trigger ICE gathering
-        await self.pc.setLocalDescription(offer)
-        logger.debug("Local description set, ICE gathering started")
-        
-        # Wait for ICE gathering to complete
-        logger.debug(f"Initial ICE gathering state: {self.pc.iceGatheringState}")
-        while self.pc.iceGatheringState != "complete":
-            logger.debug(f"Waiting for ICE gathering to complete. Current state: {self.pc.iceGatheringState}")
-            await asyncio.sleep(0.1)
-        
-        logger.debug(f"ICE gathering completed. Final SDP: {self.pc.localDescription.sdp}")
-        
-        # Generate message ID and create the message for the offer
-        message_id = self._generate_message_id("offer")
-        offer_msg = {
-            "id": message_id,
-            "type": "device",
-            "payload": {
-                "action": "message", 
-                "type": "webrtc:offer", 
-                "sdp": self.pc.localDescription.sdp, 
-                "_clientMessageId": message_id
-            },
-        }
-        
-        # Return the offer message
-        return offer_msg
-
-    async def _on_ice_candidate(self, candidate: Any) -> None:
-        if not candidate:
-            logger.debug("Received null ICE candidate, gathering complete")
-            return
-            
-        logger.debug(f"Local ICE candidate gathered: {candidate}")
-        
-        # Extract candidate information if it's a string
-        if isinstance(candidate, str):
-            logger.debug(f"Candidate is a string: {candidate}")
-            # Parse the candidate string
-            if candidate.startswith('candidate:'):
-                parts = candidate.split()
-                if len(parts) >= 8:
-                    foundation = parts[0].split(':')[1]
-                    component = int(parts[1])
-                    protocol = parts[2]
-                    priority = int(parts[3])
-                    ip = parts[4]
-                    port = int(parts[5])
-                    typ = parts[7]
+            # Schedule a check after 1 second to see if we need to manually trigger open
+            async def check_datachannel_state():
+                await asyncio.sleep(1)
+                if not self.dc:
+                    logger.warning("Data channel no longer exists")
+                    return
                     
-                    # Create RTCIceCandidate object
-                    candidate = RTCIceCandidate(
-                        component=component,
-                        foundation=foundation,
-                        ip=ip,
-                        port=port,
-                        priority=priority,
-                        protocol=protocol,
-                        type=typ,
-                        sdpMid="0",  # Default to first media section
-                        sdpMLineIndex=0
-                    )
+                logger.debug(f"Data channel state after delay: {self.dc.readyState}")
+                if self.dc.readyState == "open":
+                    logger.debug("Data channel is now open, but event might not have fired. Triggering manually.")
+                    self.on_datachannel_open()
+                elif self.dc.readyState == "connecting":
+                    logger.debug("Data channel still connecting after delay. Attempting to use it anyway.")
+                    # Set a flag to indicate we're forcing usage of a connecting channel
+                    self._force_connecting = True
+                    self.on_datachannel_open()
+            
+            asyncio.create_task(check_datachannel_state())
+
+    ################################################################################
+    #
+    # ICE Connection State Change
+    #
+    ################################################################################
+    def on_ice_connection_state_change(self):
+        logger.debug(f"ICE connection state changed: {self.pc.iceConnectionState}")
+
+    ################################################################################
+    #
+    # Data Channel Open
+    #
+    ################################################################################
+    def on_datachannel_open(self):
         
-        # Log candidate details
-        if isinstance(candidate, RTCIceCandidate):
-            logger.debug(f"ICE candidate details - candidate: {candidate.candidate}, sdpMid: {candidate.sdpMid}, sdpMLineIndex: {candidate.sdpMLineIndex}")
-        else:
-            logger.debug(f"ICE candidate details - string: {candidate}")
+        logger.debug("Data channel opened")
         
-        # If remote description is not set yet, buffer the candidate
-        if not self.pc.remoteDescription:
-            logger.debug(f"Remote description not set yet, buffering ICE candidate")
-            self.pending_local_candidates.append(candidate)
+        # Check if data channel is actually usable
+        if not self.dc:
+            logger.error("Data channel is None, cannot proceed")
             return
-        
-        # Send the ICE candidate to the remote peer
-        await self._send_ice_candidate(candidate)
-    
-    async def _send_ice_candidate(self, candidate: Any, connection_id: Optional[str] = None) -> None:
-        """Send a single ICE candidate to the remote peer."""
-        message_id = self._generate_message_id("ice")
-        
-        # Create the candidate dictionary based on the candidate type
-        if isinstance(candidate, dict) and "candidate" in candidate:
-            # Already a properly formatted candidate dict
-            candidate_dict = candidate
-        elif isinstance(candidate, RTCIceCandidate) and hasattr(candidate, 'candidate'):
-            # RTCIceCandidate with candidate attribute
-            candidate_dict = {
-                "candidate": candidate.candidate,
-                "sdpMid": candidate.sdpMid,
-                "sdpMLineIndex": candidate.sdpMLineIndex
-            }
-        elif isinstance(candidate, str):
-            # String candidate
-            candidate_dict = {
-                "candidate": candidate,
-                "sdpMid": "0",
-                "sdpMLineIndex": 0
-            }
-        else:
-            # Unknown format, log and skip
-            logger.error(f"Unknown candidate format: {type(candidate)}, {candidate}")
-            return
-        
-        msg = {
-            "id": message_id,
-            "type": "device",
-            "payload": {
-                "action": "message",
-                "type": "webrtc:ice-candidate",
-                "candidate": candidate_dict,
-                "_clientMessageId": message_id
-            }
-        }
-        
-        # Add connection scope if provided
-        if connection_id:
-            msg['scope'] = f"connection:{connection_id}"
             
-        self.device.send_message(msg)
-        logger.debug(f"ICE candidate sent to remote peer: {candidate_dict['candidate']}")
+        # If we're in forced mode and the channel is still connecting, be extra careful
+        if self._force_connecting and self.dc.readyState == "connecting":
+            logger.warning("Using data channel in connecting state - some operations may fail")
         
-    async def _send_all_local_ice_candidates(self, connection_id: Optional[str] = None) -> None:
-        """Send all gathered local ICE candidates to the remote peer."""
-        logger.debug("Sending all local ICE candidates to remote peer")
-        
-        # Extract candidates from SDP
-        local_candidates = []
-        if self.pc and self.pc.localDescription and self.pc.localDescription.sdp:
-            sdp_lines = self.pc.localDescription.sdp.split('\n')
-            for line in sdp_lines:
-                if line.startswith('a=candidate:'):
-                    # Extract candidate string (remove 'a=' prefix)
-                    candidate_str = line[2:]
-                    local_candidates.append({
-                        "candidate": candidate_str,
-                        "sdpMid": "0",  # Default to first media section
-                        "sdpMLineIndex": 0
-                    })
-                    logger.debug(f"Extracted candidate from SDP: {candidate_str}")
-        
-        # Send each candidate individually
-        for candidate_dict in local_candidates:
-            try:
-                message_id = self._generate_message_id("ice")
-                msg = {
-                    "id": message_id,
-                    "type": "device",
-                    "payload": {
-                        "action": "message",
-                        "type": "webrtc:ice-candidate",
-                        "candidate": candidate_dict,
-                        "_clientMessageId": message_id
-                    }
-                }
-                
-                # Add connection scope if provided
-                if connection_id:
-                    msg['scope'] = f"connection:{connection_id}"
-                    
-                self.device.send_message(msg)
-                logger.debug(f"ICE candidate sent to remote peer: {candidate_dict['candidate']}")
-            except Exception as e:
-                logger.error(f"Error sending ICE candidate: {e}")
+        # Process any buffered messages first
+        if self._pending_echo:
+            logger.debug(f"Processing {len(self._pending_echo)} buffered messages")
             
-        logger.debug(f"Sent {len(local_candidates)} local ICE candidates to remote peer")
-
-    def _on_connection_state_change(self) -> None:
-        state = self.pc.connectionState
-        logger.info(f"Connection state changed: {state}")
-        if state == 'connected' and (not self.input_task or self.input_task.done()):
-            self.input_task = asyncio.create_task(self._console_input_loop())
-        elif state in self.FAILED_STATES:
-            logger.info("Connection failed, restarting ICE")
-            self.pc.restartIce()
-
-    def _on_ice_connection_state_change(self) -> None:
-        logger.debug(f"ICE connection state: {self.pc.iceConnectionState}")
-
-    def _on_ice_gathering_state_change(self) -> None:
-        logger.debug(f"ICE gathering state: {self.pc.iceGatheringState}")
-        
-        # When ICE gathering is complete, process any candidates that may have been gathered
-        if self.pc.iceGatheringState == "complete":
-            logger.debug("ICE gathering completed, processing candidates")
             
-            # Register candidates with the icecandidate handler if they're not already registered
-            if self.pc.localDescription and self.pc.localDescription.sdp:
-                sdp_lines = self.pc.localDescription.sdp.split('\n')
-                for line in sdp_lines:
-                    if line.startswith('a=candidate:'):
-                        logger.debug(f"Found candidate in SDP: {line}")
-
-    def _setup_data_channel_handlers(self, channel: Any) -> None:
-        self.dc_handler.setup_handlers(channel)
-
-    def _on_data_channel(self, channel: Any) -> None:
-        self.dc = channel
-        self._setup_data_channel_handlers(channel)
-
-    async def send_data(self, data: Any) -> Any:
-        return await self.dc_handler.send_data(data)
-
-    async def _console_input_loop(self) -> None:
-        try:
-            while True:
-                if not self.pc or self.pc.connectionState in self.FAILED_STATES:
-                    break
-                await asyncio.sleep(0.1)
-                if select.select([sys.stdin], [], [], 0)[0]:
-                    await self._send_user_input(sys.stdin.readline().strip())
-        except asyncio.CancelledError:
-            pass
-
-    async def _send_user_input(self, user_input: str) -> None:
-        await self.dc_handler.send_user_input(user_input)
-
-    async def close(self) -> None:
-        if self.dc and self.dc.readyState == 'open':
-            await self.send_data({'type': 'goodbye', 'timestamp': datetime.now().isoformat()})
-        if self.pc:
-            await self.pc.close()
-            self.pc = None
-            logger.info("WebRTC connection closed")
+       
