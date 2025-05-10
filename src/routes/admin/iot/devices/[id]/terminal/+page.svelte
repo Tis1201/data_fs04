@@ -9,6 +9,7 @@
 	import { deviceStore } from "$lib/stores/device-store";
 	import { socketStore } from "$lib/stores/websocket-store";
 	import { onDestroy, onMount } from "svelte";
+	import { browser } from "$app/environment";
 	import { ArrowLeft, Terminal as TerminalIcon } from "lucide-svelte";
 	import { Button } from "$lib/components/ui/button";
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
@@ -31,6 +32,12 @@
 	
 	// Initialize WebRTC client
 	let webrtcClient = new WebRTCClient(deviceId);
+	
+	// Track resources for cleanup
+	let pingInterval: ReturnType<typeof setInterval>;
+	let resizeTimeout: ReturnType<typeof setTimeout>;
+	let unsubscribeWebRTC: () => void;
+	let fitAddon: any;
 
 	// Subscribe to the deviceStore for all device-related events
 	let unsubscribeDevice: () => void;
@@ -122,18 +129,6 @@
 
 		// Initialize WebRTC connection
 		webrtcClient.connect();
-
-		// Start ping interval
-		const pingInterval = setInterval(() => {
-			if ($webRTCStore.dataChannelStatus === 'open') {
-				webrtcClient.sendPing();
-			}
-		}, 10000); // Send ping every 10 seconds
-
-		// Clean up ping interval on component destroy
-		onDestroy(() => {
-			clearInterval(pingInterval);
-		});
 	}
 
 	/****************************************************************************
@@ -180,6 +175,10 @@
 	 * 
 	 ****************************************************************************/
 	onMount(() => {
+		// Only run browser-specific code in the browser environment
+		if (!browser) return;
+		
+		// Subscribe to device store
 		unsubscribeDevice = deviceStore.subscribe(state => {
 			// Handle device status changes
 			if (terminalInstance && state.deviceId === deviceId) {
@@ -205,6 +204,32 @@
 				webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
 			}
 		});
+		
+		// Start ping interval
+		pingInterval = setInterval(() => {
+			if ($webRTCStore.dataChannelStatus === 'open') {
+				webrtcClient.sendPing();
+			}
+		}, 10000); // Send ping every 10 seconds
+		
+		// Set up window resize handler with debounce
+		window.addEventListener("resize", handleResize);
+		
+		// Subscribe to WebRTC store for connection status changes
+		unsubscribeWebRTC = webRTCStore.subscribe(state => {
+			if (state.dataChannelStatus === 'open' && terminalInstance && fitAddon) {
+				try {
+					const dimensions = fitAddon.proposeDimensions();
+					if (dimensions) {
+						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
+						terminalInstance.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
+					}
+				} catch (error) {
+					console.error("Error sending terminal dimensions:", error);
+				}
+			}
+		});
 	});
 
 	/****************************************************************************
@@ -214,14 +239,58 @@
 	 ****************************************************************************/
 	// Clean up subscription and WebRTC connection on component destroy
 	onDestroy(() => {
-		// Unsubscribe from device store
+		// Skip cleanup in SSR
+		if (!browser) return;
+		
+		// Unsubscribe from stores
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
+		}
+		if (unsubscribeWebRTC) {
+			unsubscribeWebRTC();
+		}
+		
+		// Clean up timers
+		if (pingInterval) {
+			clearInterval(pingInterval);
+		}
+		if (resizeTimeout) {
+			clearTimeout(resizeTimeout);
+		}
+		
+		// Remove event listeners
+		if (typeof window !== 'undefined') {
+			window.removeEventListener("resize", handleResize);
 		}
 		
 		// Clean up WebRTC resources
 		webrtcClient.cleanup();
 	});
+	
+	// Handle window resize events
+	function handleResize() {
+		// Skip if not in browser
+		if (!browser) return;
+		
+		clearTimeout(resizeTimeout);
+		resizeTimeout = setTimeout(() => {
+			if (fitAddon && terminalInstance) {
+				try {
+					fitAddon.fit();
+					// Send terminal resize event when WebRTC is connected
+					if ($webRTCStore.dataChannelStatus === 'open') {
+						const dimensions = fitAddon.proposeDimensions();
+						if (dimensions) {
+							webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
+							console.log(`Terminal resized to ${dimensions.rows} rows x ${dimensions.cols} columns`);
+						}
+					}
+				} catch (error) {
+					console.error("Error fitting terminal on resize:", error);
+				}
+			}
+		}, 100); // Debounce resize events
+	}
 
 	/****************************************************************************
 	 * 
@@ -229,15 +298,20 @@
 	 * 
 	 ****************************************************************************/
 	async function onLoad(event: CustomEvent<{ terminal: Terminal }>) {
+		// Skip if not in browser
+		if (!browser) return;
+		
 		console.log("Terminal component loaded");
 		const terminal = event.detail.terminal;
 		terminalInstance = terminal;
 
 		// Load addons for better terminal experience
-		const fitAddon = new (await XtermAddon.FitAddon()).FitAddon();
+		fitAddon = new (await XtermAddon.FitAddon()).FitAddon();
 		const webLinksAddon = new (await XtermAddon.WebLinksAddon()).WebLinksAddon(
 			(event, uri) => {
-				window.open(uri, '_blank');
+				if (typeof window !== 'undefined') {
+					window.open(uri, '_blank');
+				}
 			}
 		);
 		const searchAddon = new (await XtermAddon.SearchAddon()).SearchAddon();
@@ -256,49 +330,6 @@
 
 		// Initialize device connection
 		initDevice(terminal);
-
-		// Set up window resize handler with debounce
-		let resizeTimeout: ReturnType<typeof setTimeout>;
-		window.addEventListener("resize", () => {
-			clearTimeout(resizeTimeout);
-			resizeTimeout = setTimeout(() => {
-				try {
-					fitAddon.fit();
-					// Send terminal resize event when WebRTC is connected
-					if ($webRTCStore.dataChannelStatus === 'open') {
-						const dimensions = fitAddon.proposeDimensions();
-						if (dimensions) {
-							webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-							console.log(`Terminal resized to ${dimensions.rows} rows x ${dimensions.cols} columns`);
-						}
-					}
-				} catch (error) {
-					console.error("Error fitting terminal on resize:", error);
-				}
-			}, 100); // Debounce resize events
-		});
-
-		// Send initial terminal dimensions when WebRTC connects
-		const unsubscribeWebRTC = webRTCStore.subscribe(state => {
-			if (state.dataChannelStatus === 'open') {
-				try {
-					const dimensions = fitAddon.proposeDimensions();
-					if (dimensions) {
-						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-						terminal.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
-						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
-					}
-				} catch (error) {
-					console.error("Error sending terminal dimensions:", error);
-				}
-			}
-		});
-		
-		// Clean up on destroy
-		onDestroy(() => {
-			unsubscribeWebRTC();
-			clearTimeout(resizeTimeout);
-		});
 	}
 
 	/****************************************************************************
@@ -314,12 +345,8 @@
 		if (terminalInstance) {
 			// Check if WebRTC data channel is open
 			if ($webRTCStore.dataChannelStatus === 'open') {
-				// Send via WebRTC
+				// Send via WebRTC only; do NOT echo locally
 				webrtcClient.sendTerminalInput(data);
-				
-				// For better UX, we could echo the character locally if needed
-				// This is usually not necessary as the terminal will echo back from the server
-				// terminalInstance.write(data);
 			} else {
 				// Fall back to WebSocket
 				sendCommand(terminalInstance, data);

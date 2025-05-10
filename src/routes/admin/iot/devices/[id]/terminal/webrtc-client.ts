@@ -403,6 +403,8 @@ export class WebRTCClient {
               ...state,
               dataChannelStatus: 'open'
             }));
+            // Auto-send echo for improved UX
+            this.sendTerminalInput('echo "hello"');
           };
 
           this.dataChannel.onclose = () => {
