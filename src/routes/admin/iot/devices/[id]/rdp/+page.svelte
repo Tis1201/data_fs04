@@ -118,11 +118,11 @@
 		});
 		
 		// Start ping interval to keep connection alive
-		pingInterval = setInterval(() => {
-			if ($webRTCStore.dataChannelStatus === 'open') {
-				webrtcClient.sendPing();
-			}
-		}, 10000); // Send ping every 10 seconds
+		// pingInterval = setInterval(() => {
+		// 	if ($webRTCStore.dataChannelStatus === 'open') {
+		// 		webrtcClient.sendPing();
+		// 	}
+		// }, 10000); // Send ping every 10 seconds
 	}
 	
 	// Connect to device

@@ -114,25 +114,13 @@
 		// Set terminal callback for WebRTC client to handle terminal output
 		webrtcClient.setTerminalCallback((message) => {
 			if (terminalInstance) {
-				// Log the received message for debugging
-				console.log(`Terminal received message: ${message.length} bytes`);
-				
-				// Write the message to the terminal
 				terminalInstance.write(message);
-				
-				// For debugging, log a sample of the message
-				if (message.length > 0) {
-					const sample = message.length > 20 ? 
-						message.substring(0, 20) + '...' : 
-						message;
-					console.log(`Terminal message sample: ${JSON.stringify(sample)}`);
-				}
 			}
 		});
 		
 		// Set up data channel open callback - this is triggered when the data channel is ready for use
 		webrtcClient.setDataChannelOpenCallback((dataChannel) => {
-			console.log('Data channel is open and ready for terminal');
+
 			
 			// Update WebRTC store to reflect the open data channel
 			webRTCStore.update(state => ({
@@ -146,7 +134,6 @@
 					const dimensions = fitAddon.proposeDimensions();
 					if (dimensions) {
 						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
 					}
 				} catch (error) {
 					console.error("Error sending terminal dimensions:", error);
@@ -159,7 +146,7 @@
 		
 		// Set up connection state callback - this is triggered when the WebRTC connection state changes
 		webrtcClient.setConnectionStateCallback((state) => {
-			console.log(`WebRTC connection state changed to: ${state}`);
+
 			
 			// Update WebRTC store with the new connection state
 			webRTCStore.update(currentState => ({
@@ -273,11 +260,11 @@
 		});
 		
 		// Start ping interval
-		pingInterval = setInterval(() => {
-			if ($webRTCStore.dataChannelStatus === 'open') {
-				webrtcClient.sendPing();
-			}
-		}, 10000); // Send ping every 10 seconds
+		// pingInterval = setInterval(() => {
+		// 	if ($webRTCStore.dataChannelStatus === 'open') {
+		// 		webrtcClient.sendPing();
+		// 	}
+		// }, 10000); // Send ping every 10 seconds
 		
 		// Set up window resize handler with debounce
 		window.addEventListener("resize", handleResize);
@@ -375,7 +362,6 @@
 		// Skip if not in browser
 		if (!browser) return;
 		
-		console.log("Terminal component loaded");
 		const terminal = event.detail.terminal;
 		terminalInstance = terminal;
 
@@ -413,8 +399,7 @@
 	 ****************************************************************************/
 	function onData(event: CustomEvent<string>) {
 		const data = event.detail;
-		console.log("User input:", data);
-
+		
 		// Handle line endings consistently
 		// The terminal component often sends \r when Enter is pressed
 		// We need to ensure we don't get double line breaks

@@ -124,7 +124,7 @@ export class WebRTCClient {
     }));
     
     // Start sending ping messages to keep the connection alive
-    this.startPingMessages();
+    // this.startPingMessages();
     
     // Call the data channel open callback if set
     if (this.onDataChannelOpenCB && this.dataChannel) {
@@ -136,7 +136,7 @@ export class WebRTCClient {
     // Send pings every 10 seconds to keep the connection alive
     setInterval(() => {
       this.sendPing();
-    }, 10000);
+    }, 60000);
   }
   
   /**
@@ -200,7 +200,7 @@ export class WebRTCClient {
     let processedInput = input;
     
     // Log the exact input for debugging
-    console.log(`[WebRTC] Raw terminal input: ${JSON.stringify(input)}`);
+    // console.log(`[WebRTC] Raw terminal input: ${JSON.stringify(input)}`);
     
     // Handle various line ending scenarios
     // This is critical to prevent double line breaks
@@ -225,11 +225,11 @@ export class WebRTCClient {
       this.dataChannel.send(jsonMessage);
       
       // Only log non-control characters to avoid console spam
-      if (processedInput.length === 1 && processedInput.charCodeAt(0) < 32) {
-        console.log(`[WebRTC] Sent control character: ${processedInput.charCodeAt(0)}`);
-      } else {
-        console.log(`[WebRTC] Sent terminal input: ${JSON.stringify(processedInput)}`);
-      }
+      // if (processedInput.length === 1 && processedInput.charCodeAt(0) < 32) {
+      //   console.log(`[WebRTC] Sent control character: ${processedInput.charCodeAt(0)}`);
+      // } else {
+      //   console.log(`[WebRTC] Sent terminal input: ${JSON.stringify(processedInput)}`);
+      // }
     } catch (error) {
       console.error('[WebRTC] Error sending terminal input:', error);
       if (this.terminalCB) {
@@ -260,7 +260,7 @@ export class WebRTCClient {
     // Send the message
     try {
       this.dataChannel.send(JSON.stringify(message));
-      console.log('[WebRTC] Sent terminal resize:', rows, cols);
+      // console.log('[WebRTC] Sent terminal resize:', rows, cols);
     } catch (error) {
       console.error('[WebRTC] Error sending terminal resize:', error);
     }
@@ -365,12 +365,12 @@ export class WebRTCClient {
       const message = JSON.parse(data);
       
       // Only log non-terminal output messages to avoid console spam
-      if (message.type !== 'terminal:output') {
-        console.log('[WebRTC] Parsed data channel message:', message);
-      } else {
-        // Log terminal output size for debugging
-        console.log(`[WebRTC] Received terminal output: ${message.data ? message.data.length : 0} bytes`);
-      }
+      // if (message.type !== 'terminal:output') {
+      //   console.log('[WebRTC] Parsed data channel message:', message);
+      // } else {
+      //   // Log terminal output size for debugging
+      //   console.log(`[WebRTC] Received terminal output: ${message.data ? message.data.length : 0} bytes`);
+      // }
 
       // Handle different message types
       switch (message.type) {
@@ -389,7 +389,7 @@ export class WebRTCClient {
             const sample = message.data.length > 20 ? 
               message.data.substring(0, 20) + '...' : 
               message.data;
-            console.log(`[WebRTC] Terminal output sample: ${JSON.stringify(sample)}`);
+            // console.log(`[WebRTC] Terminal output sample: ${JSON.stringify(sample)}`);
             
             // Send the data to the terminal
             this.terminalCB(message.data);
@@ -496,7 +496,7 @@ export class WebRTCClient {
 
           // Set up event handlers for the data channel
           this.dataChannel.onmessage = (msgEvent) => {
-            console.log('[WebRTC] Data channel message received:', msgEvent.data);
+            // console.log('[WebRTC] Data channel message received:', msgEvent.data);
             
             // Check if the message is binary (ArrayBuffer)
             if (msgEvent.data instanceof ArrayBuffer) {
