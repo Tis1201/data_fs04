@@ -24,12 +24,64 @@
 	// Connection state
 	let connecting = false;
 	let connected = false;
+	let isVideoPaused = true;
+	let currentVideoStreamId: string | null = null;
 	
 	// Track resources for cleanup
 	let pingInterval: ReturnType<typeof setInterval>;
 	let unsubscribeWebRTC: () => void;
 	let unsubscribeDevice: () => void;
 	let previousWebRTCMessage: WebRTCMessage | null = null;
+	
+	// Video stream handling
+	let videoStream: MediaStream | null = null;
+	let playAttemptInProgress = false;
+	
+	// Safe play function with debounce to avoid multiple rapid play attempts
+	function safePlayVideo() {
+		if (playAttemptInProgress || !videoElement) return;
+		playAttemptInProgress = true;
+		
+		console.log('Attempting to play video safely...');
+		
+		// Ensure video is muted for autoplay
+		videoElement.muted = true;
+		
+		// Debug video element state
+		console.log('Video element state before play:', {
+			readyState: videoElement.readyState,
+			paused: videoElement.paused,
+			autoplay: videoElement.autoplay,
+			muted: videoElement.muted,
+			width: videoElement.videoWidth,
+			height: videoElement.videoHeight
+		});
+		
+		const playPromise = videoElement.play();
+		if (playPromise !== undefined) {
+			playPromise
+				.then(() => {
+					console.log('Video playback started successfully');
+					isVideoPaused = false;
+					
+					// After successful autoplay, unmute after a delay
+					setTimeout(() => {
+						videoElement.muted = false;
+						videoElement.volume = 1.0;
+						console.log('Video unmuted after successful autoplay');
+					}, 1000);
+					
+					playAttemptInProgress = false;
+				})
+				.catch(err => {
+					console.error('Error playing video:', err);
+					isVideoPaused = true;
+					playAttemptInProgress = false;
+				});
+		} else {
+			playAttemptInProgress = false;
+		}
+	}
 	
 	// Initialize WebRTC client
 	function initWebRTC() {
@@ -39,21 +91,49 @@
 		// Create WebRTC client
 		webrtcClient = new WebRTCClient(deviceId);
 		
-		// Set up track handler for video streams
-		webrtcClient.onTrackHandler = (track) => {
-			if (!videoElement) return;
-			
-			console.log('Received track:', track.kind);
+		// Function to handle a video track
+		const handleVideoTrack = (track: MediaStreamTrack) => {
+			console.log('Processing video track:', track.id, 'readyState:', track.readyState);
 			
 			// Create a MediaStream and add the track
 			const stream = new MediaStream();
 			stream.addTrack(track);
+			console.log('Created MediaStream with video track, stream ID:', stream.id);
 			
-			// Set the stream as the source for the video element
-			videoElement.srcObject = stream;
-			videoElement.play().catch(err => {
-				console.error('Error playing video:', err);
-			});
+			// Store the stream for reactive binding
+			videoStream = stream;
+			
+			// Track events
+			track.onended = () => {
+				console.log('Video track ended');
+			};
+			
+			track.onmute = () => {
+				console.log('Video track muted');
+			};
+			
+			track.onunmute = () => {
+				console.log('Video track unmuted');
+				// Ensure video is playing when track is unmuted
+				if (videoElement && videoElement.paused) {
+					console.log('Video is paused when track unmuted, attempting to play');
+					safePlayVideo();
+				}
+			};
+		};
+		
+		// Set up track handler for video streams
+		webrtcClient.onTrackHandler = (track) => {
+			console.log('Received track:', track.kind, track, 'Track ID:', track.id, 'Track readyState:', track.readyState);
+			
+			if (track.kind === 'video') {
+				console.log('Video track received! Track settings:', track.getSettings());
+				
+				// Call our handler function to process the video track
+				handleVideoTrack(track);
+			} else {
+				console.log('Non-video track received, kind:', track.kind);
+			}
 			
 			// Update UI to show connected state
 			connecting = false;
@@ -152,18 +232,18 @@
 		}
 		
 		// Send request to device to start video stream
-		const message = {
-			type: 'device',
-			payload: {
-				action: 'message',
-				type: 'webrtc:video-request',
-				deviceId: deviceId
-			},
-			scope: `subscription:device:${deviceId}`
-		};
+		// const message = {
+		// 	type: 'device',
+		// 	payload: {
+		// 		action: 'message',
+		// 		type: 'webrtc:video-request',
+		// 		deviceId: deviceId
+		// 	},
+		// 	scope: `subscription:device:${deviceId}`
+		// };
 		
-		socketStore.send(message);
-		console.log('Sent RDP request');
+		// socketStore.send(message);
+		// console.log('Sent RDP request');
 		
 		// If no video appears after a timeout, try requesting again
 		setTimeout(() => {
@@ -178,14 +258,22 @@
 	function disconnectFromDevice() {
 		if (!webrtcClient) return;
 		
-		// Clean up video element
-		if (videoElement && videoElement.srcObject) {
-			const stream = videoElement.srcObject as MediaStream;
-			stream.getTracks().forEach(track => {
+		// Clean up video stream
+		if (videoStream) {
+			videoStream.getTracks().forEach(track => {
 				track.stop();
 			});
+			videoStream = null;
+		}
+		
+		// Clean up video element
+		if (videoElement && videoElement.srcObject) {
 			videoElement.srcObject = null;
 		}
+		
+		// Reset video state
+		currentVideoStreamId = null;
+		isVideoPaused = true;
 		
 		// Clean up WebRTC client
 		webrtcClient.cleanup();
@@ -215,14 +303,40 @@
 		}
 	}
 	
-	// Initialize on mount
+	// Monitor video play/pause state
+	function updateVideoState() {
+		if (!videoElement) return;
+		isVideoPaused = videoElement.paused;
+	}
+	
+	// When a video stream is available, bind it to the video element
+	$: if (videoStream && videoElement && (!currentVideoStreamId || currentVideoStreamId !== videoStream.id)) {
+		console.log('[WebRTC] Setting video stream to element:', videoStream.id);
+		currentVideoStreamId = videoStream.id;
+		
+		// Only set srcObject if it's a different stream
+		if (videoElement.srcObject !== videoStream) {
+			videoElement.srcObject = videoStream;
+			console.log('Set video element srcObject to stream');
+			// Attempt to play the video
+			safePlayVideo();
+		}
+	}
+	
+	// Set up interval and initialize on mount
+	let videoStateInterval;
 	onMount(() => {
 		if (browser) {
+			// Initialize WebRTC client first
 			initWebRTC();
+			
+			// Set up video state monitoring
+			videoStateInterval = setInterval(updateVideoState, 1000);
+			
 			// Automatically connect to device when page loads
 			setTimeout(() => {
 				connectToDevice();
-			}, 500); // Small delay to ensure WebRTC client is fully initialized
+			}, 1000); // Longer delay to ensure everything is initialized
 		}
 	});
 	
@@ -237,6 +351,11 @@
 			pingInterval = null;
 		}
 		
+		if (videoStateInterval) {
+			clearInterval(videoStateInterval);
+			videoStateInterval = null;
+		}
+		
 		// Unsubscribe from stores
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
@@ -248,14 +367,22 @@
 			unsubscribeWebRTC();
 		}
 		
-		// Clean up video element
-		if (videoElement && videoElement.srcObject) {
-			const stream = videoElement.srcObject as MediaStream;
-			stream.getTracks().forEach(track => {
+		// Clean up video stream
+		if (videoStream) {
+			videoStream.getTracks().forEach(track => {
 				track.stop();
 			});
+			videoStream = null;
+		}
+		
+		// Clean up video element
+		if (videoElement && videoElement.srcObject) {
 			videoElement.srcObject = null;
 		}
+		
+		// Reset video state
+		currentVideoStreamId = null;
+		isVideoPaused = true;
 		
 		// Clean up WebRTC client
 		if (webrtcClient) {
@@ -319,13 +446,45 @@
 						</p>
 					</div>
 				{:else}
-					<video 
-						bind:this={videoElement} 
-						class="w-full h-full object-contain bg-black"
-						autoplay
-						playsinline
-						muted
-					></video>
+					<div class="relative w-full h-full">
+						<video 
+							bind:this={videoElement} 
+							class="w-full h-full object-contain bg-black"
+							autoplay
+							playsinline
+							controls
+							muted={true} 
+							on:loadedmetadata={() => {
+								console.log('[WebRTC] Video metadata loaded');
+								// Use our safe play function to handle autoplay
+								safePlayVideo();
+							}}
+							on:playing={() => {
+								console.log('[WebRTC] Video playback started');
+								isVideoPaused = false;
+							}}
+							on:pause={() => {
+								console.log('[WebRTC] Video playback paused');
+								isVideoPaused = true;
+							}}
+							on:error={(e) => console.error('[WebRTC] Video error:', e)}
+						></video>
+						
+						<!-- Play button overlay that shows only if video is not playing -->
+						{#if isVideoPaused && videoStream}
+						<div 
+							class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 cursor-pointer"
+							on:click={() => {
+								// Use our safe play function
+								safePlayVideo();
+							}}
+						>
+							<Button size="lg" variant="default">
+								Play Video
+							</Button>
+						</div>
+						{/if}
+					</div>
 				{/if}
 			</div>
 			
