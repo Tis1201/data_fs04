@@ -26,6 +26,7 @@ export class WebRTCClient {
   private _processedMessages = new Set<string>();
 
   private terminalCB: ((m: string) => void) | null = null;
+  onTrackHandler: ((track: MediaStreamTrack) => void) | null = null;
   config: any;
 
   constructor(private deviceId: string) {
@@ -432,6 +433,11 @@ export class WebRTCClient {
           const connectionState = this.peerConnection?.connectionState;
           console.log(`[WebRTC] Connection state changed to: ${connectionState}`);
 
+          webRTCStore.update(state => ({
+            ...state,
+            connectionState: connectionState || 'unknown'
+          }));
+
           if (connectionState === 'connected') {
             console.log('[WebRTC] Connection established with remote peer!');
           } else if (connectionState === 'failed' || connectionState === 'disconnected' || connectionState === 'closed') {
@@ -441,18 +447,11 @@ export class WebRTCClient {
 
         // Add track event handler
         this.peerConnection.ontrack = (event) => {
-          console.log('[WebRTC] Track received:', event);
-
-          if (event.streams && event.streams[0]) {
-            const stream = event.streams[0];
-            console.log('[WebRTC] Received remote stream:', stream);
-
-            webRTCStore.update(state => ({
-              ...state,
-              videoStream: stream
-            }));
-          } else {
-            console.warn('[WebRTC] Received track but no stream');
+          console.log('[WebRTC] Track received:', event.track.kind);
+          
+          // If we have a track handler, call it
+          if (this.onTrackHandler) {
+            this.onTrackHandler(event.track);
           }
         };
 

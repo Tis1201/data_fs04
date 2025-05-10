@@ -11,7 +11,7 @@
     import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import { 
         Clock, RefreshCw, Key, Wifi, Cpu, Server, Shield, Info, Settings, Tag, 
-        Terminal, Camera, RotateCcw, Upload, FileText, Edit, AlertCircle, CheckCircle, Loader2 
+        Terminal, Camera, RotateCcw, Upload, FileText, Edit, AlertCircle, CheckCircle, Loader2, Monitor
     } from "lucide-svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
@@ -185,75 +185,98 @@
                     </Card.Description>
                 </Card.Header>
                 <Card.Content>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                        <!-- Define a consistent button style -->
+                        {#if false}
+                        <!-- This is just a template, not rendered -->
+                        <div class="btn-template hidden">
+                            <Button
+                                variant="outline"
+                                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
+                            >
+                                <div class="h-5 w-5" />
+                                <span class="text-xs">Label</span>
+                            </Button>
+                        </div>
+                        {/if}
                         <!-- Remote Terminal -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={accessRemoteTerminal}
                         >
-                            <Terminal class="h-6 w-6" />
-                            <span>Terminal</span>
+                            <Terminal class="h-5 w-5" />
+                            <span class="text-xs">Terminal</span>
+                        </Button>
+
+                        <!-- Remote Desktop -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
+                            on:click={() => goto(`/admin/iot/devices/${device.id}/rdp`)}
+                        >
+                            <Monitor class="h-5 w-5" />
+                            <span class="text-xs">Remote Desktop</span>
                         </Button>
 
                         <!-- Snapshot -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={retrieveSnapshot}
                             disabled={$isLoading && $actionStatus.action === 'snapshot'}
                         >
                             {#if $isLoading && $actionStatus.action === 'snapshot'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <Camera class="h-6 w-6" />
+                                <Camera class="h-5 w-5" />
                             {/if}
-                            <span>Snapshot</span>
+                            <span class="text-xs">Snapshot</span>
                         </Button>
 
                         <!-- Restart -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={restartDevice}
                             disabled={$isLoading && $actionStatus.action === 'restart'}
                         >
                             {#if $isLoading && $actionStatus.action === 'restart'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <RotateCcw class="h-6 w-6" />
+                                <RotateCcw class="h-5 w-5" />
                             {/if}
-                            <span>Restart</span>
+                            <span class="text-xs">Restart</span>
                         </Button>
 
                         <!-- Update Firmware -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={updateFirmware}
                             disabled={$isLoading && $actionStatus.action === 'firmware'}
                         >
                             {#if $isLoading && $actionStatus.action === 'firmware'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <Upload class="h-6 w-6" />
+                                <Upload class="h-5 w-5" />
                             {/if}
-                            <span>Update Firmware</span>
+                            <span class="text-xs">Update Firmware</span>
                         </Button>
 
                         <!-- View Logs -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={viewLogs}
                             disabled={$isLoading && $actionStatus.action === 'logs'}
                         >
                             {#if $isLoading && $actionStatus.action === 'logs'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <FileText class="h-6 w-6" />
+                                <FileText class="h-5 w-5" />
                             {/if}
-                            <span>View Logs</span>
+                            <span class="text-xs">View Logs</span>
                         </Button>
                     </div>
 
