@@ -91,11 +91,17 @@ export class WebRTCClient {
     // Handle special keys and escape sequences
     let processedInput = input;
     
-    // Special handling for carriage return
-    // Some terminals need both CR and LF for proper line endings
-    if (processedInput === '\r') {
-      console.log('[WebRTC] Converting CR to CR+LF');
-      // The server side will handle this conversion
+    // Log the exact input for debugging
+    console.log(`[WebRTC] Raw terminal input: ${JSON.stringify(input)}`);
+    
+    // Handle various line ending scenarios
+    // This is critical to prevent double line breaks
+    if (processedInput === '\r\n') {
+      console.log('[WebRTC] Normalizing CR+LF to just CR');
+      processedInput = '\r';
+    } else if (processedInput === '\n') {
+      console.log('[WebRTC] Normalizing LF to CR');
+      processedInput = '\r';
     }
     
     // Create the terminal input message

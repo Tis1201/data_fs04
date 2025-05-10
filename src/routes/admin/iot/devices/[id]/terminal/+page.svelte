@@ -341,15 +341,20 @@
 		const data = event.detail;
 		console.log("User input:", data);
 
+		// Handle line endings consistently
+		// The terminal component often sends \r when Enter is pressed
+		// We need to ensure we don't get double line breaks
+		let processedData = data;
+		
 		// Send command to device
 		if (terminalInstance) {
 			// Check if WebRTC data channel is open
 			if ($webRTCStore.dataChannelStatus === 'open') {
 				// Send via WebRTC only; do NOT echo locally
-				webrtcClient.sendTerminalInput(data);
+				webrtcClient.sendTerminalInput(processedData);
 			} else {
 				// Fall back to WebSocket
-				sendCommand(terminalInstance, data);
+				sendCommand(terminalInstance, processedData);
 			}
 		}
 	}
