@@ -64,12 +64,9 @@
 					console.log('Video playback started successfully');
 					isVideoPaused = false;
 					
-					// After successful autoplay, unmute after a delay
-					setTimeout(() => {
-						videoElement.muted = false;
-						videoElement.volume = 1.0;
-						console.log('Video unmuted after successful autoplay');
-					}, 1000);
+					// Keep video muted to avoid autoplay policy issues
+					// Browser autoplay policy requires user interaction to unmute
+					console.log('Video will remain muted - user can unmute manually if needed');
 					
 					playAttemptInProgress = false;
 				})
