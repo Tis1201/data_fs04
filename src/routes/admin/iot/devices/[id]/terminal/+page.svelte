@@ -27,11 +27,14 @@
 	// Get device ID from URL
 	const deviceId = $page.params.id;
 
-	// Track terminal instance
-	let terminalInstance: Terminal;
-	
+	// State variables
+	let terminalInstance: Terminal | undefined;
+	let webrtcClient: WebRTCClient | undefined;
+	let connecting = false;
+	let connected = false;
+
 	// Initialize WebRTC client
-	let webrtcClient = new WebRTCClient(deviceId);
+	webrtcClient = new WebRTCClient(deviceId);
 	
 	// Track resources for cleanup
 	let pingInterval: ReturnType<typeof setInterval>;
@@ -105,7 +108,7 @@
 	 ****************************************************************************/
 	function initDevice(terminal: Terminal) {
 		terminal.write(
-			"\r\n\x1b[1;33mInitializing connection to device...\x1b[0m\r\n",
+			`\r\nPlease wait...\r\n`,
 		);
 
 		// Set terminal callback for WebRTC client to handle terminal output
@@ -143,7 +146,6 @@
 					const dimensions = fitAddon.proposeDimensions();
 					if (dimensions) {
 						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-						terminalInstance.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
 						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
 					}
 				} catch (error) {
@@ -151,8 +153,8 @@
 				}
 			}
 			
-			// Auto-send echo command for improved UX
-			webrtcClient.sendTerminalInput('echo "Terminal session started"');
+			// Send a carriage return to bring the terminal prompt into view
+			webrtcClient.sendTerminalInput('\r');
 		});
 		
 		// Set up connection state callback - this is triggered when the WebRTC connection state changes
@@ -168,15 +170,24 @@
 			// Update terminal with connection state changes
 			if (terminalInstance) {
 				if (state === 'connected') {
-					terminalInstance.write("\r\n\x1b[1;32mConnection established!\x1b[0m\r\n");
+					terminalInstance.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
+					connecting = false;
+					connected = true;
 				} else if (state === 'disconnected') {
-					terminalInstance.write("\r\n\x1b[1;33mConnection disconnected - attempting to reconnect...\x1b[0m\r\n");
+					// Don't change UI immediately for disconnected state
+					// as it might reconnect automatically
+					console.log('Connection disconnected - may reconnect automatically');
 				} else if (state === 'failed' || state === 'closed') {
-					terminalInstance.write("\r\n\x1b[1;31mConnection lost or failed\x1b[0m\r\n");
+					connecting = false;
+					connected = false;
+					
+					// Show reconnection message
+					terminalInstance.write("\r\n\x1b[1;33mConnection lost. Reconnecting...\x1b[0m");
 					
 					// Attempt to reconnect after a brief delay
 					setTimeout(() => {
-						terminalInstance.write("\r\n\x1b[1;33mAttempting to reconnect...\x1b[0m\r\n");
+						console.log('Attempting to reconnect...');
+						connecting = true;
 						webrtcClient.connect();
 					}, 2000);
 				}

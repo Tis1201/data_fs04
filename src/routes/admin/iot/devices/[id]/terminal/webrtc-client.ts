@@ -71,10 +71,7 @@ export class WebRTCClient {
 
     socketStore.send(message);
 
-    // Log the message in terminal
-    if (this.terminalCB) {
-      this.terminalCB("\r\n\x1b[1;32mWebRTC connect request sent\x1b[0m\r\n");
-    }
+    // No terminal message needed for connect request
   }
 
   /******************************************************************************
@@ -134,6 +131,13 @@ export class WebRTCClient {
       this.onDataChannelOpenCB(this.dataChannel);
     }
   };
+
+  private startPingMessages() {
+    // Send pings every 10 seconds to keep the connection alive
+    setInterval(() => {
+      this.sendPing();
+    }, 10000);
+  }
   
   /**
    * Handle connection state change event
