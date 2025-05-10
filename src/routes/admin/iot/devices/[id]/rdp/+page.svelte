@@ -3,10 +3,13 @@
 	import { page } from '$app/stores';
 	import { socketStore } from '$lib/stores/websocket-store';
 	import { webRTCStore } from '$lib/stores/webrtc-store';
+	import { deviceStore } from "$lib/stores/device-store";
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Loader2, Monitor } from 'lucide-svelte';
 	import { WebRTCClient } from '../terminal/webrtc-client';
+	import { browser } from "$app/environment";
+	import type { WebRTCMessage } from "$lib/stores/webrtc-store";
 
 	// Get device ID from route params
 	const deviceId = $page.params.id;
@@ -22,9 +25,16 @@
 	let connecting = false;
 	let connected = false;
 	
+	// Track resources for cleanup
+	let pingInterval: ReturnType<typeof setInterval>;
+	let unsubscribeWebRTC: () => void;
+	let unsubscribeDevice: () => void;
+	let previousWebRTCMessage: WebRTCMessage | null = null;
+	
 	// Initialize WebRTC client
 	function initWebRTC() {
-		if (typeof window === 'undefined') return; // Skip during SSR
+		console.log("Initializing WebRTC client...");
+		if (!browser) return; // Skip during SSR
 		
 		// Create WebRTC client
 		webrtcClient = new WebRTCClient(deviceId);
@@ -45,10 +55,38 @@
 				console.error('Error playing video:', err);
 			});
 		};
+		
+		// Subscribe to device store
+		unsubscribeDevice = deviceStore.subscribe(state => {
+			// Process new WebRTC messages
+			if (state.latestWebRTCMessage && 
+			    state.latestWebRTCMessage !== previousWebRTCMessage) {
+				previousWebRTCMessage = state.latestWebRTCMessage;
+				webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
+			}
+		});
+		
+		// Start ping interval
+		pingInterval = setInterval(() => {
+			if ($webRTCStore.dataChannelStatus === 'open') {
+				webrtcClient.sendPing();
+			}
+		}, 10000); // Send ping every 10 seconds
+		
+		// Subscribe to WebRTC store for connection status changes
+		unsubscribeWebRTC = webRTCStore.subscribe(state => {
+			if (state.dataChannelStatus === 'open' && !connected) {
+				// Request video stream after data channel is open
+				setTimeout(() => {
+					requestRDP();
+				}, 1000); // Wait a bit for connection to stabilize
+			}
+		});
 	}
 	
 	// Connect to device
 	async function connectToDevice() {
+		console.log("Connecting to device...");
 		if (!webrtcClient) return;
 		
 		connecting = true;
@@ -56,13 +94,6 @@
 		try {
 			// Connect to device
 			webrtcClient.connect();
-			
-			// Request video stream after connection is established
-			$: if ($webRTCStore.connectionState === 'connected' && !connected) {
-				setTimeout(() => {
-					requestRDP();
-				}, 1000); // Wait a bit for connection to stabilize
-			}
 		} catch (error) {
 			console.error('Error connecting to device:', error);
 			connecting = false;
@@ -78,7 +109,7 @@
 			type: 'device',
 			payload: {
 				action: 'message',
-				type: 'webrtc:request-video',
+				type: 'webrtc:video-request',
 				deviceId: deviceId
 			},
 			scope: `subscription:device:${deviceId}`
@@ -112,13 +143,34 @@
 	
 	// Initialize on mount
 	onMount(() => {
-		if (typeof window !== 'undefined') {
+		if (browser) {
 			initWebRTC();
+			// Automatically connect to device when page loads
+			setTimeout(() => {
+				connectToDevice();
+			}, 500); // Small delay to ensure WebRTC client is fully initialized
 		}
 	});
 	
 	// Clean up on destroy
 	onDestroy(() => {
+		// Skip cleanup in SSR
+		if (!browser) return;
+		
+		// Clear intervals
+		if (pingInterval) {
+			clearInterval(pingInterval);
+		}
+		
+		// Unsubscribe from stores
+		if (unsubscribeDevice) {
+			unsubscribeDevice();
+		}
+		if (unsubscribeWebRTC) {
+			unsubscribeWebRTC();
+		}
+		
+		// Clean up WebRTC client
 		if (webrtcClient) {
 			disconnectFromDevice();
 		}
