@@ -39,7 +39,7 @@
 		// Create WebRTC client
 		webrtcClient = new WebRTCClient(deviceId);
 		
-		// Set up track handler
+		// Set up track handler for video streams
 		webrtcClient.onTrackHandler = (track) => {
 			if (!videoElement) return;
 			
@@ -54,9 +54,60 @@
 			videoElement.play().catch(err => {
 				console.error('Error playing video:', err);
 			});
+			
+			// Update UI to show connected state
+			connecting = false;
+			connected = true;
 		};
 		
-		// Subscribe to device store
+		// Set up data channel open callback
+		webrtcClient.setDataChannelOpenCallback((dataChannel) => {
+			console.log('Data channel is open and ready for RDP');
+			
+			// Update WebRTC store to reflect the open data channel
+			webRTCStore.update(state => ({
+				...state,
+				dataChannelStatus: 'open'
+			}));
+			
+			// Request video stream after data channel is open
+			setTimeout(() => {
+				requestRDP();
+			}, 1000); // Wait a bit for connection to stabilize
+		});
+		
+		// Set up connection state callback
+		webrtcClient.setConnectionStateCallback((state) => {
+			console.log(`WebRTC connection state changed to: ${state}`);
+			
+			// Update WebRTC store with the new connection state
+			webRTCStore.update(currentState => ({
+				...currentState,
+				connectionState: state
+			}));
+			
+			// Update UI based on connection state
+			if (state === 'connected') {
+				connecting = false;
+				connected = true;
+			} else if (state === 'disconnected') {
+				// Don't change UI immediately for disconnected state
+				// as it might reconnect automatically
+				console.log('Connection disconnected - may reconnect automatically');
+			} else if (state === 'failed' || state === 'closed') {
+				connecting = false;
+				connected = false;
+				
+				// Attempt to reconnect after a brief delay
+				setTimeout(() => {
+					console.log('Attempting to reconnect...');
+					connecting = true;
+					webrtcClient.connect();
+				}, 2000);
+			}
+		});
+		
+		// Subscribe to device store for WebRTC signaling messages
 		unsubscribeDevice = deviceStore.subscribe(state => {
 			// Process new WebRTC messages
 			if (state.latestWebRTCMessage && 
@@ -66,22 +117,12 @@
 			}
 		});
 		
-		// Start ping interval
+		// Start ping interval to keep connection alive
 		pingInterval = setInterval(() => {
 			if ($webRTCStore.dataChannelStatus === 'open') {
 				webrtcClient.sendPing();
 			}
 		}, 10000); // Send ping every 10 seconds
-		
-		// Subscribe to WebRTC store for connection status changes
-		unsubscribeWebRTC = webRTCStore.subscribe(state => {
-			if (state.dataChannelStatus === 'open' && !connected) {
-				// Request video stream after data channel is open
-				setTimeout(() => {
-					requestRDP();
-				}, 1000); // Wait a bit for connection to stabilize
-			}
-		});
 	}
 	
 	// Connect to device
@@ -104,6 +145,12 @@
 	function requestRDP() {
 		if (!webrtcClient) return;
 		
+		// Check if data channel is open
+		if ($webRTCStore.dataChannelStatus !== 'open') {
+			console.warn('Data channel not open, cannot request video stream');
+			return;
+		}
+		
 		// Send request to device to start video stream
 		const message = {
 			type: 'device',
@@ -117,15 +164,42 @@
 		
 		socketStore.send(message);
 		console.log('Sent RDP request');
+		
+		// If no video appears after a timeout, try requesting again
+		setTimeout(() => {
+			if (!connected && videoElement && !videoElement.srcObject) {
+				console.log('No video received, requesting again...');
+				socketStore.send(message);
+			}
+		}, 5000);
 	}
 	
 	// Disconnect from device
 	function disconnectFromDevice() {
 		if (!webrtcClient) return;
 		
+		// Clean up video element
+		if (videoElement && videoElement.srcObject) {
+			const stream = videoElement.srcObject as MediaStream;
+			stream.getTracks().forEach(track => {
+				track.stop();
+			});
+			videoElement.srcObject = null;
+		}
+		
 		// Clean up WebRTC client
 		webrtcClient.cleanup();
+		
+		// Update state
 		connected = false;
+		connecting = false;
+		
+		// Update WebRTC store
+		webRTCStore.update(state => ({
+			...state,
+			connectionState: 'closed',
+			dataChannelStatus: 'closed'
+		}));
 	}
 	
 	// Handle WebRTC connection state changes
@@ -160,20 +234,42 @@
 		// Clear intervals
 		if (pingInterval) {
 			clearInterval(pingInterval);
+			pingInterval = null;
 		}
 		
 		// Unsubscribe from stores
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
 		}
+		
+		// We don't need to unsubscribe from WebRTC store anymore since we're using callbacks
+		// but we'll keep the variable check for backward compatibility
 		if (unsubscribeWebRTC) {
 			unsubscribeWebRTC();
 		}
 		
+		// Clean up video element
+		if (videoElement && videoElement.srcObject) {
+			const stream = videoElement.srcObject as MediaStream;
+			stream.getTracks().forEach(track => {
+				track.stop();
+			});
+			videoElement.srcObject = null;
+		}
+		
 		// Clean up WebRTC client
 		if (webrtcClient) {
-			disconnectFromDevice();
+			webrtcClient.cleanup();
 		}
+		
+		// Reset WebRTC store state
+		webRTCStore.update(state => ({
+			...state,
+			connectionState: 'closed',
+			dataChannelStatus: 'closed'
+		}));
+		
+		console.log('RDP component destroyed, WebRTC resources cleaned up');
 	});
 </script>
 

@@ -108,7 +108,7 @@
 			"\r\n\x1b[1;33mInitializing connection to device...\x1b[0m\r\n",
 		);
 
-		// Set terminal callback for WebRTC client
+		// Set terminal callback for WebRTC client to handle terminal output
 		webrtcClient.setTerminalCallback((message) => {
 			if (terminalInstance) {
 				// Log the received message for debugging
@@ -123,6 +123,62 @@
 						message.substring(0, 20) + '...' : 
 						message;
 					console.log(`Terminal message sample: ${JSON.stringify(sample)}`);
+				}
+			}
+		});
+		
+		// Set up data channel open callback - this is triggered when the data channel is ready for use
+		webrtcClient.setDataChannelOpenCallback((dataChannel) => {
+			console.log('Data channel is open and ready for terminal');
+			
+			// Update WebRTC store to reflect the open data channel
+			webRTCStore.update(state => ({
+				...state,
+				dataChannelStatus: 'open'
+			}));
+			
+			// Send terminal dimensions when data channel is open
+			if (terminalInstance && fitAddon) {
+				try {
+					const dimensions = fitAddon.proposeDimensions();
+					if (dimensions) {
+						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
+						terminalInstance.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
+						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
+					}
+				} catch (error) {
+					console.error("Error sending terminal dimensions:", error);
+				}
+			}
+			
+			// Auto-send echo command for improved UX
+			webrtcClient.sendTerminalInput('echo "Terminal session started"');
+		});
+		
+		// Set up connection state callback - this is triggered when the WebRTC connection state changes
+		webrtcClient.setConnectionStateCallback((state) => {
+			console.log(`WebRTC connection state changed to: ${state}`);
+			
+			// Update WebRTC store with the new connection state
+			webRTCStore.update(currentState => ({
+				...currentState,
+				connectionState: state
+			}));
+			
+			// Update terminal with connection state changes
+			if (terminalInstance) {
+				if (state === 'connected') {
+					terminalInstance.write("\r\n\x1b[1;32mConnection established!\x1b[0m\r\n");
+				} else if (state === 'disconnected') {
+					terminalInstance.write("\r\n\x1b[1;33mConnection disconnected - attempting to reconnect...\x1b[0m\r\n");
+				} else if (state === 'failed' || state === 'closed') {
+					terminalInstance.write("\r\n\x1b[1;31mConnection lost or failed\x1b[0m\r\n");
+					
+					// Attempt to reconnect after a brief delay
+					setTimeout(() => {
+						terminalInstance.write("\r\n\x1b[1;33mAttempting to reconnect...\x1b[0m\r\n");
+						webrtcClient.connect();
+					}, 2000);
 				}
 			}
 		});
@@ -215,21 +271,8 @@
 		// Set up window resize handler with debounce
 		window.addEventListener("resize", handleResize);
 		
-		// Subscribe to WebRTC store for connection status changes
-		unsubscribeWebRTC = webRTCStore.subscribe(state => {
-			if (state.dataChannelStatus === 'open' && terminalInstance && fitAddon) {
-				try {
-					const dimensions = fitAddon.proposeDimensions();
-					if (dimensions) {
-						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-						terminalInstance.write("\r\n\x1b[1;32mWebRTC connection established!\x1b[0m\r\n");
-						console.log(`Initial terminal size: ${dimensions.rows} rows x ${dimensions.cols} columns`);
-					}
-				} catch (error) {
-					console.error("Error sending terminal dimensions:", error);
-				}
-			}
-		});
+		// We no longer need to subscribe to WebRTC store for connection status
+		// as we're now using callbacks directly in the initDevice function
 	});
 
 	/****************************************************************************
@@ -246,6 +289,9 @@
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
 		}
+		
+		// We don't need to unsubscribe from WebRTC store anymore since we're using callbacks
+		// but we'll keep the variable check for backward compatibility
 		if (unsubscribeWebRTC) {
 			unsubscribeWebRTC();
 		}
@@ -253,9 +299,12 @@
 		// Clean up timers
 		if (pingInterval) {
 			clearInterval(pingInterval);
+			pingInterval = null;
 		}
+		
 		if (resizeTimeout) {
 			clearTimeout(resizeTimeout);
+			resizeTimeout = null;
 		}
 		
 		// Remove event listeners
@@ -264,7 +313,21 @@
 		}
 		
 		// Clean up WebRTC resources
+		if (terminalInstance) {
+			terminalInstance.write("\r\n\x1b[1;33mClosing connection...\x1b[0m\r\n");
+		}
+		
+		// Properly clean up WebRTC client
 		webrtcClient.cleanup();
+		
+		// Reset WebRTC store state
+		webRTCStore.update(state => ({
+			...state,
+			connectionState: 'closed',
+			dataChannelStatus: 'closed'
+		}));
+		
+		console.log('Terminal component destroyed, WebRTC resources cleaned up');
 	});
 	
 	// Handle window resize events

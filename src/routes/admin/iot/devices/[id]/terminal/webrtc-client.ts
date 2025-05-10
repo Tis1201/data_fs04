@@ -1,11 +1,12 @@
 // -----------------------------------------------------------------------------
-//  WebRTCClient.ts – Resilient client with active keep‑alive and auto‑re‑sync  
+//  WebRTCClient.ts – Modular WebRTC client for different applications
 // -----------------------------------------------------------------------------
 //  ▸ Works with socketStore / webRTCStore (SvelteKit + Vite)                   
-//  ▸ Grace‑period for transient “disconnected” flips (4 s)                    
+//  ▸ Supports both terminal and video streaming use cases
+//  ▸ Provides callbacks for connection events and data channel readiness
+//  ▸ Grace‑period for transient "disconnected" flips (4 s)                    
 //  ▸ Automatic ICE‑restart, then full back‑off reconnect if needed            
-//  ▸ Lightweight data‑channel keep‑alive (ping / pong every 10 s)             
-//  ▸ Exports helper:  createClientMessage()                                   
+//  ▸ Lightweight data‑channel keep‑alive (ping / pong every 10 s)             
 // -----------------------------------------------------------------------------
 
 import { socketStore } from "$lib/stores/websocket-store";
@@ -16,17 +17,27 @@ import type {
 } from "$lib/stores/webrtc-store";
 import { get } from 'svelte/store';
 
-
 /* -------------------------------------------------------------------------- */
 /*  WebRTC client                                                              */
 /* -------------------------------------------------------------------------- */
+
+// Define callback types for better type safety
+export type DataChannelCallback = (dataChannel: RTCDataChannel) => void;
+export type ConnectionStateCallback = (state: RTCPeerConnectionState) => void;
+export type TerminalOutputCallback = (output: string) => void;
+export type TrackCallback = (track: MediaStreamTrack) => void;
+
 export class WebRTCClient {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private _processedMessages = new Set<string>();
 
-  private terminalCB: ((m: string) => void) | null = null;
-  onTrackHandler: ((track: MediaStreamTrack) => void) | null = null;
+  // Callbacks for different events
+  private terminalCB: TerminalOutputCallback | null = null;
+  private onDataChannelOpenCB: DataChannelCallback | null = null;
+  private onConnectionStateCB: ConnectionStateCallback | null = null;
+  onTrackHandler: TrackCallback | null = null;
+  
   config: any;
 
   constructor(private deviceId: string) {
@@ -68,12 +79,104 @@ export class WebRTCClient {
 
   /******************************************************************************
    * 
-   *  Callback
+   *  Callbacks
    * 
    ******************************************************************************/
-  setTerminalCallback(cb: (m: string) => void) {
+  setTerminalCallback(cb: TerminalOutputCallback) {
     this.terminalCB = cb;
   }
+  
+  /**
+   * Set callback for when the data channel is open and ready
+   * This is useful for applications to know when they can start sending data
+   */
+  setDataChannelOpenCallback(cb: DataChannelCallback) {
+    this.onDataChannelOpenCB = cb;
+    
+    // If data channel is already open, call the callback immediately
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+      cb(this.dataChannel);
+    }
+  }
+  
+  /**
+   * Set callback for connection state changes
+   * This allows applications to react to connection state changes
+   */
+  setConnectionStateCallback(cb: ConnectionStateCallback) {
+    this.onConnectionStateCB = cb;
+    
+    // If peer connection already exists, call the callback with current state
+    if (this.peerConnection) {
+      cb(this.peerConnection.connectionState as RTCPeerConnectionState);
+    }
+  }
+  
+  /**
+   * Handle data channel open event
+   * Updates store and calls callback if set
+   */
+  private handleDataChannelOpen = (event: Event) => {
+    console.log('[WebRTC] Data channel opened');
+    
+    // Update the WebRTC store
+    webRTCStore.update(state => ({
+      ...state,
+      dataChannelStatus: 'open',
+      dataChannel: this.dataChannel
+    }));
+    
+    // Start sending ping messages to keep the connection alive
+    this.startPingMessages();
+    
+    // Call the data channel open callback if set
+    if (this.onDataChannelOpenCB && this.dataChannel) {
+      this.onDataChannelOpenCB(this.dataChannel);
+    }
+  };
+  
+  /**
+   * Handle connection state change event
+   * Updates store and calls callback if set
+   */
+  private handleConnectionStateChange = () => {
+    if (!this.peerConnection) return;
+    
+    const state = this.peerConnection.connectionState;
+    console.log(`[WebRTC] Connection state changed: ${state}`);
+    
+    // Update the WebRTC store
+    webRTCStore.update(s => ({
+      ...s,
+      connectionState: state
+    }));
+    
+    // Call the connection state callback if set
+    if (this.onConnectionStateCB) {
+      this.onConnectionStateCB(state as RTCPeerConnectionState);
+    }
+    
+    // Handle different connection states
+    switch (state) {
+      case 'connected':
+        console.log('[WebRTC] Connection established');
+        break;
+        
+      case 'disconnected':
+        console.log('[WebRTC] Connection disconnected, waiting for reconnection...');
+        break;
+        
+      case 'failed':
+        console.error('[WebRTC] Connection failed');
+        this.cleanup();
+        break;
+        
+      case 'closed':
+        console.log('[WebRTC] Connection closed');
+        this.cleanup();
+        break;
+    }
+  };
 
   /******************************************************************************
    * 
@@ -404,16 +507,7 @@ export class WebRTCClient {
             }
           };
 
-          this.dataChannel.onopen = () => {
-            console.log('[WebRTC] Data channel opened');
-            webRTCStore.update(state => ({
-              ...state,
-              dataChannelStatus: 'open'
-            }));
-            // Auto-send echo for improved UX
-            this.sendTerminalInput('echo "hello"');
-          };
-
+          this.dataChannel.onopen = this.handleDataChannelOpen;
           this.dataChannel.onclose = () => {
             console.log('[WebRTC] Data channel closed');
             webRTCStore.update(state => ({
@@ -429,21 +523,7 @@ export class WebRTCClient {
         };
 
         // Add connection state change listener
-        this.peerConnection.onconnectionstatechange = () => {
-          const connectionState = this.peerConnection?.connectionState;
-          console.log(`[WebRTC] Connection state changed to: ${connectionState}`);
-
-          webRTCStore.update(state => ({
-            ...state,
-            connectionState: connectionState || 'unknown'
-          }));
-
-          if (connectionState === 'connected') {
-            console.log('[WebRTC] Connection established with remote peer!');
-          } else if (connectionState === 'failed' || connectionState === 'disconnected' || connectionState === 'closed') {
-            console.log('[WebRTC] Connection lost or failed');
-          }
-        };
+        this.peerConnection.onconnectionstatechange = this.handleConnectionStateChange;
 
         // Add track event handler
         this.peerConnection.ontrack = (event) => {
