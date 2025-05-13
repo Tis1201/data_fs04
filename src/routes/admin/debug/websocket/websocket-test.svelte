@@ -11,6 +11,7 @@
     import { Skeleton } from "$lib/components/ui/skeleton";
     import * as Collapsible from '$lib/components/ui/collapsible/index.js';
     import CodeBlock from '$lib/components/ui_components_sveltekit/code/CodeBlock.svelte';
+    import RelativeDate from '$lib/components/ui_components_sveltekit/date/RelativeDate.svelte';
 
     let messageInput = '';
     let apiKeyInput = '';
@@ -94,26 +95,22 @@
     }
 </script>
 
-<Card>
+<Card class="w-full">
     <CardHeader>
-        <div class="flex items-center justify-between">
-            <div>
-                <CardTitle>WebSocket Debug Console</CardTitle>
-                <CardDescription>WebSocket testing and debugging</CardDescription>
+        <CardTitle>WebSocket Debug Console</CardTitle>
+        <CardDescription>WebSocket testing and debugging</CardDescription>
+        <div class="flex items-center gap-4 mt-2">
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted">
+                <div class={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"} animate-pulse`}></div>
+                <span class="text-sm font-medium">{connected ? "Connected" : "Disconnected"}</span>
             </div>
-            <div class="flex items-center gap-2">
-                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted">
-                    <div class={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"} animate-pulse`}></div>
-                    <span class="text-sm font-medium">{connected ? "Connected" : "Disconnected"}</span>
-                </div>
-                {#if socketId}
-                    <span class="text-sm text-muted-foreground">Socket ID: {socketId}</span>
-                {/if}
-                <!-- <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
-                    <RefreshCw class="h-4 w-4 mr-2" />
-                    Reconnect
-                </Button> -->
-            </div> 
+            {#if socketId}
+                <span class="text-sm text-muted-foreground">Socket ID: {socketId}</span>
+            {/if}
+            <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnectWs}>
+                <RefreshCw class="h-4 w-4 mr-2" />
+                Reconnect
+            </Button>
         </div>
     </CardHeader>
     <CardContent class="space-y-4">
@@ -173,39 +170,56 @@
             </TabsContent>
         </Tabs>
 
-        <ScrollArea class="h-[500px] rounded-md border">
-            <div class="p-4 space-y-3">
-                {#if messages}
-                    {#each messages as message}
-                        {#if message.type !== 'pong'}
-                            <div class="p-3 rounded-lg bg-muted/50">
-                                <div class="flex items-center gap-2 mb-1.5">
-                                    <Badge variant={message.type === 'system' ? 'secondary' : message.type === 'error' ? 'destructive' : 'default'}>
-                                        {message.type}
-                                    </Badge>
-                                    {#if message.data?.timestamp}
-                                        <span class="text-xs text-muted-foreground">{new Date(message.data.timestamp).toLocaleTimeString()}</span>
-                                    {/if}
-                                    {#if socketId}
-                                        <span class="text-xs font-mono text-muted-foreground">ID: {socketId}</span>
-                                    {/if}
-                                    {#if message.data?.authMethod}
-                                        <Badge variant="outline">{message.data.authMethod}</Badge>
-                                    {/if}
-                                </div>
-                                {JSON.stringify(message)}
-                                
-                                {#if message.data?.originalMessage}
-                                    <div class="text-sm font-mono text-muted-foreground mt-1">
-                                        {message.data.originalMessage}
+        <Card class="w-full border-none shadow-none">
+            <CardHeader class="p-0 pb-2">
+                <CardTitle class="text-sm">Messages</CardTitle>
+            </CardHeader>
+            <CardContent class="p-0">
+                <ScrollArea class="h-[400px] rounded-md border">
+                    <div class="p-4 space-y-3">
+                        {#if messages && messages.length > 0}
+                            {#each [...messages].reverse() as message}
+                                {#if message.type !== 'pong'}
+                                    <div class="p-3 rounded-lg bg-muted/50">
+                                        <div class="flex items-center gap-2 mb-1.5">
+                                            <Badge variant={message.type === 'system' ? 'secondary' : message.type === 'error' ? 'destructive' : 'default'}>
+                                                {message.type}
+                                            </Badge>
+                                            
+                                            <!-- Timestamp display with RelativeDate component -->
+                                            {#if message.data?.timestamp}
+                                                <RelativeDate date={message.data.timestamp} format="relative" showTooltip={true} iconSize={12} />
+                                            {:else if message.timestamp}
+                                                <RelativeDate date={message.timestamp} format="relative" showTooltip={true} iconSize={12} />
+                                            {:else if message.payload?.timestamp}
+                                                <RelativeDate date={message.payload.timestamp} format="relative" showTooltip={true} iconSize={12} />
+                                            {/if}
+                                            
+                                            {#if message.data?.authMethod}
+                                                <Badge variant="outline">{message.data.authMethod}</Badge>
+                                            {/if}
+                                        </div>
+                                        <div class="text-xs font-mono overflow-x-auto whitespace-pre-wrap">
+                                            {JSON.stringify(message, null, 2)}
+                                        </div>
+                                        
+                                        {#if message.data?.originalMessage}
+                                            <div class="text-sm font-mono text-muted-foreground mt-1">
+                                                {message.data.originalMessage}
+                                            </div>
+                                        {/if}
                                     </div>
                                 {/if}
+                            {/each}
+                        {:else}
+                            <div class="flex items-center justify-center h-32 text-muted-foreground">
+                                No messages yet. Send a message to see it appear here.
                             </div>
                         {/if}
-                    {/each}
-                {/if}
-            </div>
-        </ScrollArea>
+                    </div>
+                </ScrollArea>
+            </CardContent>
+        </Card>
     </CardContent>
     <CardFooter>
         <p class="text-sm text-muted-foreground">

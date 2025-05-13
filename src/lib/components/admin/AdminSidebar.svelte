@@ -38,6 +38,7 @@
         label: string;
         icon: any;
         subItems?: SubMenuItem[];
+        initialExpanded?: boolean;
     }
 
     const mainMenuItems: MenuItem[] = [
@@ -45,6 +46,7 @@
         {
             label: "IOT",
             icon: Network,
+            initialExpanded: false,
             subItems: [
                 { href: "/admin/iot/devices", label: "Devices", icon: Router }
             ]
@@ -52,16 +54,18 @@
         { 
             label: "Access", 
             icon: Building2, 
+            initialExpanded: true,
             subItems: [
-                { href: "/admin/accounts", label: "Accounts", icon: Layers },
-                { href: "/admin/companies", label: "Companies", icon: Briefcase },
+                { href: "/admin/accounts/accounts", label: "Accounts", icon: Layers },
+                { href: "/admin/accounts/companies", label: "Companies", icon: Briefcase },
                 { href: "/admin/users", label: "Users", icon: Users },
-                { href: "/admin/groups", label: "Groups", icon: UserCog2 }
+                { href: "/admin/accounts/groups", label: "Groups", icon: UserCog2 }
             ]
         },
         { 
             label: "Integrations", 
             icon: Link2, 
+            initialExpanded: false,
             subItems: [
                 { href: "/admin/settings/webhook", label: "Webhook", icon: Link2 },
                 { href: "/admin/settings/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }, 
@@ -71,6 +75,7 @@
         { 
             label: "Settings", 
             icon: Settings, 
+            initialExpanded: false,
             subItems: [
                 { href: "/admin/settings/general", label: "General", icon: Settings2 },
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
@@ -81,6 +86,7 @@
         {
             label: "Debug",
             icon: BugOff,
+            initialExpanded: false,
             subItems: [
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap }
             ]
