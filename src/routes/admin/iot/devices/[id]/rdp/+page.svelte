@@ -13,8 +13,7 @@
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
 	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
 	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-	import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "$lib/components/ui/card";
-import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+	import { AdminPageLayout, AdminCard } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
 
 	// Get device ID from route params
 	const deviceId = $page.params.id;
@@ -415,16 +414,14 @@ import ActionButton from "$lib/components/ui_components_sveltekit/buttons/Action
 	<title>Device RDP - {deviceId}</title>
 </svelte:head>
 
-<PageContainer crumbs={pageCrumbs}>
-	<PageHeader title="Device Remote Desktop">
-		<svelte:fragment slot="action">
-			<ActionButton
-				label="Back to Device"
-				icon={ArrowLeft}
-				href="/admin/iot/devices/{deviceId}"
-			/>
-		</svelte:fragment>
-		
+<AdminPageLayout 
+	title="Device Remote Desktop" 
+	crumbs={pageCrumbs}
+	actionLabel="Back to Device"
+	actionIcon={ArrowLeft}
+	actionHref={"/admin/iot/devices/" + deviceId}
+>
+	<svelte:fragment slot="header">
 		<div class="flex items-center space-x-2">
 			<Badge variant={connected ? "success" : "destructive"}>
 				{connected ? "Connected" : "Disconnected"}
@@ -448,17 +445,13 @@ import ActionButton from "$lib/components/ui_components_sveltekit/buttons/Action
 				</Button>
 			{/if}
 		</div>
-	</PageHeader>
+	</svelte:fragment>
 	
-	<PageContent>
-		<Card class="w-full">
-			<CardHeader>
-				<CardTitle>Remote Desktop Connection</CardTitle>
-				<CardDescription>
-					View and interact with the device's screen through this remote desktop interface.
-				</CardDescription>
-			</CardHeader>
-			<CardContent>
+	<AdminCard
+		title="Remote Desktop Connection"
+		description="View and interact with the device's screen through this remote desktop interface."
+		icon={Monitor}
+	>
 				<div class="flex flex-col items-center">
 					<div 
 						class="w-full aspect-video bg-muted rounded-lg overflow-hidden" 
@@ -522,7 +515,5 @@ import ActionButton from "$lib/components/ui_components_sveltekit/buttons/Action
 						</p>
 					</div>
 				</div>
-			</CardContent>
-		</Card>
-	</PageContent>
-</PageContainer>
+	</AdminCard>
+</AdminPageLayout>
