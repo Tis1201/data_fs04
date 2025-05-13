@@ -10,9 +10,21 @@
 	import { WebRTCClient } from '../terminal/webrtc-client';
 	import { browser } from "$app/environment";
 	import type { WebRTCMessage } from "$lib/stores/webrtc-store";
+	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
 
 	// Get device ID from route params
 	const deviceId = $page.params.id;
+
+	// Page breadcrumbs
+	const pageCrumbs = [
+		["Admin", "/admin"],
+		["IoT", "/admin/iot"],
+		["Devices", "/admin/iot/devices"],
+		["Device", `/admin/iot/devices/${deviceId}`],
+		["RDP", ""]
+	];
 	
 	// WebRTC client
 	let webrtcClient: WebRTCClient;
@@ -401,10 +413,8 @@
 	<title>Device RDP - {deviceId}</title>
 </svelte:head>
 
-<div class="container mx-auto py-6 space-y-6">
-	<div class="flex justify-between items-center">
-		<h1 class="text-3xl font-bold">Device Remote Desktop</h1>
-		
+<PageContainer crumbs={pageCrumbs}>
+	<PageHeader title="Device Remote Desktop">
 		<div class="flex items-center space-x-2">
 			<Badge variant={connected ? "success" : "destructive"}>
 				{connected ? "Connected" : "Disconnected"}
@@ -428,9 +438,9 @@
 				</Button>
 			{/if}
 		</div>
-	</div>
+	</PageHeader>
 	
-	<div class="border rounded-lg p-4 bg-card">
+	<PageContent>
 		<div class="flex flex-col items-center">
 			<div 
 				class="w-full max-w-3xl aspect-video bg-muted rounded-lg overflow-hidden" 
@@ -494,5 +504,5 @@
 				</p>
 			</div>
 		</div>
-	</div>
-</div>
+	</PageContent>
+</PageContainer>

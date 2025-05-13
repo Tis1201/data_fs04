@@ -15,9 +15,11 @@
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
 	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
 	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+	import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "$lib/components/ui/card";
 	import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
 	import { WebRTCClient } from "./webrtc-client";
 	import { webRTCStore } from "$lib/stores/webrtc-store";
+	import TerminalContainer from "$lib/components/ui_components_sveltekit/terminal/TerminalContainer.svelte";
 
 	/****************************************************************************
 	 * 
@@ -454,36 +456,24 @@
 	</div>
 
 	<PageContent>
-		<div class="space-y-6">
-			<FormCard
-				title="Terminal Connection"
-				description="Interact with the device through this terminal interface. Commands sent here will be executed on the device."
-			>
-				<div class="terminal-container h-[500px] w-full border rounded-md overflow-hidden">
-					<Xterm {options} on:load={onLoad} on:data={onData} on:key={onKey} />
-				</div>
-			</FormCard>
-		</div>
+		<Card class="w-full">
+			<CardHeader>
+				<CardTitle>Terminal Connection</CardTitle>
+				<CardDescription>
+					Interact with the device through this terminal interface. Commands sent here will be executed on the device.
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<TerminalContainer>
+					<Xterm
+						options={options}
+						on:load={onLoad}
+						on:data={onData}
+						on:key={onKey}
+					/>
+				</TerminalContainer>
+			</CardContent>
+		</Card>
 	</PageContent>
 </PageContainer>
 
-<style>
-	.terminal-container {
-		background-color: #1e1e1e;
-		position: relative;
-	}
-	:global(.terminal-container .xterm) {
-		height: 100%;
-		width: 100%;
-		padding: 0.75rem;
-	}
-	:global(.terminal-container .xterm-viewport) {
-		overflow-y: auto !important;
-	}
-	:global(.terminal-container .xterm-screen) {
-		padding: 0.25rem;
-	}
-	:global(.terminal-container canvas) {
-		padding: 0;
-	}
-</style>
