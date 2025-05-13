@@ -64,13 +64,21 @@
 
         NetworkIcon,
 
-        Router
+        Router,
 
+        UserCircle,
+        Users2,
+        UserCog2,
+        Briefcase,
+        Shield,
+        UserRound,
+        UserPlus,
+        UserCog,
+        UsersRound,
 
+        Layers,
 
-
-
-
+        Plug2
 
 
 
@@ -134,32 +142,47 @@
                 // { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
             ],
         },
+       
+        { label: "Accounts", icon: Building2, 
+            subItems: [
+                { href: "/admin/accounts", label: "Accounts", icon: Layers },
+                { href: "/admin/companies", label: "Companies", icon: Briefcase },
+                { href: "/admin/users", label: "Users", icon: Users },
+                { href: "/admin/groups", label: "Groups", icon: UserCog2 }
+            ],
+        },
+
+        { label: "Integrations", icon: Link2, 
+            subItems: [
+                { href: "/admin/settings/webhook", label: "Webhook", icon: Link2Icon },
+                { href: "/admin/settings/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }, 
+                { href: "/admin/settings/listeners", label: "Listeners", icon: Ear },    
+            ],  
+        },
+        
+        { label: "Settings", icon: Settings, 
+            subItems: [
+                { href: "/admin/settings/general", label: "General", icon: Settings2 },
+                // { href: "/admin/users", label: "Users", icon: Users },
+                { href: "/admin/settings/email", label: "Email", icon: Mail },
+                { href: "/admin/settings/api_keys", label: "API Keys", icon: Key },
+        
+            ],  
+        },
+        { href: "/admin/monitor", label: "Monitor", icon: Activity },
         {
             label: "Debug",
             icon: BugOff,
             subItems: [
                 // { href: "/admin/debug/vpu", label: "VPU", icon: Video },
                 // { href: "/admin/debug/npu", label: "NPU", icon: Cpu },
-                { href: "/admin/debug/room", label: "Room", icon: DoorOpen },
-                { href: "/admin/debug/sse", label: "SSE", icon: BellDot },
+                // { href: "/admin/debug/room", label: "Room", icon: DoorOpen },
+                // { href: "/admin/debug/sse", label: "SSE", icon: BellDot },
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap },
-                { href: "/admin/debug/stream", label: "WebRTC", icon: Network },
+                // { href: "/admin/debug/stream", label: "WebRTC", icon: Network },
                 // { href: "/admin/debug/whatsapp", label: "Whatsapp", icon: MessageCircle },
             ],
         },
-        
-        { label: "Settings", icon: Settings, 
-            subItems: [
-                { href: "/admin/settings/general", label: "General", icon: Settings2 },
-                { href: "/admin/users", label: "Users", icon: Users },
-                { href: "/admin/settings/email", label: "Email", icon: Mail },
-                { href: "/admin/settings/api_keys", label: "API Keys", icon: Key },
-                { href: "/admin/settings/webhook", label: "Webhook", icon: Link2Icon },
-                { href: "/admin/settings/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }, 
-                { href: "/admin/settings/listeners", label: "Listeners", icon: Ear },    
-            ],  
-        },
-        { href: "/admin/monitor", label: "Monitor", icon: Activity },
     ];
 
     $: currentPath = $page.url.pathname;

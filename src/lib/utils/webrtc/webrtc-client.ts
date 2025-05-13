@@ -27,7 +27,7 @@ export class WebRTCClient {
                 // Set up data channel event handlers if they're not already set
                 if (this.dataChannel && !this.dataChannel.onmessage) {
                     this.dataChannel.onmessage = (event) => {
-                        console.log('[WebRTC] Data channel message received:', event.data);
+                        // console.log('[WebRTC] Data channel message received:', event.data);
                         this.handleDataChannelMessage({ data: event.data });
                     };
                     
@@ -147,7 +147,7 @@ export class WebRTCClient {
                     
                     // Set up event handlers for the data channel
                     this.dataChannel.onmessage = (msgEvent) => {
-                        console.log('[WebRTC] Data channel message received:', msgEvent.data);
+                        // console.log('[WebRTC] Data channel message received:', msgEvent.data);
                         this.handleDataChannelMessage({ data: msgEvent.data });
                     };
                     
@@ -378,7 +378,7 @@ export class WebRTCClient {
     }
 
     private handleDataChannelMessage(message: any) {
-        console.log('[WebRTC] Received data channel message:', message);
+        // console.log('[WebRTC] Received data channel message:', message);
         
         // Extract the message content
         let messageContent = '';

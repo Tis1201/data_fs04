@@ -11,12 +11,10 @@
     import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import { 
         Clock, RefreshCw, Key, Wifi, Cpu, Server, Shield, Info, Settings, Tag, 
-        Terminal, Camera, RotateCcw, Upload, FileText, Edit, AlertCircle, CheckCircle, Loader2 
+        Terminal, Camera, RotateCcw, Upload, FileText, Edit, AlertCircle, CheckCircle, Loader2, Monitor
     } from "lucide-svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
-    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+    import { AdminPageLayout, AdminCard, CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
@@ -161,99 +159,115 @@
     }
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader title={title}>
-        <svelte:fragment slot="action">
-            <ActionButton
-                label="Edit"
-                icon={Edit}
-                onClick={navigateToEdit}
-            />
-        </svelte:fragment>
-    </PageHeader>
-
-    <PageContent>
+<AdminPageLayout
+    title={title}
+    crumbs={pageCrumbs}
+    actionLabel="Edit"
+    actionIcon={Edit}
+    actionOnClick={navigateToEdit}
+    compact={true}
+    contentSpacing="space-y-4"
+>
         <!-- Device Action Buttons -->
-            <Card.Root class="mb-6">
-                <Card.Header class="pb-3">
-                    <Card.Title class="flex items-center">
-                        <Settings class="mr-2 h-5 w-5" />
-                        Device Actions
-                    </Card.Title>
-                    <Card.Description>
-                        Manage and interact with this device
-                    </Card.Description>
-                </Card.Header>
-                <Card.Content>
-                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+        <AdminCard
+            title="Device Actions"
+            description="Manage and interact with this device"
+            icon={Settings}
+            class_name="mb-4"
+            compact={true}
+        >
+                    <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                        <!-- Define a consistent button style -->
+                        {#if false}
+                        <!-- This is just a template, not rendered -->
+                        <div class="btn-template hidden">
+                            <Button
+                                variant="outline"
+                                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
+                            >
+                                <div class="h-5 w-5" />
+                                <span class="text-xs">Label</span>
+                            </Button>
+                        </div>
+                        {/if}
                         <!-- Remote Terminal -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={accessRemoteTerminal}
                         >
-                            <Terminal class="h-6 w-6" />
-                            <span>Terminal</span>
+                            <Terminal class="h-5 w-5" />
+                            <span class="text-xs">Terminal</span>
+                        </Button>
+
+                        <!-- Remote Desktop -->
+                        <Button 
+                            variant="outline" 
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
+                            on:click={() => goto(`/admin/iot/devices/${device.id}/rdp`)}
+                        >
+                            <Monitor class="h-5 w-5" />
+                            <span class="text-xs">Remote Desktop</span>
                         </Button>
 
                         <!-- Snapshot -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={retrieveSnapshot}
                             disabled={$isLoading && $actionStatus.action === 'snapshot'}
                         >
                             {#if $isLoading && $actionStatus.action === 'snapshot'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <Camera class="h-6 w-6" />
+                                <Camera class="h-5 w-5" />
                             {/if}
-                            <span>Snapshot</span>
+                            <span class="text-xs">Snapshot</span>
                         </Button>
 
                         <!-- Restart -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={restartDevice}
                             disabled={$isLoading && $actionStatus.action === 'restart'}
                         >
                             {#if $isLoading && $actionStatus.action === 'restart'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <RotateCcw class="h-6 w-6" />
+                                <RotateCcw class="h-5 w-5" />
                             {/if}
-                            <span>Restart</span>
+                            <span class="text-xs">Restart</span>
                         </Button>
 
                         <!-- Update Firmware -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={updateFirmware}
                             disabled={$isLoading && $actionStatus.action === 'firmware'}
                         >
                             {#if $isLoading && $actionStatus.action === 'firmware'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <Upload class="h-6 w-6" />
+                                <Upload class="h-5 w-5" />
                             {/if}
-                            <span>Update Firmware</span>
+                            <span class="text-xs">Update Firmware</span>
                         </Button>
 
                         <!-- View Logs -->
                         <Button 
                             variant="outline" 
-                            class="flex flex-col items-center justify-center h-24 space-y-2"
+                            class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                             on:click={viewLogs}
                             disabled={$isLoading && $actionStatus.action === 'logs'}
                         >
                             {#if $isLoading && $actionStatus.action === 'logs'}
-                                <Loader2 class="h-6 w-6 animate-spin" />
+                                <Loader2 class="h-5 w-5 animate-spin" />
                             {:else}
-                                <FileText class="h-6 w-6" />
+                                <FileText class="h-5 w-5" />
                             {/if}
-                            <span>View Logs</span>
+                            <span class="text-xs">View Logs</span>
                         </Button>
                     </div>
 
@@ -272,265 +286,227 @@
                             </span>
                         </div>
                     {/if}
-                </Card.Content>
-            </Card.Root>
+                </AdminCard>
 
-        <div class="space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <!-- Device Info Card -->
-            <FormCard
+            <AdminCard
                 title="Device Information"
                 description="Basic details about this device"
+                icon={Info}
+                compact={true}
+                class_name="md:col-span-2"
             >
-                    <!-- View Mode: Read-only display -->
-                    <div class="space-y-6">
-                        <!-- Basic Info -->
-                        <div class="grid grid-cols-2 gap-6">
-                            <!-- Name -->
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">Device Name</div>
-                                <div class="text-lg font-medium">{device.name}</div>
-                            </div>
+                <!-- View Mode: Read-only display -->
+                <div class="space-y-4">
+                    <!-- Basic Info -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div class="md:col-span-2">
+                            <CompactInfoGrid columns={2} gap="gap-4">
+                                <!-- Name -->
+                                <CompactInfoItem label="Device Name">
+                                    <div class="font-medium">{device.name}</div>
+                                </CompactInfoItem>
 
-                            <!-- Status -->
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">Status</div>
-                                <Badge 
-                                    variant={device.status === 'ACTIVE' ? 'default' : 
-                                            device.status === 'INACTIVE' ? 'secondary' : 
-                                            device.status === 'PENDING' ? 'warning' : 'outline'}
-                                >
-                                    {device.status}
-                                </Badge>
-                            </div>
-                        </div>
-
-                        <!-- Description -->
-                        <div>
-                            <div class="text-sm font-medium text-muted-foreground mb-1">Description</div>
-                            <div class="text-sm">{device.description || '—'}</div>
-                        </div>
-                    </div>
-
-                <svelte:fragment slot="footer">
-                    {#if device}
-                        <div class="mt-4 pt-3 border-t border-muted">
-                            <div class="flex items-center text-xs text-muted-foreground">
-                                <Clock size={12} class="mr-1.5" />
-                                <div>
-                                    Created <RelativeDate date={device.createdAt} />
-                                    {#if device.createdBy && device.user}
-                                        by {device.user.name || device.user.email}
-                                    {/if}
-                                </div>
-                            </div>
-                            
-                            {#if device.updatedAt && device.updatedAt.toString() !== device.createdAt.toString()}
-                                <div class="flex items-center text-xs text-muted-foreground mt-1">
-                                    <Clock size={12} class="mr-1.5" />
-                                    <div>Updated <RelativeDate date={device.updatedAt} /></div>
-                                </div>
-                            {/if}
-                            
-                            {#if device.lastUsedAt}
-                                <div class="flex items-center text-xs text-muted-foreground mt-1">
-                                    <Clock size={12} class="mr-1.5" />
-                                    <div>Last used <RelativeDate date={device.lastUsedAt} /></div>
-                                </div>
-                            {/if}
-                        </div>
-                    {:else}
-                        <div class="mt-4 pt-3 border-t border-muted">
-                            <div class="space-y-2">
-                                <Skeleton class="h-3 w-3/4" />
-                                <Skeleton class="h-3 w-1/2" />
-                            </div>
-                        </div>
-                    {/if}
-                </svelte:fragment>
-            </FormCard>
-
-            <!-- Connection Status Card -->
-            <Card.Root>
-                <Card.Header>
-                    <Card.Title class="flex items-center">
-                        <Server class="mr-2 h-5 w-5" />
-                        Connection Status
-                    </Card.Title>
-                </Card.Header>
-                <Card.Content>
-                    <div class="flex items-center space-x-2 mb-3">
-                        <Badge variant={connectionStatus.variant} class="px-3 py-1">
-                            {connectionStatus.label}
-                        </Badge>
-                    </div>
-                    
-                    {#if device.connected && device.connectedAt}
-                        <div class="text-sm">
-                            <div class="font-medium mb-1">Connected since</div>
-                            <div class="flex items-center">
-                                <Clock class="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                                <RelativeDate date={device.connectedAt} />
-                            </div>
-                        </div>
-                    {:else if device.disconnectedAt}
-                        <div class="text-sm">
-                            <div class="font-medium mb-1">Last seen</div>
-                            <div class="flex items-center">
-                                <Clock class="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                                <RelativeDate date={device.disconnectedAt} />
-                            </div>
-                        </div>
-                    {/if}
-                </Card.Content>
-            </Card.Root>
-
-            <!-- Security Card -->
-            <Card.Root>
-                <Card.Header>
-                    <Card.Title class="flex items-center">
-                        <Shield class="mr-2 h-5 w-5" />
-                        Security
-                    </Card.Title>
-                </Card.Header>
-                <Card.Content>
-                    <div class="mb-3">
-                        <div class="flex items-center justify-between mb-2">
-                            <div class="font-medium flex items-center text-sm">
-                                <Key class="mr-1.5 h-3.5 w-3.5" />
-                                API Key
-                            </div>
-                            <form id="api-key-form" action="?/generateApiKey" method="POST" use:apiKeyEnhance>
-                                <Button 
-                                    type="submit" 
-                                    variant="outline" 
-                                    size="sm"
-                                    disabled={$apiKeySubmitting}
-                                    class="flex items-center"
-                                >
-                                    <RefreshCw class="mr-2 h-3 w-3" />
-                                    {$apiKeySubmitting ? 'Generating...' : 'Generate New Key'}
-                                </Button>
-                            </form>
+                                <!-- Status -->
+                                <CompactInfoItem label="Status">
+                                    <Badge 
+                                        variant={device.status === 'ACTIVE' ? 'default' : 
+                                                device.status === 'INACTIVE' ? 'secondary' : 
+                                                device.status === 'PENDING' ? 'warning' : 'outline'}
+                                    >
+                                        {device.status}
+                                    </Badge>
+                                </CompactInfoItem>
+                                
+                                <!-- Description -->
+                                <CompactInfoItem label="Description" class_name="col-span-2">
+                                    {device.description || '—'}
+                                </CompactInfoItem>
+                            </CompactInfoGrid>
                         </div>
                         
-                        <SecureKeyDisplay 
-                            apiKey={device.apiKey || ""}
-                            createdAt={device.apiKeyCreatedAt}
-                            rotatedAt={device.apiKeyRotatedAt}
-                            loading={$apiKeySubmitting}
-                        />
+                        <!-- Metadata Section -->
+                        <div class="border-l-0 md:border-l border-muted pl-0 md:pl-4">
+                            {#if device}
+                                <CompactInfoGrid columns={1} gap="gap-1">
+                                    <CompactInfoItem label="Created" icon={Clock}>
+                                        <div class="text-xs">
+                                            <RelativeDate date={device.createdAt} />
+                                            {#if device.createdBy && device.user}
+                                                <span class="block text-muted-foreground">by {device.user.name || device.user.email}</span>
+                                            {/if}
+                                        </div>
+                                    </CompactInfoItem>
+                                    
+                                    {#if device.updatedAt && device.updatedAt.toString() !== device.createdAt.toString()}
+                                        <CompactInfoItem label="Updated" icon={Clock}>
+                                            <div class="text-xs">
+                                                <RelativeDate date={device.updatedAt} />
+                                            </div>
+                                        </CompactInfoItem>
+                                    {/if}
+                                    
+                                    {#if device.lastUsedAt}
+                                        <CompactInfoItem label="Last used" icon={Clock}>
+                                            <div class="text-xs">
+                                                <RelativeDate date={device.lastUsedAt} />
+                                            </div>
+                                        </CompactInfoItem>
+                                    {/if}
+                                </CompactInfoGrid>
+                            {:else}
+                                <div class="space-y-2">
+                                    <Skeleton class="h-3 w-3/4" />
+                                    <Skeleton class="h-3 w-1/2" />
+                                </div>
+                            {/if}
+                        </div>
                     </div>
-                </Card.Content>
-            </Card.Root>
+                </div>
+            </AdminCard>
+
+            <!-- Combined Connection & Security Card -->
+            <AdminCard
+                title="Device Status"
+                icon={Server}
+                compact={true}
+                class_name="md:col-span-2"
+            >
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Connection Status Section -->
+                    <div>
+                        <h3 class="text-sm font-medium mb-2 flex items-center">
+                            <Server class="mr-1.5 h-4 w-4" />
+                            Connection Status
+                        </h3>
+                        
+                        <div class="flex items-center space-x-2 mb-2">
+                            <Badge variant={connectionStatus.variant} class="px-3 py-1">
+                                {connectionStatus.label}
+                            </Badge>
+                        </div>
+                        
+                        {#if device.connected && device.connectedAt}
+                            <CompactInfoItem label="Connected since" icon={Clock}>
+                                <RelativeDate date={device.connectedAt} />
+                            </CompactInfoItem>
+                        {:else if device.disconnectedAt}
+                            <CompactInfoItem label="Last seen" icon={Clock}>
+                                <RelativeDate date={device.disconnectedAt} />
+                            </CompactInfoItem>
+                        {/if}
+                    </div>
+
+                    <!-- Security Section -->
+                    <div class="border-t md:border-t-0 md:border-l border-muted pt-4 md:pt-0 md:pl-4">
+                        <h3 class="text-sm font-medium mb-2 flex items-center">
+                            <Shield class="mr-1.5 h-4 w-4" />
+                            Security
+                        </h3>
+                        
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="font-medium flex items-center text-sm">
+                                    <Key class="mr-1.5 h-3.5 w-3.5" />
+                                    API Key
+                                </div>
+                                <form id="api-key-form" action="?/generateApiKey" method="POST" use:apiKeyEnhance>
+                                    <Button 
+                                        type="submit" 
+                                        variant="outline" 
+                                        size="sm"
+                                        disabled={$apiKeySubmitting}
+                                        class="flex items-center"
+                                    >
+                                        <RefreshCw class="mr-2 h-3 w-3" />
+                                        {$apiKeySubmitting ? 'Generating...' : 'Generate New Key'}
+                                    </Button>
+                                </form>
+                            </div>
+                            
+                            <SecureKeyDisplay 
+                                apiKey={device.apiKey || ""}
+                                createdAt={device.apiKeyCreatedAt}
+                                rotatedAt={device.apiKeyRotatedAt}
+                                loading={$apiKeySubmitting}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </AdminCard>
 
             <!-- Device Technical Details Card -->
-            <Card.Root>
-                <Card.Header class="pb-3">
-                    <Card.Title class="flex items-center">
-                        <Info class="mr-2 h-5 w-5" />
-                        Technical Details
-                    </Card.Title>
-                    <Card.Description>
-                        Hardware and software information
-                    </Card.Description>
-                </Card.Header>
-                <Card.Content class="pt-0">
-                    <div class="space-y-5">
-                        <!-- Device Type & Model -->
-                        <div class="grid grid-cols-2 gap-6">
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                                    <Tag class="mr-1.5 h-3.5 w-3.5" />
-                                    Device Type
-                                </div>
-                                <div>
-                                    {device.deviceType || '—'}
-                                </div>
-                            </div>
+            <AdminCard
+                title="Technical Details"
+                description="Hardware and software information"
+                icon={Info}
+                compact={true}
+                class_name="md:col-span-2"
+            >
+                <div class="space-y-4">
+                    <!-- Device Type & Model -->
+                    <CompactInfoGrid columns={4} gap="gap-4">
+                        <CompactInfoItem label="Device Type" icon={Tag}>
+                            {device.deviceType || '—'}
+                        </CompactInfoItem>
 
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">Model</div>
-                                <div>
-                                    {device.model || '—'}
-                                </div>
-                            </div>
-                        </div>
-
+                        <CompactInfoItem label="Model">
+                            {device.model || '—'}
+                        </CompactInfoItem>
+                    
                         <!-- Manufacturer & Hardware ID -->
-                        <div class="grid grid-cols-2 gap-6">
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">Manufacturer</div>
-                                <div>
-                                    {device.manufacturer || '—'}
-                                </div>
-                            </div>
+                        <CompactInfoItem label="Manufacturer">
+                            {device.manufacturer || '—'}
+                        </CompactInfoItem>
 
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">Hardware ID</div>
-                                <div class="font-mono">
-                                    {device.hardwareId || '—'}
-                                </div>
-                            </div>
-                        </div>
+                        <CompactInfoItem label="Hardware ID">
+                            <span class="font-mono">{device.hardwareId || '—'}</span>
+                        </CompactInfoItem>
+                    </CompactInfoGrid>
 
-                        <!-- Firmware & OS Version -->
-                        <div class="grid grid-cols-2 gap-6">
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1 flex items-center">
-                                    <Cpu class="mr-1.5 h-3.5 w-3.5" />
-                                    Firmware Version
-                                </div>
-                                <div>
-                                    {device.firmwareVersion || '—'}
-                                </div>
-                            </div>
+                    <!-- Firmware & OS Version -->
+                    <CompactInfoGrid columns={4} gap="gap-4">
+                        <CompactInfoItem label="Firmware Version">
+                            {device.firmwareVersion || '—'}
+                        </CompactInfoItem>
 
-                            <div>
-                                <div class="text-sm font-medium text-muted-foreground mb-1">OS Version</div>
-                                <div>
-                                    {device.osVersion || '—'}
-                                </div>
-                            </div>
-                        </div>
+                        <CompactInfoItem label="OS Version">
+                            {device.osVersion || '—'}
+                        </CompactInfoItem>
+                    
+                        <!-- IP Address & MAC Address -->
+                        <CompactInfoItem label="IP Address">
+                            <span class="font-mono">{device.ipAddress || '—'}</span>
+                        </CompactInfoItem>
 
-                        <!-- Network Information -->
-                        <div>
-                            <h3 class="text-sm font-medium mb-3 flex items-center">
-                                <Wifi class="mr-1.5 h-4 w-4" />
-                                Network Information
-                            </h3>
+                        <CompactInfoItem label="MAC Address">
+                            <span class="font-mono">{device.macAddress || '—'}</span>
+                        </CompactInfoItem>
+                    </CompactInfoGrid>
 
-                            <div class="grid grid-cols-3 gap-6">
-                                <!-- IP Address -->
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">IP Address</div>
-                                    <div class="font-mono">
-                                        {device.ipAddress || '—'}
-                                    </div>
-                                </div>
+                    <!-- Network Information -->
+                    <div>
+                        <h3 class="text-sm font-medium mb-2 flex items-center">
+                            <Wifi class="mr-1.5 h-4 w-4" />
+                            Network Information
+                        </h3>
 
-                                <!-- WiFi MAC -->
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">WiFi MAC</div>
-                                    <div class="font-mono">
-                                        {device.wifiMac || '—'}
-                                    </div>
-                                </div>
+                        <CompactInfoGrid columns={3} gap="gap-4">
+                            <!-- WiFi MAC -->
+                            <CompactInfoItem label="WiFi MAC">
+                                <span class="font-mono">{device.wifiMac || '—'}</span>
+                            </CompactInfoItem>
 
-                                <!-- LAN MAC -->
-                                <div>
-                                    <div class="text-sm font-medium text-muted-foreground mb-1">LAN MAC</div>
-                                    <div class="font-mono">
-                                        {device.lanMac || '—'}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                            <!-- LAN MAC -->
+                            <CompactInfoItem label="LAN MAC">
+                                <span class="font-mono">{device.lanMac || '—'}</span>
+                            </CompactInfoItem>
+                        </CompactInfoGrid>
                     </div>
-                </Card.Content>
-            </Card.Root>
+                </div>
+            </AdminCard>
         </div>
-    </PageContent>
-</PageContainer>
+</AdminPageLayout>
 
 <!-- Terminal Dialog has been replaced with a dedicated terminal page -->

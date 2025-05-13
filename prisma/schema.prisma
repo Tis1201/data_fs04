@@ -12,22 +12,104 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model Account {
+  id          String              @id() @default(cuid())
+  name        String
+  slug        String              @unique()
+  status      String              @default("ACTIVE")
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt()
+  description String?
+  logoUrl     String?
+  settings    String?
+  companies   Company[]
+  members     AccountMembership[]
+  groups      Group[]
+  devices     Device[]
+  apiKeys     ApiKey[]
+
+  @@index([slug])
+}
+
+model Company {
+  id           String   @id() @default(cuid())
+  name         String
+  status       String   @default("ACTIVE")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt()
+  description  String?
+  address      String?
+  contactEmail String?
+  contactPhone String?
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  devices      Device[]
+
+  @@index([accountId])
+}
+
+model AccountMembership {
+  id               String            @id() @default(cuid())
+  role             String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt()
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId        String
+  account          Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  groupMemberships GroupMembership[]
+
+  @@unique([userId, accountId])
+  @@index([userId])
+  @@index([accountId])
+}
+
+model Group {
+  id          String            @id() @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt()
+  permissions String
+  accountId   String
+  account     Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members     GroupMembership[]
+
+  @@unique([accountId, name])
+  @@index([accountId])
+}
+
+model GroupMembership {
+  id           String            @id() @default(cuid())
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt()
+  groupId      String
+  group        Group             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   AccountMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, membershipId])
+  @@index([groupId])
+  @@index([membershipId])
+}
+
 model User {
-  id               String             @id() @default(cuid())
-  name             String?
-  status           String             @default("ACTIVE")
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt()
-  email            String             @unique()
-  password         String
-  rolesString      String             @default("")
-  systemRole       String             @default("USER")
-  sessions         Session[]
-  keys             Key[]
-  apiKeys          ApiKey[]
-  whatsappAccounts WhatsAppAccount[]
-  listeners        ListenerEndpoint[]
-  devices          Device[]
+  id                 String              @id() @default(cuid())
+  name               String?
+  status             String              @default("ACTIVE")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt()
+  email              String              @unique()
+  password           String
+  rolesString        String              @default("")
+  systemRole         String              @default("USER")
+  sessions           Session[]
+  keys               Key[]
+  apiKeys            ApiKey[]
+  whatsappAccounts   WhatsAppAccount[]
+  listeners          ListenerEndpoint[]
+  devices            Device[]
+  accountMemberships AccountMembership[]
 }
 
 model Session {
@@ -62,9 +144,12 @@ model ApiKey {
   lastUsedAt  DateTime?
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId   String?
+  account     Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([key])
+  @@index([accountId])
 }
 
 model WebhookEndPoint {
@@ -180,6 +265,10 @@ model Device {
   lastUsedAt      DateTime?
   createdBy       String
   user            User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  accountId       String?
+  account         Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
   deviceType      String?
   model           String?
   manufacturer    String?
@@ -201,4 +290,6 @@ model Device {
   @@index([createdBy])
   @@index([hardwareId])
   @@index([status])
+  @@index([accountId])
+  @@index([companyId])
 }

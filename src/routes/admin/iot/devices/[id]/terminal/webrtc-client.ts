@@ -1,11 +1,12 @@
 // -----------------------------------------------------------------------------
-//  WebRTCClient.ts – Resilient client with active keep‑alive and auto‑re‑sync  
+//  WebRTCClient.ts – Modular WebRTC client for different applications
 // -----------------------------------------------------------------------------
 //  ▸ Works with socketStore / webRTCStore (SvelteKit + Vite)                   
-//  ▸ Grace‑period for transient “disconnected” flips (4 s)                    
+//  ▸ Supports both terminal and video streaming use cases
+//  ▸ Provides callbacks for connection events and data channel readiness
+//  ▸ Grace‑period for transient "disconnected" flips (4 s)                    
 //  ▸ Automatic ICE‑restart, then full back‑off reconnect if needed            
-//  ▸ Lightweight data‑channel keep‑alive (ping / pong every 10 s)             
-//  ▸ Exports helper:  createClientMessage()                                   
+//  ▸ Lightweight data‑channel keep‑alive (ping / pong every 10 s)             
 // -----------------------------------------------------------------------------
 
 import { socketStore } from "$lib/stores/websocket-store";
@@ -16,16 +17,27 @@ import type {
 } from "$lib/stores/webrtc-store";
 import { get } from 'svelte/store';
 
-
 /* -------------------------------------------------------------------------- */
 /*  WebRTC client                                                              */
 /* -------------------------------------------------------------------------- */
+
+// Define callback types for better type safety
+export type DataChannelCallback = (dataChannel: RTCDataChannel) => void;
+export type ConnectionStateCallback = (state: RTCPeerConnectionState) => void;
+export type TerminalOutputCallback = (output: string) => void;
+export type TrackCallback = (track: MediaStreamTrack) => void;
+
 export class WebRTCClient {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
   private _processedMessages = new Set<string>();
 
-  private terminalCB: ((m: string) => void) | null = null;
+  // Callbacks for different events
+  private terminalCB: TerminalOutputCallback | null = null;
+  private onDataChannelOpenCB: DataChannelCallback | null = null;
+  private onConnectionStateCB: ConnectionStateCallback | null = null;
+  onTrackHandler: TrackCallback | null = null;
+  
   config: any;
 
   constructor(private deviceId: string) {
@@ -59,20 +71,116 @@ export class WebRTCClient {
 
     socketStore.send(message);
 
-    // Log the message in terminal
-    if (this.terminalCB) {
-      this.terminalCB("\r\n\x1b[1;32mWebRTC connect request sent\x1b[0m\r\n");
-    }
+    // No terminal message needed for connect request
   }
 
   /******************************************************************************
    * 
-   *  Callback
+   *  Callbacks
    * 
    ******************************************************************************/
-  setTerminalCallback(cb: (m: string) => void) {
+  setTerminalCallback(cb: TerminalOutputCallback) {
     this.terminalCB = cb;
   }
+  
+  /**
+   * Set callback for when the data channel is open and ready
+   * This is useful for applications to know when they can start sending data
+   */
+  setDataChannelOpenCallback(cb: DataChannelCallback) {
+    this.onDataChannelOpenCB = cb;
+    
+    // If data channel is already open, call the callback immediately
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+      cb(this.dataChannel);
+    }
+  }
+  
+  /**
+   * Set callback for connection state changes
+   * This allows applications to react to connection state changes
+   */
+  setConnectionStateCallback(cb: ConnectionStateCallback) {
+    this.onConnectionStateCB = cb;
+    
+    // If peer connection already exists, call the callback with current state
+    if (this.peerConnection) {
+      cb(this.peerConnection.connectionState as RTCPeerConnectionState);
+    }
+  }
+  
+  /**
+   * Handle data channel open event
+   * Updates store and calls callback if set
+   */
+  private handleDataChannelOpen = (event: Event) => {
+    console.log('[WebRTC] Data channel opened');
+    
+    // Update the WebRTC store
+    webRTCStore.update(state => ({
+      ...state,
+      dataChannelStatus: 'open',
+      dataChannel: this.dataChannel
+    }));
+    
+    // Start sending ping messages to keep the connection alive
+    // this.startPingMessages();
+    
+    // Call the data channel open callback if set
+    if (this.onDataChannelOpenCB && this.dataChannel) {
+      this.onDataChannelOpenCB(this.dataChannel);
+    }
+  };
+
+  private startPingMessages() {
+    // Send pings every 10 seconds to keep the connection alive
+    setInterval(() => {
+      this.sendPing();
+    }, 60000);
+  }
+  
+  /**
+   * Handle connection state change event
+   * Updates store and calls callback if set
+   */
+  private handleConnectionStateChange = () => {
+    if (!this.peerConnection) return;
+    
+    const state = this.peerConnection.connectionState;
+    console.log(`[WebRTC] Connection state changed: ${state}`);
+    
+    // Update the WebRTC store
+    webRTCStore.update(s => ({
+      ...s,
+      connectionState: state
+    }));
+    
+    // Call the connection state callback if set
+    if (this.onConnectionStateCB) {
+      this.onConnectionStateCB(state as RTCPeerConnectionState);
+    }
+    
+    // Handle different connection states
+    switch (state) {
+      case 'connected':
+        console.log('[WebRTC] Connection established');
+        break;
+        
+      case 'disconnected':
+        console.log('[WebRTC] Connection disconnected, waiting for reconnection...');
+        break;
+        
+      case 'failed':
+        console.error('[WebRTC] Connection failed');
+        this.cleanup();
+        break;
+        
+      case 'closed':
+        console.log('[WebRTC] Connection closed');
+        this.cleanup();
+        break;
+    }
+  };
 
   /******************************************************************************
    * 
@@ -91,11 +199,17 @@ export class WebRTCClient {
     // Handle special keys and escape sequences
     let processedInput = input;
     
-    // Special handling for carriage return
-    // Some terminals need both CR and LF for proper line endings
-    if (processedInput === '\r') {
-      console.log('[WebRTC] Converting CR to CR+LF');
-      // The server side will handle this conversion
+    // Log the exact input for debugging
+    // console.log(`[WebRTC] Raw terminal input: ${JSON.stringify(input)}`);
+    
+    // Handle various line ending scenarios
+    // This is critical to prevent double line breaks
+    if (processedInput === '\r\n') {
+      console.log('[WebRTC] Normalizing CR+LF to just CR');
+      processedInput = '\r';
+    } else if (processedInput === '\n') {
+      console.log('[WebRTC] Normalizing LF to CR');
+      processedInput = '\r';
     }
     
     // Create the terminal input message
@@ -111,11 +225,11 @@ export class WebRTCClient {
       this.dataChannel.send(jsonMessage);
       
       // Only log non-control characters to avoid console spam
-      if (processedInput.length === 1 && processedInput.charCodeAt(0) < 32) {
-        console.log(`[WebRTC] Sent control character: ${processedInput.charCodeAt(0)}`);
-      } else {
-        console.log(`[WebRTC] Sent terminal input: ${JSON.stringify(processedInput)}`);
-      }
+      // if (processedInput.length === 1 && processedInput.charCodeAt(0) < 32) {
+      //   console.log(`[WebRTC] Sent control character: ${processedInput.charCodeAt(0)}`);
+      // } else {
+      //   console.log(`[WebRTC] Sent terminal input: ${JSON.stringify(processedInput)}`);
+      // }
     } catch (error) {
       console.error('[WebRTC] Error sending terminal input:', error);
       if (this.terminalCB) {
@@ -146,7 +260,7 @@ export class WebRTCClient {
     // Send the message
     try {
       this.dataChannel.send(JSON.stringify(message));
-      console.log('[WebRTC] Sent terminal resize:', rows, cols);
+      // console.log('[WebRTC] Sent terminal resize:', rows, cols);
     } catch (error) {
       console.error('[WebRTC] Error sending terminal resize:', error);
     }
@@ -251,12 +365,12 @@ export class WebRTCClient {
       const message = JSON.parse(data);
       
       // Only log non-terminal output messages to avoid console spam
-      if (message.type !== 'terminal:output') {
-        console.log('[WebRTC] Parsed data channel message:', message);
-      } else {
-        // Log terminal output size for debugging
-        console.log(`[WebRTC] Received terminal output: ${message.data ? message.data.length : 0} bytes`);
-      }
+      // if (message.type !== 'terminal:output') {
+      //   console.log('[WebRTC] Parsed data channel message:', message);
+      // } else {
+      //   // Log terminal output size for debugging
+      //   console.log(`[WebRTC] Received terminal output: ${message.data ? message.data.length : 0} bytes`);
+      // }
 
       // Handle different message types
       switch (message.type) {
@@ -275,7 +389,7 @@ export class WebRTCClient {
             const sample = message.data.length > 20 ? 
               message.data.substring(0, 20) + '...' : 
               message.data;
-            console.log(`[WebRTC] Terminal output sample: ${JSON.stringify(sample)}`);
+            // console.log(`[WebRTC] Terminal output sample: ${JSON.stringify(sample)}`);
             
             // Send the data to the terminal
             this.terminalCB(message.data);
@@ -382,7 +496,7 @@ export class WebRTCClient {
 
           // Set up event handlers for the data channel
           this.dataChannel.onmessage = (msgEvent) => {
-            console.log('[WebRTC] Data channel message received:', msgEvent.data);
+            // console.log('[WebRTC] Data channel message received:', msgEvent.data);
             
             // Check if the message is binary (ArrayBuffer)
             if (msgEvent.data instanceof ArrayBuffer) {
@@ -397,14 +511,7 @@ export class WebRTCClient {
             }
           };
 
-          this.dataChannel.onopen = () => {
-            console.log('[WebRTC] Data channel opened');
-            webRTCStore.update(state => ({
-              ...state,
-              dataChannelStatus: 'open'
-            }));
-          };
-
+          this.dataChannel.onopen = this.handleDataChannelOpen;
           this.dataChannel.onclose = () => {
             console.log('[WebRTC] Data channel closed');
             webRTCStore.update(state => ({
@@ -420,31 +527,15 @@ export class WebRTCClient {
         };
 
         // Add connection state change listener
-        this.peerConnection.onconnectionstatechange = () => {
-          const connectionState = this.peerConnection?.connectionState;
-          console.log(`[WebRTC] Connection state changed to: ${connectionState}`);
-
-          if (connectionState === 'connected') {
-            console.log('[WebRTC] Connection established with remote peer!');
-          } else if (connectionState === 'failed' || connectionState === 'disconnected' || connectionState === 'closed') {
-            console.log('[WebRTC] Connection lost or failed');
-          }
-        };
+        this.peerConnection.onconnectionstatechange = this.handleConnectionStateChange;
 
         // Add track event handler
         this.peerConnection.ontrack = (event) => {
-          console.log('[WebRTC] Track received:', event);
-
-          if (event.streams && event.streams[0]) {
-            const stream = event.streams[0];
-            console.log('[WebRTC] Received remote stream:', stream);
-
-            webRTCStore.update(state => ({
-              ...state,
-              videoStream: stream
-            }));
-          } else {
-            console.warn('[WebRTC] Received track but no stream');
+          console.log('[WebRTC] Track received:', event.track.kind);
+          
+          // If we have a track handler, call it
+          if (this.onTrackHandler) {
+            this.onTrackHandler(event.track);
           }
         };
 
