@@ -11,6 +11,7 @@
     import SettingsForm from "./form.svelte";
     import SettingsTable from "./table.svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
+    import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
 
     export let data: PageData;
 
@@ -30,19 +31,17 @@
     // Define menu items for the SimpleMenubar
     const menuItems = [
         {
-            label: "Current Settings",
+            label: "Settings",
             icon: Settings,
             action: () => {
                 activeView = "settings";
-                return true;
             }
         },
         {
-            label: "Settings History",
+            label: "History",
             icon: History,
             action: () => {
                 activeView = "history";
-                return true;
             }
         }
     ];
@@ -57,13 +56,23 @@
         }
     }
     
-    // Set menu items for the top bar
-    // Using both immediate setting and onMount to ensure it works in all navigation scenarios
-    topMenuItems.set(menuItems);
+    // Map view to menu label
+    $: activeMenuLabel = activeView === "settings" ? "Settings" : "History";
+    
+    // Set menu items and active item for the top bar
+    $: {
+        topMenuItems.set({
+            items: menuItems,
+            activeItem: activeMenuLabel
+        });
+    }
     
     onMount(() => {
         // Set again in onMount to ensure it works after client-side navigation
-        topMenuItems.set(menuItems);
+        topMenuItems.set({
+            items: menuItems,
+            activeItem: activeMenuLabel
+        });
         
         // Clean up when component is destroyed
         return () => {
@@ -73,7 +82,10 @@
     
     // Also set on page change
     $: if ($page.url.pathname.includes('/admin/settings/general')) {
-        topMenuItems.set(menuItems);
+        topMenuItems.set({
+            items: menuItems,
+            activeItem: activeMenuLabel
+        });
     }
 
     function handleRestore(event: CustomEvent<{ setting: any }>) {

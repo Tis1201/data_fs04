@@ -6,6 +6,7 @@
     import { LogOut, FileText, UserPlus, Download, Upload, Settings } from "lucide-svelte";
     import { goto } from "$app/navigation";
     import SimpleMenubar from "$lib/components/ui_components_sveltekit/menubar/SimpleMenubar.svelte";
+    import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
 
     export let data;
@@ -60,7 +61,10 @@
             <div class="relative flex h-12 items-center px-4 gap-4">
                 <div class="flex-1">
                     {#if $topMenuItems}
-                        <SimpleMenubar items={$topMenuItems} on:select />
+                        <EnhancedMenubar 
+                            items={$topMenuItems.items || []} 
+                            activeItem={$topMenuItems.activeItem || null} 
+                        />
                     {:else if showUsersMenubar}
                         <SimpleMenubar items={usersMenuItems} />
                     {/if}
