@@ -1,6 +1,7 @@
 <script lang="ts">
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
+    import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
@@ -9,6 +10,7 @@
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+    import { AdminCard } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
@@ -44,98 +46,92 @@
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
-    <div class="flex justify-between items-center mb-6">
-        <div class="flex items-center gap-3">
-            <h1 class="text-2xl font-bold tracking-tight">{title}</h1>
-        </div>
-        
-        <!-- Form actions -->
-        <div class="flex items-center space-x-2">
+    <PageHeader title={title}>
+        <div slot="action" class="flex items-center space-x-2">
             <Button 
                 type="submit" 
                 form="device-edit-form"
                 disabled={$submitting}
                 variant="default"
+                class="flex items-center"
             >
                 <Save class="mr-2 h-4 w-4" />
                 {$submitting ? 'Saving...' : 'Save Changes'}
             </Button>
+            
             <Button 
-                type="submit" 
-                variant="outline" 
-                form="cancel-form"
+                variant="outline"
+                on:click={() => goto(`/admin/iot/devices/${device.id}`)}
+                class="flex items-center"
             >
                 <X class="mr-2 h-4 w-4" />
                 Cancel
             </Button>
         </div>
-    </div>
-
+    </PageHeader>
+    
     <PageContent>
-        <div class="space-y-6">
-            <!-- Device Info Card -->
-            <FormCard
-                title="Device Information"
-                description="Edit basic details for this IoT device. Only name, status, and description can be modified."
-                loading={$submitting}
-            >
-                <!-- Edit Form -->
-                <FormContainer action="?/save" {enhance}>
-                    <!-- Editable fields -->
-                    <FormRow columns={2}>
-                        <!-- Name -->
-                        <FormField
-                            id="name"
-                            label="Device Name"
-                            error={$errors.name}
-                        >
-                            <Input
-                                id="name"
-                                name="name"
-                                placeholder="Enter device name"
-                                bind:value={$form.name}
-                            />
-                        </FormField>
-
-                        <!-- Status -->
-                        <FormField
-                            id="status"
-                            label="Status"
-                            error={$errors.status}
-                        >
-                            <EnhancedSelect
-                                id="status"
-                                name="status"
-                                options={DEVICE_STATUSES}
-                                bind:value={$form.status}
-                            />
-                        </FormField>
-                    </FormRow>
-
-                    <!-- Description -->
+    <div class="space-y-6">
+        <!-- Device Info Card -->
+        <AdminCard
+            title="Device Information"
+            description="Edit basic details for this IoT device. Only name, status, and description can be modified."
+            compact={true}
+        >
+            <!-- Edit Form -->
+            <FormContainer id="device-edit-form" action="?/save" {enhance}>
+                <!-- Editable fields -->
+                <FormRow columns={2}>
+                    <!-- Name -->
                     <FormField
-                        id="description"
-                        label="Description"
-                        error={$errors.description}
+                        id="name"
+                        label="Device Name"
+                        error={$errors.name}
                     >
-                        <Textarea
-                            id="description"
-                            name="description"
-                            placeholder="Enter device description"
-                            bind:value={$form.description}
-                            rows={3}
+                        <Input
+                            id="name"
+                            name="name"
+                            placeholder="Enter device name"
+                            bind:value={$form.name}
                         />
                     </FormField>
 
-                    <!-- Only name, status, and description are editable -->
+                    <!-- Status -->
+                    <FormField
+                        id="status"
+                        label="Status"
+                        error={$errors.status}
+                    >
+                        <EnhancedSelect
+                            id="status"
+                            name="status"
+                            options={DEVICE_STATUSES}
+                            bind:value={$form.status}
+                        />
+                    </FormField>
+                </FormRow>
 
-                    <!-- Hidden ID field -->
-                    <input type="hidden" name="id" bind:value={$form.id} />
-                </FormContainer>
+                <!-- Description -->
+                <FormField
+                    id="description"
+                    label="Description"
+                    error={$errors.description}
+                >
+                    <Textarea
+                        id="description"
+                        name="description"
+                        placeholder="Enter device description"
+                        bind:value={$form.description}
+                        rows={3}
+                    />
+                </FormField>
 
-                <!-- Cancel form (separate form for the cancel action) -->
-                <form id="cancel-form" action="?/cancel" method="POST"></form>
-            </FormCard>
-        </div>
+                <!-- Only name, status, and description are editable -->
+
+                <!-- Hidden ID field -->
+                <input type="hidden" name="id" bind:value={$form.id} />
+            </FormContainer>
+        </AdminCard>
+    </div>
     </PageContent>
 </PageContainer>
