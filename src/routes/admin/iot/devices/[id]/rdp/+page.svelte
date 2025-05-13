@@ -6,13 +6,15 @@
 	import { deviceStore } from "$lib/stores/device-store";
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
-	import { Loader2, Monitor } from 'lucide-svelte';
+	import { Loader2, Monitor, ArrowLeft } from 'lucide-svelte';
 	import { WebRTCClient } from '../terminal/webrtc-client';
 	import { browser } from "$app/environment";
 	import type { WebRTCMessage } from "$lib/stores/webrtc-store";
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
 	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
 	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+	import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "$lib/components/ui/card";
+import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
 
 	// Get device ID from route params
 	const deviceId = $page.params.id;
@@ -415,6 +417,14 @@
 
 <PageContainer crumbs={pageCrumbs}>
 	<PageHeader title="Device Remote Desktop">
+		<svelte:fragment slot="action">
+			<ActionButton
+				label="Back to Device"
+				icon={ArrowLeft}
+				href="/admin/iot/devices/{deviceId}"
+			/>
+		</svelte:fragment>
+		
 		<div class="flex items-center space-x-2">
 			<Badge variant={connected ? "success" : "destructive"}>
 				{connected ? "Connected" : "Disconnected"}
@@ -441,68 +451,78 @@
 	</PageHeader>
 	
 	<PageContent>
-		<div class="flex flex-col items-center">
-			<div 
-				class="w-full max-w-3xl aspect-video bg-muted rounded-lg overflow-hidden" 
-				bind:this={videoContainer}
-			>
-				{#if !connected}
-					<div class="h-full flex items-center justify-center">
-						<p class="text-muted-foreground">
-							{connecting ? "Connecting to device..." : "Not connected to device"}
-						</p>
-					</div>
-				{:else}
-					<div class="relative w-full h-full">
-						<video 
-							bind:this={videoElement} 
-							class="w-full h-full object-contain bg-black"
-							autoplay
-							playsinline
-							controls
-							muted={true} 
-							on:loadedmetadata={() => {
-								console.log('[WebRTC] Video metadata loaded');
-								// Use our safe play function to handle autoplay
-								safePlayVideo();
-							}}
-							on:playing={() => {
-								console.log('[WebRTC] Video playback started');
-								isVideoPaused = false;
-							}}
-							on:pause={() => {
-								console.log('[WebRTC] Video playback paused');
-								isVideoPaused = true;
-							}}
-							on:error={(e) => console.error('[WebRTC] Video error:', e)}
-						></video>
-						
-						<!-- Play button overlay that shows only if video is not playing -->
-						{#if isVideoPaused && videoStream}
-						<div 
-							class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 cursor-pointer"
-							on:click={() => {
-								// Use our safe play function
-								safePlayVideo();
-							}}
-						>
-							<Button size="lg" variant="default">
-								Play Video
-							</Button>
-						</div>
+		<Card class="w-full">
+			<CardHeader>
+				<CardTitle>Remote Desktop Connection</CardTitle>
+				<CardDescription>
+					View and interact with the device's screen through this remote desktop interface.
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<div class="flex flex-col items-center">
+					<div 
+						class="w-full aspect-video bg-muted rounded-lg overflow-hidden" 
+						bind:this={videoContainer}
+					>
+						{#if !connected}
+							<div class="h-full flex items-center justify-center">
+								<p class="text-muted-foreground">
+									{connecting ? "Connecting to device..." : "Not connected to device"}
+								</p>
+							</div>
+						{:else}
+							<div class="relative w-full h-full">
+								<video 
+									bind:this={videoElement} 
+									class="w-full h-full object-contain bg-black"
+									autoplay
+									playsinline
+									controls
+									muted={true} 
+									on:loadedmetadata={() => {
+										console.log('[WebRTC] Video metadata loaded');
+										// Use our safe play function to handle autoplay
+										safePlayVideo();
+									}}
+									on:playing={() => {
+										console.log('[WebRTC] Video playback started');
+										isVideoPaused = false;
+									}}
+									on:pause={() => {
+										console.log('[WebRTC] Video playback paused');
+										isVideoPaused = true;
+									}}
+									on:error={(e) => console.error('[WebRTC] Video error:', e)}
+								></video>
+								
+								<!-- Play button overlay that shows only if video is not playing -->
+								{#if isVideoPaused && videoStream}
+								<div 
+									class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 cursor-pointer"
+									on:click={() => {
+										// Use our safe play function
+										safePlayVideo();
+									}}
+								>
+									<Button size="lg" variant="default">
+										Play Video
+									</Button>
+								</div>
+								{/if}
+							</div>
 						{/if}
 					</div>
-				{/if}
-			</div>
-			
-			<div class="mt-4 w-full max-w-3xl">
-				<p class="text-sm text-muted-foreground">
-					Device ID: {deviceId}
-				</p>
-				<p class="text-sm text-muted-foreground mt-1">
-					Connection State: {$webRTCStore.connectionState}
-				</p>
-			</div>
-		</div>
+					
+					<div class="mt-4 w-full">
+						<p class="text-sm text-muted-foreground">
+							Device ID: {deviceId}
+						</p>
+						<p class="text-sm text-muted-foreground mt-1">
+							Connection State: {$webRTCStore.connectionState}
+						</p>
+					</div>
+				</div>
+			</CardContent>
+		</Card>
 	</PageContent>
 </PageContainer>

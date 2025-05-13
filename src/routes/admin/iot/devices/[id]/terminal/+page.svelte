@@ -6,6 +6,7 @@
 		Terminal,
 	} from "@battlefieldduck/xterm-svelte";
 	import { page } from "$app/stores";
+    
 	import { deviceStore } from "$lib/stores/device-store";
 	import { socketStore } from "$lib/stores/websocket-store";
 	import { onDestroy, onMount } from "svelte";
@@ -20,7 +21,8 @@
 	import { WebRTCClient } from "./webrtc-client";
 	import { webRTCStore } from "$lib/stores/webrtc-store";
 	import TerminalContainer from "$lib/components/ui_components_sveltekit/terminal/TerminalContainer.svelte";
-
+	import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+    
 	/****************************************************************************
 	 * 
 	 * Variables 
@@ -441,19 +443,27 @@
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
-	<div class="flex justify-between items-center mb-6">
+	<!-- <div class="flex justify-between items-center mb-6">
 		<div class="flex items-center gap-3">
 			<h1 class="text-2xl font-bold tracking-tight">{title}</h1>
 		</div>
 		
-		<!-- Actions -->
 		<div class="flex items-center space-x-2">
 			<Button variant="outline" href="/admin/iot/devices/{deviceId}">
 				<ArrowLeft class="mr-2 h-4 w-4" />
 				Back to Device
 			</Button>
 		</div>
-	</div>
+	</div> -->
+	<PageHeader title="{title}">
+		<svelte:fragment slot="action">
+            <ActionButton
+                label="Back to Device"
+                icon={ArrowLeft}
+                href="/admin/iot/devices/{deviceId}"
+            />
+        </svelte:fragment>
+	</PageHeader>
 
 	<PageContent>
 		<Card class="w-full">
