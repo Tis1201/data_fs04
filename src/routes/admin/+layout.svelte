@@ -13,43 +13,20 @@
     let collapsed = false;
     let showMenu = false;
     
-    // Determine which menubar to show based on the current path
-    $: currentPath = $page.url.pathname;
-    $: showUsersMenubar = currentPath.startsWith('/admin/users');
+    // We no longer need to determine which menubar to show based on the path
+    // as all sections will use the store-based approach
     
     // Force reactivity with page changes
     $: {
         // This will re-evaluate whenever the page changes
         const path = $page.url.pathname;
         
-        // Only reset menu items when navigating away from settings
-        if (!path.includes('/admin/settings/general')) {
+        // Only reset menu items when navigating away from pages with custom menus
+        if (!path.includes('/admin/settings/general') && 
+            !path.includes('/admin/users')) {
             topMenuItems.set(null);
         }
     }
-    
-    // Define menu items for different sections
-    const usersMenuItems = [
-        {
-            label: 'Users',
-            icon: UserPlus,
-            items: [
-                { label: 'New User', icon: UserPlus, action: () => goto('/admin/users/new') },
-                { separator: true },
-                { label: 'View Reports', icon: FileText },
-                { separator: true },
-                { label: 'Export Users', icon: Download },
-                { label: 'Import Users', icon: Upload }
-            ]
-        },
-        {
-            label: 'Options',
-            icon: Settings,
-            items: [
-                { label: 'User Settings', icon: Settings }
-            ]
-        }
-    ];
     
     // No need for event listeners with slots
 </script>
@@ -65,8 +42,6 @@
                             items={$topMenuItems.items || []} 
                             activeItem={$topMenuItems.activeItem || null} 
                         />
-                    {:else if showUsersMenubar}
-                        <SimpleMenubar items={usersMenuItems} />
                     {/if}
                 </div>
                 <div class="flex items-center gap-4">
