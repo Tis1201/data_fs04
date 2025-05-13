@@ -1,10 +1,12 @@
 <script lang="ts">
     import { page } from "$app/stores";
+    import { onMount } from "svelte";
     import AdminSidebar from "$lib/components/admin/AdminSidebar.svelte";
     import { fly } from "svelte/transition";
     import { LogOut, FileText, UserPlus, Download, Upload, Settings } from "lucide-svelte";
     import { goto } from "$app/navigation";
     import SimpleMenubar from "$lib/components/ui_components_sveltekit/menubar/SimpleMenubar.svelte";
+    import { topMenuItems } from "$lib/stores/menuStore";
 
     export let data;
     let collapsed = false;
@@ -13,6 +15,17 @@
     // Determine which menubar to show based on the current path
     $: currentPath = $page.url.pathname;
     $: showUsersMenubar = currentPath.startsWith('/admin/users');
+    
+    // Force reactivity with page changes
+    $: {
+        // This will re-evaluate whenever the page changes
+        const path = $page.url.pathname;
+        
+        // Only reset menu items when navigating away from settings
+        if (!path.includes('/admin/settings/general')) {
+            topMenuItems.set(null);
+        }
+    }
     
     // Define menu items for different sections
     const usersMenuItems = [
@@ -36,6 +49,8 @@
             ]
         }
     ];
+    
+    // No need for event listeners with slots
 </script>
 
 <div class="relative flex h-screen">
@@ -44,7 +59,9 @@
         <header class="border-b">
             <div class="relative flex h-12 items-center px-4 gap-4">
                 <div class="flex-1">
-                    {#if showUsersMenubar}
+                    {#if $topMenuItems}
+                        <SimpleMenubar items={$topMenuItems} on:select />
+                    {:else if showUsersMenubar}
                         <SimpleMenubar items={usersMenuItems} />
                     {/if}
                 </div>
