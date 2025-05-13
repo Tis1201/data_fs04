@@ -17,6 +17,124 @@ generator client {
 //   USER
 // }
 
+// Core models for multi-tenancy and access control
+model Account {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique // URL-friendly identifier
+  status        String    @default("ACTIVE")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  description   String?
+  logoUrl       String?
+  settings      String?   // JSON string for account settings
+  
+  // Relationships
+  companies     Company[]
+  members       AccountMembership[]
+  groups        Group[]
+  devices       Device[]  // Devices owned by this account
+  apiKeys       ApiKey[] // API keys associated with this account
+  
+  // Authorization rules
+  @@allow('create', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && (auth().systemRole == 'ADMIN' || members?[userId == auth().id]))
+  @@allow('update', auth().systemRole == 'ADMIN' || members?[userId == auth().id && role == 'OWNER'])
+  @@allow('delete', auth().systemRole == 'ADMIN')
+  
+  @@index([slug])
+}
+
+model Company {
+  id            String    @id @default(cuid())
+  name          String
+  status        String    @default("ACTIVE")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  description   String?
+  address       String?
+  contactEmail  String?
+  contactPhone  String?
+  
+  // Relationships
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  devices       Device[]  // Devices assigned to this company
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,create,update', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  @@allow('read', account.members?[userId == auth().id])
+  
+  @@index([accountId])
+}
+
+model AccountMembership {
+  id            String    @id @default(cuid())
+  role          String    // OWNER, ADMIN, MEMBER
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relationships
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  groupMemberships GroupMembership[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth().id == userId)
+  @@allow('create,update,delete', account.members?[userId == auth().id && role == 'OWNER'])
+  
+  @@unique([userId, accountId])
+  @@index([userId])
+  @@index([accountId])
+}
+
+model Group {
+  id            String    @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  permissions   String    // JSON string of permissions
+  
+  // Relationships
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members       GroupMembership[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
+  @@index([accountId])
+  @@unique([accountId, name])
+}
+
+model GroupMembership {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relationships
+  groupId       String
+  group         Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  membershipId  String
+  membership    AccountMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', membership.userId == auth().id || group.account.members?[userId == auth().id])
+  @@allow('create,update,delete', group.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
+  @@unique([groupId, membershipId])
+  @@index([groupId])
+  @@index([membershipId])
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -33,8 +151,7 @@ model User {
   whatsappAccounts WhatsAppAccount[]
   listeners     ListenerEndpoint[]
   devices       Device[]
-  
-  
+  accountMemberships AccountMembership[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
@@ -83,14 +200,18 @@ model ApiKey {
   lastUsedAt  DateTime?
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   @@allow('read,update,delete', auth().id == userId)  // Users can manage their own API keys
+  @@allow('read,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
   @@allow('create', auth() != null)  // Authenticated users can create API keys
 
   @@index([userId])
   @@index([key])
+  @@index([accountId])
 }
 
 
@@ -245,6 +366,12 @@ model Device {
   createdBy     String
   user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 
+  // Account & Company ownership
+  accountId     String?
+  account       Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  companyId     String?
+  company       Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
   // Device metadata
   deviceType    String?  // e.g. "sensor", "gateway", "camera"
   model         String?
@@ -276,7 +403,12 @@ model Device {
   disconnectedAt DateTime?
 
   @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
   @@index([createdBy])
   @@index([hardwareId])
   @@index([status])
+  @@index([accountId])
+  @@index([companyId])
 }   

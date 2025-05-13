@@ -10,7 +10,7 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import EndpointDisplay from "$lib/components/ui_components_sveltekit/webhook/EndpointDisplay.svelte";
-    import CopyableText from "$lib/components/ui_components_sveltekit/display/CopyableText.svelte";
+    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import { Pencil, Trash, Key, Eye, EyeOff, RotateCw } from "lucide-svelte";
     import type { ApiKey } from "@prisma/client";
     import ExpiresDate from "$lib/components/ui_components_sveltekit/date/ExpiresDate.svelte";
@@ -77,18 +77,11 @@
             id: "apiKey",
             label: "API Key",
             sortable: true,
-            width: "20%",
+            width: "35%",
             render: (record: ApiKey) => ({
-                component: CopyableText,
+                component: SecureKeyDisplay,
                 props: {
-                    text: record.key,
-                    mask: true,
-                    monospace: true,
-                    visiblePrefix: 2,
-                    visibleSuffix: 2,
-                    maskLength: 10,
-                    tooltipText: "Copy API Key",
-                    copiedTooltipText: "API Key copied!"
+                    apiKey: record.key
                 }
             })
         },
@@ -112,7 +105,7 @@
             id: "expiresAt",
             label: "Expires",
             sortable: true,
-            width: "20%",
+            width: "10%",
             render: (record: ApiKey) => ({
                 component: ExpiresDate,
                 props: {
