@@ -53,9 +53,10 @@ export const load = restrict(
             
             logger.debug(`Listener data: ${JSON.stringify(listener)}`);
             
-
+            // Check if listener exists
             if (!listener) {
-                throw error(404, "Listener not found");
+                logger.warn(`Listener with ID ${params.id} not found`);
+                throw error(404, `Listener with ID ${params.id} not found`);
             }
 
             const form = await superValidate(
@@ -76,8 +77,16 @@ export const load = restrict(
                 listener
             };
         } catch (e) {
-            logger.error('Error loading listener:', e);
-            throw error(500, 'Failed to load listener');
+            const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+            logger.error(`Error loading listener: ${errorMessage}`, e);
+            
+            // If it's already a SvelteKit error, just rethrow it
+            if (e && typeof e === 'object' && 'status' in e) {
+                throw e;
+            }
+            
+            // Otherwise, create a new error
+            throw error(500, `Failed to load listener: ${errorMessage}`);
         }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route

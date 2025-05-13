@@ -11,7 +11,7 @@
     export let data: PageData;
 
     $: ({ apiKeys: records, meta } = data);
-    $: console.log('API Keys:', records);
+    // $: console.log('API Keys:', records);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
     

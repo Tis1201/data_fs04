@@ -3,6 +3,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { ArrowUpCircle } from "lucide-svelte";
+  import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
   import { createEventDispatcher } from "svelte";
   import type { Setting } from "@prisma/client";
 
@@ -67,7 +68,9 @@
                 <Badge variant="secondary">Historical</Badge>
               {/if}
             </TableCell>
-            <TableCell>{formatDate(setting.updatedAt)}</TableCell>
+            <TableCell>
+              <RelativeDate date={setting.updatedAt} showTooltip={true} />
+            </TableCell>
             <TableCell>{setting.updatedBy}</TableCell>
             <TableCell>
               <div class="max-w-md truncate">

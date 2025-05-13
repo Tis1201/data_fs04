@@ -94,6 +94,7 @@
     ];
 
     $: currentPath = $page.url.pathname;
+    $: pathKey = currentPath; // Force reactivity when path changes
 </script>
 
 <div class={cn("bg-spectrio-purple text-white", className)}>

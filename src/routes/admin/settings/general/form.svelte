@@ -294,6 +294,7 @@
             
         <FormField id="logLevel" label="Log Level" error={null}>
           <EnhancedSelect
+            id="logLevel"
             name="logLevel"
             options={logLevels}
             value={settings.system.logLevel}
