@@ -2,19 +2,52 @@
     import { page } from "$app/stores";
     import AdminSidebar from "$lib/components/admin/AdminSidebar.svelte";
     import { fly } from "svelte/transition";
-    import { LogOut } from "lucide-svelte";
+    import { LogOut, FileText, UserPlus, Download, Upload, Settings } from "lucide-svelte";
+    import { goto } from "$app/navigation";
+    import SimpleMenubar from "$lib/components/ui_components_sveltekit/menubar/SimpleMenubar.svelte";
 
     export let data;
     let collapsed = false;
     let showMenu = false;
+    
+    // Determine which menubar to show based on the current path
+    $: currentPath = $page.url.pathname;
+    $: showUsersMenubar = currentPath.startsWith('/admin/users');
+    
+    // Define menu items for different sections
+    const usersMenuItems = [
+        {
+            label: 'Users',
+            icon: UserPlus,
+            items: [
+                { label: 'New User', icon: UserPlus, action: () => goto('/admin/users/new') },
+                { separator: true },
+                { label: 'View Reports', icon: FileText },
+                { separator: true },
+                { label: 'Export Users', icon: Download },
+                { label: 'Import Users', icon: Upload }
+            ]
+        },
+        {
+            label: 'Options',
+            icon: Settings,
+            items: [
+                { label: 'User Settings', icon: Settings }
+            ]
+        }
+    ];
 </script>
 
 <div class="relative flex h-screen">
     <AdminSidebar bind:collapsed />
     <div class="flex-1 flex flex-col">
         <header class="border-b">
-            <div class="flex h-12 items-center px-4 gap-4">
-                <div class="flex-1" />
+            <div class="relative flex h-12 items-center px-4 gap-4">
+                <div class="flex-1">
+                    {#if showUsersMenubar}
+                        <SimpleMenubar items={usersMenuItems} />
+                    {/if}
+                </div>
                 <div class="flex items-center gap-4">
                     <div class="relative">
                         <button
