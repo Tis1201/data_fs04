@@ -2,6 +2,7 @@
   import { superForm } from "sveltekit-superforms/client";
   import { zodClient } from "sveltekit-superforms/adapters";
   import { z } from "zod";
+  import { toast } from "svelte-sonner";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Switch } from "$lib/components/ui/switch";
@@ -26,7 +27,21 @@
   export let jsonError: string | null = null;
 
   const { form: formData, enhance, errors, submitting } = superForm(form, {
-    validators: zodClient(settingsSchema)
+    validators: zodClient(settingsSchema),
+    onUpdate: ({ form }) => {
+      if (form.valid) {
+        toast.success("Settings updated", {
+          description: "Your general settings have been successfully saved",
+          duration: 3000
+        });
+      }
+    },
+    onError: ({ result }) => {
+      toast.error("Failed to update settings", {
+        description: result.error || "Please check your settings and try again",
+        duration: 5000
+      });
+    }
   });
 
   // Parse settings from JSON
