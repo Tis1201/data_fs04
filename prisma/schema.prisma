@@ -293,3 +293,47 @@ model Device {
   @@index([accountId])
   @@index([companyId])
 }
+
+model Setting {
+  id        String   @id() @default(cuid())
+  isActive  Boolean  @default(true)
+  data      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  updatedBy String
+  createdBy String
+
+  @@index([isActive])
+}
+
+model EmailServiceProvider {
+  id         String    @id() @default(cuid())
+  name       String
+  type       String
+  isDefault  Boolean   @default(false)
+  isActive   Boolean   @default(true)
+  fromEmail  String
+  fromName   String?
+  smtpHost   String?
+  smtpPort   Int?
+  smtpUser   String?
+  smtpPass   String?
+  smtpSecure Boolean   @default(true)
+  smtpAuth   Boolean   @default(true)
+  apiKey     String?
+  apiSecret  String?
+  domain     String?
+  region     String?
+  webhookUrl String?
+  webhookKey String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now())
+  createdBy  String
+  updatedBy  String
+  lastUsedAt DateTime?
+  totalSent  Int       @default(0)
+
+  @@index([isActive])
+  @@index([isDefault])
+  @@index([type])
+}

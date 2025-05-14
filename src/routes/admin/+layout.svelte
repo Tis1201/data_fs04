@@ -1,41 +1,34 @@
 <script lang="ts">
     import { page } from "$app/stores";
+    import { onMount } from "svelte";
     import AdminSidebar from "$lib/components/admin/AdminSidebar.svelte";
     import { fly } from "svelte/transition";
     import { LogOut, FileText, UserPlus, Download, Upload, Settings } from "lucide-svelte";
     import { goto } from "$app/navigation";
     import SimpleMenubar from "$lib/components/ui_components_sveltekit/menubar/SimpleMenubar.svelte";
+    import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
+    import { topMenuItems } from "$lib/stores/menuStore";
 
     export let data;
     let collapsed = false;
     let showMenu = false;
     
-    // Determine which menubar to show based on the current path
-    $: currentPath = $page.url.pathname;
-    $: showUsersMenubar = currentPath.startsWith('/admin/users');
+    // We no longer need to determine which menubar to show based on the path
+    // as all sections will use the store-based approach
     
-    // Define menu items for different sections
-    const usersMenuItems = [
-        {
-            label: 'Users',
-            icon: UserPlus,
-            items: [
-                { label: 'New User', icon: UserPlus, action: () => goto('/admin/users/new') },
-                { separator: true },
-                { label: 'View Reports', icon: FileText },
-                { separator: true },
-                { label: 'Export Users', icon: Download },
-                { label: 'Import Users', icon: Upload }
-            ]
-        },
-        {
-            label: 'Options',
-            icon: Settings,
-            items: [
-                { label: 'User Settings', icon: Settings }
-            ]
+    // Force reactivity with page changes
+    $: {
+        // This will re-evaluate whenever the page changes
+        const path = $page.url.pathname;
+        
+        // Only reset menu items when navigating away from pages with custom menus
+        if (!path.includes('/admin/settings/general') && 
+            !path.includes('/admin/users')) {
+            topMenuItems.set(null);
         }
-    ];
+    }
+    
+    // No need for event listeners with slots
 </script>
 
 <div class="relative flex h-screen">
@@ -44,8 +37,11 @@
         <header class="border-b">
             <div class="relative flex h-12 items-center px-4 gap-4">
                 <div class="flex-1">
-                    {#if showUsersMenubar}
-                        <SimpleMenubar items={usersMenuItems} />
+                    {#if $topMenuItems}
+                        <EnhancedMenubar 
+                            items={$topMenuItems.items || []} 
+                            activeItem={$topMenuItems.activeItem || null} 
+                        />
                     {/if}
                 </div>
                 <div class="flex items-center gap-4">

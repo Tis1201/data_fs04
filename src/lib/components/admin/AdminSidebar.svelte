@@ -54,7 +54,7 @@
         { 
             label: "Access", 
             icon: Building2, 
-            initialExpanded: true,
+            initialExpanded: false,
             subItems: [
                 { href: "/admin/accounts/accounts", label: "Accounts", icon: Layers },
                 { href: "/admin/accounts/companies", label: "Companies", icon: Briefcase },
@@ -75,7 +75,7 @@
         { 
             label: "Settings", 
             icon: Settings, 
-            initialExpanded: false,
+            initialExpanded: true,
             subItems: [
                 { href: "/admin/settings/general", label: "General", icon: Settings2 },
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
@@ -94,6 +94,7 @@
     ];
 
     $: currentPath = $page.url.pathname;
+    $: pathKey = currentPath; // Force reactivity when path changes
 </script>
 
 <div class={cn("bg-spectrio-purple text-white", className)}>
