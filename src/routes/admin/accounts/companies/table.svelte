@@ -223,7 +223,6 @@
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
         {state}
-        action="?/deleteCompany"
         actionName="deleteCompany"
         onConfirm={() => {
             // Refresh the page to update the company list

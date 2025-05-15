@@ -62,7 +62,8 @@
         label: "Cancel",
         icon: ArrowLeft,
         onClick: () => goto('/admin/accounts/companies'),
-        variant: "outline"
+        variant: "outline",
+        class: "h-9" // Fixed height for consistency
       },
       {
         label: "Save",
@@ -70,7 +71,8 @@
         onClick: () => {
           const form = document.querySelector('form[action="?/create"]');
           if (form) form.requestSubmit();
-        }
+        },
+        class: "h-9" // Fixed height for consistency
       }
     ]}
     loading={$submitting}

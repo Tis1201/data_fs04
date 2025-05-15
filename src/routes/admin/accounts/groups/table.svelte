@@ -1,78 +1,196 @@
 <script lang="ts">
-    import { Button } from "$lib/components/ui/button";
-    import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
-    import { Skeleton } from "$lib/components/ui/skeleton";
-    import { Edit, Eye, Users } from "lucide-svelte";
+    // Import components and dependencies
+    import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
+    import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
+    import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
+    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
+    import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
+    import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
+    import { Pencil, Trash } from "lucide-svelte";
+    import type { Group } from "@prisma/client";
     import { goto } from "$app/navigation";
+    import { page } from "$app/stores";
+    import { writable } from "svelte/store";
+    import { toast } from "svelte-sonner";
+    import { browser } from "$app/environment";
+    import { onMount } from "svelte";
+    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import { enhance } from "$app/forms";
 
-    export let groups = [];
-    export let meta = {};
-    export let loading = false;
+    // Props for DataTable component
+    export let props = {
+        records: [] as Group[],
+        pagination: {
+            page: 1,
+            per_page: 10,
+            total_records: 0,
+            total_pages: 0
+        },
+        sort: {
+            field: "createdAt",
+            order: "desc" as "asc" | "desc"
+        },
+        loading: false,
+        filters: {
+            accounts: [] as {id: string, name: string}[]
+        }
+    };
+    
+    // State for confirmation dialog
+    let state = {
+        selectedRecord: null as Group | null,
+        confirmationOpen: false
+    };
 
-    // Function to format date
-    function formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
+    // Function to open delete confirmation dialog
+    function confirmDelete(group: Group) {
+        state.selectedRecord = group;
+        state.confirmationOpen = true;
     }
+    
+    // Stores for filters and table state
+    
+    // Clean up legacy URL parameters
+    onMount(() => {
+        if (!browser) return;
+        
+        const url = new URL(window.location.href);
+        let needsRedirect = false;
+        
+        if (needsRedirect) {
+            goto(url.toString(), { replaceState: true, noScroll: true });
+        }
+    });
 </script>
 
-<CardHeader>
-    <CardTitle>Groups</CardTitle>
-</CardHeader>
-<CardContent>
-    {#if loading}
-        <div class="space-y-4">
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-8 w-full" />
-        </div>
+<!-- Column definitions for the groups table -->
+<script lang="ts" context="module">
+    import { Badge } from "$lib/components/ui/badge";
+    
+
+    
+    // Define columns for the groups table
+    const columns = [
+        {
+            id: "name",
+            label: "Name",
+            sortable: true,
+            width: "20%",
+            render: (record: Group) => ({
+                component: NameWithIdLink,
+                props: {
+                    record,
+                    baseUrl: "/admin/accounts/groups",
+                    showId: true
+                }
+            })
+        },
+
+        {
+            id: "account",
+            label: "Account",
+            width: "15%",
+            render: (record: Group) => record.account?.name || "N/A"
+        },
+        {
+            id: "members",
+            label: "Members",
+            width: "20%",
+            render: (record: Group) => record._count?.members || 0
+        },
+        {
+            id: "createdAt",
+            label: "Created",
+            sortable: true,
+            width: "15%",
+            render: (record: Group) => ({
+                component: RelativeDate,
+                props: {
+                    date: record.createdAt,
+                    format: "relative",
+                    showTooltip: true,
+                    useHoverCard: true,
+                    iconSize: 12
+                }
+            })
+        },
+        {
+            id: "actions",
+            label: "Actions",
+            width: "10%",
+            render: (record: Group) => {
+                // Define action items here instead of in the RecordActions component
+                const actionItems: ActionItem[] = [
+                    {
+                        label: "Edit",
+                        icon: Pencil,
+                        onClick: () => goto(`/admin/accounts/groups/${record.id}`)
+                    },
+
+                    {
+                        label: "Delete",
+                        icon: Trash,
+                        onClick: () => confirmDelete(record)
+                    }
+                ];
+                
+                return {
+                    component: RecordActions,
+                    props: {
+                        items: actionItems
+                    }
+                };
+            }
+        }
+    ];
+</script>
+
+<div class="space-y-4">
+    <!-- Delete Confirmation Dialog -->
+    <RecordDeleteDialog
+        {state}
+        actionName="deleteGroup"
+        onConfirm={() => {
+            // Refresh the page to update the group list
+            window.location.reload();
+        }}
+    />
+    
+
+
+    {#if props.loading}
+        <LoadingSkeleton />
     {:else}
-        <Table>
-            <TableHeader>
-                <TableRow>
-                    <TableHead>Group Name</TableHead>
-                    <TableHead>Members</TableHead>
-                    <TableHead>Permissions</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead class="text-right">Actions</TableHead>
-                </TableRow>
-            </TableHeader>
-            <TableBody>
-                {#if groups.length === 0}
-                    <TableRow>
-                        <TableCell colspan="5" class="text-center">No groups found</TableCell>
-                    </TableRow>
-                {:else}
-                    {#each groups as group}
-                        <TableRow>
-                            <TableCell>{group.name}</TableCell>
-                            <TableCell>{group.members}</TableCell>
-                            <TableCell>{group.permissions}</TableCell>
-                            <TableCell>{formatDate(group.createdAt)}</TableCell>
-                            <TableCell class="text-right">
-                                <div class="flex justify-end gap-2">
-                                    <Button variant="ghost" size="icon" on:click={() => goto(`/admin/accounts/groups/${group.id}/members`)}>
-                                        <Users class="h-4 w-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" on:click={() => goto(`/admin/accounts/groups/${group.id}`)}>
-                                        <Eye class="h-4 w-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" on:click={() => goto(`/admin/accounts/groups/${group.id}/edit`)}>
-                                        <Edit class="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            </TableCell>
-                        </TableRow>
-                    {/each}
-                {/if}
-            </TableBody>
-        </Table>
+        <div class="flex items-center gap-2">
+            <!-- Search filter -->
+            <div class="w-1/3">
+                <DebouncedTextFilter
+                    placeholder="Search by name, ID, or description..."
+                    paramName="search"
+                    value={$page.url.searchParams.get('search') || ''}
+                />
+            </div>
+            
+            <!-- Account filter -->
+            <PopoverFilter
+                label="Account"
+                options={props.filters.accounts?.map(account => ({ label: account.name, value: account.id })) || []}
+                selectedValues={$page.url.searchParams.get('accountId')?.split(',').filter(Boolean) || []}
+                key="accountId"
+            />
+            
+
+        </div>
+
+        <!-- Data table -->
+        <DataTable
+            {columns}
+            {props}
+            on:sort={handleTableSort}
+            on:pagination={handleTablePagination}
+        />
     {/if}
-</CardContent>
+</div>
