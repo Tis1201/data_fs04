@@ -33,21 +33,30 @@ if (!building) {
 } 
 
 // Device manager middleware to add deviceManager to locals
-const deviceManagerMiddleware: Handle = async ({ event, resolve }) => {
-    // Add deviceManager to locals
-    event.locals.deviceManager = DeviceManager;
+// const deviceManagerMiddleware: Handle = async ({ event, resolve }) => {
+//     // Add deviceManager to locals
+//     event.locals.deviceManager = DeviceManager;
     
-    return resolve(event);
-};
+//     return resolve(event);
+// };
 
 // Combine middleware functions
 export const handle: Handle = async ({ event, resolve }) => {
+    // Handle .well-known/appspecific routes
+    if (event.url.pathname.startsWith('/.well-known/appspecific')) {
+        // Return an empty response for any .well-known/appspecific path
+        // This avoids the 404 error for chrome devtools and similar requests
+        return new Response('', {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/plain'
+            }
+        });
+    }
+    
     // Chain middleware: auth -> device -> websocket
     return await authMiddleware({ 
         event, 
-        resolve: () => deviceManagerMiddleware({
-            event,
-            resolve: () => websocketMiddleware({ event, resolve })
-        })
+        resolve: () => websocketMiddleware({ event, resolve })
     });
 };

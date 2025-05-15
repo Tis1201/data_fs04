@@ -15,7 +15,12 @@ const companySchema = z.object({
     status: z.string().optional(),
     address: z.string().optional(),
     contactEmail: z.string().email({ message: "Invalid email address" }).optional(),
-    contactPhone: z.string().optional(),
+    contactPhone: z.string()
+        .refine(
+            (val) => !val || /^(\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}$/.test(val), 
+            { message: "Invalid phone number format. Please use a valid format (e.g., +1 555-123-4567, (555) 123-4567, 5551234567)" }
+        )
+        .optional(),
     description: z.string().optional(),
     accountId: z.string().min(1, { message: "Account is required" })
 });

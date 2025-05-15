@@ -9,7 +9,6 @@
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
-    import { Badge } from "$lib/components/ui/badge";
     import { Pencil, Trash, Power, Building } from "lucide-svelte";
     import type { Company } from "@prisma/client";
     import { goto } from "$app/navigation";
@@ -88,7 +87,12 @@
             goto(url.toString(), { replaceState: true, noScroll: true });
         }
     });
+</script>
 
+<!-- Column definitions for the companies table -->
+<script lang="ts" context="module">
+    import { Badge } from "$lib/components/ui/badge";
+    
     // Function to get badge variant based on status
     function getStatusBadge(status: string) {
         const statusText = status || "UNKNOWN";
@@ -117,10 +121,7 @@
             }
         };
     }
-</script>
-
-<!-- Column definitions for the companies table -->
-<script lang="ts" context="module">
+    
     // Define columns for the companies table
     const columns = [
         {

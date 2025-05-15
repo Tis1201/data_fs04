@@ -1,119 +1,86 @@
-import { fail, error } from '@sveltejs/kit';
-import type { Actions, PageServerLoad } from './$types';
+import { error, fail, redirect } from '@sveltejs/kit';
+import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
-import { z } from 'zod';
+import { companySchema } from './company';
 
-// Define the company schema
-const companySchema = z.object({
-    name: z.string()
-        .min(2, { message: "Name must be at least 2 characters" })
-        .max(100, { message: "Name must be less than 100 characters" }),
-    status: z.string().optional(),
-    address: z.string().optional(),
-    contactEmail: z.string().email({ message: "Invalid email address" }).optional(),
-    contactPhone: z.string().optional(),
-    description: z.string().optional(),
-    accountId: z.string().min(1, { message: "Account is required" })
-});
+
 
 export const load = restrict(
     async ({ locals }) => {
-        // Get all accounts for the dropdown
-        const accounts = await locals.prisma.account.findMany({
-            where: { status: 'ACTIVE' },
-            select: {
-                id: true,
-                name: true
-            },
-            orderBy: {
-                name: 'asc'
-            }
-        });
-
-        // Initialize the company creation form with the schema and defaults
-        const form = await superValidate(zod(companySchema), {
-            defaults: {
-                name: '',
-                status: 'ACTIVE',
-                address: '',
-                contactEmail: '',
-                contactPhone: '',
-                description: '',
-                accountId: ''
-            }
-        });
-
-        return {
-            form,
-            accounts
-        };
+        try {
+            // Create a form based on the schema with defaults
+            const form = await superValidate(zod(companySchema), {
+                id: 'company-form'
+            });
+            
+            // Get all accounts for the dropdown
+            const accounts = await locals.prisma.account.findMany({
+                select: {
+                    id: true,
+                    name: true
+                },
+                orderBy: {
+                    name: 'asc'
+                }
+            });
+            
+            return {
+                form,
+                accounts
+            };
+        } catch (err) {
+            logger.error(`Error loading company form: ${err}`);
+            throw error(500, 'Failed to load company form');
+        }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
-export const actions = {
-    // Action for creating a new company using Superforms
-    createCompany: restrict(
+export const actions: Actions = {
+    create: restrict(
         async ({ request, locals }) => {
-            // Validate the form data against the schema
+            // Validate the form data
             const form = await superValidate(request, zod(companySchema));
-
-            // If validation fails, return the form with errors
+            
             if (!form.valid) {
                 return fail(400, { form });
             }
-
+            
             try {
-                // Check if the account exists
-                const account = await locals.prisma.account.findUnique({
-                    where: { id: form.data.accountId }
-                });
-
-                if (!account) {
-                    return message(form, {
-                        type: 'error',
-                        text: 'Selected account does not exist',
-                        code: 'ACCOUNT_NOT_FOUND',
-                        timestamp: new Date().toISOString()
-                    }, { status: 400 });
-                }
-
-                // Create the new company
+                // Create the company
                 const company = await locals.prisma.company.create({
                     data: {
                         name: form.data.name,
-                        status: form.data.status || 'ACTIVE',
-                        address: form.data.address || null,
-                        contactEmail: form.data.contactEmail || null,
-                        contactPhone: form.data.contactPhone || null,
-                        description: form.data.description || null,
+                        status: form.data.status,
+                        address: form.data.address,
+                        contactEmail: form.data.contactEmail,
+                        contactPhone: form.data.contactPhone,
+                        description: form.data.description,
                         accountId: form.data.accountId
                     }
                 });
-
-                // Log the company creation
-                logger.info(`Company created: ${company.id} (${company.name})`);
-
-                // Return success with the created company
+                
+                logger.info(`Company created: ${company.id}`);
+                
                 return { 
                     form,
-                    success: true, 
-                    company
+                    success: true,
+                    message: {
+                        type: 'success' as const,
+                        text: 'Company created successfully',
+                        details: `Company '${company.name}' has been created.`
+                    }
                 };
             } catch (err) {
-                logger.error('Error creating company:', err);
-                
-                return message(form, {
-                    type: 'error',
-                    text: 'Failed to create company',
-                    details: err instanceof Error ? err.message : 'Unknown error',
-                    code: 'CREATE_FAILED',
-                    timestamp: new Date().toISOString()
-                }, { status: 500 });
+                logger.error(`Error creating company: ${err}`);
+                return fail(500, { 
+                    form, 
+                    error: 'Failed to create company. Please try again.' 
+                });
             }
         },
         [SystemRole.ADMIN]

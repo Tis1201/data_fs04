@@ -7,6 +7,8 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { Switch } from "$lib/components/ui/switch";
   import { Label } from "$lib/components/ui/label";
+  import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
+  import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   
   // Import custom form components
   import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
@@ -35,10 +37,10 @@
   const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
     validateOnInput: true,
     debugMode: false,
-    successRedirect: '/admin/accounts/companies',  // Redirect to companies list
+    dataType: 'json', // Add this to support complex validation like unions
     onSuccess: (result) => {
       toast.success("Company updated successfully!");
-      // The successRedirect will handle navigation
+      goto('/admin/accounts/companies'); // Manual navigation instead of successRedirect
     },
     onError: (error) => {
       toast.error(error?.text || "Failed to update company");
@@ -76,7 +78,13 @@
     compact={true}
     contentSpacing="space-y-4"
 >
-  <form method="POST" action="?/updateCompany" use:enhance>
+  <FormContainer 
+    method="POST" 
+    action="?/updateCompany" 
+    {enhance} 
+    novalidate 
+    errorMessage={$errorMessage}
+  >
     <AdminCard
       title="Company Information"
       description="Edit company details"
@@ -89,6 +97,7 @@
             id="name" 
             label="Company Name" 
             error={$errors.name}
+            required={true}
           >
             <Input 
               id="name" 
@@ -222,5 +231,5 @@
         </FormField>
       </div>
     </AdminCard>
-  </form>
+  </FormContainer>
 </AdminPageLayout>
