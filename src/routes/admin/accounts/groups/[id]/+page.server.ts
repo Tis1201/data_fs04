@@ -6,6 +6,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from '../../groups/new/group';
+import { z } from 'zod';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -20,6 +21,21 @@ export const load = restrict(
                         select: {
                             id: true,
                             name: true
+                        }
+                    },
+                    members: {
+                        include: {
+                            membership: {
+                                include: {
+                                    user: {
+                                        select: {
+                                            id: true,
+                                            name: true,
+                                            email: true
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -45,6 +61,37 @@ export const load = restrict(
                 }
             });
             
+            // Get all account members for the admin panel
+            const accountMembers = await locals.prisma.accountMembership.findMany({
+                where: {
+                    accountId: group.accountId,
+                    // No filter for group membership to show all users
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            email: true
+                        }
+                    },
+                    // Include group memberships to identify which users are already in the group
+                    groupMemberships: {
+                        where: {
+                            groupId: id
+                        },
+                        select: {
+                            id: true
+                        }
+                    }
+                },
+                orderBy: {
+                    user: {
+                        name: 'asc'
+                    }
+                }
+            });
+            
             // Initialize the form with the group data
             const form = await superValidate(
                 {
@@ -58,10 +105,19 @@ export const load = restrict(
                 zod(groupSchema)
             );
 
+            // Create a form for adding users to the group
+            const addUserForm = await superValidate(
+                zod(z.object({
+                    membershipId: z.string().min(1, { message: 'User is required' })
+                }))
+            );
+
             return {
                 form,
                 group,
-                accounts
+                accounts,
+                accountMembers,
+                addUserForm
             };
         } catch (err) {
             if (err.status === 404) {
@@ -117,19 +173,8 @@ export const actions: Actions = {
                     }, { status: 400 });
                 }
 
-                // Parse permissions to ensure it's valid JSON
-                let parsedPermissions;
-                try {
-                    parsedPermissions = JSON.parse(form.data.permissions || '{}');
-                } catch (err) {
-                    return message(form, {
-                        type: 'error',
-                        text: 'Invalid permissions format',
-                        details: 'Permissions must be a valid JSON object',
-                        code: 'INVALID_PERMISSIONS',
-                        timestamp: new Date().toISOString()
-                    }, { status: 400 });
-                }
+                // Set default permissions as empty object
+                const permissions = '{}';
 
                 // Update the group
                 const group = await locals.prisma.group.update({
@@ -137,7 +182,7 @@ export const actions: Actions = {
                     data: {
                         name: form.data.name,
                         description: form.data.description || null,
-                        permissions: form.data.permissions, // Store as string, not parsed object
+                        permissions: permissions, // Store default empty permissions
                         accountId: form.data.accountId
                     }
                 });
@@ -154,6 +199,190 @@ export const actions: Actions = {
                     type: 'error',
                     text: 'Failed to update group: ' + (err instanceof Error ? err.message : 'Unknown error')
                 }, { status: 500 });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+    
+    // Action for adding a user to a group
+    addUser: restrict(
+        async ({ request, params, locals }) => {
+            const { id } = params;
+            
+            // Get the form data directly
+            const formData = await request.formData();
+            const membershipId = formData.get('membershipId')?.toString();
+            
+            // Validate the membershipId
+            if (!membershipId) {
+                // Create a form with an error
+                const form = await superValidate(
+                    { membershipId: '' },
+                    zod(z.object({
+                        membershipId: z.string().min(1, { message: 'User is required' })
+                    }))
+                );
+                
+                return message(form, {
+                    type: 'error',
+                    text: 'User is required',
+                    code: 'USER_REQUIRED',
+                    timestamp: new Date().toISOString()
+                }, { status: 400 });
+            }
+
+            try {
+                // Check if the group exists
+                const group = await locals.prisma.group.findUnique({
+                    where: { id }
+                });
+
+                if (!group) {
+                    return message(form, {
+                        type: 'error',
+                        text: 'Group not found',
+                        code: 'GROUP_NOT_FOUND',
+                        timestamp: new Date().toISOString()
+                    }, { status: 404 });
+                }
+                
+                // Check if the membership exists
+                const membership = await locals.prisma.accountMembership.findUnique({
+                    where: { id: membershipId },
+                    include: {
+                        user: {
+                            select: {
+                                name: true,
+                                email: true
+                            }
+                        }
+                    }
+                });
+
+                if (!membership) {
+                    return message(form, {
+                        type: 'error',
+                        text: 'Selected user does not exist',
+                        code: 'USER_NOT_FOUND',
+                        timestamp: new Date().toISOString()
+                    }, { status: 400 });
+                }
+                
+                // Check if user is already in the group
+                const existingMembership = await locals.prisma.groupMembership.findFirst({
+                    where: {
+                        groupId: id,
+                        membershipId: membershipId
+                    }
+                });
+                
+                if (existingMembership) {
+                    return message(form, {
+                        type: 'error',
+                        text: 'User is already a member of this group',
+                        code: 'USER_ALREADY_MEMBER',
+                        timestamp: new Date().toISOString()
+                    }, { status: 400 });
+                }
+
+                // Add the user to the group
+                const groupMembership = await locals.prisma.groupMembership.create({
+                    data: {
+                        groupId: id,
+                        membershipId: membershipId
+                    },
+                    include: {
+                        membership: {
+                            include: {
+                                user: true
+                            }
+                        }
+                    }
+                });
+
+                // Log the user addition
+                logger.info(`User added to group: ${membership.user.name} (${membership.user.email}) added to ${group.name}`);
+
+                // Return success
+                // Create a new form for the next submission
+                const newForm = await superValidate(
+                    { membershipId: '' },
+                    zod(z.object({
+                        membershipId: z.string().min(1, { message: 'User is required' })
+                    }))
+                );
+                
+                return {
+                    addUserForm: newForm,
+                    type: 'success',
+                    text: `${membership.user.name || membership.user.email} added to group successfully!`
+                };
+            } catch (err) {
+                logger.error(`Error adding user to group: ${err}`);
+                
+                return message(form, {
+                    type: 'error',
+                    text: 'Failed to add user to group: ' + (err instanceof Error ? err.message : 'Unknown error')
+                }, { status: 500 });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+    
+    // Action for removing a user from a group
+    removeUser: restrict(
+        async ({ request, params, locals }) => {
+            const { id } = params;
+            const formData = await request.formData();
+            const membershipId = formData.get('membershipId')?.toString();
+            
+            if (!membershipId) {
+                return fail(400, { error: 'User ID is required' });
+            }
+            
+            try {
+                // Check if the group membership exists
+                const groupMembership = await locals.prisma.groupMembership.findFirst({
+                    where: {
+                        groupId: id,
+                        membershipId
+                    },
+                    include: {
+                        membership: {
+                            include: {
+                                user: {
+                                    select: {
+                                        name: true,
+                                        email: true
+                                    }
+                                }
+                            }
+                        },
+                        group: true
+                    }
+                });
+                
+                if (!groupMembership) {
+                    return fail(404, { error: 'User is not a member of this group' });
+                }
+                
+                // Remove the user from the group
+                await locals.prisma.groupMembership.delete({
+                    where: {
+                        id: groupMembership.id
+                    }
+                });
+                
+                // Log the user removal
+                logger.info(`User removed from group: ${groupMembership.membership.user.name} (${groupMembership.membership.user.email}) removed from ${groupMembership.group.name}`);
+                
+                return {
+                    success: true,
+                    message: `${groupMembership.membership.user.name} removed from group successfully!`
+                };
+            } catch (err) {
+                logger.error(`Error removing user from group: ${err}`);
+                return fail(500, { error: 'Failed to remove user from group: ' + (err instanceof Error ? err.message : 'Unknown error') });
             }
         },
         [SystemRole.ADMIN]
