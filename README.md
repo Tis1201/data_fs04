@@ -443,3 +443,9 @@ To package the application for deployment as a zip file:
   - Terminal session management
 - Run yolo-openvobulary on openvino on mac (pending)
 - Batch input architecture (pending)
+
+
+## UX and Layout
+For admin, use AdminPageLayout
+Always restrict user access to admin pages using restrict
+

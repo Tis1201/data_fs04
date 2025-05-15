@@ -128,12 +128,16 @@
 <AdminPageLayout
     {title}
     crumbs={pageCrumbs}
-    actionLabel="Save"
-    actionIcon={Save}
-    actionOnClick={() => {
-        const form = document.querySelector('form[action="?/update"]');
-        if (form) form.requestSubmit();
-    }}
+    actionButtons={[
+        {
+            label: "Save",
+            icon: Save,
+            onClick: () => {
+                const form = document.querySelector('form[action="?/update"]');
+                if (form) form.requestSubmit();
+            }
+        }
+    ]}
     {loading}
     showCreateButton={false}
     compact={true}

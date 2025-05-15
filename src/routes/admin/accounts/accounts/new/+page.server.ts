@@ -41,7 +41,8 @@ export const load = restrict(
 
 export const actions: Actions = {
     // Action for creating a new account using Superforms
-    createAccount: async ({ request, locals }) => {
+    createAccount: restrict(
+        async ({ request, locals }) => {
         // Validate the form data against the schema
         const form = await superValidate(request, zod(accountSchema));
 
@@ -96,5 +97,7 @@ export const actions: Actions = {
                 timestamp: new Date().toISOString()
             }, { status: 500 });
         }
-    }
+    },
+        [SystemRole.ADMIN]
+    )
 };

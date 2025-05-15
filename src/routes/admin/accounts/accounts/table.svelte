@@ -183,24 +183,9 @@
                 // Define action items here instead of in the RecordActions component
                 const actionItems: ActionItem[] = [
                     {
-                        label: "View Companies",
-                        icon: Building,
-                        onClick: () => goto(`/admin/accounts/accounts/${record.id}/companies`)
-                    },
-                    {
-                        label: "View Members",
-                        icon: Users,
-                        onClick: () => goto(`/admin/accounts/accounts/${record.id}/members`)
-                    },
-                    {
-                        label: "View Devices",
-                        icon: Router,
-                        onClick: () => goto(`/admin/accounts/accounts/${record.id}/devices`)
-                    },
-                    {
-                        label: "Edit",
+                        label: "Edit Account",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/accounts/accounts/${record.id}/edit`)
+                        onClick: () => goto(`/admin/accounts/accounts/${record.id}`)
                     },
                     {
                         label: record.status === 'ACTIVE' ? "Deactivate" : "Activate",
@@ -230,6 +215,7 @@
     <RecordDeleteDialog
         {state}
         action="?/deleteAccount"
+        actionName="deleteAccount"
         onConfirm={() => {
             // Refresh the page to update the account list
             window.location.reload();

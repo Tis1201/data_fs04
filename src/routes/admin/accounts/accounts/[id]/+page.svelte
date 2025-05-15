@@ -2,7 +2,6 @@
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
   import { Save, FileText, ArrowLeft } from "lucide-svelte";
-  import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Skeleton } from "$lib/components/ui/skeleton";
@@ -19,11 +18,11 @@
   export let data: PageData;
   
   // Page title and breadcrumbs
-  const title = "Add Account";
+  const title = `Edit Account: ${data.account.name}`;
   const pageCrumbs = [
     ["Admin", "/admin"],
     ["Accounts", "/admin/accounts/accounts"],
-    "Add Account",
+    data.account.name,
   ];
   
   // Import the reusable form handler
@@ -35,11 +34,11 @@
     debugMode: false,
     successRedirect: '/admin/accounts/accounts',  // Redirect to accounts list
     onSuccess: (result) => {
-      toast.success("Account created successfully!");
+      toast.success("Account updated successfully!");
       // The successRedirect will handle navigation
     },
     onError: (error) => {
-      toast.error(error?.text || "Failed to create account");
+      toast.error(error?.text || "Failed to update account");
     }
   });
   
@@ -65,7 +64,7 @@
     previousName = $form.name;
   }
   
-  let previousName = '';
+  let previousName = data.account.name;
 </script>
 
 <AdminPageLayout
@@ -82,7 +81,7 @@
         label: "Save",
         icon: Save,
         onClick: () => {
-          const form = document.querySelector('form[action="?/createAccount"]');
+          const form = document.querySelector('form[action="?/updateAccount"]');
           if (form) form.requestSubmit();
         }
       }
@@ -92,10 +91,10 @@
     compact={true}
     contentSpacing="space-y-4"
 >
-  <form method="POST" action="?/createAccount" use:enhance>
+  <form method="POST" action="?/updateAccount" use:enhance>
     <AdminCard
       title="Account Information"
-      description="Create a new account in the system"
+      description="Edit account details"
       icon={FileText}
       compact={true}
     >
@@ -168,8 +167,6 @@
             {...$constraints.description}
           />
         </FormField>
-        
-
       </div>
     </AdminCard>
   </form>
