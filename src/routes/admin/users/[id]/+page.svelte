@@ -3,15 +3,9 @@
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     
-    // Alert Components
-    import AlertMessage from "$lib/components/ui_components_sveltekit/alerts/AlertMessage.svelte";
-    
     // UI Components
-    import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import * as Select from "$lib/components/ui/select/index.js";
-    import { Badge } from "$lib/components/ui/badge";
-    import { Skeleton } from "$lib/components/ui/skeleton";
     
     // Icons
     import { Clock, User, Building, ArrowLeft, Save, Loader2, ShieldCheck } from "lucide-svelte";
@@ -24,9 +18,7 @@
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableSelect.svelte";
     
     // Other Components
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
@@ -130,8 +122,8 @@
             >
                 <!-- User Information -->
                 <div class="space-y-6">
-                    <!-- Email, Name, and Account on same line -->
-                    <FormRow columns={3}>
+                    <!-- Row 1: Email and Full Name -->
+                    <FormRow columns={2}>
                         <!-- Email (Read-only) -->
                         <FormField
                             id="email"
@@ -143,7 +135,7 @@
                                     value={user?.email}
                                     readonly
                                     disabled
-                                    class="bg-muted/50"
+                                    class="bg-muted/50 w-full"
                                 />
                                 <input type="hidden" name="email" value={user?.email} />
                             </div>
@@ -162,9 +154,13 @@
                                 bind:value={$form.name}
                                 placeholder="John Doe"
                                 disabled={$submitting}
+                                class="w-full"
                             />
                         </FormField>
-                        
+                    </FormRow>
+
+                    <!-- Row 2: Primary Account and Status -->
+                    <FormRow columns={2}>
                         <!-- Primary Account Assignment -->
                         <FormField
                             id="primaryAccountId"
@@ -178,14 +174,44 @@
                                 options={[{value: "", label: "None"}, ...accountOptions]}
                                 disabled={$submitting}
                                 required={false}
-                                on:change={(e) => console.log('Primary account changed:', e.detail)}
+                                class="w-full"
                             />
+                        </FormField>
+
+                        <!-- Status -->
+                        <FormField 
+                            id="status" 
+                            label="Status" 
+                            error={$errors.status}
+                            required
+                        >
+                            <EnhancedSelect
+                                value={$form.status}
+                                name="status"
+                                placeholder="Select status"
+                                labelText="Status"
+                                disabled={$submitting}
+                                on:change={(e) => ($form.status = e.detail)}
+                                class="w-full"
+                            >
+                                {#each USER_STATUSES as status}
+                                    <Select.Item value={status}>
+                                        <div class="flex items-center">
+                                            <span class="inline-block w-2 h-2 rounded-full mr-2" 
+                                                  class:bg-green-500={status === 'ACTIVE'}
+                                                  class:bg-gray-400={status === 'INACTIVE'}
+                                                  class:bg-red-500={status === 'SUSPENDED'}
+                                            ></span>
+                                            {status.charAt(0) + status.slice(1).toLowerCase()}
+                                        </div>
+                                    </Select.Item>
+                                {/each}
+                            </EnhancedSelect>
                         </FormField>
                     </FormRow>
 
-                    <!-- System Role and Status -->
-                    <FormRow columns={2}>
-                        <!-- System Role -->
+                    <!-- Row 3: System Role (full width) -->
+                    <div class="w-full">
                         <FormField 
                             id="systemRole" 
                             label="System Role" 
@@ -199,43 +225,18 @@
                                 labelText="System Role"
                                 disabled={$submitting}
                                 on:change={(e) => ($form.systemRole = e.detail)}
+                                class="w-full"
                             >
                                 {#each SYSTEM_ROLES as role}
-                                    <Select.Item value={role}>{role}</Select.Item>
-                                {/each}
-                            </EnhancedSelect>
-                        </FormField>
-
-                        <!-- Status -->
-                        <FormField 
-                            id="status" 
-                            label="Account Status" 
-                            error={$errors.status}
-                            required
-                        >
-                            <EnhancedSelect
-                                value={$form.status}
-                                name="status"
-                                placeholder="Select status"
-                                labelText="Status"
-                                disabled={$submitting}
-                                on:change={(e) => ($form.status = e.detail)}
-                            >
-                                {#each USER_STATUSES as status}
-                                    <Select.Item value={status}>
-                                        <div class="flex items-center gap-2">
-                                            <div class={`h-2 w-2 rounded-full ${
-                                                status === 'ACTIVE' ? 'bg-green-500' : 
-                                                status === 'INACTIVE' ? 'bg-gray-400' : 
-                                                'bg-destructive'
-                                            }`} />
-                                            {status}
+                                    <Select.Item value={role}>
+                                        <div class="flex items-center">
+                                            {role}
                                         </div>
                                     </Select.Item>
                                 {/each}
                             </EnhancedSelect>
                         </FormField>
-                    </FormRow>
+                    </div>
 
                 </div>
             </AdminCard>
