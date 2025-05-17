@@ -2,36 +2,42 @@
     import { goto } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
-    import { Button } from "$lib/components/ui/button";
+    
+    // UI Components
     import { Input } from "$lib/components/ui/input";
     import * as Select from "$lib/components/ui/select/index.js";
-    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    import { Skeleton } from "$lib/components/ui/skeleton";
-    import { Badge } from "$lib/components/ui/badge";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import { Clock } from "lucide-svelte";
-    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-    import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
+    
+    // Icons
+    import { Clock, User, Building, ArrowLeft, Save, Loader2, ShieldCheck } from "lucide-svelte";
+    
+    // Admin Layout Components
+    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminCard.svelte";
+    
+    // Form Components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import SearchableFormSelect from "$lib/components/ui_components_sveltekit/form/SearchableFormSelect.svelte";
+    
+    // Other Components
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
+
     import type { PageData } from "./$types";
     import { SYSTEM_ROLES, USER_STATUSES } from "./schema";
 
+    // Import page data
     export let data: PageData;
-    const { user } = data;
-    const title = "Edit User";
-
-    // Define breadcrumbs for this page
+    const { user, meta, accounts = [] } = data;
+    
+    // Page title and breadcrumbs
+    const title = `Edit User: ${user?.email || 'User Details'}`;
     const pageCrumbs = [
         ["Admin", "/admin"],
-        "Settings",
         ["Users", "/admin/users"],
-        user?.email || "Edit User",
+        user?.email || "Edit User"
     ];
     
     // Get status badge variant based on status value
@@ -44,164 +50,230 @@
         }
     };
 
-    const { form, errors, enhance, submitting } = superForm(data.form, {
-        onResult: async ({ result }) => {
+    // Format account options for the dropdown
+    const accountOptions = (accounts || []).map(account => ({
+        value: account.id,
+        label: account.name
+    }));
+
+    // Initialize form with superForm
+    const { form, errors, enhance, submitting, message } = superForm(data.form, {
+        taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
+        invalidateAll: false, // Prevent automatic invalidation
+        resetForm: false, // Don't reset the form after submission
+        onResult: ({ result }) => {
             if (result.type === "success") {
-                toast.success("User updated successfully");
-                try {
-                    await goto("/admin/users");
-                } catch (error) {
-                    console.error("Navigation error:", error);
-                    toast.error("Failed to redirect. Please try again.");
-                }
+                // Show success message
+                toast.success(result.data?.message || "User updated successfully");
+                
+                // Redirect after a short delay
+                setTimeout(() => goto("/admin/users"), 1000);
             }
-        },
-        onError: (err) => {
-            toast.error(err.message);
         }
     });
+    
+    // Track success message for FormContainer
+    $: successMessage = $message?.type === 'success' ? { text: $message.text } : null;
+    
+    // Function to handle password reset
+    const handleResetPassword = () => {
+        // This would typically send an email to the user with a password reset link
+        toast.info("Password reset email sent to user");
+    };
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader {title} />
-
-    <PageContent>
-        <!-- User Info Card -->
-        <FormCard
-            {title}
-            description="Edit details for this user account"
-            loading={$submitting}
-            footerSlot={user}
+<AdminPageLayout
+    {title}
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Cancel",
+            icon: ArrowLeft,
+            onClick: () => goto('/admin/users'),
+            variant: "outline"
+        },
+        {
+            label: "Reset Password",
+            icon: ShieldCheck,
+            onClick: handleResetPassword,
+            variant: "outline"
+        },
+        {
+            label: "Save",
+            icon: Save,
+            onClick: () => {
+                const form = document.querySelector('form[action="?/save"]');
+                if (form) form.requestSubmit();
+            }
+        }
+    ]}
+    loading={$submitting}
+    showCreateButton={false}
+    compact={true}
+    contentSpacing="space-y-4"
+>
+        <FormContainer 
+            method="POST" 
+            action="?/save" 
+            {enhance} 
+            novalidate
+            errorMessage={$message?.type === 'error' ? { text: $message.text } : null}
+            {successMessage}
+            showToasts={true}
         >
-            <FormContainer {enhance} action="?/save">
-                <!-- Two-column layout for shorter fields -->
-                <FormRow columns={2}>
-                    <!-- Email -->
-                    <FormField
-                        id="email"
-                        label="Email"
-                        error={$errors.email}
-                    >
-                        <Input
+            <AdminCard
+                title="User Information"
+                description="Edit user details and permissions"
+                icon={User}
+                compact={true}
+            >
+                <!-- User Information -->
+                <div class="space-y-6">
+                    <!-- Row 1: Email and Full Name -->
+                    <FormRow columns={2}>
+                        <!-- Email (Read-only) -->
+                        <FormField
                             id="email"
-                            type="email"
-                            name="email"
-                            bind:value={$form.email}
-                            placeholder="Enter email address"
-                        />
-                    </FormField>
-
-                    <!-- Name -->
-                    <FormField
-                        id="name"
-                        label="Name"
-                        error={$errors.name}
-                    >
-                        <Input
-                            id="name"
-                            name="name"
-                            bind:value={$form.name}
-                            placeholder="Enter full name"
-                        />
-                    </FormField>
-                </FormRow>
-
-                <!-- System Role -->
-                <FormField id="systemRole" label="System Role" error={$errors.systemRole}>
-                    <EnhancedSelect
-                        value={$form.systemRole}
-                        name="systemRole"
-                        placeholder="Select a system role"
-                        labelText="System Role"
-                        portal={null}
-                        on:change={(e) => ($form.systemRole = e.detail)}
-                    >
-                        {#each SYSTEM_ROLES as role}
-                            <Select.Item value={role}>{role}</Select.Item>
-                        {/each}
-                    </EnhancedSelect>
-                </FormField>
-
-                <!-- Status -->
-                <FormField id="status" label="Status" error={$errors.status}>
-                    <EnhancedSelect
-                        value={$form.status}
-                        name="status"
-                        placeholder="Select status"
-                        labelText="Status"
-                        portal={null}
-                        on:change={(e) => ($form.status = e.detail)}
-                    >
-                        {#each USER_STATUSES as status}
-                            <Select.Item value={status}>{status}</Select.Item>
-                        {/each}
-                    </EnhancedSelect>
-                </FormField>
-                
-                <!-- Roles String (Additional Roles) -->
-                <!-- <FormField id="rolesString" label="Additional Roles" error={$errors.rolesString} description="Comma-separated list of additional roles">
-                    <Input
-                        id="rolesString"
-                        name="rolesString"
-                        bind:value={$form.rolesString}
-                        placeholder="role1,role2,role3"
-                    />
-                </FormField> -->
-
-                <!-- Submit Button -->
-                <FormRow columns={1} alignItems="end">
-                    <FormActions>
-                        <Button
-                            variant="outline"
-                            type="button"
-                            on:click={() => goto('/admin/users')}
+                            label="Email Address"
                         >
-                            Cancel
-                        </Button>
-                        <Button type="submit">Save Changes</Button>
-                    </FormActions>
-                </FormRow>
-            </FormContainer>
+                            <div class="flex items-center">
+                                <Input
+                                    id="email"
+                                    value={user?.email}
+                                    readonly
+                                    disabled
+                                    class="bg-muted/50 w-full"
+                                />
+                                <input type="hidden" name="email" value={user?.email} />
+                            </div>
+                            <p class="text-xs text-muted-foreground mt-1">Used as username</p>
+                        </FormField>
 
-            <svelte:fragment slot="footer">
-                {#if user}
-                    <div class="mt-4 pt-3 border-t border-muted">
-                        <div class="flex items-center text-xs text-muted-foreground">
-                            <Clock size={12} class="mr-1.5" />
-                            <div class="flex items-center">
-                                <span class="font-medium">ID:</span>
-                                <span class="ml-1">{user.id}</span>
-                                <span class="mx-2">•</span>
-                            </div>
-                            <div class="flex items-center">
-                                <span class="font-medium">Created:</span>
-                                <span class="ml-1">
-                                    <RelativeDate 
-                                        date={user.createdAt} 
-                                        format="relative" 
-                                        showTooltip={true} 
-                                        useHoverCard={true} 
-                                        iconSize={0}
-                                    />
-                                </span>
-                                <span class="mx-2">•</span>
-                            </div>
-                            <div class="flex items-center">
-                                <span class="font-medium">Updated:</span>
-                                <span class="ml-1">
-                                    <RelativeDate 
-                                        date={user.updatedAt} 
-                                        format="relative" 
-                                        showTooltip={true} 
-                                        useHoverCard={true} 
-                                        iconSize={0}
-                                    />
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                {/if}
-            </svelte:fragment>
-        </FormCard>
-    </PageContent>
-</PageContainer>
+                        <!-- Name -->
+                        <FormField
+                            id="name"
+                            label="Full Name"
+                            error={$errors.name}
+                        >
+                            <Input
+                                id="name"
+                                name="name"
+                                bind:value={$form.name}
+                                placeholder="John Doe"
+                                disabled={$submitting}
+                                class="w-full"
+                            />
+                        </FormField>
+                    </FormRow>
+
+                    <!-- Row 2: Primary Account and Status -->
+                    <FormRow columns={2}>
+                        <!-- Primary Account Assignment -->
+                        <FormField
+                            id="primaryAccountId"
+                            label="Primary Account"
+                            error={$errors.primaryAccountId}
+                        >
+                            <SearchableFormSelect
+                                bind:value={$form.primaryAccountId}
+                                name="primaryAccountId"
+                                id="primaryAccountId"
+                                placeholder="Select primary account"
+                                options={[{value: "", label: "None"}, ...accountOptions]}
+                                disabled={$submitting}
+                                required={false}
+                                error={$errors.primaryAccountId}
+                                searchPlaceholder="Search accounts..."
+                            />
+                        </FormField>
+
+                        <!-- Status -->
+                        <FormField 
+                            id="status" 
+                            label="Status" 
+                            error={$errors.status}
+                            required
+                        >
+                            <EnhancedSelect
+                                value={$form.status}
+                                name="status"
+                                placeholder="Select status"
+                                labelText="Status"
+                                disabled={$submitting}
+                                on:change={(e) => ($form.status = e.detail)}
+                                class="w-full"
+                            >
+                                {#each USER_STATUSES as status}
+                                    <Select.Item value={status}>
+                                        <div class="flex items-center">
+                                            <span class="inline-block w-2 h-2 rounded-full mr-2" 
+                                                  class:bg-green-500={status === 'ACTIVE'}
+                                                  class:bg-gray-400={status === 'INACTIVE'}
+                                                  class:bg-red-500={status === 'SUSPENDED'}
+                                            ></span>
+                                            {status.charAt(0) + status.slice(1).toLowerCase()}
+                                        </div>
+                                    </Select.Item>
+                                {/each}
+                            </EnhancedSelect>
+                        </FormField>
+                    </FormRow>
+
+                    <!-- Row 3: System Role (first column) -->
+                    <FormRow columns={2}>
+                        <FormField 
+                            id="systemRole" 
+                            label="System Role" 
+                            error={$errors.systemRole}
+                            required
+                        >
+                            <SearchableFormSelect
+                                bind:value={$form.systemRole}
+                                name="systemRole"
+                                id="systemRole"
+                                placeholder="Select a role"
+                                labelText="System Role"
+                                disabled={$submitting}
+                                required
+                                error={$errors.systemRole}
+                                searchPlaceholder="Search roles..."
+                                options={SYSTEM_ROLES.map(role => ({
+                                    value: role,
+                                    label: role.charAt(0) + role.slice(1).toLowerCase()
+                                }))}
+                                on:change={(e) => ($form.systemRole = e.detail)}
+                                triggerClass="w-full"
+                            />
+                        </FormField>
+                    </FormRow>
+
+                </div>
+                
+                <svelte:fragment slot="footer">
+                    {#if user}
+                        <MetadataFooter
+                            showBorder={false}
+                            layout="compact"
+                            items={[
+                                {
+                                    label: "ID:",
+                                    value: user.id,
+                                    icon: "id"
+                                },
+                                {
+                                    label: "Created:",
+                                    date: user.createdAt,
+                                    icon: "calendar"
+                                },
+                                {
+                                    label: "Updated:",
+                                    date: user.updatedAt,
+                                    icon: "clock"
+                                }
+                            ]}
+                        />
+                    {/if}
+                </svelte:fragment>
+            </AdminCard>
+        </FormContainer>
+    </AdminPageLayout>

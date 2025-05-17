@@ -20,7 +20,13 @@
         Activity,
         BugOff,
         Zap,
-        Layers
+        Layers,
+
+        Lock,
+
+        Ticket
+
+
     } from "lucide-svelte";
 
     export let className = "";
@@ -42,7 +48,12 @@
     }
 
     const mainMenuItems: MenuItem[] = [
-        { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { 
+            href: "/admin/dashboard", 
+            label: "Dashboard", 
+            icon: LayoutDashboard,
+            subItems: [] 
+        },
         {
             label: "IOT",
             icon: Network,
@@ -79,10 +90,24 @@
             subItems: [
                 { href: "/admin/settings/general", label: "General", icon: Settings2 },
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
+                
+            ]
+        },
+        { 
+            label: "Security", 
+            icon: Lock, 
+            initialExpanded: true,
+            subItems: [
+                { href: "/admin/settings/jwt_tokens", label: "JWT Tokens", icon: Ticket },
                 { href: "/admin/settings/api_keys", label: "API Keys", icon: Key }
             ]
         },
-        { href: "/admin/monitor", label: "Monitor", icon: Activity },
+        { 
+            href: "/admin/monitor", 
+            label: "Monitor", 
+            icon: Activity,
+            subItems: [] 
+        },
         {
             label: "Debug",
             icon: BugOff,

@@ -17,6 +17,22 @@ There's 3 distinct UI
 - Marketing
 - App
 - Admin
+For Admin Pages
+- Use AdminPageLayout for admin pages
+- For listing pages as strict templates
+    - Use src/routes/admin/accounts/groups/+page.svelte
+    - Use src/routes/admin/accounts/groups/+page.server.ts
+    - Use src/routes/admin/accounts/groups/+table.ts
+- For detail pages as strict templates
+    - Use src/routes/admin/accounts/groups/[id]/+page.svelte
+    - Use src/routes/admin/accounts/groups/[id]/+page.server.ts
+- for add pages as strict templates
+    - Use src/routes/admin/accounts/groups/+new/+page.svelte
+    - Use src/routes/admin/accounts/groups/+new/+page.server.ts
+- All admin server side code must use restrict for security purpose
+- As much as possible use custom form components at src/lib/components/ui_components_sveltekit/form
+    - We can add new components to the form folder if needed or update as needed to fit requirements
+
 If in doubt, see the ws-gateway project for reference
 1. Uses SvelteKit
 2. Uses Vite
@@ -33,3 +49,4 @@ If in doubt, see the ws-gateway project for reference
 12. Uses svelte-persisted-store
 13. Uses svelte-headless-table
 14. Uses @faker-js/faker
+

@@ -6,33 +6,32 @@
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import AccountsTable from "./table.svelte";
-    import { Card } from "$lib/components/ui/card";
+    import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "$lib/components/ui/card";
+    import { page } from "$app/stores";
+    import { onMount } from "svelte";
     
-    // Mock data for the accounts table
-    const accounts = [
-        { id: 1, name: 'Account 1', status: 'Active', createdAt: '2025-05-01', updatedAt: '2025-05-13' },
-        { id: 2, name: 'Account 2', status: 'Inactive', createdAt: '2025-04-15', updatedAt: '2025-05-10' },
-        { id: 3, name: 'Account 3', status: 'Active', createdAt: '2025-03-22', updatedAt: '2025-05-05' },
-        { id: 4, name: 'Account 4', status: 'Pending', createdAt: '2025-05-10', updatedAt: '2025-05-12' },
-        { id: 5, name: 'Account 5', status: 'Active', createdAt: '2025-04-30', updatedAt: '2025-05-11' }
-    ];
+    // Get data from page data
+    export let data;
     
-    // Mock metadata for pagination
-    const meta = {
-        totalItems: 5,
-        itemsPerPage: 10,
-        totalPages: 1,
-        currentPage: 1
+    // Set up table props
+    let tableProps = {
+        records: data.accounts,
+        pagination: data.pagination,
+        sort: data.sort,
+        loading: false
     };
-    
-    let loading = false;
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        "Accounts",
+        ["Accounts", "/admin/accounts/accounts"],
         "Accounts List"
     ];
+    
+    // Handle page load
+    onMount(() => {
+        // Any initialization code here
+    });
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -41,18 +40,16 @@
             <ActionButton
                 label="Add Account"
                 icon={Plus}
-                onClick={() => goto('/admin/accounts/accounts/new')}
+                href="/admin/accounts/accounts/new"
             />
         </svelte:fragment>
     </PageHeader>
     
     <PageContent>
-        <Card class="w-full">
-            <AccountsTable 
-                accounts={accounts}
-                meta={meta}
-                loading={loading}
-            />
-        </Card>
+        
+            
+                <AccountsTable props={tableProps} />
+            
+        
     </PageContent>
 </PageContainer>

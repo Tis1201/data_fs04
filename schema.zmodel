@@ -35,6 +35,7 @@ model Account {
   groups        Group[]
   devices       Device[]  // Devices owned by this account
   apiKeys       ApiKey[] // API keys associated with this account
+  primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
   
   // Authorization rules
   @@allow('create', auth().systemRole == 'ADMIN')
@@ -143,22 +144,30 @@ model User {
   updatedAt     DateTime  @updatedAt
   email         String    @unique
   password      String
-  rolesString   String    @default("")  // Store as comma-separated string
-  systemRole    String    @default("USER")  // Can be: "SUPER_ADMIN", "ADMIN", "USER"
+  rolesString   String    @default("")  // Comma-separated list of roles
+  systemRole    String    @default("USER")  // SUPER_ADMIN, ADMIN, USER
+  primaryAccountId String? // Primary account for this user
+  
+  // Relationships
   sessions      Session[]
   keys          Key[]
   apiKeys       ApiKey[]
   whatsappAccounts WhatsAppAccount[]
   listeners     ListenerEndpoint[]
-  devices       Device[]
+  devices       Device[]  // Devices created by this user
   accountMemberships AccountMembership[]
-  
+  primaryAccount Account? @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  invitationTokens InvitationToken[]
+
+
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   @@allow('read', auth() != null)  // Authenticated users can read
   @@allow('create', true)  // Anyone can create (signup)
   @@allow('update', auth().id == id)  // Users can update their own data
   @@allow('delete', false)  // Only admin can delete (covered by 'all' rule above)
+  
+  @@index([primaryAccountId])
 }
 
 model Session {
@@ -481,4 +490,21 @@ model EmailServiceProvider {
   @@index([isActive])
   @@index([isDefault])
   @@index([type])
+}
+
+model InvitationToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  user      User      @relation(fields: [userId], references: [id])
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Zenstack permissions
+  @@allow('create', auth() == null || auth().systemRole == "ADMIN")
+  @@allow('read', auth() == null || auth().systemRole == "ADMIN")
+  @@allow('update', auth().systemRole == "ADMIN")
+  @@allow('delete', auth().systemRole == "ADMIN")
 }
