@@ -23,6 +23,7 @@ export const load = restrict(
                     systemRole: true,
                     status: true,
                     rolesString: true,
+                    primaryAccountId: true,
                     createdAt: true,
                     updatedAt: true,
                     accountMemberships: {
@@ -60,10 +61,10 @@ export const load = restrict(
             // Get current account memberships
             const currentAccountIds = user.accountMemberships.map(m => m.accountId);
             
-            // Determine primary account (if any)
-            // For simplicity, we'll consider the first account as primary
-            const primaryAccountId = user.accountMemberships.length > 0 ? 
-                user.accountMemberships[0].accountId : null;
+            // Use the primaryAccountId from the user record if available,
+            // otherwise fall back to the first account membership
+            const primaryAccountId = user.primaryAccountId || 
+                (user.accountMemberships.length > 0 ? user.accountMemberships[0].accountId : null);
             
             // Initialize form with user data
             const form = await superValidate(
@@ -154,6 +155,8 @@ export const actions: Actions = {
                         systemRole: form.data.systemRole,
                         status: form.data.status,
                         rolesString: form.data.rolesString,
+                        // Set primary account directly in the user record
+                        primaryAccountId: form.data.primaryAccountId || null,
                         updatedAt: new Date()
                     };
                     
@@ -187,8 +190,17 @@ export const actions: Actions = {
                         }
                     });
                     
-                    // Handle primary account membership if provided
+                    // Store the primary account ID for form update
+                    const primaryAccountId = form.data.primaryAccountId;
+                    
+                    // Handle primary account membership
                     if (form.data.primaryAccountId) {
+                        // Log for debugging
+                        logger.info('Processing primary account:', { 
+                            primaryAccountId: form.data.primaryAccountId,
+                            existingMemberships: updatedUser.accountMemberships 
+                        });
+                        
                         // Check if user already has membership in this account
                         const existingMembership = updatedUser.accountMemberships.find(
                             m => m.accountId === form.data.primaryAccountId
@@ -203,12 +215,49 @@ export const actions: Actions = {
                                     role: 'MEMBER'
                                 }
                             });
+                            
+                            logger.info('Created new account membership', { 
+                                userId: id, 
+                                accountId: form.data.primaryAccountId 
+                            });
                         }
+                        
+                        // Update the user's primaryAccountId directly
+                        await tx.user.update({
+                            where: { id },
+                            data: {
+                                primaryAccountId: form.data.primaryAccountId
+                            }
+                        });
+                        
+                        logger.info('Updated user primary account', {
+                            userId: id,
+                            primaryAccountId: form.data.primaryAccountId
+                        });
+                    } else {
+                        // Clear the primary account if none is selected
+                        await tx.user.update({
+                            where: { id },
+                            data: {
+                                primaryAccountId: null
+                            }
+                        });
+                        
+                        logger.info('Cleared user primary account', { userId: id });
                     }
                     
-                    logger.info('User updated successfully', { userId: id });
+                    logger.info('User updated successfully', { userId: id, primaryAccountId });
                     
-                    return message(form, {
+                    // Create a new form with the updated data including primaryAccountId
+                    const updatedFormData = {
+                        ...form.data,
+                        primaryAccountId: primaryAccountId || null
+                    };
+                    
+                    // Create a new validated form
+                    const updatedForm = await superValidate(updatedFormData, zod(userEditSchema));
+                    
+                    return message(updatedForm, {
                         type: 'success',
                         text: 'User updated successfully'
                     });

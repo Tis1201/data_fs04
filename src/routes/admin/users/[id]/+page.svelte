@@ -23,6 +23,7 @@
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableSelect.svelte";
     
     // Other Components
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
@@ -166,18 +167,14 @@
                             error={$errors.primaryAccountId}
                         >
                             <EnhancedSelect
-                                value={$form.primaryAccountId}
+                                bind:value={$form.primaryAccountId}
                                 name="primaryAccountId"
                                 placeholder="Select primary account"
-                                labelText="Account"
+                                options={[{value: "", label: "None"}, ...accountOptions]}
                                 disabled={$submitting}
-                                on:change={(e) => ($form.primaryAccountId = e.detail)}
-                            >
-                                <Select.Item value="">None</Select.Item>
-                                {#each accountOptions as option}
-                                    <Select.Item value={option.value}>{option.label}</Select.Item>
-                                {/each}
-                            </EnhancedSelect>
+                                required={false}
+                                on:change={(e) => console.log('Primary account changed:', e.detail)}
+                            />
                         </FormField>
                     </FormRow>
 
