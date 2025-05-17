@@ -62,28 +62,19 @@
         label: account.name
     }));
 
-    // Success message state
-    let successMessage: { type: 'success', text: string } | null = null;
-    
     // Initialize form with superForm
     const { form, errors, enhance, submitting, message } = superForm(data.form, {
         taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
         onResult: ({ result }) => {
             if (result.type === "success") {
-                // Set success message
-                successMessage = {
-                    type: 'success',
-                    text: result.data?.text || "User updated successfully"
-                };
-                // Use AlertMessage component instead of toast
+                // Redirect after a short delay
                 setTimeout(() => goto("/admin/users"), 1500);
             }
-        },
-        onError: ({ result }) => {
-            successMessage = null;
-            toast.error(result.data?.text || "Failed to update user");
         }
     });
+    
+    // Track success message for FormContainer
+    $: successMessage = $message?.type === 'success' ? { text: $message.text } : null;
     
     // Function to handle password reset
     const handleResetPassword = () => {
@@ -127,8 +118,9 @@
             action="?/save" 
             {enhance} 
             novalidate
-            errorMessage={$message}
-            successMessage={successMessage}
+            errorMessage={$message?.type === 'error' ? { text: $message.text } : null}
+            {successMessage}
+            showToasts={true}
         >
             <AdminCard
                 title="User Information"

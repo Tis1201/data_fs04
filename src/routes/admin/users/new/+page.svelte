@@ -33,13 +33,16 @@
     // Import the reusable form handler
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     
-    // Create a form handler with standardized error handling
-    const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
+    // Create a form handler with standardized error handling and Sonner notifications
+    const { form, errors, enhance, submitting, constraints, errorMessage, successMessage } = createFormHandler(data.form, {
         successRedirect: '/admin/users',
         validateOnInput: true,
-        onSuccess: () => {
-            // Toast is handled by the success message
-        }
+        onSuccess: () => ({
+            text: 'User created successfully'
+        }),
+        onError: (error) => ({
+            text: error?.message || 'Failed to create user'
+        })
     });
 
     // Role options for the select dropdown
@@ -87,7 +90,9 @@
       action="?/create" 
       {enhance} 
       novalidate 
-      errorMessage={$errorMessage}
+      errorMessage={$errorMessage?.text ? { text: $errorMessage.text } : null}
+      {successMessage}
+      showToasts={true}
     >
       <AdminCard
         title="User Information"
