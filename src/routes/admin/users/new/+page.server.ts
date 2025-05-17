@@ -104,16 +104,13 @@ export const actions: Actions = {
                     details: `User '${newUser.email}' has been created.`
                 };
                 
-                // If we generated a password (not user-provided), include it in the response
-                if (!form.data.password) {
-                    return {
-                        form,
-                        message: successMessage,
-                        generatedPassword: tempPassword
-                    };
-                }
-                
-                return message(form, successMessage);
+                // Return the user data along with the form and success message
+                return {
+                    form,
+                    message: successMessage,
+                    generatedPassword: tempPassword,
+                    user: newUser // Include the created user data for the invitation dialog
+                };
                 
             } catch (err) {
                 logger.error(`Error creating user: ${err}`);

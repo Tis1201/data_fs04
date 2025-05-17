@@ -1,17 +1,15 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import { ArrowLeft, Save, User, Copy, Check } from "lucide-svelte";
-  import { Button } from "$lib/components/ui/button";
+  import { ArrowLeft, Save, User, Copy, Check, Link } from "lucide-svelte";
   import { Input } from "$lib/components/ui/input";
   import EnhancedPasswordInput from "$lib/components/ui_components_sveltekit/form/EnhancedPasswordInput.svelte";
-  import { Skeleton } from "$lib/components/ui/skeleton";
-
+  import InvitationLinkDialog from "$lib/components/ui_components_sveltekit/dialog/InvitationLinkDialog.svelte";
+  
   // Import the correct AdminPageLayout component with actionButtons support
   import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
   import AdminCard from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminCard.svelte";
-  import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
-
+  
   // Import form components
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
@@ -35,6 +33,12 @@
 
   // Get the server-generated password from the page data
   let generatedPassword = data.generatedPassword || "";
+  
+  // Invitation dialog state
+  let showInvitationDialog = false;
+  let createdUserId = "";
+  let createdUserEmail = "";
+  let invitationToken = "";
 
   // Create a form handler with standardized error handling and Sonner notifications
   const {
@@ -46,20 +50,46 @@
     errorMessage,
     successMessage,
   } = createFormHandler(data.form, {
-    successRedirect: "/admin/users",
+    // Don't automatically redirect, we'll handle it after showing the dialog
     validateOnInput: true,
     onSuccess: (result) => {
-      // Check if server returned a generated password
-      if (result?.data?.generatedPassword) {
-        generatedPassword = result.data.generatedPassword;
-        // Show the generated password in a toast
-        toast.success(
-          `User created with password: ${generatedPassword}`,
-          { duration: 10000 }, // Show for 10 seconds
-        );
+      // Always prevent automatic redirect
+      const redirectFlag = false;
+      
+      // Check if server returned user data
+      if (result?.data) {
+        // Store the generated password if available
+        if (result.data.generatedPassword) {
+          generatedPassword = result.data.generatedPassword;
+        }
+        
+        // Store user data for the invitation dialog
+        if (result.data.user) {
+          createdUserId = result.data.user.id;
+          createdUserEmail = result.data.user.email;
+          
+          // Generate a simple token (in a real app, this would be a JWT from the server)
+          invitationToken = btoa(JSON.stringify({
+            userId: createdUserId,
+            email: createdUserEmail,
+            exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours from now
+          }));
+          
+          // Show the invitation dialog
+          showInvitationDialog = true;
+          
+          // Return success message with redirect flag
+          return {
+            text: "User created successfully",
+            redirect: redirectFlag
+          };
+        }
       }
+      
+      // Even if we don't show the dialog, prevent redirect
       return {
         text: "User created successfully",
+        redirect: redirectFlag
       };
     },
     onError: (error) => ({
@@ -190,3 +220,15 @@
     </AdminCard>
   </FormContainer>
 </AdminPageLayout>
+
+<!-- Invitation Link Dialog -->
+<InvitationLinkDialog
+  bind:open={showInvitationDialog}
+  userId={createdUserId}
+  userEmail={createdUserEmail}
+  invitationToken={invitationToken}
+  onClose={() => {
+    // Redirect to users list after closing the dialog
+    goto('/admin/users');
+  }}
+/>
