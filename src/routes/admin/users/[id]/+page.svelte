@@ -3,6 +3,9 @@
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     
+    // Alert Components
+    import AlertMessage from "$lib/components/ui_components_sveltekit/alerts/AlertMessage.svelte";
+    
     // UI Components
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
@@ -59,16 +62,25 @@
         label: account.name
     }));
 
+    // Success message state
+    let successMessage: { type: 'success', text: string } | null = null;
+    
     // Initialize form with superForm
     const { form, errors, enhance, submitting, message } = superForm(data.form, {
         taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
         onResult: ({ result }) => {
             if (result.type === "success") {
-                toast.success(result.data?.text || "User updated successfully");
-                setTimeout(() => goto("/admin/users"), 800);
+                // Set success message
+                successMessage = {
+                    type: 'success',
+                    text: result.data?.text || "User updated successfully"
+                };
+                // Use AlertMessage component instead of toast
+                setTimeout(() => goto("/admin/users"), 1500);
             }
         },
         onError: ({ result }) => {
+            successMessage = null;
             toast.error(result.data?.text || "Failed to update user");
         }
     });
@@ -80,42 +92,43 @@
     };
 </script>
 
-    <AdminPageLayout
-        {title}
-        crumbs={pageCrumbs}
-        actionButtons={[
-            {
-                label: "Cancel",
-                icon: ArrowLeft,
-                onClick: () => goto('/admin/users'),
-                variant: "outline"
-            },
-            {
-                label: "Reset Password",
-                icon: ShieldCheck,
-                onClick: handleResetPassword,
-                variant: "outline"
-            },
-            {
-                label: "Save",
-                icon: Save,
-                onClick: () => {
-                    const form = document.querySelector('form[action="?/save"]');
-                    if (form) form.requestSubmit();
-                }
+<AdminPageLayout
+    {title}
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Cancel",
+            icon: ArrowLeft,
+            onClick: () => goto('/admin/users'),
+            variant: "outline"
+        },
+        {
+            label: "Reset Password",
+            icon: ShieldCheck,
+            onClick: handleResetPassword,
+            variant: "outline"
+        },
+        {
+            label: "Save",
+            icon: Save,
+            onClick: () => {
+                const form = document.querySelector('form[action="?/save"]');
+                if (form) form.requestSubmit();
             }
-        ]}
-        loading={$submitting}
-        showCreateButton={false}
-        compact={true}
-        contentSpacing="space-y-4"
-    >
+        }
+    ]}
+    loading={$submitting}
+    showCreateButton={false}
+    compact={true}
+    contentSpacing="space-y-4"
+>
         <FormContainer 
             method="POST" 
             action="?/save" 
             {enhance} 
             novalidate
             errorMessage={$message}
+            successMessage={successMessage}
         >
             <AdminCard
                 title="User Information"

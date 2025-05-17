@@ -1,7 +1,7 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
-    import { ArrowLeft, Save, User, Mail, Lock, Shield, Activity } from "lucide-svelte";
+    import { ArrowLeft, Save, User } from "lucide-svelte";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { PasswordInput } from "$lib/components/ui/password-input";
@@ -98,96 +98,66 @@
         <div class="space-y-6">
           <FormRow columns={2}>
             <FormField id="email" label="Email" error={$errors.email}>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <Mail class="w-4 h-4 text-muted-foreground" />
-                </div>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  bind:value={$form.email}
-                  placeholder="user@example.com"
-                  aria-invalid={$errors.email ? 'true' : undefined}
-                  class="pl-10"
-                  {...$constraints.email}
-                />
-              </div>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                bind:value={$form.email}
+                placeholder="user@example.com"
+                aria-invalid={$errors.email ? 'true' : undefined}
+                {...$constraints.email}
+              />
             </FormField>
 
             <FormField id="name" label="Name" error={$errors.name}>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <User class="w-4 h-4 text-muted-foreground" />
-                </div>
-                <Input
-                  id="name"
-                  name="name"
-                  type="text"
-                  bind:value={$form.name}
-                  placeholder="John Doe"
-                  aria-invalid={$errors.name ? 'true' : undefined}
-                  class="pl-10"
-                  {...$constraints.name}
-                />
-              </div>
+              <Input
+                id="name"
+                name="name"
+                type="text"
+                bind:value={$form.name}
+                placeholder="John Doe"
+                aria-invalid={$errors.name ? 'true' : undefined}
+                {...$constraints.name}
+              />
             </FormField>
           </FormRow>
 
 
           <FormRow columns={2}>
             <FormField id="password" label="Password" error={$errors.password}>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <Lock class="w-4 h-4 text-muted-foreground" />
-                </div>
-                <PasswordInput
-                  id="password"
-                  name="password"
-                  bind:value={$form.password}
-                  placeholder="Enter password"
-                  aria-invalid={$errors.password ? 'true' : undefined}
-                  class="pl-10"
-                  {...$constraints.password}
-                />
-              </div>
+              <PasswordInput
+                id="password"
+                name="password"
+                bind:value={$form.password}
+                placeholder="Enter password"
+                aria-invalid={$errors.password ? 'true' : undefined}
+                {...$constraints.password}
+              />
               <p class="text-xs text-muted-foreground mt-1">
                 Leave empty to generate a secure temporary password
               </p>
             </FormField>
 
             <FormField id="role" label="Role" error={$errors.role}>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <Shield class="w-4 h-4 text-muted-foreground" />
-                </div>
-                <EnhancedSelect
-                  name="role"
-                  options={roleOptions}
-                  bind:value={$form.role}
-                  aria-invalid={$errors.role ? 'true' : undefined}
-                  class="pl-10"
-                  {...$constraints.role}
-                />
-              </div>
+              <EnhancedSelect
+                name="role"
+                options={roleOptions}
+                bind:value={$form.role}
+                aria-invalid={$errors.role ? 'true' : undefined}
+                {...$constraints.role}
+              />
             </FormField>
           </FormRow>
 
           <FormRow columns={2}>
             <FormField id="status" label="Status" error={$errors.status}>
-              <div class="relative">
-                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                  <Activity class="w-4 h-4 text-muted-foreground" />
-                </div>
-                <EnhancedSelect
-                  name="status"
-                  options={statusOptions}
-                  bind:value={$form.status}
-                  aria-invalid={$errors.status ? 'true' : undefined}
-                  class="pl-10"
-                  {...$constraints.status}
-                />
-              </div>
+              <EnhancedSelect
+                name="status"
+                options={statusOptions}
+                bind:value={$form.status}
+                aria-invalid={$errors.status ? 'true' : undefined}
+                {...$constraints.status}
+              />
             </FormField>
           </FormRow>
         </div>
