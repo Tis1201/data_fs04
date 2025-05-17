@@ -1,11 +1,8 @@
 <script lang="ts">
     import { Plus } from "lucide-svelte";
     import { goto } from "$app/navigation";
-    import { page } from "$app/stores";
     import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
-    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import GroupsTable from "./table.svelte";
-    import { Card } from "$lib/components/ui/card";
     import type { PageData } from "./$types";
     
     // Import page data from server

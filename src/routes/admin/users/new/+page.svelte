@@ -1,19 +1,23 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
+    import { ArrowLeft, Save, User, Mail, Lock, Shield, Activity } from "lucide-svelte";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { PasswordInput } from "$lib/components/ui/password-input";
-    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
-    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-    import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
+    
+    // Import the correct AdminPageLayout component with actionButtons support
+    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminCard.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+    
+    // Import form components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    
     import type { PageData } from "./$types";
     
     export let data: PageData;
@@ -22,11 +26,9 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        "Settings",
         ["Users", "/admin/users"],
-        "New User",
+        "New User"
     ];
-
     
     // Import the reusable form handler
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
@@ -35,9 +37,8 @@
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
         successRedirect: '/admin/users',
         validateOnInput: true,
-        debugMode: true,
-        onSuccess: (result) => {
-            toast.success("User created successfully");
+        onSuccess: () => {
+            // Toast is handled by the success message
         }
     });
 
@@ -54,112 +55,143 @@
     ];
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader {title} />
+<AdminPageLayout
+    {title}
+    crumbs={pageCrumbs}
+    actionButtons={[
+      {
+        label: "Cancel",
+        icon: ArrowLeft,
+        onClick: () => goto('/admin/users'),
+        variant: "outline",
+        class: "h-9"
+      },
+      {
+        label: "Save",
+        icon: Save,
+        onClick: () => {
+          const form = document.querySelector('form[action="?/create"]');
+          if (form) form.requestSubmit();
+        },
+        class: "h-9"
+      }
+    ]}
+    loading={$submitting}
+    showCreateButton={false}
+    compact={true}
+    contentSpacing="space-y-4"
+>
+  <div class="w-full space-y-6">
+    <FormContainer 
+      method="POST" 
+      action="?/create" 
+      {enhance} 
+      novalidate 
+      errorMessage={$errorMessage}
+    >
+      <AdminCard
+        title="User Information"
+        description="Create a new user account with the required permissions"
+        icon={User}
+        compact={true}
+      >
+        <div class="space-y-6">
+          <FormRow columns={2}>
+            <FormField id="email" label="Email" error={$errors.email}>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Mail class="w-4 h-4 text-muted-foreground" />
+                </div>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  bind:value={$form.email}
+                  placeholder="user@example.com"
+                  aria-invalid={$errors.email ? 'true' : undefined}
+                  class="pl-10"
+                  {...$constraints.email}
+                />
+              </div>
+            </FormField>
 
-    <PageContent>
-        <FormContainer 
-            method="POST" 
-            action="?/save" 
-            {enhance} 
-            novalidate 
-            errorMessage={$errorMessage}
-        >
-            
-            <FormCard title="User Information">
-                <FormRow columns={2}>
-                        <FormField id="email" label="Email" error={$errors.email}>
-                            <Input
-                                id="email"
-                                name="email"
-                                type="email"
-                                bind:value={$form.email}
-                                placeholder="user@example.com"
-                                aria-invalid={$errors.email ? 'true' : undefined}
-                                {...$constraints.email}
-                            />
-                        </FormField>
+            <FormField id="name" label="Name" error={$errors.name}>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <User class="w-4 h-4 text-muted-foreground" />
+                </div>
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  bind:value={$form.name}
+                  placeholder="John Doe"
+                  aria-invalid={$errors.name ? 'true' : undefined}
+                  class="pl-10"
+                  {...$constraints.name}
+                />
+              </div>
+            </FormField>
+          </FormRow>
 
-                        <FormField id="name" label="Name" error={$errors.name}>
-                            <Input
-                                id="name"
-                                name="name"
-                                type="text"
-                                bind:value={$form.name}
-                                placeholder="John Doe"
-                                aria-invalid={$errors.name ? 'true' : undefined}
-                                {...$constraints.name}
-                            />
-                        </FormField>
-                    </FormRow>
 
-                <FormRow columns={2}>
-                    <FormField
-                        id="password"
-                        label="Password"
-                        error={$errors.password}
-                    >
-                        <PasswordInput
-                            id="password"
-                            name="password"
-                            bind:value={$form.password}
-                            placeholder="Enter password"
-                            aria-invalid={$errors.password ? 'true' : undefined}
-                            {...$constraints.password}
-                        />
-                        <p class="text-xs text-muted-foreground mt-1">
-                            Leave empty to use default temporary password
-                        </p>
-                    </FormField>
+          <FormRow columns={2}>
+            <FormField id="password" label="Password" error={$errors.password}>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Lock class="w-4 h-4 text-muted-foreground" />
+                </div>
+                <PasswordInput
+                  id="password"
+                  name="password"
+                  bind:value={$form.password}
+                  placeholder="Enter password"
+                  aria-invalid={$errors.password ? 'true' : undefined}
+                  class="pl-10"
+                  {...$constraints.password}
+                />
+              </div>
+              <p class="text-xs text-muted-foreground mt-1">
+                Leave empty to generate a secure temporary password
+              </p>
+            </FormField>
 
-                    <FormField id="role" label="Role" error={$errors.role}>
-                        <EnhancedSelect
-                            name="role"
-                            options={roleOptions}
-                            bind:value={$form.role}
-                            aria-invalid={$errors.role ? 'true' : undefined}
-                            {...$constraints.role}
-                        />
-                    </FormField>
-                </FormRow>
+            <FormField id="role" label="Role" error={$errors.role}>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Shield class="w-4 h-4 text-muted-foreground" />
+                </div>
+                <EnhancedSelect
+                  name="role"
+                  options={roleOptions}
+                  bind:value={$form.role}
+                  aria-invalid={$errors.role ? 'true' : undefined}
+                  class="pl-10"
+                  {...$constraints.role}
+                />
+              </div>
+            </FormField>
+          </FormRow>
 
-                <FormRow columns={2}>
-                    <FormField
-                        id="status"
-                        label="Status"
-                        error={$errors.status}
-                    >
-                        <EnhancedSelect
-                            name="status"
-                            options={statusOptions}
-                            bind:value={$form.status}
-                            aria-invalid={$errors.status ? 'true' : undefined}
-                            {...$constraints.status}
-                        />
-                    </FormField>
-                </FormRow>
-
-                <FormActions>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        on:click={() => goto("/admin/users")}
-                        disabled={$submitting}
-                    >
-                        Cancel
-                    </Button>
-                    <Button type="submit" disabled={$submitting} class="min-w-[120px] relative">
-                        {#if $submitting}
-                            <span class="absolute inset-0 flex items-center justify-center">
-                                <Skeleton class="h-4 w-20" />
-                            </span>
-                            <span class="opacity-0">Create User</span>
-                        {:else}
-                            Create User
-                        {/if}
-                    </Button>
-                </FormActions>
-            </FormCard>
-        </FormContainer>
-    </PageContent>
-</PageContainer>
+          <FormRow columns={2}>
+            <FormField id="status" label="Status" error={$errors.status}>
+              <div class="relative">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                  <Activity class="w-4 h-4 text-muted-foreground" />
+                </div>
+                <EnhancedSelect
+                  name="status"
+                  options={statusOptions}
+                  bind:value={$form.status}
+                  aria-invalid={$errors.status ? 'true' : undefined}
+                  class="pl-10"
+                  {...$constraints.status}
+                />
+              </div>
+            </FormField>
+          </FormRow>
+        </div>
+      </AdminCard>
+    </FormContainer>
+  </div>
+</AdminPageLayout>

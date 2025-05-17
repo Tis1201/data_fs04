@@ -424,25 +424,61 @@ To package the application for deployment as a zip file:
 
 ## Development
 
-### To-dos
-- Add WebRTC Signaling (done)
-- Add WebRTC Offer/Answer (done)
-- Add WebRTC Video (done) 
-- Convert to Pion from aoirtc python (done)
-- Clean up websocket implementation (done)
-- Use SQL to store Whatsapp keys (done)
-- Need a proper router to route ws events to different users (in progress - part of Room Management) (sunset, use direct addressing)
-- Implement Room Management System for WebRTC (sunset, use direct addressing)
+## Project Status
+
+### ✅ Completed Features
+- **WebRTC Implementation**
+  - Signaling server
+  - Offer/Answer negotiation
+  - Video streaming
+  - Python to Go migration (Pion)
+  - WebSocket optimization
+  - WhatsApp key storage in SQL
+
+- **Remote Terminal**
+  - xterm-svelte integration
+  - WebRTC data channel support
+  - Terminal session management
+
+### 🚧 In Progress / Planned
+
+#### Core Platform
+- **User Management**
+  - User invitation system
+    - JWT-based invite links
+    - Email notifications
+  - User lifecycle
+    - Deactivation/Deletion (soft-delete)
+    - Admin impersonation
+    - Audit logging
+    - Terms of Service acceptance tracking
+    - GDPR compliance tools
+
+- **Access Control**
+  - Row-level security
+  - Account-based permissions
+  - Group-based access rules
+
+#### Advanced Features
+- **Computer Vision**
+  - YOLO Open Vocabulary integration
+  - OpenVINO optimization for Mac
+
+- **System Architecture**
+  - Batch processing framework
+  - Resource management
+
+### ❌ Deprecated/Removed
+- Room Management System (replaced with direct addressing)
   - Room creation/deletion
   - User management
   - Session tracking
   - Resource limits
-- Add Remote Terminal Support (in progress)
-  - Using xterm-svelte https://github.com/BattlefieldDuck/xterm-svelte
-  - WebRTC data channel integration
-  - Terminal session management
-- Run yolo-openvobulary on openvino on mac (pending)
-- Batch input architecture (pending)
+
+### 📝 Notes
+- WebSocket routing now uses direct addressing instead of room-based system
+- User management features are being consolidated into a single, comprehensive system
+
 
 
 ## UX and Layout
