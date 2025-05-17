@@ -19,6 +19,7 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import SearchableFormSelect from "$lib/components/ui_components_sveltekit/form/SearchableFormSelect.svelte";
     
     // Other Components
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
@@ -168,14 +169,16 @@
                             label="Primary Account"
                             error={$errors.primaryAccountId}
                         >
-                            <EnhancedSelect
+                            <SearchableFormSelect
                                 bind:value={$form.primaryAccountId}
                                 name="primaryAccountId"
+                                id="primaryAccountId"
                                 placeholder="Select primary account"
                                 options={[{value: "", label: "None"}, ...accountOptions]}
                                 disabled={$submitting}
                                 required={false}
-                                class="w-full"
+                                error={$errors.primaryAccountId}
+                                searchPlaceholder="Search accounts..."
                             />
                         </FormField>
 
@@ -219,23 +222,23 @@
                             error={$errors.systemRole}
                             required
                         >
-                            <EnhancedSelect
-                                value={$form.systemRole}
+                            <SearchableFormSelect
+                                bind:value={$form.systemRole}
                                 name="systemRole"
+                                id="systemRole"
                                 placeholder="Select a role"
                                 labelText="System Role"
                                 disabled={$submitting}
+                                required
+                                error={$errors.systemRole}
+                                searchPlaceholder="Search roles..."
+                                options={SYSTEM_ROLES.map(role => ({
+                                    value: role,
+                                    label: role.charAt(0) + role.slice(1).toLowerCase()
+                                }))}
                                 on:change={(e) => ($form.systemRole = e.detail)}
-                                class="w-full"
-                            >
-                                {#each SYSTEM_ROLES as role}
-                                    <Select.Item value={role}>
-                                        <div class="flex items-center">
-                                            {role}
-                                        </div>
-                                    </Select.Item>
-                                {/each}
-                            </EnhancedSelect>
+                                triggerClass="w-full"
+                            />
                         </FormField>
                     </FormRow>
 
