@@ -1,57 +1,104 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { getEnhancedPrisma } from '$lib/server/prisma';
-import { superValidate } from 'sveltekit-superforms/server';
+import { superValidate, message } from 'sveltekit-superforms/server';
 import { SYSTEM_ROLES, userEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../schema';
 
+/**
+ * Load user data for editing
+ */
 export const load = restrict(
     async ({ params, locals }) => {
         try {
-        // Load existing user
-        const user = await locals.prisma.user.findUnique({
-            where: { id: params.id },
-            select: {
-                id: true,
-                email: true,
-                name: true,
-                systemRole: true,
-                status: true,
-                rolesString: true,
-                createdAt: true,
-                updatedAt: true
+            // Load existing user with account memberships
+            const user = await locals.prisma.user.findUnique({
+                where: { id: params.id },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    systemRole: true,
+                    status: true,
+                    rolesString: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    accountMemberships: {
+                        select: {
+                            accountId: true,
+                            role: true,
+                            account: {
+                                select: {
+                                    name: true
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (!user) {
+                return {
+                    status: 404,
+                    error: 'User not found'
+                };
             }
-        });
 
-        if (!user) {
-            throw error(404, "User not found");
-        }
+            // Load all accounts for dropdown selection
+            const accounts = await locals.prisma.account.findMany({
+                select: {
+                    id: true,
+                    name: true
+                },
+                orderBy: {
+                    name: 'asc'
+                }
+            });
 
-        const form = await superValidate(
-            {
-                id: user.id,
-                email: user.email,
-                name: user.name || "",
-                systemRole: user.systemRole,
-                status: user.status || "ACTIVE",
-                rolesString: user.rolesString || ""
-            }, 
-            zod(userEditSchema)
-        );
+            // Get current account memberships
+            const currentAccountIds = user.accountMemberships.map(m => m.accountId);
+            
+            // Determine primary account (if any)
+            // For simplicity, we'll consider the first account as primary
+            const primaryAccountId = user.accountMemberships.length > 0 ? 
+                user.accountMemberships[0].accountId : null;
+            
+            // Initialize form with user data
+            const form = await superValidate(
+                {
+                    id: user.id,
+                    email: user.email,
+                    name: user.name || '',
+                    systemRole: user.systemRole,
+                    status: user.status || 'ACTIVE',
+                    accountIds: currentAccountIds,
+                    primaryAccountId: primaryAccountId,
+                    rolesString: user.rolesString || '',
+                    password: ''
+                },
+                zod(userEditSchema)
+            );
 
-        return {
-            form,
-            user
-        };
+            return {
+                user,
+                form,
+                accounts,
+                meta: {
+                    roles: SYSTEM_ROLES
+                }
+            };
         } catch (e) {
             logger.error('Error loading user:', e);
-            throw error(500, 'Failed to load user');
+            throw error(500, { message: 'Failed to load user data' });
         }
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    [SystemRole.ADMIN],
+    {
+        redirectTo: '/admin/users',
+        message: 'You do not have permission to edit users'
+    }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
@@ -65,7 +112,10 @@ export const actions: Actions = {
             logger.debug('Update user form data:', form);
 
             if (!form.valid) {
-                return fail(400, { form });
+                return message(form, {
+                    type: 'error',
+                    text: 'Please correct the errors in the form'
+                }, { status: 400 });
             }
 
             try {
@@ -77,10 +127,24 @@ export const actions: Actions = {
                     });
                     
                     if (!existingUser) {
-                        return fail(404, {
-                            form,
-                            error: 'User not found'
+                        return message(form, {
+                            type: 'error',
+                            text: 'User not found'
+                        }, { status: 404 });
+                    }
+                    
+                    // Check for duplicate email
+                    if (form.data.email !== existingUser.email) {
+                        const emailExists = await tx.user.findUnique({
+                            where: { email: form.data.email }
                         });
+                        
+                        if (emailExists) {
+                            return message(form, {
+                                type: 'error',
+                                text: 'Email already in use'
+                            }, { status: 409 });
+                        }
                     }
                     
                     // Prepare update data
@@ -89,8 +153,11 @@ export const actions: Actions = {
                         name: form.data.name || null,
                         systemRole: form.data.systemRole,
                         status: form.data.status,
-                        rolesString: form.data.rolesString
+                        rolesString: form.data.rolesString,
+                        updatedAt: new Date()
                     };
+                    
+                    // Account memberships will be handled separately after user update
                     
                     // Only update password if provided
                     if (form.data.password) {
@@ -99,28 +166,65 @@ export const actions: Actions = {
                     }
                     
                     // Update user
-                    await tx.user.update({
+                    const updatedUser = await tx.user.update({
                         where: { id },
-                        data: updateData
+                        data: updateData,
+                        select: {
+                            id: true,
+                            email: true,
+                            name: true,
+                            systemRole: true,
+                            status: true,
+                            rolesString: true,
+                            createdAt: true,
+                            updatedAt: true,
+                            accountMemberships: {
+                                select: {
+                                    accountId: true,
+                                    role: true
+                                }
+                            }
+                        }
                     });
                     
-                    logger.info('User updated successfully:', { userId: id });
+                    // Handle primary account membership if provided
+                    if (form.data.primaryAccountId) {
+                        // Check if user already has membership in this account
+                        const existingMembership = updatedUser.accountMemberships.find(
+                            m => m.accountId === form.data.primaryAccountId
+                        );
+                        
+                        if (!existingMembership) {
+                            // Create new membership with default role 'MEMBER'
+                            await tx.accountMembership.create({
+                                data: {
+                                    userId: id,
+                                    accountId: form.data.primaryAccountId,
+                                    role: 'MEMBER'
+                                }
+                            });
+                        }
+                    }
                     
-                    return {
-                        form,
-                        success: true
-                    };
+                    logger.info('User updated successfully', { userId: id });
+                    
+                    return message(form, {
+                        type: 'success',
+                        text: 'User updated successfully'
+                    });
                 });
             } catch (e) {
                 logger.error('Error updating user:', e);
-                return fail(500, {
-                    form,
-                    error: 'Failed to update user'
-                });
+                return message(form, {
+                    type: 'error',
+                    text: 'Failed to update user. Please try again.'
+                }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN] // Only allow admin role to update users
-    ),
-
-    
+        [SystemRole.ADMIN],
+        {
+            redirectTo: '/admin/users',
+            message: 'You do not have permission to update users'
+        }
+    )
 };

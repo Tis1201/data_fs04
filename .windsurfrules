@@ -32,6 +32,7 @@ For Admin Pages
 - All admin server side code must use restrict for security purpose
 - As much as possible use custom form components at src/lib/components/ui_components_sveltekit/form
     - We can add new components to the form folder if needed or update as needed to fit requirements
+
 If in doubt, see the ws-gateway project for reference
 1. Uses SvelteKit
 2. Uses Vite

@@ -17,6 +17,9 @@ export const userEditSchema = z.object({
   status: z.enum(userStatuses, {
     required_error: 'Please select a status'
   }).default('ACTIVE'),
+  // Account membership management
+  accountIds: z.array(z.string()).optional().default([]),
+  primaryAccountId: z.string().optional().nullable(),
   // Make password optional for updates
   password: z.string().min(8, 'Password must be at least 8 characters').optional(),
   // Optional field for any additional roles as comma-separated string
