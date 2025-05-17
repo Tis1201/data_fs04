@@ -59,10 +59,15 @@
     // Initialize form with superForm
     const { form, errors, enhance, submitting, message } = superForm(data.form, {
         taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
+        invalidateAll: false, // Prevent automatic invalidation
+        resetForm: false, // Don't reset the form after submission
         onResult: ({ result }) => {
             if (result.type === "success") {
+                // Show success message
+                toast.success(result.data?.message || "User updated successfully");
+                
                 // Redirect after a short delay
-                setTimeout(() => goto("/admin/users"), 1500);
+                setTimeout(() => goto("/admin/users"), 1000);
             }
         }
     });

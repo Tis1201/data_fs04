@@ -32,6 +32,9 @@ function generateSecureTempPassword(): string {
 export const load = restrict(
     async ({ locals }) => {
         try {
+            // Generate a secure password for the form
+            const generatedPassword = generateSecureTempPassword();
+            
             // Initialize the form with the schema and defaults
             const form = await superValidate(zod(createUserSchema), {
                 id: 'user-form',
@@ -39,11 +42,15 @@ export const load = restrict(
                     email: '',
                     name: '',
                     role: 'USER',
-                    status: 'ACTIVE'
+                    status: 'ACTIVE',
+                    password: generatedPassword // Prefill with generated password
                 }
             });
             
-            return { form };
+            return { 
+                form,
+                generatedPassword // Include the generated password in the response
+            };
         } catch (err) {
             logger.error(`Error loading user form: ${err}`);
             throw error(500, 'Failed to load user form');
@@ -90,11 +97,23 @@ export const actions: Actions = {
                 logger.info(`User created: ${newUser.id}`);
                 
                 // Return success with the form data and success message
-                return message(form, {
+                // Include the temporary password in the response if one was generated
+                const successMessage = {
                     type: 'success',
                     text: 'User created successfully',
                     details: `User '${newUser.email}' has been created.`
-                });
+                };
+                
+                // If we generated a password (not user-provided), include it in the response
+                if (!form.data.password) {
+                    return {
+                        form,
+                        message: successMessage,
+                        generatedPassword: tempPassword
+                    };
+                }
+                
+                return message(form, successMessage);
                 
             } catch (err) {
                 logger.error(`Error creating user: ${err}`);
