@@ -7,7 +7,8 @@ import { SystemRole } from '../schema';
 import { logger } from '$lib/server/logger';
 import { createUserSchema } from './schema';
 import { hash } from '@node-rs/argon2';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
+import { addDays } from 'date-fns';
 
 function generateSecureTempPassword(): string {
     const bytes = randomBytes(16); // 16 bytes = 128 bits
@@ -27,6 +28,40 @@ function generateSecureTempPassword(): string {
     
     // Shuffle the password to ensure randomness
     return password.split('').sort(() => Math.random() - 0.5).join('');
+}
+
+/**
+ * Generate a secure invitation token and store it in the database
+ * @param prisma The Prisma client instance
+ * @param userId The ID of the user to create the token for
+ * @param expirationDays Number of days until the token expires
+ * @returns The created invitation token record
+ */
+async function createInvitationToken(prisma: any, userId: string, expirationDays: number = 1) {
+    // Generate a secure random token
+    const randomToken = randomBytes(32).toString('hex');
+    
+    // Hash the token for storage (we'll use the raw token in the URL)
+    const hashedToken = createHash('sha256').update(randomToken).digest('hex');
+    
+    // Calculate expiration date
+    const expiresAt = addDays(new Date(), expirationDays);
+    
+    // Create and store the token in the database
+    const invitationToken = await prisma.invitationToken.create({
+        data: {
+            token: hashedToken,
+            userId: userId,
+            expiresAt: expiresAt
+        }
+    });
+    
+    // Return both the database record and the raw token for the URL
+    return {
+        id: invitationToken.id,
+        expiresAt: invitationToken.expiresAt,
+        rawToken: randomToken
+    };
 }
 
 export const load = restrict(
@@ -94,7 +129,10 @@ export const actions: Actions = {
                     }
                 });
                 
-                logger.info(`User created: ${newUser.id}`);
+                // Generate an invitation token for the new user
+                const invitationToken = await createInvitationToken(locals.prisma, newUser.id);
+                
+                logger.info(`User created: ${newUser.id} with invitation token: ${invitationToken.id}`);
                 
                 // Return success with the form data and success message
                 // Include the temporary password in the response if one was generated
@@ -109,7 +147,12 @@ export const actions: Actions = {
                     form,
                     message: successMessage,
                     generatedPassword: tempPassword,
-                    user: newUser // Include the created user data for the invitation dialog
+                    user: newUser, // Include the created user data for the invitation dialog
+                    invitationToken: {
+                        id: invitationToken.id,
+                        token: invitationToken.rawToken,
+                        expiresAt: invitationToken.expiresAt
+                    }
                 };
                 
             } catch (err) {

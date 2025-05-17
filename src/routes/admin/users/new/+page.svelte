@@ -39,6 +39,7 @@
   let createdUserId = "";
   let createdUserEmail = "";
   let invitationToken = "";
+  let invitationTokenExpiry = new Date();
 
   // Create a form handler with standardized error handling and Sonner notifications
   const {
@@ -64,16 +65,13 @@
         }
         
         // Store user data for the invitation dialog
-        if (result.data.user) {
+        if (result.data.user && result.data.invitationToken) {
           createdUserId = result.data.user.id;
           createdUserEmail = result.data.user.email;
           
-          // Generate a simple token (in a real app, this would be a JWT from the server)
-          invitationToken = btoa(JSON.stringify({
-            userId: createdUserId,
-            email: createdUserEmail,
-            exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours from now
-          }));
+          // Use the server-generated invitation token
+          invitationToken = result.data.invitationToken.token;
+          invitationTokenExpiry = new Date(result.data.invitationToken.expiresAt);
           
           // Show the invitation dialog
           showInvitationDialog = true;
@@ -227,6 +225,7 @@
   userId={createdUserId}
   userEmail={createdUserEmail}
   invitationToken={invitationToken}
+  expiresAt={invitationTokenExpiry}
   onClose={() => {
     // Redirect to users list after closing the dialog
     goto('/admin/users');

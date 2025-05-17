@@ -113,6 +113,7 @@ model User {
   devices            Device[]
   accountMemberships AccountMembership[]
   primaryAccount     Account?            @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  invitationTokens   InvitationToken[]
 
   @@index([primaryAccountId])
 }
@@ -341,4 +342,15 @@ model EmailServiceProvider {
   @@index([isActive])
   @@index([isDefault])
   @@index([type])
+}
+
+model InvitationToken {
+  id        String    @id() @default(cuid())
+  token     String    @unique()
+  user      User      @relation(fields: [userId], references: [id])
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt()
 }
