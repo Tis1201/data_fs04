@@ -22,7 +22,8 @@
     
     // Other Components
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    
+    import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
+
     import type { PageData } from "./$types";
     import { SYSTEM_ROLES, USER_STATUSES } from "./schema";
 
@@ -210,8 +211,8 @@
                         </FormField>
                     </FormRow>
 
-                    <!-- Row 3: System Role (full width) -->
-                    <div class="w-full">
+                    <!-- Row 3: System Role (first column) -->
+                    <FormRow columns={2}>
                         <FormField 
                             id="systemRole" 
                             label="System Role" 
@@ -236,46 +237,35 @@
                                 {/each}
                             </EnhancedSelect>
                         </FormField>
-                    </div>
+                    </FormRow>
 
                 </div>
+                
+                <svelte:fragment slot="footer">
+                    {#if user}
+                        <MetadataFooter
+                            showBorder={false}
+                            layout="compact"
+                            items={[
+                                {
+                                    label: "ID:",
+                                    value: user.id,
+                                    icon: "id"
+                                },
+                                {
+                                    label: "Created:",
+                                    date: user.createdAt,
+                                    icon: "calendar"
+                                },
+                                {
+                                    label: "Updated:",
+                                    date: user.updatedAt,
+                                    icon: "clock"
+                                }
+                            ]}
+                        />
+                    {/if}
+                </svelte:fragment>
             </AdminCard>
         </FormContainer>
-        
-        {#if user}
-            <AdminCard
-                title="User Metadata"
-                description="System information"
-                icon={Clock}
-                compact={true}
-            >
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div class="p-3 bg-muted/50 rounded-md">
-                        <div class="font-medium mb-1">User ID</div>
-                        <div class="font-mono text-xs text-muted-foreground break-all">{user.id}</div>
-                    </div>
-                    <div class="p-3 bg-muted/50 rounded-md">
-                        <div class="font-medium mb-1">Created</div>
-                        <RelativeDate 
-                            date={user.createdAt} 
-                            format="relative" 
-                            showTooltip={true} 
-                            useHoverCard={true} 
-                            iconSize={0}
-                        />
-                    </div>
-                    <div class="p-3 bg-muted/50 rounded-md">
-                        <div class="font-medium mb-1">Last Updated</div>
-                        <RelativeDate 
-                            date={user.updatedAt} 
-                            format="relative" 
-                            showTooltip={true} 
-                            useHoverCard={true} 
-                            iconSize={0}
-                        />
-                    </div>
-                </div>
-            </AdminCard>
-        {/if}
     </AdminPageLayout>
-

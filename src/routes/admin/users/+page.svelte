@@ -1,5 +1,6 @@
 <script lang="ts">
     import { Plus, UserPlus, FileText, Download, Upload, Settings } from "lucide-svelte";
+    import { MailPlus } from 'lucide-svelte';
     import { goto } from "$app/navigation";
     import { onMount } from "svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
@@ -91,6 +92,12 @@
     title="Users"
     crumbs={pageCrumbs}
     actionButtons={[
+        {
+            label: "Invite User",
+            icon: MailPlus,
+            variant: "outline",
+            onClick: () => goto('/admin/users/invite')
+        },
         {
             label: "Add User",
             icon: Plus,
