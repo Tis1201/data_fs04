@@ -91,7 +91,7 @@
       {enhance} 
       novalidate 
       errorMessage={$errorMessage?.text ? { text: $errorMessage.text } : null}
-      {successMessage}
+      successMessage={$successMessage?.text ? { text: $successMessage.text } : null}
       showToasts={true}
     >
       <AdminCard
