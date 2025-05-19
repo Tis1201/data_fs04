@@ -30,7 +30,7 @@ export const load = (async ({ locals }) => {
                 return {
                     form: {},
                     success: true,
-                    redirectTo: user.systemRole === 'ADMIN' ? '/admin' : '/'
+                    redirectTo: user.systemRole === 'ADMIN' ? '/admin' : '/user'
                 };
             }
         }
@@ -127,10 +127,11 @@ export const actions: Actions = {
                 throw sessionError;
             }
 
-            // Return success with redirect path
+            // Return success with redirect path based on user's role
             return {
                 form,
-                success: true
+                success: true,
+                redirectTo: user.systemRole === 'ADMIN' ? '/admin' : '/user'
             };
 
         } catch (e) {

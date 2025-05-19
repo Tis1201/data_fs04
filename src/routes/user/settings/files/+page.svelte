@@ -129,9 +129,11 @@
     <!-- Folders Grid -->
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {#each folders as folder}
-            <div 
-                class="group relative p-4 border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer"
+            <button 
+                type="button"
+                class="group relative p-4 border rounded-lg hover:bg-accent/50 transition-colors cursor-pointer w-full text-left"
                 on:click={() => currentPath = [...currentPath, folder.name]}
+                on:keydown={(e) => e.key === 'Enter' && (currentPath = [...currentPath, folder.name])}
             >
                 <div class="flex flex-col items-center text-center">
                     <div class="p-3 bg-primary/10 rounded-full mb-2">
@@ -145,7 +147,7 @@
                         <MoreVertical class="h-4 w-4" />
                     </button>
                 </div>
-            </div>
+            </button>
         {/each}
     </div>
     
