@@ -508,3 +508,7 @@ model InvitationToken {
   @@allow('update', auth().systemRole == "ADMIN")
   @@allow('delete', auth().systemRole == "ADMIN")
 }
+
+//Add tables for JWT token issuer subsystem 
+//Allow devices to request for JWT tokens using API keys
+//We should have a table for keeping track of the tokens and the main certs that keeps tracks of key rotation
