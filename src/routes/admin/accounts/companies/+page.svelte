@@ -3,7 +3,7 @@
     import { goto } from "$app/navigation";
     import CompaniesTable from "./table.svelte";
     import type { PageData } from "./$types";
-    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     
     // Import page data from server
     export let data: PageData;

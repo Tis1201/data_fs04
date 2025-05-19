@@ -10,7 +10,7 @@
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-    import { AdminCard } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
+    import { AdminCard } from "$lib/components/admin";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";

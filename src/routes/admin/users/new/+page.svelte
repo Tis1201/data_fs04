@@ -7,8 +7,8 @@
   import InvitationLinkDialog from "$lib/components/ui_components_sveltekit/dialog/InvitationLinkDialog.svelte";
   
   // Import the correct AdminPageLayout component with actionButtons support
-  import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
-  import AdminCard from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminCard.svelte";
+  import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+  import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
   
   // Import form components
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";

@@ -1,6 +1,6 @@
 <script lang="ts">
-    import UserPageLayout from "$lib/components/user/UserPageLayout.svelte";
-    import UserCard from "$lib/components/user/UserCard.svelte";
+    import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
+    import UserCard from "$lib/components/user/layout/UserCard.svelte";
     import { LayoutDashboard, Video, MessageSquare, Bell, Calendar } from "lucide-svelte";
     
     const pageCrumbs = [

@@ -1,6 +1,6 @@
 <script lang="ts">
-    import UserPageLayout from "$lib/components/user/UserPageLayout.svelte";
-    import UserCard from "$lib/components/user/UserCard.svelte";
+    import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
+    import UserCard from "$lib/components/user/layout/UserCard.svelte";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";

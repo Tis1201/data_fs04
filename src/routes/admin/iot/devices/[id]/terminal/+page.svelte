@@ -16,7 +16,7 @@
 	import { WebRTCClient } from "./webrtc-client";
 	import { webRTCStore } from "$lib/stores/webrtc-store";
 	import TerminalContainer from "$lib/components/ui_components_sveltekit/terminal/TerminalContainer.svelte";
-	import { AdminPageLayout, AdminCard } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
+	import { AdminPageLayout, AdminCard } from "$lib/components/admin";
     
 	/****************************************************************************
 	 * 

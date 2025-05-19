@@ -12,7 +12,34 @@
         FileText,
         Calendar,
         HelpCircle,
-        Activity
+        Activity,
+
+        Network,
+
+        Router,
+
+        Users2,
+
+        Logs,
+
+        LucideActivity,
+
+        ActivitySquare,
+
+        File,
+
+        Files,
+
+        Building2
+
+
+
+
+
+
+
+
+
     } from "lucide-svelte";
 
     export let className = "";
@@ -40,54 +67,69 @@
             icon: LayoutDashboard,
             subItems: [] 
         },
-        { 
-            href: "/user/profile", 
-            label: "My Profile", 
-            icon: User,
-            subItems: [] 
-        },
+        
         {
-            label: "Media",
-            icon: Video,
+            label: "IOT",
+            icon: Network,
             initialExpanded: false,
             subItems: [
-                { href: "/user/media/videos", label: "Videos", icon: Video },
-                { href: "/user/media/streams", label: "Live Streams", icon: Activity }
+                { href: "/user/iot/devices", label: "Devices", icon: Router }
+            ]
+        },
+        // { 
+        //     label: "Communications", 
+        //     icon: MessageSquare, 
+        //     initialExpanded: false,
+        //     subItems: [
+        //         { href: "/user/communications/messages", label: "Messages", icon: MessageSquare },
+        //         { href: "/user/communications/notifications", label: "Notifications", icon: Bell }
+        //     ]
+        // },
+        // { 
+        //     href: "/user/calendar", 
+        //     label: "Calendar", 
+        //     icon: Calendar,
+        //     subItems: [] 
+        // },
+        // { 
+        //     href: "/user/documents", 
+        //     label: "Documents", 
+        //     icon: FileText,
+        //     subItems: [] 
+        // },
+        { 
+            label: "Analytics", 
+            icon: ActivitySquare, 
+            initialExpanded: false,
+            subItems: [
+                { href: "/user/analytics/logs", label: "Logs", icon: Logs },
             ]
         },
         { 
-            label: "Communications", 
-            icon: MessageSquare, 
+            label: "Resources", 
+            icon: Files, 
             initialExpanded: false,
             subItems: [
-                { href: "/user/communications/messages", label: "Messages", icon: MessageSquare },
-                { href: "/user/communications/notifications", label: "Notifications", icon: Bell }
+                { href: "/user/settings/files", label: "Files", icon: File },
             ]
         },
-        { 
-            href: "/user/calendar", 
-            label: "Calendar", 
-            icon: Calendar,
-            subItems: [] 
-        },
-        { 
-            href: "/user/documents", 
-            label: "Documents", 
-            icon: FileText,
-            subItems: [] 
-        },
-        { 
-            href: "/user/settings", 
+         { 
             label: "Settings", 
-            icon: Settings,
-            subItems: [] 
+            icon: Settings, 
+            initialExpanded: false,
+            subItems: [
+                { href: "/user/settings/account", label: "Account", icon: Building2 },
+                { href: "/user/settings/users", label: "Users", icon: Users2 },
+                { href: "/user/profile", label: "Profile", icon: User },
+                
+            ]
         },
         { 
-            href: "/user/help", 
+            href: "/user/support", 
             label: "Help & Support", 
             icon: HelpCircle,
             subItems: [] 
-        }
+        },
     ];
 
     $: currentPath = $page.url.pathname;

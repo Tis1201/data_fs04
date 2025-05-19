@@ -33,6 +33,8 @@
     
     // Additional props
     export let loading: boolean = false;
+    export let showCreateButton: boolean = true;
+    export let breadcrumbs: any[] = [];
 </script>
 
 <PageContainer crumbs={crumbs}>
@@ -58,9 +60,6 @@
                     onClick={actionOnClick || undefined}
                 />
             {/if}
-            
-            <!-- Allow custom action buttons through slot -->
-            <slot name="action" />
         </div>
         
         <!-- Additional header content -->
