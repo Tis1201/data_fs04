@@ -8,24 +8,35 @@
     export let icon: ComponentType<SvelteComponent> | null = null;
     export let class_name: string = "";
     export let compact: boolean = false;
+    export let action: string | undefined = undefined;
 </script>
 
 <Card class="w-full {class_name}">
     <CardHeader class={compact ? "pb-2" : ""}>
-        {#if title}
-            <CardTitle class={`${icon ? "flex items-center" : ""} ${compact ? "text-base" : ""}`}>
-                {#if icon}
-                    <svelte:component this={icon} class="mr-2 {compact ? 'h-4 w-4' : 'h-5 w-5'}" />
+        <div class="flex justify-between items-start">
+            <div class="flex-1">
+                {#if title}
+                    <CardTitle class={`${icon ? "flex items-center" : ""} ${compact ? "text-base" : ""}`}>
+                        {#if icon}
+                            <svelte:component this={icon} class="mr-2 {compact ? 'h-4 w-4' : 'h-5 w-5'}" />
+                        {/if}
+                        {title}
+                    </CardTitle>
                 {/if}
-                {title}
-            </CardTitle>
-        {/if}
-        
-        {#if description}
-            <CardDescription class={compact ? "text-xs" : ""}>
-                {description}
-            </CardDescription>
-        {/if}
+                
+                {#if description}
+                    <CardDescription class={compact ? "text-xs" : ""}>
+                        {description}
+                    </CardDescription>
+                {/if}
+            </div>
+            
+            {#if action}
+                <div class="ml-4">
+                    {@html action}
+                </div>
+            {/if}
+        </div>
         
         <!-- Additional header content -->
         <slot name="header" />

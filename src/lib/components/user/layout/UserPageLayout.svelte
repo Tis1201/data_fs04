@@ -35,9 +35,11 @@
     export let loading: boolean = false;
     export let showCreateButton: boolean = true;
     export let breadcrumbs: any[] = [];
+    export let class_name: string = "";
+    export let className: string = "";
 </script>
 
-<PageContainer crumbs={crumbs}>
+<PageContainer crumbs={crumbs} className={className || class_name}>
     <PageHeader title={title}>
         <div slot="action">
             {#if actionButtons.length > 0}

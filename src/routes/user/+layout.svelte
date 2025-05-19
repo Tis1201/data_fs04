@@ -7,6 +7,7 @@
     import { goto } from "$app/navigation";
     import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
+    import AccountSelector from "$lib/components/account/AccountSelector.svelte";
 
     export let data;
     let collapsed = false;
@@ -39,6 +40,13 @@
                     {/if}
                 </div>
                 <div class="flex items-center gap-4">
+                    <!-- Account Selector Component -->
+                    {#if data.accountMemberships && data.accountMemberships.length > 0}
+                        <AccountSelector 
+                            currentAccount={data.currentAccount} 
+                            accountMemberships={data.accountMemberships} 
+                        />
+                    {/if}
                     <div class="relative">
                         <button
                             type="button"
