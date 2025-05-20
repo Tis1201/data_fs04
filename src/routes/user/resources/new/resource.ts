@@ -19,7 +19,16 @@ export const resourceSchema = z.object({
     accountId: z.string()
         .min(1, { message: 'Account is required' }),
     // File field properly defined for Superform
-    file: z.instanceof(File, { message: 'Please upload a valid file' })
-        .optional()
-        .nullable()
+    // Using custom validation to handle both browser and server environments
+    file: z.custom<File | null>(
+        (val) => {
+            // During SSR, File is not available, so we need to handle it
+            if (typeof window === 'undefined') return true;
+            // In browser, check if it's a File or null
+            return val === null || val instanceof File;
+        },
+        { message: 'Please upload a valid file' }
+    )
+    .optional()
+    .nullable()
 });

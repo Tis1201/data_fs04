@@ -1,10 +1,10 @@
 import { lucia } from "../auth/lucia";
 import type { Handle } from "@sveltejs/kit";
-import prisma from "../prisma";
+import prisma, { getEnhancedPrisma } from "../prisma";
 import { error } from '@sveltejs/kit';
 
 export const authMiddleware: Handle = async ({ event, resolve }) => {
-    // Add Prisma to locals
+    // Add raw Prisma to locals for non-authenticated routes
     event.locals.prisma = prisma;
     
     const sessionId = event.cookies.get(lucia.sessionCookieName);
@@ -129,6 +129,14 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
             event.locals.user = auth.user;
             event.locals.accountMemberships = auth.memberships;
             event.locals.currentAccount = auth.currentAccount;
+            
+            // Replace the raw Prisma client with the enhanced Zenstack client
+            // This will enforce access policies based on the current user
+            event.locals.prisma = getEnhancedPrisma({
+                id: auth.user.id,
+                systemRole: auth.user.systemRole,
+                rolesString: auth.user.rolesString
+            });
         }
     }
     

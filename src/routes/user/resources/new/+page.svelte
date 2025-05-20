@@ -46,16 +46,32 @@
     // Create a file proxy for the file field
     const fileField = fileProxy(form, 'file');
     
-    // Computed property to track uploaded files for display
-    $: uploadedFiles = $fileField ? [$fileField] : [];
+    // Track uploaded files for display
+    let uploadedFiles: File[] = [];
     
+    import { browser } from '$app/environment';
+    
+    // Initialize uploadedFiles if fileField already has a value
+    $: {
+        if (browser && $fileField && typeof File !== 'undefined' && $fileField instanceof File) {
+            // Only update if the arrays don't match to avoid infinite loops
+            if (uploadedFiles.length === 0 || uploadedFiles[0] !== $fileField) {
+                uploadedFiles = [$fileField];
+            }
+        } else if (uploadedFiles.length > 0 && $fileField === null) {
+            uploadedFiles = [];
+        }
+    }
+    
+    // Handle file upload from EnhancedFileUpload component
     function handleFileUpload(event: CustomEvent<{files: File[]}>) {
         const files = event.detail.files;
         if (files.length > 0) {
             const file = files[0]; // Take only the first file
             
-            // Set the file in the form using the fileProxy
+            // Update both the form field and the display array
             $fileField = file;
+            uploadedFiles = [file];
             
             // Auto-fill form fields based on the file
             if (!$form.name || $form.name === '') {
@@ -81,16 +97,20 @@
             // Set file size
             $form.size = file.size;
             
-            // For now, we'll use the file name as the path
-            // In a real implementation, you would upload the file to a server
-            // and then use the returned URL as the path
+            // Set path to the filename for now
             $form.path = file.name;
         }
     }
     
+    // Handle file removal
     function handleFileRemove() {
         $fileField = null;
-        $form.file = null;
+        uploadedFiles = [];
+        
+        // Clear related form fields
+        if ($form.type === 'image' || $form.type === 'video' || $form.type === 'document' || $form.type === 'file') {
+            $form.path = '';
+        }
     }
 </script>
 
@@ -148,6 +168,8 @@
                             on:paste={handleFileUpload}
                             on:remove={handleFileRemove}
                             on:error={(e) => uploadError = e.detail.message}
+                            preview={true}
+                            multiple={false}
                         />
                         <p class="text-xs text-muted-foreground mt-1">
                             Upload a file by dragging and dropping, or paste an image directly from clipboard.

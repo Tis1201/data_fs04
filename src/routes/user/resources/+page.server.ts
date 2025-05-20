@@ -70,7 +70,7 @@ export const load = restrict(
             // Calculate pagination metadata
             const totalPages = Math.ceil(totalResources / perPage);
                 
-            // Get all accounts for filtering
+            // Get accounts for filtering - Zenstack will automatically filter based on access policies
             const accounts = await locals.prisma.account.findMany({
                 select: {
                     id: true,
@@ -81,7 +81,7 @@ export const load = restrict(
                 }
             });
 
-            // Get unique resource types for filtering
+            // Get unique resource types for filtering - Zenstack will automatically filter based on access policies
             const resourceTypes = await locals.prisma.resource.findMany({
                 select: {
                     type: true
@@ -130,14 +130,16 @@ export const actions: Actions = {
             }
 
             try {
+                // Try to delete the resource - Zenstack will automatically check access permissions
+                // If the user doesn't have access, Zenstack will throw an error
                 await locals.prisma.resource.delete({
                     where: { id }
                 });
 
-                logger.info(`Resource deleted: ${id}`);
+                logger.info(`Resource deleted: ${id} by user ${locals.user.id}`);
                 return { success: true };
             } catch (err) {
-                logger.error('Error deleting resource:', err);
+                logger.error(`Error deleting resource: ${err}`);
                 return { success: false, error: 'Failed to delete resource' };
             }
         },
