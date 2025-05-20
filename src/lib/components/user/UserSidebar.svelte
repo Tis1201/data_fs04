@@ -110,7 +110,7 @@
             icon: Files, 
             initialExpanded: false,
             subItems: [
-                { href: "/user/resources/files", label: "Files", icon: File },
+                { href: "/user/resources", label: "Files", icon: File },
             ]
         },
          { 
