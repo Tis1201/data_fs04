@@ -509,6 +509,28 @@ model InvitationToken {
   @@allow('delete', auth().systemRole == "ADMIN")
 }
 
+//Create a standalone Resource table
+model Resource {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // "file", "image", "video", "document"
+  path        String   // File path or URL
+  size        Int      // File size in bytes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+  accountId   String
+  
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN') // Admin has full access
+  @@allow('read', auth() != null && auth().accountMemberships?[accountId == this.accountId]) // Users can view resources in their account
+  @@deny('all', true) // Deny everything else
+
+  @@index([name])
+  @@index([type])
+}
+
 //Add tables for JWT token issuer subsystem 
 //Allow devices to request for JWT tokens using API keys
 //We should have a table for keeping track of the tokens and the main certs that keeps tracks of key rotation

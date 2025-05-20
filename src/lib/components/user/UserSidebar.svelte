@@ -110,7 +110,7 @@
             icon: Files, 
             initialExpanded: false,
             subItems: [
-                { href: "/user/settings/files", label: "Files", icon: File },
+                { href: "/user/resources/files", label: "Files", icon: File },
             ]
         },
          { 
