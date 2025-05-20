@@ -6,13 +6,16 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../admin/users/schema';
 import { logger } from '$lib/server/logger';
 import { resourceSchema } from './resource';
+import { writeFileSync } from 'fs';
+import { join } from 'path';
 
 export const load = restrict(
     async ({ locals }) => {
         try {
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(resourceSchema), {
-                id: 'resource-form'
+                id: 'resource-form',
+                dataType: 'json'
             });
             
             // Get user's accounts for the dropdown
@@ -57,11 +60,31 @@ export const load = restrict(
 export const actions: Actions = {
     create: restrict(
         async ({ request, locals }) => {
-            // Validate the form data
-            const form = await superValidate(request, zod(resourceSchema));
+            // Validate the form data with multipart/form-data support
+            // Use json dataType for handling file uploads
+            const form = await superValidate(request, zod(resourceSchema), {
+                dataType: 'json'
+            });
             
             if (!form.valid) {
-                return fail(400, { form });
+                return message(form, {
+                    type: 'error',
+                    text: 'Please correct the errors in the form'
+                });
+            }
+            
+            // Handle file upload if present
+            if (form.data.file instanceof File) {
+                logger.info(`Processing file upload: ${form.data.file.name}`);
+                
+                // In a real implementation, you would upload the file to a storage service
+                // and use the returned URL as the path. This is just a placeholder.
+                // DO NOT use this in production as it doesn't handle file storage properly.
+                
+                // Update the path with the filename if it wasn't set
+                if (!form.data.path || form.data.path === form.data.file.name) {
+                    form.data.path = `/uploads/${form.data.file.name}`;
+                }
             }
             
             try {

@@ -27,8 +27,9 @@
         "Add Resource"
     ];
     
-    // Import the reusable form handler
+    // Import the reusable form handler and superform tools
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+    import { fileProxy } from 'sveltekit-superforms/client';
     
     // Create a form handler with standardized error handling
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
@@ -39,15 +40,22 @@
         }
     });
     
-    // File upload handling
-    let uploadedFiles: File[] = [];
+    // File upload handling with Superform
     let uploadError = '';
+    
+    // Create a file proxy for the file field
+    const fileField = fileProxy(form, 'file');
+    
+    // Computed property to track uploaded files for display
+    $: uploadedFiles = $fileField ? [$fileField] : [];
     
     function handleFileUpload(event: CustomEvent<{files: File[]}>) {
         const files = event.detail.files;
         if (files.length > 0) {
             const file = files[0]; // Take only the first file
-            uploadedFiles = [file];
+            
+            // Set the file in the form using the fileProxy
+            $fileField = file;
             
             // Auto-fill form fields based on the file
             if (!$form.name || $form.name === '') {
@@ -73,9 +81,6 @@
             // Set file size
             $form.size = file.size;
             
-            // Store file in form for later use
-            $form.file = file;
-            
             // For now, we'll use the file name as the path
             // In a real implementation, you would upload the file to a server
             // and then use the returned URL as the path
@@ -84,8 +89,8 @@
     }
     
     function handleFileRemove() {
-        uploadedFiles = [];
-        $form.file = undefined;
+        $fileField = null;
+        $form.file = null;
     }
 </script>
 
@@ -118,6 +123,7 @@
     <FormContainer
         method="POST"
         action="?/create"
+        enctype="multipart/form-data"
         {enhance}
         novalidate
         errorMessage={$errorMessage}

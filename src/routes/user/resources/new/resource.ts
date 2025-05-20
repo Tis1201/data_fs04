@@ -18,6 +18,8 @@ export const resourceSchema = z.object({
         .min(0, { message: 'Size must be a positive number' }),
     accountId: z.string()
         .min(1, { message: 'Account is required' }),
-    // Optional file field for client-side use only (not sent to server)
-    file: z.any().optional()
+    // File field properly defined for Superform
+    file: z.instanceof(File, { message: 'Please upload a valid file' })
+        .optional()
+        .nullable()
 });

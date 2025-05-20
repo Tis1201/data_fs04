@@ -53,14 +53,19 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
             if (!currentAccount && memberships.length > 0) {
                 currentAccount = memberships[0];
                 
-                // Set cookie for the default account
-                event.cookies.set('current_account_id', currentAccount.account.id, {
-                    path: '/',
-                    httpOnly: true,
-                    sameSite: 'lax',
-                    secure: process.env.NODE_ENV === 'production',
-                    maxAge: 60 * 60 * 24 * 30 // 30 days
-                });
+                try {
+                    // Set cookie for the default account - wrapped in try/catch to handle cases where headers are already sent
+                    event.cookies.set('current_account_id', currentAccount.account.id, {
+                        path: '/',
+                        httpOnly: true,
+                        sameSite: 'lax',
+                        secure: process.env.NODE_ENV === 'production',
+                        maxAge: 60 * 60 * 24 * 30 // 30 days
+                    });
+                } catch (e) {
+                    // If we can't set the cookie (headers already sent), just continue with the current account
+                    console.warn('Could not set account cookie - headers may have already been sent');
+                }
             }
             
             return { 
