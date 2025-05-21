@@ -11,6 +11,7 @@ import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { getEnhancedPrisma } from '$lib/server/prisma';
 
 // Define the upload directory - in a real app, this would be configurable
 const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads');
@@ -63,37 +64,6 @@ export const load = restrict(
             // Check if there's a current account ID in the cookies
             const currentAccountId = event.cookies.get('current_account_id');
             
-            // logger.debug(`Current account ID: ${currentAccountId}`)
-
-            // if (currentAccountId) {
-            //     // Find the account in the user's memberships
-            //     const membership = auth.memberships.find(m => m.account.id === currentAccountId);
-            //     if (membership) {
-            //         userAccount = membership.account;
-            //     }
-            // }
-            
-            // // If no current account, try the primary account
-            // if (!userAccount && auth.user.primaryAccountId) {
-            //     const membership = auth.memberships.find(m => m.account.id === auth.user.primaryAccountId);
-            //     if (membership) {
-            //         userAccount = membership.account;
-            //     }
-            // }
-            
-            // // If still no account, get the first account with appropriate role
-            // if (!userAccount) {
-            //     const editorMembership = auth.memberships.find(m => 
-            //         ['OWNER', 'ADMIN', 'EDITOR'].includes(m.role)
-            //     );
-                
-            //     if (editorMembership) {
-            //         userAccount = editorMembership.account;
-            //     } else if (auth.memberships.length > 0) {
-            //         // Just use the first membership if no appropriate role
-            //         userAccount = auth.memberships[0].account;
-            //     }
-            // }
             
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(resourceSchema), {
@@ -151,74 +121,22 @@ export const actions: Actions = {
             }
             
             // Get the current account from auth
-            let accountId = '';
-            let accountName = '';
-            
-            // First check if there's a currentAccount in auth
-            if (auth.currentAccount && auth.currentAccount.account) {
-                accountId = auth.currentAccount.account.id;
-                accountName = auth.currentAccount.account.name;
-                logger.debug(`Using current account: ${accountName} (${accountId})`);
-            } 
-            // If no current account, try to get it from memberships
-            else if (auth.memberships && auth.memberships.length > 0) {
-                // Use the first membership
-                accountId = auth.memberships[0].account.id;
-                accountName = auth.memberships[0].account.name;
-                logger.debug(`Using first membership account: ${accountName} (${accountId})`);
+            if (!auth.currentAccount || !auth.currentAccount.account) {
+                // No current account found, throw an error
+                throw error(400, 'No current account selected. Please select an account first.');
             }
             
-            // Verify we have a valid account ID
-            if (!accountId) {
-                const cleanForm = { ...form };
-                cleanForm.data = { ...form.data };
-                delete cleanForm.data.file;
-                
-                return message(
-                    cleanForm,
-                    createErrorResponse('No valid account found. Please create or join an account first.', {
-                        code: 'NO_ACCOUNT'
-                    }),
-                    { status: 400 }
-                );
-            }
+            const accountId = auth.currentAccount.account.id;
+            const accountName = auth.currentAccount.account.name;
+            logger.debug(`Using current account: ${accountName} (${accountId})`);
 
-            
-            // If no account ID provided, get it from cookies or auth
-            // if (!accountId) {
-            //     // First try from cookies
-            //     accountId = event.cookies.get('current_account_id') || '';
-                
-            //     // If not in cookies, try from primary account
-            //     if (!accountId && auth.user.primaryAccountId) {
-            //         accountId = auth.user.primaryAccountId;
-            //     }
-                
-            //     // If still no account ID, get the first account with appropriate role
-            //     if (!accountId) {
-            //         const editorMembership = auth.memberships.find(m => 
-            //             ['OWNER', 'ADMIN', 'EDITOR'].includes(m.role)
-            //         );
-                    
-            //         if (editorMembership) {
-            //             accountId = editorMembership.account.id;
-            //         } else if (auth.memberships.length > 0) {
-            //             // Just use the first membership
-            //             accountId = auth.memberships[0].account.id;
-            //         }
-            //     }
-                
-            //     // Update the form data with the account ID
-            //     form.data.accountId = accountId;
-            // }
-            
             // Store file reference before processing
             let uploadedFile: File | null = null;
             let filePath: string | null = null;
             
-            // Handle file upload if present
-            if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
-                try {
+            try {
+                // Handle file upload if present
+                if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
                     uploadedFile = form.data.file as File;
                     logger.info(`Processing file upload: ${uploadedFile.name}`);
                     
@@ -232,57 +150,34 @@ export const actions: Actions = {
                     
                     // Remove file from form data to avoid serialization issues
                     form.data.file = null;
-                } catch (err) {
-                    logger.error(`File upload failed: ${err}`);
-                    
-                    // Remove file from form data to avoid serialization issues
-                    const cleanForm = { ...form };
-                    cleanForm.data = { ...form.data };
-                    delete cleanForm.data.file;
-                    
-                    return message(cleanForm, createErrorResponse('Failed to upload file. Please try again.', {
-                        details: err instanceof Error ? err.message : String(err)
-                    }));
                 }
-            }
-            
-            try {
+                
                 // Since we've already verified the account ID and simplified the access policies,
                 // we can proceed directly to creating the resource
                 
                 logger.debug(`Creating resource with account ID: ${accountId}`);
                 
-                // We need to create a properly enhanced Prisma client with the correct user context
-                // The issue was that the membershipMap wasn't being created correctly
+                // Use the getEnhancedPrisma function to create a properly enhanced Prisma client
                 
-                // Import the enhance function from Zenstack
-                const { enhance } = await import('@zenstackhq/runtime');
+                // Log the user info for debugging
+                logger.debug(`User info: ${JSON.stringify({
+                    id: auth.user.id,
+                    systemRole: auth.user.systemRole,
+                    memberships: auth.memberships.length
+                })}`);
                 
-                // Create a properly formatted user context for Zenstack
-                // Extract account IDs and roles from memberships for easier access policy checks
-                const membershipMap = {};
-                if (auth.memberships && auth.memberships.length > 0) {
-                    auth.memberships.forEach(membership => {
-                        if (membership.accountId && membership.role) {
-                            membershipMap[membership.accountId] = membership.role;
-                        } else if (membership.account?.id && membership.role) {
-                            membershipMap[membership.account.id] = membership.role;
-                        }
-                    });
-                }
-                
-                // Create the user context with just the necessary information for policy evaluation
-                // For the policy: creator == auth() and auth().systemRole == 'ADMIN'
-                // We only need the user ID and systemRole
+                // Create a user context with the necessary information for policy evaluation
                 const userContext = {
                     id: auth.user.id,
-                    systemRole: auth.user.systemRole
+                    systemRole: auth.user.systemRole,
+                    accountMemberships: auth.memberships
                 };
                 
-                logger.debug(`Enhanced user context: ${JSON.stringify(userContext)}`);
+                logger.debug(`Creating enhanced Prisma client with user context`);
                 
                 // Create a new enhanced Prisma client with the proper user context
-                const enhancedPrisma = enhance(locals.prisma, { user: userContext }, { logPrismaQuery: true });
+                // Enable query logging for debugging
+                const enhancedPrisma = getEnhancedPrisma(userContext, { logPrismaQuery: true });
                 
                 // Create the resource using the enhanced Prisma client
                 const resource = await enhancedPrisma.resource.create({
@@ -312,12 +207,12 @@ export const actions: Actions = {
                     })
                 );
             } catch (err) {
-                // Use our catch-all form error handler
+                // Use the handleFormError utility to simplify error handling
                 return handleFormError({
                     error: err,
                     form,
                     prisma: locals.prisma,
-                    accountId: accountId,
+                    accountId,
                     defaultMessage: 'Failed to create resource. Please try again.',
                     action: 'resource creation'
                 });

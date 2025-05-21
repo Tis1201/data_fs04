@@ -141,9 +141,8 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
                 accountMemberships: auth.memberships
             };
             
-            // Debug the user context for Zenstack
-            console.log('Setting up enhanced Prisma with user context:', JSON.stringify(userContext, null, 2));
-            
+            // Use the improved getEnhancedPrisma function to create an enhanced client
+            // This will properly set up the user context for Zenstack access policies
             event.locals.prisma = getEnhancedPrisma(userContext);
         }
     }
