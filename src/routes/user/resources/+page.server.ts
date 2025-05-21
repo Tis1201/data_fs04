@@ -25,10 +25,12 @@ export const load = restrict(
             
             // Add search filter if provided
             if (search) {
+                // Convert search to lowercase for case-insensitive comparison
+                const searchLower = search.toLowerCase();
                 where.OR = [
-                    { name: { contains: search, mode: 'insensitive' } },
-                    { id: { contains: search, mode: 'insensitive' } },
-                    { path: { contains: search, mode: 'insensitive' } }
+                    { name: { contains: searchLower } },
+                    { id: { contains: searchLower } },
+                    { path: { contains: searchLower } }
                 ];
             }
             

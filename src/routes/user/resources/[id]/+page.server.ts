@@ -1,8 +1,76 @@
-import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import { error, fail } from '@sveltejs/kit';
+import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '../../../admin/users/schema';
 import { logger } from '$lib/server/logger';
+
+// Define actions for this route
+export const actions: Actions = {
+    // Action to delete a resource
+    deleteResource: restrict(
+        async ({ params, locals }) => {
+            const { id } = params;
+            
+            try {
+                // Check if the resource exists and the user has permission to delete it
+                const resource = await locals.prisma.resource.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        createdBy: true,
+                        accountId: true
+                    }
+                });
+                
+                // If resource doesn't exist, return an error
+                if (!resource) {
+                    return fail(404, {
+                        success: false,
+                        message: 'Resource not found'
+                    });
+                }
+                
+                // Check if the user is the creator of the resource or has admin access
+                const isCreator = resource.createdBy === locals.user.id;
+                
+                // Check if the user is a member of the account with appropriate permissions
+                const accountMembership = await locals.prisma.accountMembership.findFirst({
+                    where: {
+                        accountId: resource.accountId,
+                        userId: locals.user.id,
+                        role: { in: ['OWNER', 'ADMIN'] }
+                    }
+                });
+                
+                // If the user is not the creator and doesn't have admin access, return an error
+                if (!isCreator && !accountMembership) {
+                    return fail(403, {
+                        success: false,
+                        message: 'You do not have permission to delete this resource'
+                    });
+                }
+                
+                // Delete the resource
+                await locals.prisma.resource.delete({
+                    where: { id }
+                });
+                
+                // Return success
+                return {
+                    success: true,
+                    message: 'Resource deleted successfully'
+                };
+            } catch (err) {
+                logger.error(`Error deleting resource ${id}:`, err);
+                return fail(500, {
+                    success: false,
+                    message: 'Failed to delete resource'
+                });
+            }
+        },
+        [SystemRole.USER]
+    )
+};
 
 export const load = restrict(
     async ({ params, locals }) => {
