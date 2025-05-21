@@ -45,6 +45,12 @@
                     {/if}
                 </div>
                 <div class="flex items-center gap-4">
+                    <div class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700/50 rounded-md border border-gray-200 dark:border-gray-600">
+                        <svg class="h-3.5 w-3.5 text-gray-500 dark:text-gray-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10a1 1 0 01-1.64 0l-7-10A1 1 0 014 7h4V2a1 1 0 01.7-.954l3 1z" clip-rule="evenodd" />
+                        </svg>
+                        <span>Admin</span>
+                    </div>
                     <div class="relative">
                         <button
                             type="button"

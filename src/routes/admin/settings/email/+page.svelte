@@ -1,42 +1,52 @@
 <script lang="ts">
-    import { page } from "$app/stores";
     import { Plus } from "lucide-svelte";
-    import type { PageData } from "./$types";
     import { goto } from "$app/navigation";
-    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
-    import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import EmailProvidersTable from "./table.svelte";
+    import type { PageData } from "./$types";
+    
+    // Import page data from server
     export let data: PageData;
-
-    $: ({ emails: records, meta } = data);
-    $: pagination = getDefaultPagination(meta, 10);
-    $: sort = getDefaultSort(meta, "createdAt", "desc");
     
-    let loading = false;
-    
-    // Initialize pagination with stored preferences
-    initPagination('preferredPageSize', true);
+    // Create props for the email providers table
+    $: tableProps = {
+        records: data.emailProviders || [],
+        pagination: {
+            page: data.meta?.currentPage || 1,
+            per_page: data.meta?.itemsPerPage || 10,
+            total_records: data.meta?.totalItems || 0,
+            total_pages: data.meta?.totalPages || 0
+        },
+        sort: {
+            field: data.sort?.field || "createdAt",
+            order: data.sort?.order || "desc"
+        },
+        loading: false,
+        filters: {
+            providerTypes: data.providerTypes || [],
+            types: data.filters?.types || [],
+            isActive: data.filters?.isActive || ''
+        }
+    };
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        "Settings",
-        "Email Settings"
+        ["Settings", "/admin/settings"],
+        "Email"
     ];
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader title="Email Settings">
-        <svelte:fragment slot="action">
-            <ActionButton
-                label="Add Email Setting"
-                icon={Plus}
-                onClick={() => goto('/admin/settings/email/new')}
-            />
-        </svelte:fragment>
-    </PageHeader>
-
-   
-</PageContainer>
+<AdminPageLayout
+    title="Email Providers"
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Add Provider",
+            icon: Plus,
+            onClick: () => goto('/admin/settings/email/new')
+        }
+    ]}
+>
+    <EmailProvidersTable props={tableProps} />
+</AdminPageLayout>

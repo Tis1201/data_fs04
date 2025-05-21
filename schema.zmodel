@@ -483,12 +483,11 @@ model EmailServiceProvider {
   totalSent   Int      @default(0)
   
   // Validation
-  @@validate(type in ["smtp", "sendgrid", "mailgun", "ses", "resend", "postmark"], "Invalid provider type")
+  //@@validate(type in ["smtp", "sendgrid", "mailgun", "ses", "resend", "postmark"], "Invalid provider type")
   
   // Admin has full access
   @@allow('all', auth().systemRole == 'ADMIN')
-  @@deny('all', true)
-
+  
   @@index([isActive])
   @@index([isDefault])
   @@index([type])

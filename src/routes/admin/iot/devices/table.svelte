@@ -193,19 +193,29 @@
 <div class="space-y-4">
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
-        {state}
+        state={{
+            selectedRecord: state.selectedRecord,
+            confirmationOpen: state.confirmationOpen,
+            title: 'Delete Device',
+            message: state.selectedRecord ? `Are you sure you want to delete device ${state.selectedRecord.name || state.selectedRecord.id}?` : '',
+            confirmButtonText: 'Delete',
+            cancelButtonText: 'Cancel',
+            successMessage: 'Device deleted successfully',
+            errorMessage: 'Failed to delete device'
+        }}
         onConfirm={() => {
             // Refresh the page to update the device list
             window.location.reload();
         }}
+        on:close={() => state.confirmationOpen = false}
     />
     
     <!-- Status Toggle Dialog -->
     <RecordUpdateDialog
-        bind:open={statusToggleDialogOpen}
+        open={statusToggleDialogOpen}
         action="?/toggleStatus"
-        bind:record={deviceToToggle}
-        bind:isProcessing={isTogglingStatus}
+        record={deviceToToggle}
+        isProcessing={isTogglingStatus}
         onSuccess={(result) => {
             // Update the device status in the local data without page refresh
             if (deviceToToggle) {
@@ -231,10 +241,16 @@
             deviceToToggle = null;
             statusToggleDialogOpen = false;
         }}
+        on:close={() => {
+            deviceToToggle = null;
+            statusToggleDialogOpen = false;
+        }}
     >
-        <input type="hidden" name="id" value={deviceToToggle?.id || ''} />
-        <input type="hidden" name="status" value={deviceToToggle?.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'} />
-        <button type="submit" class="hidden">Submit</button>
+        {#if deviceToToggle}
+            <input type="hidden" name="id" value={deviceToToggle.id} />
+            <input type="hidden" name="status" value={deviceToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'} />
+            <button type="submit" class="hidden">Submit</button>
+        {/if}
     </RecordUpdateDialog>
     
     {#if props.loading}
@@ -260,7 +276,14 @@
                     { label: "Other", value: "OTHER" }
                 ]}
                 selectedValues={$selectedTypes}
-                key="types"
+                onChange={(values) => {
+                    selectedTypes.set(values);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('types', values.join(','));
+                    if (!values.length) url.searchParams.delete('types');
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
             />
             
             <!-- Status filter -->
@@ -271,7 +294,14 @@
                     { label: "Inactive", value: "INACTIVE" }
                 ]}
                 selectedValues={$selectedStatuses}
-                key="statuses"
+                onChange={(values) => {
+                    selectedStatuses.set(values);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('statuses', values.join(','));
+                    if (!values.length) url.searchParams.delete('statuses');
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
             />
         </div>
 
