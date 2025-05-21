@@ -28,6 +28,7 @@ model Account {
   devices      Device[]
   apiKeys      ApiKey[]
   primaryUsers User[]              @relation("UserPrimaryAccount")
+  resources    Resource[]
 
   @@index([slug])
 }
@@ -366,7 +367,9 @@ model Resource {
   createdBy String
   updatedBy String
   accountId String
+  account   Account  @relation(fields: [accountId], references: [id])
 
   @@index([name])
   @@index([type])
+  @@index([createdBy])
 }

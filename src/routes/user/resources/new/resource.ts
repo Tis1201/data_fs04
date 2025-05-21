@@ -17,7 +17,8 @@ export const resourceSchema = z.object({
         .int({ message: 'Size must be an integer' })
         .min(0, { message: 'Size must be a positive number' }),
     accountId: z.string()
-        .min(1, { message: 'Account is required' }),
+        .optional()
+        .default(''),
     // File field properly defined for Superform
     // Using custom validation to handle both browser and server environments
     file: z.custom<File | null>(

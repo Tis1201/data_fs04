@@ -54,31 +54,57 @@ async function saveFile(file: File): Promise<string> {
 }
 
 export const load = restrict(
-    async ({ locals }) => {
+    async (event) => {
+        const { locals, auth } = event;
         try {
+            // Get the current account from auth
+            let userAccount = null;
+            
+            // Check if there's a current account ID in the cookies
+            const currentAccountId = event.cookies.get('current_account_id');
+            
+            // logger.debug(`Current account ID: ${currentAccountId}`)
+
+            // if (currentAccountId) {
+            //     // Find the account in the user's memberships
+            //     const membership = auth.memberships.find(m => m.account.id === currentAccountId);
+            //     if (membership) {
+            //         userAccount = membership.account;
+            //     }
+            // }
+            
+            // // If no current account, try the primary account
+            // if (!userAccount && auth.user.primaryAccountId) {
+            //     const membership = auth.memberships.find(m => m.account.id === auth.user.primaryAccountId);
+            //     if (membership) {
+            //         userAccount = membership.account;
+            //     }
+            // }
+            
+            // // If still no account, get the first account with appropriate role
+            // if (!userAccount) {
+            //     const editorMembership = auth.memberships.find(m => 
+            //         ['OWNER', 'ADMIN', 'EDITOR'].includes(m.role)
+            //     );
+                
+            //     if (editorMembership) {
+            //         userAccount = editorMembership.account;
+            //     } else if (auth.memberships.length > 0) {
+            //         // Just use the first membership if no appropriate role
+            //         userAccount = auth.memberships[0].account;
+            //     }
+            // }
+            
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(resourceSchema), {
                 id: 'resource-form',
                 dataType: 'json'
             });
             
-            // Get user's accounts for the dropdown
-            // Only fetch accounts the user is a member of
-            const userAccounts = await locals.prisma.accountMembership.findMany({
-                where: {
-                    userId: locals.user.id
-                },
-                select: {
-                    account: {
-                        select: {
-                            id: true,
-                            name: true
-                        }
-                    }
-                }
-            });
-            
-            const accounts = userAccounts.map(membership => membership.account);
+            // Pre-fill the account ID if we have a user account
+            if (userAccount) {
+                form.data.accountId = userAccount.id;
+            }
             
             // Get resource types for the dropdown
             const resourceTypes = [
@@ -90,7 +116,7 @@ export const load = restrict(
             
             return {
                 form,
-                accounts,
+                userAccount,
                 resourceTypes
             };
         } catch (err) {
@@ -103,7 +129,12 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals }) => {
+        async (event) => {
+            const { request, locals, auth } = event;
+
+            // logger.debug(`auth: ${JSON.stringify(auth)}`)
+
+
             // Validate the form data with multipart/form-data support
             // Use json dataType for handling file uploads
             const form = await superValidate(request, zod(resourceSchema), {
@@ -118,6 +149,68 @@ export const actions: Actions = {
                 
                 return message(cleanForm, createErrorResponse('Please correct the errors in the form'));
             }
+            
+            // Get the current account from auth
+            let accountId = '';
+            let accountName = '';
+            
+            // First check if there's a currentAccount in auth
+            if (auth.currentAccount && auth.currentAccount.account) {
+                accountId = auth.currentAccount.account.id;
+                accountName = auth.currentAccount.account.name;
+                logger.debug(`Using current account: ${accountName} (${accountId})`);
+            } 
+            // If no current account, try to get it from memberships
+            else if (auth.memberships && auth.memberships.length > 0) {
+                // Use the first membership
+                accountId = auth.memberships[0].account.id;
+                accountName = auth.memberships[0].account.name;
+                logger.debug(`Using first membership account: ${accountName} (${accountId})`);
+            }
+            
+            // Verify we have a valid account ID
+            if (!accountId) {
+                const cleanForm = { ...form };
+                cleanForm.data = { ...form.data };
+                delete cleanForm.data.file;
+                
+                return message(
+                    cleanForm,
+                    createErrorResponse('No valid account found. Please create or join an account first.', {
+                        code: 'NO_ACCOUNT'
+                    }),
+                    { status: 400 }
+                );
+            }
+
+            
+            // If no account ID provided, get it from cookies or auth
+            // if (!accountId) {
+            //     // First try from cookies
+            //     accountId = event.cookies.get('current_account_id') || '';
+                
+            //     // If not in cookies, try from primary account
+            //     if (!accountId && auth.user.primaryAccountId) {
+            //         accountId = auth.user.primaryAccountId;
+            //     }
+                
+            //     // If still no account ID, get the first account with appropriate role
+            //     if (!accountId) {
+            //         const editorMembership = auth.memberships.find(m => 
+            //             ['OWNER', 'ADMIN', 'EDITOR'].includes(m.role)
+            //         );
+                    
+            //         if (editorMembership) {
+            //             accountId = editorMembership.account.id;
+            //         } else if (auth.memberships.length > 0) {
+            //             // Just use the first membership
+            //             accountId = auth.memberships[0].account.id;
+            //         }
+            //     }
+                
+            //     // Update the form data with the account ID
+            //     form.data.accountId = accountId;
+            // }
             
             // Store file reference before processing
             let uploadedFile: File | null = null;
@@ -154,41 +247,53 @@ export const actions: Actions = {
             }
             
             try {
-                // First, check if the account exists and user has access to it
-                const accountMembership = await locals.prisma.accountMembership.findFirst({
-                    where: { 
-                        userId: locals.user.id,
-                        accountId: form.data.accountId
-                    }
-                });
+                // Since we've already verified the account ID and simplified the access policies,
+                // we can proceed directly to creating the resource
                 
-                if (!accountMembership) {
-                    // Remove file from form data to avoid serialization issues
-                    const cleanForm = { ...form };
-                    cleanForm.data = { ...form.data };
-                    delete cleanForm.data.file;
-                    
-                    return message(
-                        cleanForm,
-                        createErrorResponse('You do not have access to the selected account', {
-                            code: 'ACCESS_DENIED'
-                        }),
-                        {
-                            status: 400
+                logger.debug(`Creating resource with account ID: ${accountId}`);
+                
+                // We need to create a properly enhanced Prisma client with the correct user context
+                // The issue was that the membershipMap wasn't being created correctly
+                
+                // Import the enhance function from Zenstack
+                const { enhance } = await import('@zenstackhq/runtime');
+                
+                // Create a properly formatted user context for Zenstack
+                // Extract account IDs and roles from memberships for easier access policy checks
+                const membershipMap = {};
+                if (auth.memberships && auth.memberships.length > 0) {
+                    auth.memberships.forEach(membership => {
+                        if (membership.accountId && membership.role) {
+                            membershipMap[membership.accountId] = membership.role;
+                        } else if (membership.account?.id && membership.role) {
+                            membershipMap[membership.account.id] = membership.role;
                         }
-                    );
+                    });
                 }
                 
-                // Create the resource
-                const resource = await locals.prisma.resource.create({
+                // Create the user context with just the necessary information for policy evaluation
+                // For the policy: creator == auth() and auth().systemRole == 'ADMIN'
+                // We only need the user ID and systemRole
+                const userContext = {
+                    id: auth.user.id,
+                    systemRole: auth.user.systemRole
+                };
+                
+                logger.debug(`Enhanced user context: ${JSON.stringify(userContext)}`);
+                
+                // Create a new enhanced Prisma client with the proper user context
+                const enhancedPrisma = enhance(locals.prisma, { user: userContext }, { logPrismaQuery: true });
+                
+                // Create the resource using the enhanced Prisma client
+                const resource = await enhancedPrisma.resource.create({
                     data: {
                         name: form.data.name,
                         type: form.data.type,
                         path: form.data.path,
                         size: form.data.size,
-                        accountId: form.data.accountId,
-                        createdBy: locals.user.id,
-                        updatedBy: locals.user.id
+                        accountId: accountId,
+                        createdBy: auth.user.id,
+                        updatedBy: auth.user.id
                     }
                 });
                 
@@ -202,8 +307,8 @@ export const actions: Actions = {
                 return message(
                     cleanForm,
                     createSuccessResponse('Resource created successfully', {
-                        details: `Resource '${resource.name}' has been created.`,
-                        data: { resourceId: resource.id }
+                        details: `Resource '${resource.name}' has been created in ${accountName}.`,
+                        data: { resourceId: resource.id, accountId: accountId }
                     })
                 );
             } catch (err) {
@@ -212,7 +317,7 @@ export const actions: Actions = {
                     error: err,
                     form,
                     prisma: locals.prisma,
-                    accountId: form.data.accountId,
+                    accountId: accountId,
                     defaultMessage: 'Failed to create resource. Please try again.',
                     action: 'resource creation'
                 });

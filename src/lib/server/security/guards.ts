@@ -8,13 +8,25 @@ import type { PageServerLoad } from '@sveltejs/kit';
 export type RouteHandler<T> = (event: RequestEvent) => Promise<T>;
 
 /**
+ * Type for the enhanced event with auth information
+ */
+export type AuthenticatedEvent = RequestEvent & {
+  auth: Awaited<ReturnType<RequestEvent['locals']['auth']['validate']>>
+};
+
+/**
+ * Type for route handlers that receive authenticated events
+ */
+export type AuthenticatedRouteHandler<T> = (event: AuthenticatedEvent) => Promise<T>;
+
+/**
  * Restricts a route to users with specific roles
  * @param handler The route handler function to protect
  * @param allowedRoles Array of roles that are allowed to access the route
  * @returns A wrapped handler function that checks permissions before executing
  */
 export function restrict<T>(
-  handler: RouteHandler<T>,
+  handler: AuthenticatedRouteHandler<T> | RouteHandler<T>,
   allowedRoles: string[] = ['ADMIN']
 ): RouteHandler<T> {
   return async (event: RequestEvent) => {
@@ -30,7 +42,14 @@ export function restrict<T>(
       throw error(403, 'Forbidden');
     }
     
-    return handler(event);
+    // Create an enhanced event with auth information
+    const authenticatedEvent = {
+      ...event,
+      auth
+    } as AuthenticatedEvent;
+    
+    // Pass the enhanced event to the handler
+    return handler(authenticatedEvent);
   };
 }
 

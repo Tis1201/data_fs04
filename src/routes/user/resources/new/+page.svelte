@@ -213,19 +213,18 @@
                 </FormRow>
 
                 <FormRow columns={2}>
-                    <FormField id="accountId" label="Account" error={$errors.accountId}>
-                        <EnhancedSelect
-                            id="accountId"
-                            name="accountId"
-                            bind:value={$form.accountId}
-                            placeholder="Select an account"
-                            aria-invalid={$errors.accountId ? 'true' : undefined}
-                            {...$constraints.accountId}
-                            options={data.accounts.map(account => ({
-                                value: account.id,
-                                label: account.name
-                            }))}
-                        />
+                    <FormField id="accountId" label="Account">
+                        <div class="flex items-center space-x-2 h-10 px-3 py-2 text-sm border rounded-md border-input bg-background">
+                            <input type="hidden" name="accountId" value={$form.accountId} />
+                            {#if data.userAccount}
+                                <span>{data.userAccount.name}</span>
+                            {:else}
+                                <span class="text-muted-foreground">Default account</span>
+                            {/if}
+                        </div>
+                        <p class="text-xs text-muted-foreground mt-1">
+                            Resources will be created in your current account
+                        </p>
                     </FormField>
 
                     <FormField id="size" label="Size (bytes)" error={$errors.size}>
