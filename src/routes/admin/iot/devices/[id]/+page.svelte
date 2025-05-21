@@ -14,7 +14,8 @@
         Terminal, Camera, RotateCcw, Upload, FileText, Edit, AlertCircle, CheckCircle, Loader2, Monitor
     } from "lucide-svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
-    import { AdminPageLayout, AdminCard, CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
+    import { AdminPageLayout, AdminCard } from "$lib/components/admin";
+import { CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_sveltekit/layout";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";

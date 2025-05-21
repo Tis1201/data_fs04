@@ -5,8 +5,9 @@ import Item from "./select-item.svelte";
 import Content from "./select-content.svelte";
 import Trigger from "./select-trigger.svelte";
 import Separator from "./select-separator.svelte";
+import RootWrapper from "./select-root-wrapper.svelte";
 
-const Root = SelectPrimitive.Root;
+const Root = RootWrapper;
 const Group = SelectPrimitive.Group;
 const Input = SelectPrimitive.Input;
 const Value = SelectPrimitive.Value;

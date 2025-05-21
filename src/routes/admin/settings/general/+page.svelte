@@ -2,7 +2,7 @@
     import { page } from "$app/stores";
     import { onMount, onDestroy } from "svelte";
     import type { PageData } from "./$types";
-    import { AdminPageLayout, AdminCard } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
+    import { AdminPageLayout, AdminCard } from "$lib/components/admin";
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { toast } from "svelte-sonner";

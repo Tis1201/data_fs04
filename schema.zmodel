@@ -36,12 +36,13 @@ model Account {
   devices       Device[]  // Devices owned by this account
   apiKeys       ApiKey[] // API keys associated with this account
   primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
+  resources     Resource[] // Resources owned by this account
   
   // Authorization rules
-  @@allow('create', auth().systemRole == 'ADMIN')
-  @@allow('read', auth() != null && (auth().systemRole == 'ADMIN' || members?[userId == auth().id]))
-  @@allow('update', auth().systemRole == 'ADMIN' || members?[userId == auth().id && role == 'OWNER'])
-  @@allow('delete', auth().systemRole == 'ADMIN')
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  //Allow user who assigned to this account to view
+  @@allow('read', auth() != null && members?[userId == auth().id])
   
   @@index([slug])
 }
@@ -158,6 +159,7 @@ model User {
   accountMemberships AccountMembership[]
   primaryAccount Account? @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
   invitationTokens InvitationToken[]
+
 
 
   // Authorization rules
@@ -508,3 +510,42 @@ model InvitationToken {
   @@allow('update', auth().systemRole == "ADMIN")
   @@allow('delete', auth().systemRole == "ADMIN")
 }
+
+//Create a standalone Resource table
+model Resource {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // "file", "image", "video", "document"
+  path        String   // File path or URL
+  size        Int      // File size in bytes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+  accountId   String
+  
+  // Relationships
+  account     Account @relation(fields: [accountId], references: [id])
+  
+  // Permission rules
+  // Admin has full access to all resources
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  // Allow users to create resources if they are the creator
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  // Allow users to read, update, delete resources if they created them
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+
+  // Allow users to read if they are members of the account
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  
+  @@index([name])
+  @@index([type])
+  @@index([createdBy])
+}
+
+//Add tables for JWT token issuer subsystem 
+//Allow devices to request for JWT tokens using API keys
+//We should have a table for keeping track of the tokens and the main certs that keeps tracks of key rotation

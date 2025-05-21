@@ -13,7 +13,7 @@
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
 	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
 	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-	import { AdminPageLayout, AdminCard } from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout";
+	import { AdminPageLayout, AdminCard } from "$lib/components/admin";
 
 	// Get device ID from route params
 	const deviceId = $page.params.id;

@@ -9,6 +9,8 @@ pnpm-lock.yaml
 
 workings/
 
+static/uploads
+
 whatsapp-media
 
 docker/prisma

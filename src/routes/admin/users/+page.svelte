@@ -5,7 +5,7 @@
     import { onMount } from "svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
     import type { PageData } from "./$types";
-    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import UserTable from "./table.svelte";
     import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 

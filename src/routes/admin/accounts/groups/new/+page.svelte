@@ -8,8 +8,8 @@
     import { Skeleton } from "$lib/components/ui/skeleton";
     
     // Import the correct AdminPageLayout component with actionButtons support
-    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
-    import AdminCard from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminCard.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     
     // Import form components

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { Plus } from "lucide-svelte";
     import { goto } from "$app/navigation";
-    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import GroupsTable from "./table.svelte";
     import type { PageData } from "./$types";
     

@@ -11,8 +11,8 @@
     import { Clock, User, Building, ArrowLeft, Save, Loader2, ShieldCheck } from "lucide-svelte";
     
     // Admin Layout Components
-    import AdminPageLayout from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminPageLayout.svelte";
-    import AdminCard from "$lib/components/ui_components_sveltekit/layout/AdminPageLayout/AdminCard.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
     
     // Form Components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";

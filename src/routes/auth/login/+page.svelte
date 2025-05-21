@@ -23,9 +23,10 @@
         taintedMessage: null,
         onResult: async ({ result }) => {
             if (result.type === 'success') {
-                const redirectPath = '/admin';
+                // Use the server's redirectTo path or default to /user
+                const redirectPath = result.data?.redirectTo || '/user';
                 toast.success('Welcome back! Redirecting to dashboard...');
-                console.log("Redirecting to:", redirectPath)
+                console.log("Redirecting to:", redirectPath);
                 try {
                     await goto(redirectPath);
                 } catch (error) {

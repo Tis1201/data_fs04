@@ -151,10 +151,45 @@ The application uses a robust security system built around three main components
    - `unrestricted(handler)`: Explicitly marks public routes
    - Guards are higher-order functions that wrap route handlers to enforce security
 
-2. **Role-Based Access Control**:
-   - Uses `SystemRole` enum for consistent role definition
+2. **Role System**
+
+The application implements a two-tiered role system to manage both system-wide and account-level access control:
+
+#### System Roles (`SystemRole`)
+System-wide roles that define global permissions across the entire application:
+
+- `SUPER_ADMIN`: Full system access, can manage all accounts and system settings
+- `ADMIN`: Can manage most system settings and users
+- `USER`: Standard user with basic access
+
+#### Account Roles (`AccountRole`)
+Account-specific roles that define permissions within a particular account:
+
+| Role      | Description                                      | Permissions                                                                 |
+|-----------|--------------------------------------------------|-----------------------------------------------------------------------------|
+| `OWNER`   | Full account ownership                          | All account actions, including billing, user management, and deletion       |
+| `ADMIN`   | Account administrator                           | Manage users and settings, cannot delete account or change billing          |
+| `MEMBER`  | Standard member                                 | Regular access to account features                                           |
+| `GUEST`   | Limited access                                  | View-only access to specific resources                                      |
+
+3. **Role-Based Access Control**:
+   - Uses `SystemRole` and `AccountRole` enums for consistent role definition
    - Roles are checked at both route and data access levels
-   - Example: `restrict(handler, [SystemRole.ADMIN])`
+   - Example usage:
+     ```typescript
+     // System role check
+     if (auth.systemRole === 'SUPER_ADMIN') {
+         // System admin actions
+     }
+     
+     // Account role check
+     if (auth.accountRole === 'OWNER') {
+         // Account owner actions
+     }
+     
+     // Multiple role check
+     const canEdit = ['OWNER', 'ADMIN'].includes(auth.accountRole);
+     ```
 
 ### Data Access Patterns
 
@@ -484,4 +519,56 @@ To package the application for deployment as a zip file:
 ## UX and Layout
 For admin, use AdminPageLayout
 Always restrict user access to admin pages using restrict
+
+
+## Row Based Security
+
+This project implements fine-grained access control using Zenstack's row-level security. Here are the key policies in place:
+
+### Resource Access Policies
+
+1. **Creator Access**
+   ```prisma
+   // Allow users full CRUD on resources they created
+   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+   ```
+   - Users can read, update, and delete resources they created
+   - The `createdBy` field must match the authenticated user's ID
+
+2. **Account Member Access**
+   ```prisma
+   // Allow read access to account members
+   @@allow('read', auth() != null && account.members?[userId == auth().id])
+   ```
+   - Users can read any resource from accounts they are members of
+   - Checks the account's members array for the current user's ID
+
+### Key Concepts
+
+- **`auth()`**: Represents the current authenticated user's context
+- **`account.members`**: Relationship to the account's membership records
+- **`?[]`**: Optional array access with filtering
+
+### Example Flow
+
+1. When a user attempts to access a resource:
+   - The system first checks if they are the creator (full access)
+   - If not, it checks if they are a member of the resource's account (read-only)
+   - Admins have full access via separate policies
+
+### Best Practices
+
+- Always use `auth()` for access control rules
+- Prefer explicit checks over wildcard permissions
+- Test policies thoroughly with different user roles
+- Document any complex access rules in this section
+
+To Dos
+JWT Token Issuer
+- Allow devices to request for JWT tokens using API keys
+- Add token rotation 
+- Add token revocation
+- Add certificate rotation store in DB
+- Add certificate rotation 
+
 
