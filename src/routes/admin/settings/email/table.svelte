@@ -13,12 +13,14 @@
     import type { EmailServiceProvider } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
-    import { writable } from "svelte/store";
     import { toast } from "svelte-sonner";
     import { browser } from "$app/environment";
-    import { onMount } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
+    import * as Sheet from "$lib/components/ui/sheet";
+    import { Button } from "$lib/components/ui/button";
+    import TestEmailForm from "./TestEmailForm.svelte";
 
     // Props for DataTable component
     export let props = {
@@ -58,6 +60,29 @@
         newStatus: false
     };
 
+    // State for test email sheet
+    let testEmailState = {
+        open: false,
+        selectedProvider: null as EmailServiceProvider | null
+    };
+    
+    // Subscribe to the test email action store
+    
+    // Handle test email action when the store value changes
+    const unsubscribe = testEmailAction.subscribe(provider => {
+        if (provider) {
+            console.log("Test email action triggered with provider:", provider);
+            testEmailState.selectedProvider = provider;
+            testEmailState.open = true;
+            testEmailState.testEmail = "";
+            // Reset the store value
+            testEmailAction.set(null);
+        }
+    });
+    
+    // Clean up subscription when component is destroyed
+    onDestroy(unsubscribe);
+
     // Functions to open confirmation dialogs
     function confirmDelete(provider: EmailServiceProvider) {
         deleteState.selectedRecord = provider;
@@ -73,6 +98,56 @@
         toggleState.selectedRecord = provider;
         toggleState.newStatus = newStatus;
         toggleState.confirmationOpen = true;
+    }
+    
+    // The openTestEmailSheet function is now defined in the module context
+    
+    // Function to send test email using the form action
+    async function sendTestEmail() {
+        // Client-side validation
+        if (!testEmailState.testEmail || testEmailState.testEmail.trim() === '') {
+            toast.error("Please enter a recipient email address");
+            return;
+        }
+        
+        testEmailState.sending = true;
+        
+        try {
+            // Create a form to submit
+            const form = new FormData();
+            form.append('id', testEmailState.selectedProvider?.id || '');
+            form.append('to', testEmailState.testEmail);
+            form.append('subject', testEmailState.subject);
+            form.append('message', testEmailState.message);
+            
+            // Use the form submission with proper error handling
+            const response = await fetch('?/testEmailSend', {
+                method: 'POST',
+                body: form
+            });
+            
+            // Parse the JSON response
+            const data = await response.json();
+            console.log('Server response:', response.status, data);
+            
+            // Check if the response was successful
+            if (response.ok && data.success) {
+                toast.success("Test email sent successfully");
+                testEmailState.open = false;
+            } else {
+                // Extract error details from the response
+                const errorMessage = data.error || 'Unknown error';
+                const errorDetails = data.details?.details || '';
+                const fullError = `Failed to send test email: ${errorMessage}${errorDetails ? ` - ${errorDetails}` : ''}`;
+                console.error(fullError, data);
+                toast.error(fullError);
+            }
+        } catch (error) {
+            console.error('Client-side error sending test email:', error);
+            toast.error(`Error sending test email: ${error.message || 'Unknown error'}`);
+        } finally {
+            testEmailState.sending = false;
+        }
     }
     
     // Clean up legacy URL parameters
@@ -91,6 +166,11 @@
 <!-- Column definitions for the email providers table -->
 <script lang="ts" context="module">
     import { Badge } from "$lib/components/ui/badge";
+    import EmailProviderBadge from "$lib/components/ui_components_sveltekit/display/EmailProviderBadge.svelte";
+    import { writable } from "svelte/store";
+    
+    // Create a store to communicate between module and component
+    export const testEmailAction = writable<any>(null);
     
     // Define columns for the email providers table
     const columns = [
@@ -113,27 +193,12 @@
             label: "Type",
             sortable: true,
             width: "10%",
-            render: (record: EmailServiceProvider) => {
-                const typeColors = {
-                    smtp: "bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100",
-                    resend: "bg-purple-100 text-purple-800 dark:bg-purple-800 dark:text-purple-100",
-                    sendgrid: "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100",
-                    mailgun: "bg-orange-100 text-orange-800 dark:bg-orange-800 dark:text-orange-100",
-                    ses: "bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100",
-                    postmark: "bg-pink-100 text-pink-800 dark:bg-pink-800 dark:text-pink-100"
-                };
-                
-                const typeClass = typeColors[record.type as keyof typeof typeColors] || "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100";
-                
-                return {
-                    component: Badge,
-                    props: {
-                        variant: "outline",
-                        class: typeClass,
-                        children: record.type.toUpperCase()
-                    }
-                };
-            }
+            render: (record: EmailServiceProvider) => ({
+                component: EmailProviderBadge,
+                props: {
+                    type: record.type
+                }
+            })
         },
         {
             id: "fromEmail",
@@ -221,7 +286,10 @@
                     {
                         label: "Test Send",
                         icon: Mail,
-                        onClick: () => goto(`/admin/settings/email/${record.id}/test`)
+                        onClick: () => {
+                            // Use the store to communicate with the component
+                            testEmailAction.set(record);
+                        }
                     }
                 ];
                 
@@ -260,6 +328,35 @@
 </script>
 
 <div class="space-y-4">
+    <!-- Test Email Sheet -->
+    <Sheet.Root bind:open={testEmailState.open}>
+        <Sheet.Content side="right" class="w-full max-w-md">
+            <Sheet.Header>
+                <Sheet.Title>Send Test Email</Sheet.Title>
+                <Sheet.Description>
+                    Send a test email using {testEmailState.selectedProvider?.name || 'this provider'}
+                </Sheet.Description>
+            </Sheet.Header>
+            
+            <div class="py-4">
+                {#if testEmailState.selectedProvider}
+                    <TestEmailForm 
+                        provider={testEmailState.selectedProvider} 
+                        onClose={() => testEmailState.open = false}
+                        on:success={() => {
+                            toast.success("Test email sent successfully");
+                            testEmailState.open = false;
+                        }}
+                    />
+                {:else}
+                    <div class="flex items-center justify-center">
+                        <p>No provider selected</p>
+                    </div>
+                {/if}
+            </div>
+        </Sheet.Content>
+    </Sheet.Root>
+    
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
         state={deleteState}
