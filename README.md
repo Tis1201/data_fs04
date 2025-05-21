@@ -521,6 +521,47 @@ For admin, use AdminPageLayout
 Always restrict user access to admin pages using restrict
 
 
+## Row Based Security
+
+This project implements fine-grained access control using Zenstack's row-level security. Here are the key policies in place:
+
+### Resource Access Policies
+
+1. **Creator Access**
+   ```prisma
+   // Allow users full CRUD on resources they created
+   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+   ```
+   - Users can read, update, and delete resources they created
+   - The `createdBy` field must match the authenticated user's ID
+
+2. **Account Member Access**
+   ```prisma
+   // Allow read access to account members
+   @@allow('read', auth() != null && account.members?[userId == auth().id])
+   ```
+   - Users can read any resource from accounts they are members of
+   - Checks the account's members array for the current user's ID
+
+### Key Concepts
+
+- **`auth()`**: Represents the current authenticated user's context
+- **`account.members`**: Relationship to the account's membership records
+- **`?[]`**: Optional array access with filtering
+
+### Example Flow
+
+1. When a user attempts to access a resource:
+   - The system first checks if they are the creator (full access)
+   - If not, it checks if they are a member of the resource's account (read-only)
+   - Admins have full access via separate policies
+
+### Best Practices
+
+- Always use `auth()` for access control rules
+- Prefer explicit checks over wildcard permissions
+- Test policies thoroughly with different user roles
+- Document any complex access rules in this section
 
 To Dos
 JWT Token Issuer

@@ -39,7 +39,7 @@ model Account {
   resources     Resource[] // Resources owned by this account
   
   // Authorization rules
-  @@allow('create', auth().systemRole == 'ADMIN')
+  @@allow('all', auth().systemRole == 'ADMIN')
   
   //Allow user who assigned to this account to view
   @@allow('read', auth() != null && members?[userId == auth().id])
@@ -85,7 +85,7 @@ model AccountMembership {
   groupMemberships GroupMembership[]
   
   // Authorization rules
-  @@allow('all', auth().systemRole == 'USER')
+  @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read', auth().id == userId)
   @@allow('create,update,delete', account.members?[userId == auth().id && role == 'OWNER'])
   
@@ -532,10 +532,14 @@ model Resource {
   @@allow('all', auth().systemRole == 'ADMIN')
   
   // Allow users to create resources if they are the creator
-  //@@allow('create', auth() != null && createdBy == auth().id)
+  @@allow('create', auth() != null && createdBy == auth().id)
   
   // Allow users to read, update, delete resources if they created them
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+
+  // Allow users to read if they are members of the account
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
   
   @@index([name])
   @@index([type])

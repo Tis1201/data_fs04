@@ -50,3 +50,25 @@ If in doubt, see the ws-gateway project for reference
 13. Uses svelte-headless-table
 14. Uses @faker-js/faker
 
+## Row Based Security
+
+This project implements fine-grained access control using Zenstack's row-level security. Here are the key policies in place:
+
+### Resource Access Policies
+
+1. **Creator Access**
+   ```prisma
+   // Allow users full CRUD on resources they created
+   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+   ```
+   - Users can read, update, and delete resources they created
+   - The `createdBy` field must match the authenticated user's ID
+
+2. **Account Member Access**
+   ```prisma
+   // Allow read access to account members
+   @@allow('read', auth() != null && account.members?[userId == auth().id])
+   ```
+   - Users can read any resource from accounts they are members of
+   - Checks the account's members array for the current user's ID
+
