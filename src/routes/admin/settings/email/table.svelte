@@ -184,7 +184,10 @@
                 props: {
                     record,
                     baseUrl: "/admin/settings/email",
-                    showId: true
+                    showId: true,
+                    showBadge: record.isDefault,
+                    badgeText: "Default",
+                    badgeClass: "bg-yellow-50 text-yellow-800 border-yellow-200"
                 }
             })
         },
@@ -211,21 +214,22 @@
             label: "Status",
             width: "15%",
             render: (record: EmailServiceProvider) => {
+                // Create array to hold badges
                 const badges = [];
                 
-                // Default badge
+                // Add default badge if this is the default provider
                 if (record.isDefault) {
                     badges.push({
                         component: Badge,
                         props: {
                             variant: "outline",
-                            class: "bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100 mr-2",
+                            class: "bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100 mr-2 border-yellow-400 dark:border-yellow-600",
                             children: "DEFAULT"
                         }
                     });
                 }
                 
-                // Active/Inactive badge
+                // Add active/inactive badge
                 const activeClass = record.isActive 
                     ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100" 
                     : "bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100";
@@ -239,10 +243,11 @@
                     }
                 });
                 
+                // Return div containing badges
                 return {
                     component: 'div',
                     props: {
-                        class: "flex flex-row items-center",
+                        class: "flex flex-row items-center space-x-2",
                         children: badges
                     }
                 };

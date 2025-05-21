@@ -32,9 +32,9 @@ export const load = restrict(
             // Add search filter if provided
             if (search) {
                 where.OR = [
-                    { name: { contains: search, mode: 'insensitive' } },
-                    { id: { contains: search, mode: 'insensitive' } },
-                    { fromEmail: { contains: search, mode: 'insensitive' } }
+                    { name: { contains: search } },
+                    { id: { contains: search } },
+                    { fromEmail: { contains: search } }
                 ];
             }
             

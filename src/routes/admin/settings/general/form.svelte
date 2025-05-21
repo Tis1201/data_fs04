@@ -50,10 +50,14 @@
       sessionAuth: true,
       oauthAuth: false,
       sessionTimeout: 30,
-      maxLoginAttempts: 5
+      maxLoginAttempts: 5,
+      captchaEnabled: false,
+      captchaType: 'recaptcha',
+      emailProvider: 'smtp',
+      emailEnabled: false
     },
     security: {
-      enforceStrongPasswords: true,
+      enforceStrongPasswords: false,
       twoFactorAuth: false,
       ipRestriction: false,
       allowedIPs: []
@@ -87,7 +91,11 @@
           sessionAuth: parsed.auth?.sessionAuth ?? settings.auth.sessionAuth,
           oauthAuth: parsed.auth?.oauthAuth ?? settings.auth.oauthAuth,
           sessionTimeout: parsed.auth?.sessionTimeout ?? settings.auth.sessionTimeout,
-          maxLoginAttempts: parsed.auth?.maxLoginAttempts ?? settings.auth.maxLoginAttempts
+          maxLoginAttempts: parsed.auth?.maxLoginAttempts ?? settings.auth.maxLoginAttempts,
+          captchaEnabled: parsed.auth?.captchaEnabled ?? settings.auth.captchaEnabled,
+          captchaType: parsed.auth?.captchaType ?? settings.auth.captchaType,
+          emailProvider: parsed.auth?.emailProvider ?? settings.auth.emailProvider,
+          emailEnabled: parsed.auth?.emailEnabled ?? settings.auth.emailEnabled
         },
         security: {
           enforceStrongPasswords: parsed.security?.enforceStrongPasswords ?? settings.security.enforceStrongPasswords,
@@ -171,7 +179,7 @@
     <Separator />
     
     <div class="grid gap-4 pl-1">
-        <FormField id="auth_sessionAuth" label="Session Authentication" error={null}>
+        <!-- <FormField id="auth_sessionAuth" label="Session Authentication" error={null}>
           <div class="flex items-center justify-between">
             <p class="text-sm text-muted-foreground">Enable username/password authentication</p>
             <Switch 
@@ -183,9 +191,9 @@
               }}
             />
           </div>
-        </FormField>
+        </FormField> -->
             
-        <FormField id="auth_oauthAuth" label="OAuth Authentication" error={null}>
+        <!-- <FormField id="auth_oauthAuth" label="OAuth Authentication" error={null}>
           <div class="flex items-center justify-between">
             <p class="text-sm text-muted-foreground">Enable third-party authentication providers</p>
             <Switch 
@@ -227,7 +235,78 @@
               }}
             />
           </FormField>
-        </FormRow>
+        </FormRow> -->
+
+        <FormField id="auth_captcha" label="CAPTCHA Protection" error={null}>
+          <div class="flex items-center justify-between">
+            <p class="text-sm text-muted-foreground">Enable CAPTCHA verification for login attempts</p>
+            <Switch 
+              id="auth_captcha"
+              checked={settings.auth.captchaEnabled} 
+              onCheckedChange={(checked) => {
+                settings.auth.captchaEnabled = checked;
+                updateJsonData();
+              }}
+            />
+          </div>
+        </FormField>
+
+        <!-- {#if settings.auth.captchaEnabled}
+          <FormField id="captchaType" label="CAPTCHA Type" error={null}>
+            <EnhancedSelect
+              id="captchaType"
+              name="captchaType"
+              options={[
+                { value: 'recaptcha', label: 'Google reCAPTCHA' },
+                { value: 'hcaptcha', label: 'hCaptcha' },
+                { value: 'turnstile', label: 'Cloudflare Turnstile' }
+              ]}
+              value={settings.auth.captchaType}
+              placeholder="Select CAPTCHA type"
+              labelText="CAPTCHA Type"
+              on:change={(e) => {
+                settings.auth.captchaType = e.detail;
+                updateJsonData();
+              }}
+            />
+          </FormField>
+        {/if} -->
+
+        <FormField id="auth_email" label="Email Notifications" error={null}>
+          <div class="flex items-center justify-between">
+            <p class="text-sm text-muted-foreground">Enable email notifications for authentication</p>
+            <Switch 
+              id="auth_email"
+              checked={settings.auth.emailEnabled} 
+              onCheckedChange={(checked) => {
+                settings.auth.emailEnabled = checked;
+                updateJsonData();
+              }}
+            />
+          </div>
+        </FormField>
+
+        <!-- {#if settings.auth.emailEnabled}
+          <FormField id="emailProvider" label="Email Service Provider" error={null}>
+            <EnhancedSelect
+              id="emailProvider"
+              name="emailProvider"
+              options={[
+                { value: 'smtp', label: 'SMTP Server' },
+                { value: 'sendgrid', label: 'SendGrid' },
+                { value: 'mailgun', label: 'Mailgun' },
+                { value: 'ses', label: 'Amazon SES' }
+              ]}
+              value={settings.auth.emailProvider}
+              placeholder="Select email provider"
+              labelText="Email Provider"
+              on:change={(e) => {
+                settings.auth.emailProvider = e.detail;
+                updateJsonData();
+              }}
+            />
+          </FormField>
+        {/if} -->
     </div>
   </div>
   
@@ -254,7 +333,7 @@
           </div>
         </FormField>
             
-        <FormField id="security_twoFactorAuth" label="Two-Factor Authentication" error={null}>
+        <!-- <FormField id="security_twoFactorAuth" label="Two-Factor Authentication" error={null}>
           <div class="flex items-center justify-between">
             <p class="text-sm text-muted-foreground">Require 2FA for all users</p>
             <Switch 
@@ -266,7 +345,7 @@
               }}
             />
           </div>
-        </FormField>
+        </FormField> -->
     </div>
   </div>
   
