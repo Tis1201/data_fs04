@@ -1,6 +1,8 @@
 <script lang="ts">
     import { page } from "$app/stores";
-    import { RefreshCw, Users, Building2, UserPlus, Laptop, Activity, Clock } from "lucide-svelte";
+    import { RefreshCw, Users, Building2, UserPlus, Laptop, Activity, Clock, BarChart } from "lucide-svelte";
+    import { onMount } from "svelte";
+    import Chart from "chart.js/auto";
     
     import { Button } from "$lib/components/ui/button";
     import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
@@ -15,6 +17,77 @@
         return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     };
 
+    // Chart reference
+    let loginChartCanvas: HTMLCanvasElement;
+    let loginChart: Chart;
+    
+    // Format date for display
+    const formatDate = (dateString: string): string => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    };
+    
+    // Initialize chart on component mount
+    onMount(() => {
+        if (loginChartCanvas) {
+            const ctx = loginChartCanvas.getContext('2d');
+            if (ctx) {
+                loginChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: stats.loginsByDay.map(day => formatDate(day.date)),
+                        datasets: [{
+                            label: 'User Logins',
+                            data: stats.loginsByDay.map(day => day.count),
+                            backgroundColor: 'rgba(147, 51, 234, 0.2)',
+                            borderColor: 'rgb(147, 51, 234)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            hoverBackgroundColor: 'rgba(147, 51, 234, 0.4)'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => {
+                                        if (items.length > 0) {
+                                            const index = items[0].dataIndex;
+                                            return formatDate(stats.loginsByDay[index].date);
+                                        }
+                                        return '';
+                                    },
+                                    label: (item) => {
+                                        return `Logins: ${item.raw}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    precision: 0
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
+        return () => {
+            if (loginChart) {
+                loginChart.destroy();
+            }
+        };
+    });
+    
     // Define the dashboard cards
     const dashboardCards = [
         {
@@ -94,6 +167,18 @@
                         </div>
                     </div>
                 {/each}
+            </div>
+        </CardContent>
+    </Card>
+    <!-- Login Activity Chart -->    
+    <Card class="w-full">
+        <CardHeader>
+            <CardTitle>Login Activity (Last 7 Days)</CardTitle>
+            <CardDescription>Daily user login activity</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <div class="h-80 w-full">
+                <canvas bind:this={loginChartCanvas}></canvas>
             </div>
         </CardContent>
     </Card>

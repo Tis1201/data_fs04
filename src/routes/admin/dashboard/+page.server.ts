@@ -34,7 +34,8 @@ export const load: PageServerLoad = async ({ locals }) => {
         totalDevices,
         activeSessions,
         activeDevices,
-        recentLogins
+        recentLogins,
+        loginsByDay
     ] = await Promise.all([
         // Total users count
         locals.prisma.user.count(),
@@ -83,7 +84,45 @@ export const load: PageServerLoad = async ({ locals }) => {
                     gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
                 }
             }
-        })
+        }),
+        
+        // Get login data by day for the past 7 days
+        (async () => {
+            const days = [];
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // Create array of dates for the past 7 days
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                days.push(date);
+            }
+            
+            // Get login counts for each day
+            const loginsByDay = await Promise.all(
+                days.map(async (day) => {
+                    const nextDay = new Date(day);
+                    nextDay.setDate(nextDay.getDate() + 1);
+                    
+                    const count = await locals.prisma.session.count({
+                        where: {
+                            createdAt: {
+                                gte: day,
+                                lt: nextDay
+                            }
+                        }
+                    });
+                    
+                    return {
+                        date: day.toISOString().split('T')[0],  // Format as YYYY-MM-DD
+                        count: count
+                    };
+                })
+            );
+            
+            return loginsByDay;
+        })()
     ]);
 
     return {
@@ -95,7 +134,8 @@ export const load: PageServerLoad = async ({ locals }) => {
             totalDevices,
             activeSessions,
             activeDevices,
-            recentLogins
+            recentLogins,
+            loginsByDay
         }
     };
 };
