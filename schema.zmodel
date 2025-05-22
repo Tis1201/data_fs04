@@ -696,3 +696,51 @@ model TokenUsageLog {
   @@allow('read', auth().systemRole == 'ADMIN')
   @@allow('create', true) // Allow system to create logs
 }
+
+//Log failed login attempts
+model FailedLoginLog {
+  id           String   @id @default(cuid())
+  email        String   // The email that was attempted
+  ipAddress    String?  // IP address of the attempt
+  userAgent    String?  // Browser/client info
+  reason       String   // Reason for failure (invalid password, user not found, etc.)
+  attemptedAt  DateTime @default(now())
+  
+  // Optional relations
+  accountId    String?  // If the email is associated with an account
+  
+  @@index([email])
+  @@index([ipAddress])
+  @@index([attemptedAt])
+  @@index([accountId])
+  
+  // Only admins can view logs
+  @@allow('read', auth().systemRole == 'ADMIN')
+  @@allow('create', true) // Allow system to create logs
+}
+
+// Track user session activities (login, logout, etc.)
+model UserSessionLog {
+  id           String   @id @default(cuid())
+  action       String   // 'login', 'logout', 'timeout', 'revoked'
+  sessionId    String?  // Reference to the session if available
+  ipAddress    String?  // IP address of the request
+  userAgent    String?  // Browser/client info
+  deviceInfo   String?  // Additional device information (JSON)
+  timestamp    DateTime @default(now())
+  
+  // Relations
+  userId       String
+  accountId    String?
+  
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@index([sessionId])
+  @@index([accountId])
+  
+  // Only admins can view logs, system can create
+  @@allow('read', auth().systemRole == 'ADMIN')
+  @@allow('create', true)
+}
+

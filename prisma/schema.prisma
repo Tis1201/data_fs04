@@ -467,3 +467,36 @@ model TokenUsageLog {
   @@index([tokenId])
   @@index([createdAt])
 }
+
+model FailedLoginLog {
+  id          String   @id() @default(cuid())
+  email       String
+  ipAddress   String?
+  userAgent   String?
+  reason      String
+  attemptedAt DateTime @default(now())
+  accountId   String?
+
+  @@index([email])
+  @@index([ipAddress])
+  @@index([attemptedAt])
+  @@index([accountId])
+}
+
+model UserSessionLog {
+  id         String   @id() @default(cuid())
+  action     String
+  sessionId  String?
+  ipAddress  String?
+  userAgent  String?
+  deviceInfo String?
+  timestamp  DateTime @default(now())
+  userId     String
+  accountId  String?
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@index([sessionId])
+  @@index([accountId])
+}
