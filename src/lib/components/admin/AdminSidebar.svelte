@@ -26,7 +26,10 @@
 
         Ticket,
 
-        Logs
+        Logs,
+
+        KeySquare
+
 
 
 
@@ -102,10 +105,16 @@
             initialExpanded: true,
             subItems: [
                 { href: "/admin/jwt/signing_keys", label: "Signing Keys", icon: Key },
+                { href: "/admin/settings/api_keys", label: "API Keys", icon: Key }
+            ]
+        },
+        { 
+            label: "JWT", 
+            icon: KeySquare, 
+            initialExpanded: true,
+            subItems: [
                 { href: "/admin/jwt/refresh_tokens", label: "Refresh Tokens", icon: Ticket },
                 { href: "/admin/jwt/token_logs", label: "Token Logs", icon: Logs },
-                
-                { href: "/admin/settings/api_keys", label: "API Keys", icon: Key }
             ]
         },
         { 

@@ -1,10 +1,11 @@
 <script lang="ts">
-    import { Trash2 } from "lucide-svelte";
+    import { Trash2, BarChart3, Table, Activity, Clock } from "lucide-svelte";
     import { goto } from "$app/navigation";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import TokenLogsTable from "./table.svelte";
     import TokenLogsMetrics from "./metrics.svelte";
     import type { PageData } from "./$types";
+    import * as Tabs from "$lib/components/ui/tabs";
     
     // Import page data from server
     export let data: PageData;
@@ -58,6 +59,9 @@
         ["JWT", "/admin/jwt"],
         "Token Logs"
     ];
+    
+    // Tab state
+    let activeTab = "dashboard";
 </script>
 
 <AdminPageLayout
@@ -71,13 +75,26 @@
         }
     ]}
 >
-    <!-- Metrics Dashboard -->
-    <div class="mb-6">
-        <TokenLogsMetrics props={metricsProps} />
-    </div>
-    
-    <!-- Token Logs Table -->
-    <TokenLogsTable props={tableProps} />
+    <Tabs.Root bind:value={activeTab} class="space-y-6">
+        <Tabs.List class="grid w-full grid-cols-2">
+            <Tabs.Trigger value="dashboard">
+                <BarChart3 class="h-4 w-4 mr-2" />
+                Dashboard
+            </Tabs.Trigger>
+            <Tabs.Trigger value="logs">
+                <Activity class="h-4 w-4 mr-2" />
+                Logs
+            </Tabs.Trigger>
+        </Tabs.List>
+        
+        <Tabs.Content value="dashboard" class="space-y-4">
+            <TokenLogsMetrics props={metricsProps} />
+        </Tabs.Content>
+        
+        <Tabs.Content value="logs" class="space-y-4">
+            <TokenLogsTable props={tableProps} />
+        </Tabs.Content>
+    </Tabs.Root>
     
     <!-- Clear Logs Dialog -->
     <dialog id="clear-logs-dialog" class="modal">
