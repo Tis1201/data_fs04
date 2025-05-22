@@ -3,6 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { SystemRole } from '../users/schema';
 import os from 'os';
 import { fail } from '@sveltejs/kit';
+import { exec } from 'child_process';
 
 // Helper function to convert bytes to GB
 const bytesToGB = (bytes: number) => {
@@ -68,6 +69,60 @@ const getNetworkInterfaces = () => {
     return result;
 };
 
+// Helper function to get top processes by CPU and memory usage
+const getTopProcesses = async (): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+        // Different command based on platform
+        const command = os.platform() === 'darwin' 
+            ? 'ps -eo pid,pcpu,pmem,comm -r | head -11' // macOS
+            : 'ps -eo pid,pcpu,pmem,comm --sort=-%cpu | head -11'; // Linux
+        
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error executing process command: ${error.message}`);
+                resolve([]);
+                return;
+            }
+            
+            if (stderr) {
+                console.error(`Process command stderr: ${stderr}`);
+                resolve([]);
+                return;
+            }
+            
+            try {
+                // Parse the output
+                const lines = stdout.trim().split('\n');
+                // Remove the header line
+                lines.shift();
+                
+                const processes = lines.map(line => {
+                    const parts = line.trim().split(/\s+/);
+                    // Handle process names with spaces
+                    let command = '';
+                    if (parts.length > 4) {
+                        command = parts.slice(3).join(' ');
+                    } else if (parts.length === 4) {
+                        command = parts[3];
+                    }
+                    
+                    return {
+                        pid: parseInt(parts[0], 10),
+                        cpu: parseFloat(parts[1]),
+                        memory: parseFloat(parts[2]),
+                        command: command
+                    };
+                });
+                
+                resolve(processes);
+            } catch (err) {
+                console.error('Error parsing process data:', err);
+                resolve([]);
+            }
+        });
+    });
+};
+
 export const load: PageServerLoad = async ({ locals }) => {
     const session = await locals.auth.validate();
     if (!session?.user) {
@@ -101,6 +156,9 @@ export const load: PageServerLoad = async ({ locals }) => {
     
     // Get process memory usage
     const processMemoryUsage = process.memoryUsage();
+    
+    // Get top processes by resource usage
+    const topProcesses = await getTopProcesses();
     
     // Get system uptime
     const uptime = os.uptime();
@@ -248,7 +306,8 @@ export const load: PageServerLoad = async ({ locals }) => {
                 arch: os.arch()
             },
             hostname: os.hostname(),
-            network: getNetworkInterfaces()
+            network: getNetworkInterfaces(),
+            topProcesses: topProcesses
         },
         sessions: {
             active: activeSessions,
@@ -276,24 +335,32 @@ export const actions: Actions = {
             return fail(403, { error: 'Forbidden' });
         }
         
-        // Get current CPU usage
-        const cpuUsage = await getCpuUsage();
-        const totalMem = os.totalmem();
-        const freeMem = os.freemem();
-        const usedMem = totalMem - freeMem;
-        const memoryUsage = (usedMem / totalMem) * 100;
-        
-        return {
-            success: true,
-            cpu: {
-                usage: parseFloat(cpuUsage.toFixed(1))
-            },
-            memory: {
-                total: bytesToGB(totalMem),
-                free: bytesToGB(freeMem),
-                used: bytesToGB(usedMem),
-                usagePercentage: parseFloat(memoryUsage.toFixed(1))
-            }
-        };
+        try {
+            // Get current CPU usage
+            const cpuUsage = await getCpuUsage();
+            const totalMem = os.totalmem();
+            const freeMem = os.freemem();
+            const usedMem = totalMem - freeMem;
+            const memoryUsage = (usedMem / totalMem) * 100;
+            
+            // Return a properly structured object
+            return {
+                success: true,
+                stats: {
+                    cpu: {
+                        usage: parseFloat(cpuUsage.toFixed(1))
+                    },
+                    memory: {
+                        total: bytesToGB(totalMem),
+                        free: bytesToGB(freeMem),
+                        used: bytesToGB(usedMem),
+                        usagePercentage: parseFloat(memoryUsage.toFixed(1))
+                    }
+                }
+            };
+        } catch (error) {
+            console.error('Error getting system stats:', error);
+            return fail(500, { error: 'Failed to get system stats' });
+        }
     }
 };
