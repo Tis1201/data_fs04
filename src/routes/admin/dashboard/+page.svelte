@@ -1,6 +1,6 @@
 <script lang="ts">
     import { page } from "$app/stores";
-    import { RefreshCw, Users, Building2, UserPlus, Laptop, Activity, Clock, BarChart } from "lucide-svelte";
+    import { RefreshCw, Users, Building2, UserPlus, Laptop, Activity, Clock, BarChart, AlertTriangle } from "lucide-svelte";
     import { onMount } from "svelte";
     import Chart from "chart.js/auto";
     
@@ -17,9 +17,11 @@
         return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     };
 
-    // Chart reference
+    // Chart references
     let loginChartCanvas: HTMLCanvasElement;
     let loginChart: Chart;
+    let failedLoginChartCanvas: HTMLCanvasElement;
+    let failedLoginChart: Chart;
     
     // Format date for display
     const formatDate = (dateString: string): string => {
@@ -27,8 +29,9 @@
         return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     };
     
-    // Initialize chart on component mount
+    // Initialize charts on component mount
     onMount(() => {
+        // Initialize login activity chart
         if (loginChartCanvas) {
             const ctx = loginChartCanvas.getContext('2d');
             if (ctx) {
@@ -81,9 +84,65 @@
             }
         }
         
+        // Initialize failed login chart
+        if (failedLoginChartCanvas) {
+            const ctx = failedLoginChartCanvas.getContext('2d');
+            if (ctx) {
+                failedLoginChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: stats.failedLoginsByDay.map(day => formatDate(day.date)),
+                        datasets: [{
+                            label: 'Failed Logins',
+                            data: stats.failedLoginsByDay.map(day => day.count),
+                            backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                            borderColor: 'rgb(239, 68, 68)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                            hoverBackgroundColor: 'rgba(239, 68, 68, 0.4)'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: (items) => {
+                                        if (items.length > 0) {
+                                            const index = items[0].dataIndex;
+                                            return formatDate(stats.failedLoginsByDay[index].date);
+                                        }
+                                        return '';
+                                    },
+                                    label: (item) => {
+                                        return `Failed Logins: ${item.raw}`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    precision: 0
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        
         return () => {
             if (loginChart) {
                 loginChart.destroy();
+            }
+            if (failedLoginChart) {
+                failedLoginChart.destroy();
             }
         };
     });
@@ -131,6 +190,12 @@
             value: formatNumber(stats.recentLogins),
             description: "Login sessions in the last 7 days",
             icon: Clock
+        },
+        {
+            title: "Failed Logins",
+            value: formatNumber(stats.recentFailedLogins),
+            description: "Failed login attempts in the last 7 days",
+            icon: AlertTriangle
         }
     ];
 </script>
@@ -171,7 +236,7 @@
         </CardContent>
     </Card>
     <!-- Login Activity Chart -->    
-    <Card class="w-full">
+    <Card class="w-full mb-6">
         <CardHeader>
             <CardTitle>Login Activity (Last 7 Days)</CardTitle>
             <CardDescription>Daily user login activity</CardDescription>
@@ -179,6 +244,19 @@
         <CardContent>
             <div class="h-80 w-full">
                 <canvas bind:this={loginChartCanvas}></canvas>
+            </div>
+        </CardContent>
+    </Card>
+    
+    <!-- Failed Login Activity Chart -->    
+    <Card class="w-full">
+        <CardHeader>
+            <CardTitle>Failed Login Attempts (Last 7 Days)</CardTitle>
+            <CardDescription>Daily failed login attempts</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <div class="h-80 w-full">
+                <canvas bind:this={failedLoginChartCanvas}></canvas>
             </div>
         </CardContent>
     </Card>

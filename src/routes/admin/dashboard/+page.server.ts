@@ -35,7 +35,9 @@ export const load: PageServerLoad = async ({ locals }) => {
         activeSessions,
         activeDevices,
         recentLogins,
-        loginsByDay
+        recentFailedLogins,
+        loginsByDay,
+        failedLoginsByDay
     ] = await Promise.all([
         // Total users count
         locals.prisma.user.count(),
@@ -86,6 +88,15 @@ export const load: PageServerLoad = async ({ locals }) => {
             }
         }),
         
+        // Recent failed logins (last 7 days)
+        locals.prisma.failedLoginLog.count({
+            where: {
+                attemptedAt: {
+                    gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+                }
+            }
+        }),
+        
         // Get login data by day for the past 7 days
         (async () => {
             const days = [];
@@ -122,6 +133,44 @@ export const load: PageServerLoad = async ({ locals }) => {
             );
             
             return loginsByDay;
+        })(),
+        
+        // Get failed login data by day for the past 7 days
+        (async () => {
+            const days = [];
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            // Create array of dates for the past 7 days
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                days.push(date);
+            }
+            
+            // Get failed login counts for each day
+            const failedLoginsByDay = await Promise.all(
+                days.map(async (day) => {
+                    const nextDay = new Date(day);
+                    nextDay.setDate(nextDay.getDate() + 1);
+                    
+                    const count = await locals.prisma.failedLoginLog.count({
+                        where: {
+                            attemptedAt: {
+                                gte: day,
+                                lt: nextDay
+                            }
+                        }
+                    });
+                    
+                    return {
+                        date: day.toISOString().split('T')[0],  // Format as YYYY-MM-DD
+                        count: count
+                    };
+                })
+            );
+            
+            return failedLoginsByDay;
         })()
     ]);
 
@@ -135,7 +184,9 @@ export const load: PageServerLoad = async ({ locals }) => {
             activeSessions,
             activeDevices,
             recentLogins,
-            loginsByDay
+            recentFailedLogins,
+            loginsByDay,
+            failedLoginsByDay
         }
     };
 };
