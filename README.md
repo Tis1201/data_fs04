@@ -564,11 +564,33 @@ This project implements fine-grained access control using Zenstack's row-level s
 - Document any complex access rules in this section
 
 To Dos
+Access Management
+- User Sign Up Form (user will have own account)
+- User invite Team Members (use jwt with expiry,invited users will share account with owner)
+- Reset Password Form (use jwt with expiry)
+- use captcha-canvas for added security
+- Rate Limiting:
+- Implement rate limiting on login attempts
+- Use IP-based blocking for suspicious activity
+
 JWT Token Issuer
 - Allow devices to request for JWT tokens using API keys
 - Add token rotation 
 - Add token revocation
 - Add certificate rotation store in DB
 - Add certificate rotation 
+
+Audit Log
+- sign in
+- sign out
+- user actions
+- system actions
+- sign in errors
+- password reset etc
+
+Modules Access (subscription based)
+- IOT
+- Whatsapp
+- Others in future
 
 

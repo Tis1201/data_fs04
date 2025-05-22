@@ -32,7 +32,6 @@
 	export let gridGap: string = "gap-4";
 	
 	// Additional props that are being used in the application
-	// Using export const instead of export let for properties that are only for external reference
 	export const loading: boolean = false;
 	export const showCreateButton: boolean = true;
 	export const breadcrumbs: any[] = [];

@@ -339,6 +339,7 @@ model EmailServiceProvider {
   updatedBy  String
   lastUsedAt DateTime?
   totalSent  Int       @default(0)
+  status     String    @default("ACTIVE")
 
   @@index([isActive])
   @@index([isDefault])

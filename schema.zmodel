@@ -481,14 +481,15 @@ model EmailServiceProvider {
   updatedBy   String
   lastUsedAt  DateTime?
   totalSent   Int      @default(0)
+
+  status String @default("ACTIVE")
   
   // Validation
-  @@validate(type in ["smtp", "sendgrid", "mailgun", "ses", "resend", "postmark"], "Invalid provider type")
+  //@@validate(type in ["smtp", "sendgrid", "mailgun", "ses", "resend", "postmark"], "Invalid provider type")
   
   // Admin has full access
   @@allow('all', auth().systemRole == 'ADMIN')
-  @@deny('all', true)
-
+  
   @@index([isActive])
   @@index([isDefault])
   @@index([type])
