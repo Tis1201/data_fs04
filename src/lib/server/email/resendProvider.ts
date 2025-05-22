@@ -1,6 +1,7 @@
 import type { EmailServiceProvider } from '@prisma/client';
 import type { EmailOptions, EmailResult, IEmailProvider } from './types';
 import { logger } from '$lib/server/logger';
+import { Resend } from 'resend';
 
 /**
  * Resend Email Provider implementation
@@ -19,9 +20,8 @@ export class ResendProvider implements IEmailProvider {
      */
     private initConfig(): void {
         try {
-            // Parse Resend settings from provider config
-            const config = JSON.parse(this.provider.config || '{}');
-            this.apiKey = config.apiKey;
+            // Get API key directly from the provider
+            this.apiKey = this.provider.apiKey;
             
             if (!this.apiKey) {
                 throw new Error('Resend API key is required');
@@ -42,32 +42,41 @@ export class ResendProvider implements IEmailProvider {
                 throw new Error('Resend API key not initialized');
             }
 
-            // In a real implementation, we would use the Resend API client
-            // For example:
-            // const resend = new Resend(this.apiKey);
-            // const result = await resend.emails.send({
-            //     from: `${this.provider.fromName} <${this.provider.fromEmail}>`,
-            //     to: options.to,
-            //     subject: options.subject,
-            //     html: options.html,
-            //     text: options.text,
-            //     cc: options.cc,
-            //     bcc: options.bcc,
-            //     reply_to: options.replyTo,
-            //     attachments: options.attachments?.map(attachment => ({
-            //         filename: attachment.filename,
-            //         content: attachment.content
-            //     }))
-            // });
-
-            // For now, we'll just log it
-            logger.info(`Email would be sent via Resend to ${Array.isArray(options.to) ? options.to.join(', ') : options.to}`);
+            // Initialize the Resend client
+            const resend = new Resend(this.apiKey);
             
-            // Mock a successful response
-            const mockMessageId = `mock-${Date.now()}@resend.dev`;
+            // Prepare the from address with name if available
+            const from = this.provider.fromName
+                ? `${this.provider.fromName} <${this.provider.fromEmail}>`
+                : this.provider.fromEmail;
+            
+            // Prepare recipients
+            const to = Array.isArray(options.to) ? options.to : [options.to];
+            
+            // Log the email sending attempt
+            logger.info(`Sending email via Resend to ${to.join(', ')}`);
+            
+            // Send the email using Resend API
+            const result = await resend.emails.send({
+                from,
+                to,
+                subject: options.subject,
+                html: options.html,
+                text: options.text,
+                cc: options.cc,
+                bcc: options.bcc,
+                reply_to: options.replyTo,
+                attachments: options.attachments?.map(attachment => ({
+                    filename: attachment.filename,
+                    content: attachment.content
+                }))
+            });
+            
+            // Log success and return result
+            logger.info(`Email sent successfully via Resend with ID: ${result.id}`);
             return {
                 success: true,
-                messageId: mockMessageId
+                messageId: result.id
             };
         } catch (error) {
             logger.error(`Resend email error: ${error.message}`, { error });
