@@ -32,9 +32,9 @@
 	export let gridGap: string = "gap-4";
 	
 	// Additional props that are being used in the application
-	export let loading: boolean = false;
-	export let showCreateButton: boolean = true;
-	export let breadcrumbs: any[] = [];
+	export const loading: boolean = false;
+	export const showCreateButton: boolean = true;
+	export const breadcrumbs: any[] = [];
 </script>
 
 <PageContainer crumbs={crumbs}>
