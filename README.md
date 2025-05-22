@@ -25,7 +25,7 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 ## Features
 
 - Role-based access control with ZenStack-enhanced Prisma
-- Form actions via Zod and Superforms (sveltekit-superforms)
+- [Form handling with Zod and Superforms](./src/lib/components/ui_components_sveltekit/form/README.md)
 - Real-time communication with WebSockets
 - RTP and WebRTC streaming integration
 - Admin dashboard and room management
@@ -105,6 +105,9 @@ Contributions welcome! Please fork, branch, and submit pull requests. Adhere to 
 - [Device Management](./src/lib/server/device/README.md) - Device registration and management
 - [Messaging System](./src/lib/server/messaging/README.md) - Real-time messaging infrastructure
 - [WhatsApp Integration](./src/lib/server/whatsapp/README.md) - WhatsApp messaging capabilities
+
+### UI Components
+- [Form Handling](./src/lib/components/ui_components_sveltekit/form/README.md) - Comprehensive guide to form handling with validation and error handling
 
 ### UI Components
 - [Admin Components](./src/lib/components/admin/README.md) - Reusable admin interface components

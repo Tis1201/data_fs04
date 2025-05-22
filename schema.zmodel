@@ -37,6 +37,8 @@ model Account {
   apiKeys       ApiKey[] // API keys associated with this account
   primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
   resources     Resource[] // Resources owned by this account
+  refreshTokens RefreshToken[]
+  tokenUsageLogs TokenUsageLog[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -159,6 +161,11 @@ model User {
   accountMemberships AccountMembership[]
   primaryAccount Account? @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
   invitationTokens InvitationToken[]
+  
+  // JWT Relations
+  jwtSigningKeys JwtSigningKey[]
+  tokenUsageLogs TokenUsageLog[]
+  refreshTokens  RefreshToken[]
 
 
 
@@ -370,6 +377,8 @@ model Device {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   name          String
+  // Relations to factory token
+  factoryTokens FactoryToken[]
   description   String?
   status        String   @default("ACTIVE")
   expiresAt     DateTime?
@@ -550,44 +559,11 @@ model Resource {
 // JWT Token Issuer Subsystem
 // Manages API keys, tokens, and key rotation for device authentication
 
-// API Key used by devices to request JWT tokens
-model ApiKey {
-  id          String   @id @default(cuid())
-  keyHash     String   @unique // Hashed API key (never store plaintext)
-  name        String   // Human-readable name for the key
-  description String?
-  
-  // Key rotation
-  keyVersion  Int      @default(1)
-  isActive   Boolean  @default(true)
-  lastUsedAt DateTime?
-  
-  // Relations
-  account     Account  @relation(fields: [accountId], references: [id])
-  accountId   String
-  
-  // Metadata
-  createdBy   User     @relation(fields: [createdById], references: [id])
-  createdById String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  expiresAt   DateTime? // Optional expiration
-  
-  // Security
-  lastRotatedAt DateTime?
-  
-  @@index([accountId])
-  @@index([createdById])
-  @@index([isActive])
-  @@allow('create,read,update,delete', auth() != null && createdById == auth().id)
-  @@allow('read', auth() != null && account.members?[userId == auth().id])
-}
-
 // JWT Signing Keys for different token types
 model JwtSigningKey {
   id          String   @id @default(cuid())
   keyId       String   // Key ID used in JWT header (kid)
-  keyType     KeyType  @default(RUNTIME) // RUNTIME, FACTORY, or INVITATION
+  keyType     String   // Type of key (RUNTIME, FACTORY, INVITATION)
   
   // Key material
   privateKey  String   // Encrypted with type-specific KMS key
@@ -612,19 +588,15 @@ model JwtSigningKey {
   @@unique([keyType, keyId], map: "unique_key_id_per_type")
   
   // Only system admins can manage keys
-  @@allow('create,read,update,delete', auth()?.role == 'ADMIN')
+  @@allow('create,read,update,delete', auth().systemRole == 'ADMIN')
   
   // Helper indexes
   @@index([keyType, isActive])
   @@index([expiresAt])
 }
 
-// Types of JWT signing keys
-enum KeyType {
-  RUNTIME    // For access/refresh tokens
-  FACTORY    // For device factory tokens
-  INVITATION // For invitation links
-}
+// Types of JWT signing keys - using String instead of enum for SQLite compatibility
+// Valid values: RUNTIME, FACTORY, INVITATION
 
 // Factory-issued JWT tokens for device onboarding
 model FactoryToken {
@@ -649,6 +621,7 @@ model FactoryToken {
   notes         String?  // Any additional notes
   
   // Relations
+  // Device that used this token
   device        Device?  @relation(fields: [deviceId], references: [id])
   deviceId      String?  // Null until used for onboarding
   
@@ -657,7 +630,7 @@ model FactoryToken {
   @@index([expiresAt])
   
   // Only system admins can manage factory tokens
-  @@allow('create,read,update,delete', auth()?.role == 'ADMIN')
+  @@allow('create,read,update,delete', auth().systemRole == 'ADMIN')
 }
 
 // Track issued refresh tokens for runtime authentication
@@ -686,8 +659,8 @@ model RefreshToken {
   @@index([isRevoked])
   
   // Users can manage their own tokens, admins can manage all
-  @@allow('create,read,update,delete', auth()?.id == userId)
-  @@allow('read,delete', auth()?.role == 'ADMIN')
+  @@allow('create,read,update,delete', auth().id == userId)
+  @@allow('read,delete', auth().systemRole == 'ADMIN')
 }
 
 // Track token usage for security monitoring
@@ -710,7 +683,7 @@ model TokenUsageLog {
   // Metadata
   success      Boolean  @default(true)
   error        String?
-  metadata     Json?    // Additional context
+  metadata     String?  // Additional context (JSON string)
   
   createdAt    DateTime @default(now())
   
@@ -720,6 +693,6 @@ model TokenUsageLog {
   @@index([createdAt])
   
   // Only admins can view logs
-  @@allow('read', auth()?.role == 'ADMIN')
+  @@allow('read', auth().systemRole == 'ADMIN')
   @@allow('create', true) // Allow system to create logs
 }
