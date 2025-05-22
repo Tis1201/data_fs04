@@ -69,6 +69,11 @@ export const emailSchema = z.object({
         .max(255, { message: 'Webhook key must be 255 characters or less' })
         .optional()
         .nullable(),
+        
+    // Status
+    status: z.string()
+        .default("ACTIVE")
+        .optional(),
 }).refine(data => {
     // If type is smtp, smtpHost and smtpPort are required
     if (data.type === 'smtp') {

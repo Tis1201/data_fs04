@@ -77,7 +77,10 @@ export const actions: Actions = {
                         
                         // Tracking
                         createdBy: userId,
-                        updatedBy: userId
+                        updatedBy: userId,
+                        
+                        // Status
+                        status: "ACTIVE"
                     }
                 });
                 

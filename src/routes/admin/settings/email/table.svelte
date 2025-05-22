@@ -167,6 +167,7 @@
 <script lang="ts" context="module">
     import { Badge } from "$lib/components/ui/badge";
     import EmailProviderBadge from "$lib/components/ui_components_sveltekit/display/EmailProviderBadge.svelte";
+    import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
     import { writable } from "svelte/store";
     
     // Create a store to communicate between module and component
@@ -213,45 +214,12 @@
             id: "status",
             label: "Status",
             width: "15%",
-            render: (record: EmailServiceProvider) => {
-                // Create array to hold badges
-                const badges = [];
-                
-                // Add default badge if this is the default provider
-                if (record.isDefault) {
-                    badges.push({
-                        component: Badge,
-                        props: {
-                            variant: "outline",
-                            class: "bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100 mr-2 border-yellow-400 dark:border-yellow-600",
-                            children: "DEFAULT"
-                        }
-                    });
+            render: (record: EmailServiceProvider) => ({
+                component: StatusBadge,
+                props: {
+                    status: record.status
                 }
-                
-                // Add active/inactive badge
-                const activeClass = record.isActive 
-                    ? "bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100" 
-                    : "bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100";
-                
-                badges.push({
-                    component: Badge,
-                    props: {
-                        variant: "outline",
-                        class: activeClass,
-                        children: record.isActive ? "ACTIVE" : "INACTIVE"
-                    }
-                });
-                
-                // Return div containing badges
-                return {
-                    component: 'div',
-                    props: {
-                        class: "flex flex-row items-center space-x-2",
-                        children: badges
-                    }
-                };
-            }
+            })
         },
         {
             id: "totalSent",

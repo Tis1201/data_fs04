@@ -70,7 +70,8 @@ export const load = restrict(
                         createdAt: true,
                         updatedAt: true,
                         lastUsedAt: true,
-                        totalSent: true
+                        totalSent: true,
+                        status: true
                     }
                 }),
                 locals.prisma.emailServiceProvider.count({ where })
