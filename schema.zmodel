@@ -547,6 +547,179 @@ model Resource {
   @@index([createdBy])
 }
 
-//Add tables for JWT token issuer subsystem 
-//Allow devices to request for JWT tokens using API keys
-//We should have a table for keeping track of the tokens and the main certs that keeps tracks of key rotation
+// JWT Token Issuer Subsystem
+// Manages API keys, tokens, and key rotation for device authentication
+
+// API Key used by devices to request JWT tokens
+model ApiKey {
+  id          String   @id @default(cuid())
+  keyHash     String   @unique // Hashed API key (never store plaintext)
+  name        String   // Human-readable name for the key
+  description String?
+  
+  // Key rotation
+  keyVersion  Int      @default(1)
+  isActive   Boolean  @default(true)
+  lastUsedAt DateTime?
+  
+  // Relations
+  account     Account  @relation(fields: [accountId], references: [id])
+  accountId   String
+  
+  // Metadata
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  expiresAt   DateTime? // Optional expiration
+  
+  // Security
+  lastRotatedAt DateTime?
+  
+  @@index([accountId])
+  @@index([createdById])
+  @@index([isActive])
+  @@allow('create,read,update,delete', auth() != null && createdById == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+}
+
+// JWT Signing Keys for different token types
+model JwtSigningKey {
+  id          String   @id @default(cuid())
+  keyId       String   // Key ID used in JWT header (kid)
+  keyType     KeyType  @default(RUNTIME) // RUNTIME, FACTORY, or INVITATION
+  
+  // Key material
+  privateKey  String   // Encrypted with type-specific KMS key
+  publicKey   String   // Public key for verification
+  algorithm   String   @default('RS256')
+  
+  // Key lifecycle
+  isActive    Boolean  @default(true)
+  isPrimary   Boolean  @default(false)
+  rotatedAt   DateTime? // When this key was rotated out
+  expiresAt   DateTime? // Scheduled rotation date
+  
+  // Metadata
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Only one primary key per type
+  @@unique([keyType, isPrimary], map: "unique_primary_key_per_type")
+  // Key ID must be unique within same type
+  @@unique([keyType, keyId], map: "unique_key_id_per_type")
+  
+  // Only system admins can manage keys
+  @@allow('create,read,update,delete', auth()?.role == 'ADMIN')
+  
+  // Helper indexes
+  @@index([keyType, isActive])
+  @@index([expiresAt])
+}
+
+// Types of JWT signing keys
+enum KeyType {
+  RUNTIME    // For access/refresh tokens
+  FACTORY    // For device factory tokens
+  INVITATION // For invitation links
+}
+
+// Factory-issued JWT tokens for device onboarding
+model FactoryToken {
+  id            String   @id @default(cuid())
+  tokenId       String   @unique // JWT ID (jti claim)
+  serialNumber  String   @unique // Device serial number (sub claim)
+  
+  // Device Information
+  hardwareModel String
+  firmwareVersion String
+  batchNumber   String?
+  
+  // Security
+  isUsed        Boolean  @default(false)
+  usedAt        DateTime?
+  usedByIp      String?
+  
+  // Metadata
+  issuedAt      DateTime @default(now())
+  expiresAt     DateTime
+  issuedBy      String   // User/System that issued the token
+  notes         String?  // Any additional notes
+  
+  // Relations
+  device        Device?  @relation(fields: [deviceId], references: [id])
+  deviceId      String?  // Null until used for onboarding
+  
+  @@index([serialNumber])
+  @@index([isUsed])
+  @@index([expiresAt])
+  
+  // Only system admins can manage factory tokens
+  @@allow('create,read,update,delete', auth()?.role == 'ADMIN')
+}
+
+// Track issued refresh tokens for runtime authentication
+model RefreshToken {
+  id           String   @id @default(cuid())
+  tokenHash    String   @unique // Hashed token
+  deviceId     String?  // Optional device identifier
+  userAgent    String?  // Device user agent
+  ipAddress    String?  // IP address of the device
+  
+  // Relations
+  account      Account  @relation(fields: [accountId], references: [id])
+  accountId    String
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  
+  // Token metadata
+  isRevoked    Boolean  @default(false)
+  revokedAt    DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  
+  @@index([accountId])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([isRevoked])
+  
+  // Users can manage their own tokens, admins can manage all
+  @@allow('create,read,update,delete', auth()?.id == userId)
+  @@allow('read,delete', auth()?.role == 'ADMIN')
+}
+
+// Track token usage for security monitoring
+model TokenUsageLog {
+  id           String   @id @default(cuid())
+  tokenId      String?  // Reference to RefreshToken.id
+  tokenType    String   // 'access' | 'refresh' | 'api_key'
+  action       String   // 'issue' | 'refresh' | 'revoke' | 'use' | 'rotate'
+  
+  // Request details
+  ipAddress    String?
+  userAgent    String?
+  
+  // Relations
+  account      Account? @relation(fields: [accountId], references: [id])
+  accountId    String?
+  user         User?    @relation(fields: [userId], references: [id])
+  userId       String?
+  
+  // Metadata
+  success      Boolean  @default(true)
+  error        String?
+  metadata     Json?    // Additional context
+  
+  createdAt    DateTime @default(now())
+  
+  @@index([accountId])
+  @@index([userId])
+  @@index([tokenId])
+  @@index([createdAt])
+  
+  // Only admins can view logs
+  @@allow('read', auth()?.role == 'ADMIN')
+  @@allow('create', true) // Allow system to create logs
+}

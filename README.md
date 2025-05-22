@@ -98,9 +98,29 @@ fs04_web/
 
 Contributions welcome! Please fork, branch, and submit pull requests. Adhere to existing conventions and ensure tests pass.
 
+## Documentation
+
+### Core Components
+- [JWT Token Management](./src/lib/server/jwt_issuer/README.md) - Authentication and token handling
+- [Device Management](./src/lib/server/device/README.md) - Device registration and management
+- [Messaging System](./src/lib/server/messaging/README.md) - Real-time messaging infrastructure
+- [WhatsApp Integration](./src/lib/server/whatsapp/README.md) - WhatsApp messaging capabilities
+
+### UI Components
+- [Admin Components](./src/lib/components/admin/README.md) - Reusable admin interface components
+- [Form Components](./src/lib/components/ui_components_sveltekit/form/README.md) - Form building blocks and validation
+
+### API & Infrastructure
+- [API Listeners](./src/routes/api/listen/README.md) - Webhook and event listeners
+- [Docker Setup](./docker/README.md) - Container configuration and deployment
+
+### Testing
+- [Rate Limit Testing](./tests/ratelimit/README.md) - Load and performance testing
+- [WebRTC Testing](./tests/webrtc/README.md) - Video/audio streaming tests
+
 ## License
 
-MIT License 2025 Your Company
+MIT License - see [LICENSE](LICENSE) for details.
 
 ### Core Architecture
 
