@@ -44,10 +44,12 @@ export const load = restrict(
             }
             
             // Add active filter if provided
-            if (isActive === 'true') {
-                where.isActive = true;
-            } else if (isActive === 'false') {
-                where.isActive = false;
+            const activeFilters = isActive ? isActive.split(',') : [];
+            if (activeFilters.length > 0) {
+                // If both true and false are selected, don't filter by isActive
+                if (!(activeFilters.includes('true') && activeFilters.includes('false'))) {
+                    where.isActive = activeFilters.includes('true');
+                }
             }
 
             // Query email providers with filtering, sorting, and pagination
@@ -84,10 +86,10 @@ export const load = restrict(
             const providerTypes = [
                 { id: 'smtp', name: 'SMTP' },
                 { id: 'resend', name: 'Resend' },
-                { id: 'sendgrid', name: 'SendGrid' },
-                { id: 'mailgun', name: 'Mailgun' },
-                { id: 'ses', name: 'AWS SES' },
-                { id: 'postmark', name: 'Postmark' }
+                // { id: 'sendgrid', name: 'SendGrid' },
+                // { id: 'mailgun', name: 'Mailgun' },
+                // { id: 'ses', name: 'AWS SES' },
+                // { id: 'postmark', name: 'Postmark' }
             ];
 
             // Return the data

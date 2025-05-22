@@ -397,9 +397,9 @@
                     { label: 'Active', value: 'true' },
                     { label: 'Inactive', value: 'false' }
                 ]}
-                selectedValues={props.filters.isActive ? [props.filters.isActive] : []}
+                selectedValues={props.filters.isActive ? props.filters.isActive.split(',') : []}
                 key="isActive"
-                singleSelect={true}
+                singleSelect={false}
             />
         </div>
 
