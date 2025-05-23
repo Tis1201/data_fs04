@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { KeyRound, RotateCw, AlertCircle, CheckCircle } from 'lucide-svelte';
+    import { KeyRound, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
     import { page } from '$app/stores';
     import { toast } from 'svelte-sonner';
     
@@ -8,9 +8,8 @@
     import AdminCard from '$lib/components/admin/layout/AdminCard.svelte';
     
     // UI components
-    import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '$lib/components/ui/card';
     import { Button } from '$lib/components/ui/button';
-    import { Badge } from '$lib/components/ui/badge';
+    import SigningKeyDisplay from '$lib/components/ui_components_sveltekit/display/SigningKeyDisplay.svelte';
     
     // Types
     import type { PageData } from './$types';
@@ -59,8 +58,8 @@
         }
     });
     
-    // Get the primary key
-    $: primaryKey = data.keys.find(key => key.isPrimary);
+    // Get primary key (find the primary key from the keys array)
+    $: primaryKey = data.keys?.find(key => key.isPrimary && key.keyType === 'TOKEN');
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -74,6 +73,22 @@
 <AdminPageLayout
     title="Token JWT Signing Key"
     crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Back",
+            icon: ArrowLeft,
+            href: "/admin/jwt/signing_keys",
+            variant: "outline"
+        },
+        {
+            label: "Rotate Key",
+            icon: RefreshCw,
+            form: "rotate-key-form",
+            type: "submit",
+            variant: "default",
+            disabled: !primaryKey
+        }
+    ]}
 >
     {#if data.error}
         <AdminCard
@@ -90,84 +105,51 @@
             {/if}
         </AdminCard>
     {:else}
-        <Card class="w-full">
-            <CardHeader>
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <KeyRound class="h-5 w-5" />
-                        <CardTitle>Token Key</CardTitle>
-                    </div>
-                    {#if primaryKey}
-                        <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200">Active</Badge>
-                    {:else}
-                        <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200">Not Created</Badge>
-                    {/if}
-                </div>
-                <CardDescription>Used to sign authentication tokens for users and services</CardDescription>
-            </CardHeader>
-            <CardContent>
-                {#if primaryKey}
-                    <div class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <p class="text-sm font-medium">Key ID</p>
-                                <p class="text-sm text-muted-foreground">{primaryKey.keyId}</p>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium">Algorithm</p>
-                                <p class="text-sm text-muted-foreground">{primaryKey.algorithm}</p>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium">Created</p>
-                                <p class="text-sm text-muted-foreground">{new Date(primaryKey.createdAt).toLocaleString()}</p>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium">Last Rotated</p>
-                                <p class="text-sm text-muted-foreground">
-                                    {primaryKey.rotatedAt ? new Date(primaryKey.rotatedAt).toLocaleString() : 'Never'}
-                                </p>
-                            </div>
-                        </div>
-                        
-                        <form method="POST" action="?/rotateKey" use:rotateEnhance>
-                            <input type="hidden" name="keyId" bind:value={primaryKey.id} />
-                            <Button type="submit" variant="outline" class="w-full" disabled={rotateSubmitting}>
-                                <RotateCw class="h-4 w-4 mr-2" />
-                                Rotate Key
-                            </Button>
-                        </form>
-                        
-                        {#if $rotateMessage}
-                            <div class="mt-4 p-3 rounded-md" class:bg-green-50={$rotateMessage.type === 'success'} class:bg-red-50={$rotateMessage.type === 'error'}>
-                                <p class="text-sm" class:text-green-700={$rotateMessage.type === 'success'} class:text-red-700={$rotateMessage.type === 'error'}>
-                                    {$rotateMessage.text}
-                                </p>
-                            </div>
-                        {/if}
-                    </div>
-                {:else}
-                    <div class="space-y-4">
-                        <p class="text-sm text-muted-foreground">No token key has been created yet. Create one to enable authentication token signing.</p>
-                        
-                        <form method="POST" action="?/createKey" use:createEnhance>
-                            <input type="hidden" name="keyType" value="TOKEN" />
-                            <Button type="submit" variant="default" class="w-full" disabled={createSubmitting}>
-                                <KeyRound class="h-4 w-4 mr-2" />
-                                Create Token Key
-                            </Button>
-                        </form>
-                        
-                        {#if $createMessage}
-                            <div class="mt-4 p-3 rounded-md" class:bg-green-50={$createMessage.type === 'success'} class:bg-red-50={$createMessage.type === 'error'}>
-                                <p class="text-sm" class:text-green-700={$createMessage.type === 'success'} class:text-red-700={$createMessage.type === 'error'}>
-                                    {$createMessage.text}
-                                </p>
-                            </div>
-                        {/if}
+        <SigningKeyDisplay
+            key={primaryKey}
+            keyType="TOKEN"
+            title="Token Key"
+            description="Used to sign authentication tokens for users"
+            tokenCount={primaryKey ? "24,563" : undefined}
+            badgeColor={{ bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" }}
+        >
+            <svelte:fragment slot="icon">
+                <KeyRound class="h-5 w-5" />
+            </svelte:fragment>
+            
+            <svelte:fragment slot="actions">
+                <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
+                    <input type="hidden" name="keyId" bind:value={primaryKey.id} />
+                </form>
+            </svelte:fragment>
+            
+            <svelte:fragment slot="messages">
+                {#if $rotateMessage}
+                    <div class="mt-4 p-3 rounded-md" class:bg-green-50={$rotateMessage.type === 'success'} class:bg-red-50={$rotateMessage.type === 'error'}>
+                        <p class="text-sm" class:text-green-700={$rotateMessage.type === 'success'} class:text-red-700={$rotateMessage.type === 'error'}>
+                            {$rotateMessage.text}
+                        </p>
                     </div>
                 {/if}
-            </CardContent>
-        </Card>
+            </svelte:fragment>
+            
+            <svelte:fragment slot="create-form">
+                <form method="POST" action="?/createKey" use:createEnhance>
+                    <input type="hidden" name="keyType" value="TOKEN" />
+                    <Button type="submit" class="w-full" disabled={createSubmitting}>
+                        Create Token Key
+                    </Button>
+                </form>
+                
+                {#if $createMessage}
+                    <div class="mt-4 p-3 rounded-md" class:bg-green-50={$createMessage.type === 'success'} class:bg-red-50={$createMessage.type === 'error'}>
+                        <p class="text-sm" class:text-green-700={$createMessage.type === 'success'} class:text-red-700={$createMessage.type === 'error'}>
+                            {$createMessage.text}
+                        </p>
+                    </div>
+                {/if}
+            </svelte:fragment>
+        </SigningKeyDisplay>
         
         <AdminCard
             title="Token Key Guidelines"

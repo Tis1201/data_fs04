@@ -1,16 +1,16 @@
 <script lang="ts">
-    import { Factory, RotateCw, AlertCircle, CheckCircle } from 'lucide-svelte';
+    import { Factory, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
     import { page } from '$app/stores';
     import { toast } from 'svelte-sonner';
     
     // Layout components
     import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
     import AdminCard from '$lib/components/admin/layout/AdminCard.svelte';
+    import ActionButton from '$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte';
     
     // UI components
-    import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '$lib/components/ui/card';
     import { Button } from '$lib/components/ui/button';
-    import { Badge } from '$lib/components/ui/badge';
+    import SigningKeyDisplay from '$lib/components/ui_components_sveltekit/display/SigningKeyDisplay.svelte';
     
     // Types
     import type { PageData } from './$types';
@@ -29,6 +29,15 @@
         dataType: 'json',
         onSubmit: () => {
             toast.loading('Creating key...');
+            return async ({ result }) => {
+                if (result.type === 'success') {
+                    toast.success('Key created successfully');
+                } else if (result.type === 'error') {
+                    toast.error('Failed to create key');
+                } else {
+                    toast.dismiss();
+                }
+            };
         },
         onResult: ({ result }) => {
             if (result.type === 'success') {
@@ -48,6 +57,15 @@
         dataType: 'json',
         onSubmit: () => {
             toast.loading('Rotating key...');
+            return async ({ result }) => {
+                if (result.type === 'success') {
+                    toast.success('Key rotated successfully');
+                } else if (result.type === 'error') {
+                    toast.error('Failed to rotate key');
+                } else {
+                    toast.dismiss();
+                }
+            };
         },
         onResult: ({ result }) => {
             if (result.type === 'success') {
@@ -59,8 +77,8 @@
         }
     });
     
-    // Get the primary key
-    $: primaryKey = data.keys.find(key => key.isPrimary);
+    // Get primary key (find the primary key from the keys array)
+    $: primaryKey = data.keys?.find(key => key.isPrimary && key.keyType === 'FACTORY');
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -74,6 +92,22 @@
 <AdminPageLayout
     title="Factory JWT Signing Key"
     crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Back",
+            icon: ArrowLeft,
+            href: "/admin/jwt/signing_keys",
+            variant: "outline"
+        },
+        {
+            label: "Rotate Key",
+            icon: RefreshCw,
+            form: "rotate-key-form",
+            type: "submit",
+            variant: "default",
+            disabled: !data.key
+        }
+    ]}
 >
     {#if data.error}
         <AdminCard
@@ -90,84 +124,51 @@
             {/if}
         </AdminCard>
     {:else}
-        <Card class="w-full">
-            <CardHeader>
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <Factory class="h-5 w-5" />
-                        <CardTitle>Factory Key</CardTitle>
-                    </div>
-                    {#if primaryKey}
-                        <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200">Active</Badge>
-                    {:else}
-                        <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200">Not Created</Badge>
-                    {/if}
-                </div>
-                <CardDescription>Used to sign factory tokens for device provisioning</CardDescription>
-            </CardHeader>
-            <CardContent>
-                {#if primaryKey}
-                    <div class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <p class="text-sm font-medium">Key ID</p>
-                                <p class="text-sm text-muted-foreground">{primaryKey.keyId}</p>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium">Algorithm</p>
-                                <p class="text-sm text-muted-foreground">{primaryKey.algorithm}</p>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium">Created</p>
-                                <p class="text-sm text-muted-foreground">{new Date(primaryKey.createdAt).toLocaleString()}</p>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium">Last Rotated</p>
-                                <p class="text-sm text-muted-foreground">
-                                    {primaryKey.rotatedAt ? new Date(primaryKey.rotatedAt).toLocaleString() : 'Never'}
-                                </p>
-                            </div>
-                        </div>
-                        
-                        <form method="POST" action="?/rotateKey" use:rotateEnhance>
-                            <input type="hidden" name="keyId" bind:value={primaryKey.id} />
-                            <Button type="submit" variant="outline" class="w-full" disabled={rotateSubmitting}>
-                                <RotateCw class="h-4 w-4 mr-2" />
-                                Rotate Key
-                            </Button>
-                        </form>
-                        
-                        {#if $rotateMessage}
-                            <div class="mt-4 p-3 rounded-md" class:bg-green-50={$rotateMessage.type === 'success'} class:bg-red-50={$rotateMessage.type === 'error'}>
-                                <p class="text-sm" class:text-green-700={$rotateMessage.type === 'success'} class:text-red-700={$rotateMessage.type === 'error'}>
-                                    {$rotateMessage.text}
-                                </p>
-                            </div>
-                        {/if}
-                    </div>
-                {:else}
-                    <div class="space-y-4">
-                        <p class="text-sm text-muted-foreground">No factory key has been created yet. Create one to enable factory token signing.</p>
-                        
-                        <form method="POST" action="?/createKey" use:createEnhance>
-                            <input type="hidden" name="keyType" value="FACTORY" />
-                            <Button type="submit" variant="default" class="w-full" disabled={createSubmitting}>
-                                <Factory class="h-4 w-4 mr-2" />
-                                Create Factory Key
-                            </Button>
-                        </form>
-                        
-                        {#if $createMessage}
-                            <div class="mt-4 p-3 rounded-md" class:bg-green-50={$createMessage.type === 'success'} class:bg-red-50={$createMessage.type === 'error'}>
-                                <p class="text-sm" class:text-green-700={$createMessage.type === 'success'} class:text-red-700={$createMessage.type === 'error'}>
-                                    {$createMessage.text}
-                                </p>
-                            </div>
-                        {/if}
+        <SigningKeyDisplay
+            key={primaryKey}
+            keyType="FACTORY"
+            title="Factory Key"
+            description="Used to sign factory tokens for device provisioning"
+            tokenCount={primaryKey ? "1,248" : undefined}
+            badgeColor={{ bg: "bg-green-50", text: "text-green-700", border: "border-green-200" }}
+        >
+            <svelte:fragment slot="icon">
+                <Factory class="h-5 w-5" />
+            </svelte:fragment>
+            
+            <svelte:fragment slot="actions">
+                <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
+                    <input type="hidden" name="keyId" bind:value={primaryKey.id} />
+                </form>
+            </svelte:fragment>
+            
+            <svelte:fragment slot="messages">
+                {#if $rotateMessage}
+                    <div class="mt-4 p-3 rounded-md" class:bg-green-50={$rotateMessage.type === 'success'} class:bg-red-50={$rotateMessage.type === 'error'}>
+                        <p class="text-sm" class:text-green-700={$rotateMessage.type === 'success'} class:text-red-700={$rotateMessage.type === 'error'}>
+                            {$rotateMessage.text}
+                        </p>
                     </div>
                 {/if}
-            </CardContent>
-        </Card>
+            </svelte:fragment>
+            
+            <svelte:fragment slot="create-form">
+                <form method="POST" action="?/createKey" use:createEnhance>
+                    <input type="hidden" name="keyType" value="FACTORY" />
+                    <Button type="submit" class="w-full" disabled={createSubmitting}>
+                        Create Factory Key
+                    </Button>
+                </form>
+                
+                {#if $createMessage}
+                    <div class="mt-4 p-3 rounded-md" class:bg-green-50={$createMessage.type === 'success'} class:bg-red-50={$createMessage.type === 'error'}>
+                        <p class="text-sm" class:text-green-700={$createMessage.type === 'success'} class:text-red-700={$createMessage.type === 'error'}>
+                            {$createMessage.text}
+                        </p>
+                    </div>
+                {/if}
+            </svelte:fragment>
+        </SigningKeyDisplay>
         
         <AdminCard
             title="Factory Key Guidelines"

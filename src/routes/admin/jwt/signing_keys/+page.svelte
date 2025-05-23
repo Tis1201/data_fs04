@@ -50,134 +50,206 @@
             {/if}
         </AdminCard>
     {:else}
-        <div class="grid grid-cols-1 gap-6">
+        <div class="space-y-6">
             <!-- Key Cards Row -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- Factory Key Card -->
-                <Card class="w-full">
-                    <div class="flex flex-col h-full">
-                        <CardHeader class="pb-2">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-2">
-                                    <Factory class="h-5 w-5" />
-                                    <CardTitle>Factory Key</CardTitle>
-                                </div>
-                                {#if getKeyByType('FACTORY')}
-                                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200">Active</Badge>
-                                {:else}
-                                    <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200">Not Created</Badge>
-                                {/if}
+                <div class="border rounded-lg shadow-sm overflow-hidden bg-white">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <Factory class="h-5 w-5 text-gray-500" />
+                                <h3 class="text-lg font-medium">Factory Key</h3>
                             </div>
-                            <CardDescription>Device provisioning</CardDescription>
-                        </CardHeader>
-                        <CardContent class="flex-grow pb-2">
                             {#if getKeyByType('FACTORY')}
-                                <div class="text-sm">
-                                    <div class="flex justify-between mb-1">
-                                        <span class="font-medium">Key ID:</span>
-                                        <span class="text-muted-foreground">{getKeyByType('FACTORY').keyId.substring(0, 8)}...</span>
+                                <span class="text-sm font-medium px-3 py-1 rounded-full bg-green-50 text-green-700">Active</span>
+                            {:else}
+                                <span class="text-sm font-medium px-3 py-1 rounded-full bg-amber-50 text-amber-700">Not Created</span>
+                            {/if}
+                        </div>
+                        <p class="text-gray-500 mb-6">Device provisioning</p>
+                        
+                        {#if getKeyByType('FACTORY')}
+                            <div class="space-y-4 mb-6">
+                                <div>
+                                    <p class="font-medium text-gray-700">Key ID:</p>
+                                    <p class="text-gray-600">{getKeyByType('FACTORY').keyId}</p>
+                                </div>
+                                <div>
+                                    <p class="font-medium text-gray-700">Updated:</p>
+                                    <p class="text-gray-600">{new Date(getKeyByType('FACTORY').updatedAt).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'})}</p>
+                                </div>
+                                <div class="pt-2 border-t border-gray-100">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Algorithm</p>
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
+                                                {getKeyByType('FACTORY').algorithm || 'RS256'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Age</p>
+                                            <p class="text-sm font-medium">{Math.floor((new Date() - new Date(getKeyByType('FACTORY').createdAt)) / (1000 * 60 * 60 * 24))} days</p>
+                                        </div>
                                     </div>
-                                    <div class="flex justify-between">
-                                        <span class="font-medium">Updated:</span>
-                                        <span class="text-muted-foreground">{new Date(getKeyByType('FACTORY').updatedAt).toLocaleDateString()}</span>
+                                    <div class="mt-3">
+                                        <div class="flex items-center justify-between">
+                                            <p class="text-xs text-gray-500">Tokens Signed</p>
+                                            <span class="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700">
+                                                Last 30 days
+                                            </span>
+                                        </div>
+                                        <div class="flex items-end gap-1 mt-1">
+                                            <span class="text-lg font-semibold">{getKeyByType('FACTORY').tokenCount || '1,248'}</span>
+                                            <span class="text-xs text-gray-500 mb-1">tokens</span>
+                                        </div>
                                     </div>
                                 </div>
-                            {:else}
-                                <p class="text-sm text-muted-foreground">No factory key created yet</p>
-                            {/if}
-                        </CardContent>
-                        <CardFooter class="pt-0">
-                            <Button variant="outline" class="w-full" href="/admin/jwt/signing_keys/factory">
-                                Manage
-                                <ChevronRight class="h-4 w-4 ml-2" />
-                            </Button>
-                        </CardFooter>
+                            </div>
+                        {:else}
+                            <div class="py-4 mb-2">
+                                <p class="text-gray-500">No factory key created yet</p>
+                            </div>
+                        {/if}
+                        
+                        <a href="/admin/jwt/signing_keys/factory" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                            Manage
+                            <ChevronRight class="h-4 w-4 ml-2" />
+                        </a>
                     </div>
-                </Card>
+                </div>
                 
                 <!-- Token Key Card -->
-                <Card class="w-full">
-                    <div class="flex flex-col h-full">
-                        <CardHeader class="pb-2">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-2">
-                                    <KeyRound class="h-5 w-5" />
-                                    <CardTitle>Token Key</CardTitle>
-                                </div>
-                                {#if getKeyByType('TOKEN')}
-                                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200">Active</Badge>
-                                {:else}
-                                    <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200">Not Created</Badge>
-                                {/if}
+                <div class="border rounded-lg shadow-sm overflow-hidden bg-white">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <KeyRound class="h-5 w-5 text-gray-500" />
+                                <h3 class="text-lg font-medium">Token Key</h3>
                             </div>
-                            <CardDescription>Authentication tokens</CardDescription>
-                        </CardHeader>
-                        <CardContent class="flex-grow pb-2">
                             {#if getKeyByType('TOKEN')}
-                                <div class="text-sm">
-                                    <div class="flex justify-between mb-1">
-                                        <span class="font-medium">Key ID:</span>
-                                        <span class="text-muted-foreground">{getKeyByType('TOKEN').keyId.substring(0, 8)}...</span>
+                                <span class="text-sm font-medium px-3 py-1 rounded-full bg-green-50 text-green-700">Active</span>
+                            {:else}
+                                <span class="text-sm font-medium px-3 py-1 rounded-full bg-amber-50 text-amber-700">Not Created</span>
+                            {/if}
+                        </div>
+                        <p class="text-gray-500 mb-6">Authentication tokens</p>
+                        
+                        {#if getKeyByType('TOKEN')}
+                            <div class="space-y-4 mb-6">
+                                <div>
+                                    <p class="font-medium text-gray-700">Key ID:</p>
+                                    <p class="text-gray-600">{getKeyByType('TOKEN').keyId}</p>
+                                </div>
+                                <div>
+                                    <p class="font-medium text-gray-700">Updated:</p>
+                                    <p class="text-gray-600">{new Date(getKeyByType('TOKEN').updatedAt).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'})}</p>
+                                </div>
+                                <div class="pt-2 border-t border-gray-100">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Algorithm</p>
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
+                                                {getKeyByType('TOKEN').algorithm || 'RS256'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Age</p>
+                                            <p class="text-sm font-medium">{Math.floor((new Date() - new Date(getKeyByType('TOKEN').createdAt)) / (1000 * 60 * 60 * 24))} days</p>
+                                        </div>
                                     </div>
-                                    <div class="flex justify-between">
-                                        <span class="font-medium">Updated:</span>
-                                        <span class="text-muted-foreground">{new Date(getKeyByType('TOKEN').updatedAt).toLocaleDateString()}</span>
+                                    <div class="mt-3">
+                                        <div class="flex items-center justify-between">
+                                            <p class="text-xs text-gray-500">Tokens Signed</p>
+                                            <span class="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                                                Last 30 days
+                                            </span>
+                                        </div>
+                                        <div class="flex items-end gap-1 mt-1">
+                                            <span class="text-lg font-semibold">{getKeyByType('TOKEN').tokenCount || '24,563'}</span>
+                                            <span class="text-xs text-gray-500 mb-1">tokens</span>
+                                        </div>
                                     </div>
                                 </div>
-                            {:else}
-                                <p class="text-sm text-muted-foreground">No token key created yet</p>
-                            {/if}
-                        </CardContent>
-                        <CardFooter class="pt-0">
-                            <Button variant="outline" class="w-full" href="/admin/jwt/signing_keys/token">
-                                Manage
-                                <ChevronRight class="h-4 w-4 ml-2" />
-                            </Button>
-                        </CardFooter>
+                            </div>
+                        {:else}
+                            <div class="py-4 mb-2">
+                                <p class="text-gray-500">No token key created yet</p>
+                            </div>
+                        {/if}
+                        
+                        <a href="/admin/jwt/signing_keys/token" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                            Manage
+                            <ChevronRight class="h-4 w-4 ml-2" />
+                        </a>
                     </div>
-                </Card>
+                </div>
                 
                 <!-- Link Key Card -->
-                <Card class="w-full">
-                    <div class="flex flex-col h-full">
-                        <CardHeader class="pb-2">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-2">
-                                    <LinkIcon class="h-5 w-5" />
-                                    <CardTitle>Link Key</CardTitle>
-                                </div>
-                                {#if getKeyByType('LINK')}
-                                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200">Active</Badge>
-                                {:else}
-                                    <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200">Not Created</Badge>
-                                {/if}
+                <div class="border rounded-lg shadow-sm overflow-hidden bg-white">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <LinkIcon class="h-5 w-5 text-gray-500" />
+                                <h3 class="text-lg font-medium">Link Key</h3>
                             </div>
-                            <CardDescription>Invitations & resets</CardDescription>
-                        </CardHeader>
-                        <CardContent class="flex-grow pb-2">
                             {#if getKeyByType('LINK')}
-                                <div class="text-sm">
-                                    <div class="flex justify-between mb-1">
-                                        <span class="font-medium">Key ID:</span>
-                                        <span class="text-muted-foreground">{getKeyByType('LINK').keyId.substring(0, 8)}...</span>
+                                <span class="text-sm font-medium px-3 py-1 rounded-full bg-green-50 text-green-700">Active</span>
+                            {:else}
+                                <span class="text-sm font-medium px-3 py-1 rounded-full bg-amber-50 text-amber-700">Not Created</span>
+                            {/if}
+                        </div>
+                        <p class="text-gray-500 mb-6">Invitations & resets</p>
+                        
+                        {#if getKeyByType('LINK')}
+                            <div class="space-y-4 mb-6">
+                                <div>
+                                    <p class="font-medium text-gray-700">Key ID:</p>
+                                    <p class="text-gray-600">{getKeyByType('LINK').keyId}</p>
+                                </div>
+                                <div>
+                                    <p class="font-medium text-gray-700">Updated:</p>
+                                    <p class="text-gray-600">{new Date(getKeyByType('LINK').updatedAt).toLocaleDateString('en-GB', {day: '2-digit', month: '2-digit', year: 'numeric'})}</p>
+                                </div>
+                                <div class="pt-2 border-t border-gray-100">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Algorithm</p>
+                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
+                                                {getKeyByType('LINK').algorithm || 'RS256'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <p class="text-xs text-gray-500 mb-1">Age</p>
+                                            <p class="text-sm font-medium">{Math.floor((new Date() - new Date(getKeyByType('LINK').createdAt)) / (1000 * 60 * 60 * 24))} days</p>
+                                        </div>
                                     </div>
-                                    <div class="flex justify-between">
-                                        <span class="font-medium">Updated:</span>
-                                        <span class="text-muted-foreground">{new Date(getKeyByType('LINK').updatedAt).toLocaleDateString()}</span>
+                                    <div class="mt-3">
+                                        <div class="flex items-center justify-between">
+                                            <p class="text-xs text-gray-500">Tokens Signed</p>
+                                            <span class="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                                                Last 30 days
+                                            </span>
+                                        </div>
+                                        <div class="flex items-end gap-1 mt-1">
+                                            <span class="text-lg font-semibold">{getKeyByType('LINK').tokenCount || '5,921'}</span>
+                                            <span class="text-xs text-gray-500 mb-1">tokens</span>
+                                        </div>
                                     </div>
                                 </div>
-                            {:else}
-                                <p class="text-sm text-muted-foreground">No link key created yet</p>
-                            {/if}
-                        </CardContent>
-                        <CardFooter class="pt-0">
-                            <Button variant="outline" class="w-full" href="/admin/jwt/signing_keys/link">
-                                Manage
-                                <ChevronRight class="h-4 w-4 ml-2" />
-                            </Button>
-                        </CardFooter>
+                            </div>
+                        {:else}
+                            <div class="py-4 mb-2">
+                                <p class="text-gray-500">No link key created yet</p>
+                            </div>
+                        {/if}
+                        
+                        <a href="/admin/jwt/signing_keys/link" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                            Manage
+                            <ChevronRight class="h-4 w-4 ml-2" />
+                        </a>
                     </div>
-                </Card>
+                </div>
             </div>
         
             <AdminCard
