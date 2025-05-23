@@ -6,13 +6,13 @@ import { z } from 'zod';
 import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../users/schema';
+import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
-import { listKeys, createKey, rotateKey } from './service';
+import { listKeys, createKey, rotateKey } from '../service';
 
 // Schema for creating a new key
 const createKeySchema = z.object({
-  keyType: z.enum(['FACTORY', 'TOKEN', 'LINK']),
+  keyType: z.literal('LINK'),
 });
 
 // Schema for rotating a key
@@ -23,35 +23,43 @@ const rotateKeySchema = z.object({
 export const load = restrict(
   async ({ locals }) => {
     try {
-      // Get all keys
-      const keys = await listKeys(locals.prisma);
+      // Get all keys of type LINK
+      const keys = await listKeys(locals.prisma, 'LINK');
 
       // Create empty forms
-      const form = await superValidate(zod(createKeySchema));
-      const rotateForm = await superValidate(zod(rotateKeySchema));
+      const createForm = await superValidate(zod(createKeySchema), {
+        id: 'link-create-form'
+      });
+      const rotateForm = await superValidate(zod(rotateKeySchema), {
+        id: 'link-rotate-form'
+      });
 
       return {
         keys,
-        form,
+        createForm,
         rotateForm,
         meta: {
-          title: 'JWT Signing Keys',
-          description: 'Manage JWT signing keys for factory, tokens, and links'
+          title: 'Link JWT Signing Keys',
+          description: 'Manage link JWT signing keys'
         }
       };
-    } catch (error) {
-      logger.error('Error loading JWT signing keys:', error);
+    } catch (err) {
+      logger.error('Error loading link JWT signing keys:', err);
       return {
         keys: [],
-        form: await superValidate(zod(createKeySchema)),
-        rotateForm: await superValidate(zod(rotateKeySchema)),
+        createForm: await superValidate(zod(createKeySchema), {
+          id: 'link-create-form'
+        }),
+        rotateForm: await superValidate(zod(rotateKeySchema), {
+          id: 'link-rotate-form'
+        }),
         error: {
-          message: 'Failed to load JWT signing keys',
-          details: error instanceof Error ? error.message : String(error),
+          message: 'Failed to load link JWT signing keys',
+          details: err instanceof Error ? err.message : String(err),
         },
         meta: {
-          title: 'JWT Signing Keys',
-          description: 'Manage JWT signing keys for factory, tokens, and links'
+          title: 'Link JWT Signing Keys',
+          description: 'Manage link JWT signing keys'
         }
       };
     }
@@ -63,7 +71,9 @@ export const actions: Actions = {
   // Create a new key
   createKey: restrict(
     async ({ request, locals }) => {
-      const form = await superValidate(request, zod(createKeySchema));
+      const form = await superValidate(request, zod(createKeySchema), {
+        id: 'link-create-form'
+      });
 
       if (!form.valid) {
         return fail(400, { form });
@@ -82,7 +92,7 @@ export const actions: Actions = {
             form,
             success: false,
             error: {
-              message: `A ${keyType.toLowerCase()} key already exists. Please use the rotate function instead.`,
+              message: `A link key already exists. Please use the rotate function instead.`,
             },
           });
         }
@@ -91,12 +101,12 @@ export const actions: Actions = {
         const result = await createKey(locals.prisma, keyType, locals.user.id);
         
         if (!result.success) {
-          logger.error('Failed to create key:', result.error);
+          logger.error('Failed to create link key:', result.error);
           return fail(400, {
             form,
             success: false,
             error: {
-              message: result.error.message || 'Failed to create key',
+              message: result.error.message || 'Failed to create link key',
               details: result.error.details,
               code: result.error.code,
               meta: result.error.meta
@@ -105,11 +115,11 @@ export const actions: Actions = {
         }
 
         // Return a success message with the key data
-        logger.info(`${keyType} key created successfully`);
+        logger.info(`Link key created successfully`);
         return message(
           form,
-          createSuccessResponse(`${keyType} key created successfully`, {
-            details: `A new ${keyType.toLowerCase()} key has been created.`,
+          createSuccessResponse(`Link key created successfully`, {
+            details: `A new link key has been created.`,
             data: { 
               keyType,
               key: result.key ? {
@@ -127,12 +137,12 @@ export const actions: Actions = {
             }
           })
         );
-      } catch (error) {
-        logger.error('Error creating JWT key:', error);
+      } catch (err) {
+        logger.error('Error creating link JWT key:', err);
         return handleFormError({
-          error,
+          error: err,
           form,
-          defaultMessage: 'An unexpected error occurred while creating the key',
+          defaultMessage: 'An unexpected error occurred while creating the link key',
           prisma: locals.prisma,
           requestId: locals.requestId
         });
@@ -144,9 +154,10 @@ export const actions: Actions = {
   // Rotate an existing key
   rotateKey: restrict(
     async ({ request, locals }) => {
-      logger.info('Rotate key action called');
-      const form = await superValidate(request, zod(rotateKeySchema));
-      logger.info('Form data:', form.data);
+      logger.info('Rotate link key action called');
+      const form = await superValidate(request, zod(rotateKeySchema), {
+        id: 'link-rotate-form'
+      });
 
       if (!form.valid) {
         logger.error('Form validation failed:', form.errors);
@@ -155,7 +166,7 @@ export const actions: Actions = {
 
       try {
         const { keyId } = form.data;
-        logger.info('Rotating key with ID:', keyId);
+        logger.info('Rotating link key with ID:', keyId);
         
         // Find the existing key to verify it exists
         const existingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -173,7 +184,18 @@ export const actions: Actions = {
           });
         }
         
-        logger.info('Found existing key:', {
+        if (existingKey.keyType !== 'LINK') {
+          logger.error('Key is not a link key:', existingKey.keyType);
+          return fail(400, {
+            form,
+            success: false,
+            error: {
+              message: `Selected key is not a link key.`,
+            },
+          });
+        }
+        
+        logger.info('Found existing link key:', {
           id: existingKey.id,
           keyType: existingKey.keyType,
           isPrimary: existingKey.isPrimary
@@ -184,12 +206,12 @@ export const actions: Actions = {
         const result = await rotateKey(locals.prisma, keyId, locals.user.id);
 
         if (!result.success) {
-          logger.error(`Failed to rotate key: ${JSON.stringify(result.error)}`);
+          logger.error(`Failed to rotate link key: ${JSON.stringify(result.error)}`);
           return fail(400, {
             form,
             success: false,
             error: {
-              message: result.error?.message || 'Failed to rotate key',
+              message: result.error?.message || 'Failed to rotate link key',
               details: result.error?.details,
               code: result.error?.code || 'UNKNOWN_ERROR',
               meta: result.error?.meta
@@ -198,15 +220,14 @@ export const actions: Actions = {
         }
 
         // Return a success message with the new key data
-        logger.info(`${existingKey.keyType} key rotated successfully`);
+        logger.info(`Link key rotated successfully`);
         return message(
           form,
-          createSuccessResponse(`${existingKey.keyType} key rotated successfully`, {
-            details: `The ${existingKey.keyType.toLowerCase()} key has been rotated successfully.`,
+          createSuccessResponse(`Link key rotated successfully`, {
+            details: `The link key has been rotated. The old key will remain active for a grace period.`,
             data: { 
-              keyType: existingKey.keyType, 
-              keyId,
-              newKey: result.key ? {
+              keyType: 'LINK',
+              key: result.key ? {
                 id: result.key.id,
                 keyId: result.key.keyId,
                 keyType: result.key.keyType,
@@ -221,12 +242,12 @@ export const actions: Actions = {
             }
           })
         );
-      } catch (error) {
-        logger.error('Error rotating JWT key:', error);
+      } catch (err) {
+        logger.error('Error rotating link JWT key:', err);
         return handleFormError({
-          error,
+          error: err,
           form,
-          defaultMessage: 'An unexpected error occurred while rotating the key',
+          defaultMessage: 'An unexpected error occurred while rotating the link key',
           prisma: locals.prisma,
           requestId: locals.requestId
         });

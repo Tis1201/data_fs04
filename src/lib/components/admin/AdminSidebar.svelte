@@ -28,7 +28,22 @@
 
         Logs,
 
-        KeySquare
+        KeySquare,
+
+        Eye,
+
+        MonitorCheck,
+
+        Film,
+
+        Monitor,
+
+        MonitorPlay
+
+
+
+
+
 
 
 
@@ -118,11 +133,21 @@
             ]
         },
         { 
+            label: "Vision", 
+            icon: MonitorCheck, 
+            initialExpanded: true,
+            subItems: [
+                { href: "/admin/vision/streams", label: "Streams", icon: MonitorPlay },
+                { href: "/admin/vision/preview", label: "Preview", icon: Film },
+            ]
+        },
+        { 
             href: "/admin/monitor", 
             label: "Monitor", 
             icon: Activity,
             subItems: [] 
         },
+        
         {
             label: "Debug",
             icon: BugOff,

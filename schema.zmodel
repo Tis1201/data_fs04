@@ -583,7 +583,7 @@ model JwtSigningKey {
   updatedAt   DateTime @updatedAt
   
   // Only one primary key per type
-  @@unique([keyType, isPrimary], map: "unique_primary_key_per_type")
+  // @@unique([keyType, isPrimary], map: "unique_primary_key_per_type")
   // Key ID must be unique within same type
   @@unique([keyType, keyId], map: "unique_key_id_per_type")
   

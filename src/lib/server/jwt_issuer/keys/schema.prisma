@@ -1,0 +1,33 @@
+// JWT Signing Key model
+model JwtSigningKey {
+  id          String    @id @default(cuid())
+  keyId       String    @unique // Unique identifier for the key pair
+  keyType     String    // FACTORY, TOKEN, LINK
+  algorithm   String    // RS256, ES256, etc.
+  publicKey   String    @db.Text // Public key in PEM format
+  privateKey  String    @db.Text // Private key in PEM format
+  isActive    Boolean   @default(true)
+  isPrimary   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  rotatedAt   DateTime? // When the key was rotated
+  expiresAt   DateTime? // When the key expires
+  
+  // Relations
+  createdById String
+  createdBy   User      @relation("CreatedJwtKeys", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?     @relation("UpdatedJwtKeys", fields: [updatedById], references: [id])
+
+  @@index([keyType, isActive, isPrimary])
+  @@index([keyId])
+}
+
+// Extend the User model with relations to JWT signing keys
+model User {
+  // Other fields...
+  
+  // Relations to JWT signing keys
+  createdJwtKeys JwtSigningKey[] @relation("CreatedJwtKeys")
+  updatedJwtKeys JwtSigningKey[] @relation("UpdatedJwtKeys")
+}

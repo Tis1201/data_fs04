@@ -397,7 +397,6 @@ model JwtSigningKey {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt()
 
-  @@unique([keyType, isPrimary], map: "unique_primary_key_per_type")
   @@unique([keyType, keyId], map: "unique_key_id_per_type")
   @@index([keyType, isActive])
   @@index([expiresAt])
