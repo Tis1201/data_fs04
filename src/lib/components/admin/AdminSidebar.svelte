@@ -38,7 +38,10 @@
 
         Monitor,
 
-        MonitorPlay
+        MonitorPlay,
+
+        Factory
+
 
 
 
@@ -80,6 +83,7 @@
             icon: Network,
             initialExpanded: false,
             subItems: [
+                { href: "/admin/iot/factory_tokens", label: "Factory Tokens", icon: Factory },
                 { href: "/admin/iot/devices", label: "Devices", icon: Router }
             ]
         },

@@ -408,9 +408,13 @@ export const actions: Actions = {
   rotateKey: restrict(
     async ({ request, locals }) => {
       logger.info('Rotate factory key action called');
+      logger.info('Request received:', { url: request.url });
+      
       const form = await superValidate(request, zod(rotateKeySchema), {
         id: 'factory-rotate-form'
       });
+      
+      logger.info('Form data received:', { formData: form.data, valid: form.valid });
 
       if (!form.valid) {
         logger.error('Form validation failed:', form.errors);

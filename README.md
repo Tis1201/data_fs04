@@ -591,6 +591,7 @@ Setup Wizard
 - Create the 3 JWT keys
 - Setup the admin user and password
 - Setup email service provider
+- Generate Device Factory Token
 Access Management
 - User Sign Up Form (user will have own account)
 - User invite Team Members (use jwt with expiry,invited users will share account with owner)
@@ -619,5 +620,9 @@ Modules Access (subscription based)
 - IOT
 - Whatsapp
 - Others in future
+
+
+Notes
+- When signing keys are rotated, factory tokens has to be regenerated as well
 
 

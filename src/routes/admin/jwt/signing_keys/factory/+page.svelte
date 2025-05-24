@@ -4,6 +4,9 @@
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
     
+    // Import confirmation dialog
+    import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
+    
     // Layout components
     import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
     import AdminCard from '$lib/components/admin/layout/AdminCard.svelte';
@@ -84,6 +87,30 @@
     // Get primary key from server data
     $: primaryKey = data.primaryKey;
     
+    // Confirmation dialog state
+    let showRotateConfirmation = false;
+    
+    // Handle rotate key button click
+    function handleRotateKeyClick() {
+        if (primaryKey) {
+            showRotateConfirmation = true;
+        } else {
+            toast.error("No primary key found to rotate");
+        }
+    }
+    
+    // Handle rotate key confirmation
+    function handleRotateConfirm() {
+        // Submit the form programmatically
+        const form = document.getElementById('rotate-key-form') as HTMLFormElement;
+        if (form) {
+            form.submit();
+            toast.loading('Rotating key...');
+        } else {
+            toast.error('Form not found');
+        }
+    }
+    
     // Create props for the key history table
     $: tableProps = {
         records: data.keys || [],
@@ -125,10 +152,9 @@
         {
             label: "Rotate Key",
             icon: RefreshCw,
-            form: "rotate-key-form",
-            type: "submit",
+            onClick: handleRotateKeyClick,
             variant: "default",
-            disabled: !data.key
+            disabled: !primaryKey
         }
     ]}
 >
@@ -160,9 +186,11 @@
             </svelte:fragment>
             
             <svelte:fragment slot="actions">
-                <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
-                    <input type="hidden" name="keyId" bind:value={primaryKey.id} />
-                </form>
+                {#if primaryKey}
+                    <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
+                        <input type="hidden" name="keyId" value={primaryKey.id} />
+                    </form>
+                {/if}
             </svelte:fragment>
             
             <svelte:fragment slot="messages">
@@ -201,4 +229,13 @@
         
        
     {/if}
+    
+    <!-- Confirmation Dialog for Key Rotation -->
+    <ConfirmationDialog
+        bind:open={showRotateConfirmation}
+        title="Rotate JWT Signing Key"
+        description="Are you sure you want to rotate this key? This will create a new primary key and mark the current one as inactive. The following changes will occur:\n\n• The well-known JWKs endpoint will be updated with the new key\n• The old key will remain in the well-known endpoint for token validation\n• New tokens will be signed with the new key\n• Existing tokens will still be valid until they expire\n• Factory tokens will need to be regenerated\n\nThis operation cannot be undone."
+        confirmText="Rotate Key"
+        onConfirm={handleRotateConfirm}
+    />
 </AdminPageLayout>
