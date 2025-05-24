@@ -1,11 +1,16 @@
 <script lang="ts">
-    import { KeyRound, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
-    import { page } from '$app/stores';
-    import { toast } from 'svelte-sonner';
+    import { Key, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
+    import { goto } from "$app/navigation";
+    import { page } from "$app/stores";
+    import { toast } from "svelte-sonner";
+    
+    // Import confirmation dialog
+    import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
     
     // Layout components
     import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
     import AdminCard from '$lib/components/admin/layout/AdminCard.svelte';
+    import ActionButton from '$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte';
     
     // UI components
     import { Button } from '$lib/components/ui/button';
@@ -20,6 +25,9 @@
     // Import page data from server
     export let data: PageData;
     
+    // Import key history table
+    import KeyHistoryTable from './table.svelte';
+    
     // Create form handlers
     const { form: createForm, submitting: createSubmitting, enhance: createEnhance, message: createMessage } = superForm(data.createForm, {
         taintedMessage: false,
@@ -28,6 +36,15 @@
         dataType: 'json',
         onSubmit: () => {
             toast.loading('Creating key...');
+            return async ({ result }) => {
+                if (result.type === 'success') {
+                    toast.success('Key created successfully');
+                } else if (result.type === 'error') {
+                    toast.error('Failed to create key');
+                } else {
+                    toast.dismiss();
+                }
+            };
         },
         onResult: ({ result }) => {
             if (result.type === 'success') {
@@ -47,6 +64,15 @@
         dataType: 'json',
         onSubmit: () => {
             toast.loading('Rotating key...');
+            return async ({ result }) => {
+                if (result.type === 'success') {
+                    toast.success('Key rotated successfully');
+                } else if (result.type === 'error') {
+                    toast.error('Failed to rotate key');
+                } else {
+                    toast.dismiss();
+                }
+            };
         },
         onResult: ({ result }) => {
             if (result.type === 'success') {
@@ -58,8 +84,51 @@
         }
     });
     
-    // Get primary key (find the primary key from the keys array)
-    $: primaryKey = data.keys?.find(key => key.isPrimary && key.keyType === 'TOKEN');
+    // Get primary key from server data
+    $: primaryKey = data.primaryKey;
+    
+    // Confirmation dialog state
+    let showRotateConfirmation = false;
+    
+    // Handle rotate key button click
+    function handleRotateKeyClick() {
+        if (primaryKey) {
+            showRotateConfirmation = true;
+        } else {
+            toast.error("No primary key found to rotate");
+        }
+    }
+    
+    // Handle rotate key confirmation
+    function handleRotateConfirm() {
+        // Submit the form programmatically
+        const form = document.getElementById('rotate-key-form') as HTMLFormElement;
+        if (form) {
+            form.submit();
+            toast.loading('Rotating key...');
+        } else {
+            toast.error('Form not found');
+        }
+    }
+    
+    // Create props for the key history table
+    $: tableProps = {
+        records: data.keys || [],
+        pagination: {
+            page: data.meta?.currentPage || 1,
+            per_page: data.meta?.itemsPerPage || 10,
+            total_records: data.meta?.totalItems || 0,
+            total_pages: data.meta?.totalPages || 0
+        },
+        sort: {
+            field: data.sort?.field || "createdAt",
+            order: data.sort?.order || "desc"
+        },
+        loading: false,
+        filters: {
+            status: $page.url.searchParams.get('status') || ''
+        }
+    };
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -83,8 +152,7 @@
         {
             label: "Rotate Key",
             icon: RefreshCw,
-            form: "rotate-key-form",
-            type: "submit",
+            onClick: handleRotateKeyClick,
             variant: "default",
             disabled: !primaryKey
         }
@@ -109,18 +177,20 @@
             key={primaryKey}
             keyType="TOKEN"
             title="Token Key"
-            description="Used to sign authentication tokens for users"
-            tokenCount={primaryKey ? "24,563" : undefined}
-            badgeColor={{ bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" }}
+            description="Used to sign authentication tokens for API access"
+            tokenCount={primaryKey ? "0" : undefined}
+            badgeColor={{ bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200" }}
         >
             <svelte:fragment slot="icon">
-                <KeyRound class="h-5 w-5" />
+                <Key class="h-5 w-5" />
             </svelte:fragment>
             
             <svelte:fragment slot="actions">
-                <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
-                    <input type="hidden" name="keyId" bind:value={primaryKey.id} />
-                </form>
+                {#if primaryKey}
+                    <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
+                        <input type="hidden" name="keyId" value={primaryKey.id} />
+                    </form>
+                {/if}
             </svelte:fragment>
             
             <svelte:fragment slot="messages">
@@ -134,10 +204,12 @@
             </svelte:fragment>
             
             <svelte:fragment slot="create-form">
+                <p class="text-muted-foreground mb-4">No active link key found. Create a new key to get started.</p>
                 <form method="POST" action="?/createKey" use:createEnhance>
-                    <input type="hidden" name="keyType" value="TOKEN" />
-                    <Button type="submit" class="w-full" disabled={createSubmitting}>
-                        Create Token Key
+                    <input type="hidden" name="keyType" value="LINK" />
+                    <Button type="submit" disabled={$createSubmitting}>
+                        <Link class="mr-2 h-4 w-4" />
+                        Create Link Key
                     </Button>
                 </form>
                 
@@ -151,33 +223,21 @@
             </svelte:fragment>
         </SigningKeyDisplay>
         
-        <AdminCard
-            title="Token Key Guidelines"
-            description="Best practices for managing token JWT signing keys"
-        >
-            <ul class="space-y-3">
-                <li class="flex items-start gap-3">
-                    <CheckCircle class="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <h4 class="font-medium">Authentication Tokens</h4>
-                        <p class="text-sm text-muted-foreground">Token keys are used to sign authentication tokens for users and services</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <CheckCircle class="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <h4 class="font-medium">Regular Rotation</h4>
-                        <p class="text-sm text-muted-foreground">Rotate keys periodically for enhanced security</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <CheckCircle class="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <h4 class="font-medium">Grace Period</h4>
-                        <p class="text-sm text-muted-foreground">Old keys are kept for a grace period to verify existing tokens</p>
-                    </div>
-                </li>
-            </ul>
-        </AdminCard>
+        <!-- {#if data.keys && data.keys.length > 0} -->
+            <div class="mt-6">
+                <KeyHistoryTable props={tableProps} />
+            </div>
+        <!-- {/if} -->
+        
+       
     {/if}
+    
+    <!-- Confirmation Dialog for Key Rotation -->
+    <ConfirmationDialog
+        bind:open={showRotateConfirmation}
+        title="Rotate JWT Signing Key"
+        description="Are you sure you want to rotate this key? This will create a new primary key and mark the current one as inactive. The following changes will occur:\n\n• The well-known JWKs endpoint will be updated with the new key\n• The old key will remain in the well-known endpoint for token validation\n• New links will be signed with the new key\n• Existing links will still be valid until they expire\n\nThis operation cannot be undone."
+        confirmText="Rotate Key"
+        onConfirm={handleRotateConfirm}
+    />
 </AdminPageLayout>
