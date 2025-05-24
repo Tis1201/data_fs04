@@ -208,7 +208,7 @@
                 <form method="POST" action="?/createKey" use:createEnhance>
                     <input type="hidden" name="keyType" value="LINK" />
                     <Button type="submit" disabled={$createSubmitting}>
-                        <Link class="mr-2 h-4 w-4" />
+                        <LinkIcon class="mr-2 h-4 w-4" />
                         Create Link Key
                     </Button>
                 </form>

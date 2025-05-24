@@ -55,7 +55,7 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <!-- Factory Key Card -->
                 <div class="border rounded-lg shadow-sm overflow-hidden bg-white">
-                    <div class="p-6">
+                    <div class="p-6 flex flex-col h-full">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <Factory class="h-5 w-5 text-gray-500" />
@@ -112,8 +112,14 @@
                             </div>
                         {/if}
                         
-                        <a href="/admin/jwt/signing_keys/factory" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-                            Manage
+                        <div class="flex-grow"></div>
+                        
+                        <a href="/admin/jwt/signing_keys/factory" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium rounded-md shadow-sm mt-4 {getKeyByType('FACTORY') ? 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50' : 'bg-primary text-primary-foreground hover:bg-primary/90'}">
+                            {#if getKeyByType('FACTORY')}
+                                Manage
+                            {:else}
+                                Create Key
+                            {/if}
                             <ChevronRight class="h-4 w-4 ml-2" />
                         </a>
                     </div>
@@ -121,7 +127,7 @@
                 
                 <!-- Token Key Card -->
                 <div class="border rounded-lg shadow-sm overflow-hidden bg-white">
-                    <div class="p-6">
+                    <div class="p-6 flex flex-col h-full">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <KeyRound class="h-5 w-5 text-gray-500" />
@@ -178,8 +184,14 @@
                             </div>
                         {/if}
                         
-                        <a href="/admin/jwt/signing_keys/token" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-                            Manage
+                        <div class="flex-grow"></div>
+                        
+                        <a href="/admin/jwt/signing_keys/token" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium rounded-md shadow-sm mt-4 {getKeyByType('TOKEN') ? 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50' : 'bg-primary text-primary-foreground hover:bg-primary/90'}">
+                            {#if getKeyByType('TOKEN')}
+                                Manage
+                            {:else}
+                                Create Key
+                            {/if}
                             <ChevronRight class="h-4 w-4 ml-2" />
                         </a>
                     </div>
@@ -187,7 +199,7 @@
                 
                 <!-- Link Key Card -->
                 <div class="border rounded-lg shadow-sm overflow-hidden bg-white">
-                    <div class="p-6">
+                    <div class="p-6 flex flex-col h-full">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <LinkIcon class="h-5 w-5 text-gray-500" />
@@ -244,8 +256,14 @@
                             </div>
                         {/if}
                         
-                        <a href="/admin/jwt/signing_keys/link" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-                            Manage
+                        <div class="flex-grow"></div>
+                        
+                        <a href="/admin/jwt/signing_keys/link" class="flex items-center justify-center w-full px-4 py-2 text-sm font-medium rounded-md shadow-sm mt-4 {getKeyByType('LINK') ? 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50' : 'bg-primary text-primary-foreground hover:bg-primary/90'}">
+                            {#if getKeyByType('TOKEN')}
+                                Manage
+                            {:else}
+                                Create Key
+                            {/if}
                             <ChevronRight class="h-4 w-4 ml-2" />
                         </a>
                     </div>

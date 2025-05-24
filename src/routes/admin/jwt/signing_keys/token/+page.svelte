@@ -204,12 +204,12 @@
             </svelte:fragment>
             
             <svelte:fragment slot="create-form">
-                <p class="text-muted-foreground mb-4">No active link key found. Create a new key to get started.</p>
+                <p class="text-muted-foreground mb-4">No active token key found. Create a new key to get started.</p>
                 <form method="POST" action="?/createKey" use:createEnhance>
-                    <input type="hidden" name="keyType" value="LINK" />
+                    <input type="hidden" name="keyType" value="TOKEN" />
                     <Button type="submit" disabled={$createSubmitting}>
-                        <Link class="mr-2 h-4 w-4" />
-                        Create Link Key
+                        <Key class="mr-2 h-4 w-4" />
+                        Create Token Key
                     </Button>
                 </form>
                 
