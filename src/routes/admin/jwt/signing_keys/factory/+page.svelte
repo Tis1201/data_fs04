@@ -1,7 +1,8 @@
 <script lang="ts">
     import { Factory, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
-    import { page } from '$app/stores';
-    import { toast } from 'svelte-sonner';
+    import { goto } from "$app/navigation";
+    import { page } from "$app/stores";
+    import { toast } from "svelte-sonner";
     
     // Layout components
     import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
@@ -20,6 +21,9 @@
     
     // Import page data from server
     export let data: PageData;
+    
+    // Import key history table
+    import KeyHistoryTable from './table.svelte';
     
     // Create form handlers
     const { form: createForm, submitting: createSubmitting, enhance: createEnhance, message: createMessage } = superForm(data.createForm, {
@@ -77,8 +81,27 @@
         }
     });
     
-    // Get primary key (find the primary key from the keys array)
-    $: primaryKey = data.keys?.find(key => key.isPrimary && key.keyType === 'FACTORY');
+    // Get primary key from server data
+    $: primaryKey = data.primaryKey;
+    
+    // Create props for the key history table
+    $: tableProps = {
+        records: data.keys || [],
+        pagination: {
+            page: data.meta?.currentPage || 1,
+            per_page: data.meta?.itemsPerPage || 10,
+            total_records: data.meta?.totalItems || 0,
+            total_pages: data.meta?.totalPages || 0
+        },
+        sort: {
+            field: data.sort?.field || "createdAt",
+            order: data.sort?.order || "desc"
+        },
+        loading: false,
+        filters: {
+            status: $page.url.searchParams.get('status') || ''
+        }
+    };
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -170,33 +193,12 @@
             </svelte:fragment>
         </SigningKeyDisplay>
         
-        <AdminCard
-            title="Factory Key Guidelines"
-            description="Best practices for managing factory JWT signing keys"
-        >
-            <ul class="space-y-3">
-                <li class="flex items-start gap-3">
-                    <CheckCircle class="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <h4 class="font-medium">Device Provisioning</h4>
-                        <p class="text-sm text-muted-foreground">Factory keys are used to sign tokens for device provisioning during manufacturing</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <CheckCircle class="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <h4 class="font-medium">Secure Storage</h4>
-                        <p class="text-sm text-muted-foreground">Private keys are securely stored and never exposed in API responses</p>
-                    </div>
-                </li>
-                <li class="flex items-start gap-3">
-                    <AlertCircle class="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-                    <div>
-                        <h4 class="font-medium">Rotation Warning</h4>
-                        <p class="text-sm text-muted-foreground">Rotating the factory key requires re-provisioning of devices that haven't been activated yet</p>
-                    </div>
-                </li>
-            </ul>
-        </AdminCard>
+        <!-- {#if data.keys && data.keys.length > 0} -->
+            <div class="mt-6">
+                <KeyHistoryTable props={tableProps} />
+            </div>
+        <!-- {/if} -->
+        
+       
     {/if}
 </AdminPageLayout>

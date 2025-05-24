@@ -587,6 +587,10 @@ This project implements fine-grained access control using Zenstack's row-level s
 - Document any complex access rules in this section
 
 To Dos
+Setup Wizard
+- Create the 3 JWT keys
+- Setup the admin user and password
+- Setup email service provider
 Access Management
 - User Sign Up Form (user will have own account)
 - User invite Team Members (use jwt with expiry,invited users will share account with owner)
