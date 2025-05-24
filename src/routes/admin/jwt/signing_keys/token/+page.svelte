@@ -2,6 +2,7 @@
     import { Key, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
+    import { invalidateAll } from "$app/navigation";
     import { toast } from "svelte-sonner";
     
     // Import confirmation dialog
@@ -28,61 +29,73 @@
     // Import key history table
     import KeyHistoryTable from './table.svelte';
     
-    // Create form handlers
-    const { form: createForm, submitting: createSubmitting, enhance: createEnhance, message: createMessage } = superForm(data.createForm, {
-        taintedMessage: false,
-        validationMethod: 'oninput',
-        resetForm: false,
-        dataType: 'json',
-        onSubmit: () => {
-            toast.loading('Creating key...');
-            return async ({ result }) => {
-                if (result.type === 'success') {
-                    toast.success('Key created successfully');
-                } else if (result.type === 'error') {
-                    toast.error('Failed to create key');
-                } else {
-                    toast.dismiss();
-                }
-            };
-        },
-        onResult: ({ result }) => {
-            if (result.type === 'success') {
-                toast.success('Token key created successfully');
-            } else if (result.type === 'failure') {
-                toast.error('Failed to create token key');
-            }
-            return result;
-        }
-    });
+    // Loading state
+    let isCreating = false;
+    let isRotating = false;
     
-    // Rotate form handlers
-    const { form: rotateForm, submitting: rotateSubmitting, enhance: rotateEnhance, message: rotateMessage } = superForm(data.rotateForm, {
-        taintedMessage: false,
-        validationMethod: 'oninput',
-        resetForm: false,
-        dataType: 'json',
-        onSubmit: () => {
-            toast.loading('Rotating key...');
-            return async ({ result }) => {
-                if (result.type === 'success') {
-                    toast.success('Key rotated successfully');
-                } else if (result.type === 'error') {
-                    toast.error('Failed to rotate key');
-                } else {
-                    toast.dismiss();
-                }
-            };
-        },
-        onResult: ({ result }) => {
-            if (result.type === 'success') {
-                toast.success('Token key rotated successfully');
-            } else if (result.type === 'failure') {
-                toast.error('Failed to rotate token key');
+    // Create key function
+    async function createTokenKey() {
+        try {
+            isCreating = true;
+            toast.loading('Creating token key...');
+            
+            const response = await fetch('/api/admin/jwt/signing_keys/create', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ keyType: 'TOKEN' })
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                toast.success('Token key created successfully');
+                // Refresh the page data
+                await invalidateAll();
+            } else {
+                toast.error(result.message || 'Failed to create token key');
             }
-            return result;
+        } catch (error) {
+            toast.error('An error occurred while creating the token key');
+            console.error('Error creating token key:', error);
+        } finally {
+            isCreating = false;
+            toast.dismiss();
         }
-    });
+    }
+    
+    // Rotate key function
+    async function rotateTokenKey(keyId: string) {
+        try {
+            isRotating = true;
+            toast.loading('Rotating token key...');
+            
+            const response = await fetch('/api/admin/jwt/signing_keys/rotate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ keyId })
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                toast.success('Token key rotated successfully');
+                // Refresh the page data
+                await invalidateAll();
+            } else {
+                toast.error(result.message || 'Failed to rotate token key');
+            }
+        } catch (error) {
+            toast.error('An error occurred while rotating the token key');
+            console.error('Error rotating token key:', error);
+        } finally {
+            isRotating = false;
+            toast.dismiss();
+        }
+    }
     
     // Get primary key from server data
     $: primaryKey = data.primaryKey;
@@ -101,13 +114,14 @@
     
     // Handle rotate key confirmation
     function handleRotateConfirm() {
-        // Submit the form programmatically
-        const form = document.getElementById('rotate-key-form') as HTMLFormElement;
-        if (form) {
-            form.submit();
-            toast.loading('Rotating key...');
+        if (primaryKey) {
+            // Close the confirmation dialog first
+            showRotateConfirmation = false;
+            
+            // Call the API to rotate the key
+            rotateTokenKey(primaryKey.id);
         } else {
-            toast.error('Form not found');
+            toast.error('No primary key found to rotate');
         }
     }
     
@@ -187,39 +201,20 @@
             
             <svelte:fragment slot="actions">
                 {#if primaryKey}
-                    <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
-                        <input type="hidden" name="keyId" value={primaryKey.id} />
-                    </form>
+                    <!-- No form needed with API approach -->
                 {/if}
             </svelte:fragment>
             
             <svelte:fragment slot="messages">
-                {#if $rotateMessage}
-                    <div class="mt-4 p-3 rounded-md" class:bg-green-50={$rotateMessage.type === 'success'} class:bg-red-50={$rotateMessage.type === 'error'}>
-                        <p class="text-sm" class:text-green-700={$rotateMessage.type === 'success'} class:text-red-700={$rotateMessage.type === 'error'}>
-                            {$rotateMessage.text}
-                        </p>
-                    </div>
-                {/if}
+                <!-- Messages are now handled via toast notifications -->
             </svelte:fragment>
             
             <svelte:fragment slot="create-form">
                 <p class="text-muted-foreground mb-4">No active token key found. Create a new key to get started.</p>
-                <form method="POST" action="?/createKey" use:createEnhance>
-                    <input type="hidden" name="keyType" value="TOKEN" />
-                    <Button type="submit" disabled={$createSubmitting}>
-                        <Key class="mr-2 h-4 w-4" />
-                        Create Token Key
-                    </Button>
-                </form>
-                
-                {#if $createMessage}
-                    <div class="mt-4 p-3 rounded-md" class:bg-green-50={$createMessage.type === 'success'} class:bg-red-50={$createMessage.type === 'error'}>
-                        <p class="text-sm" class:text-green-700={$createMessage.type === 'success'} class:text-red-700={$createMessage.type === 'error'}>
-                            {$createMessage.text}
-                        </p>
-                    </div>
-                {/if}
+                <Button type="button" disabled={isCreating} on:click={createTokenKey}>
+                    <Key class="mr-2 h-4 w-4" />
+                    {isCreating ? 'Creating...' : 'Create Token Key'}
+                </Button>
             </svelte:fragment>
         </SigningKeyDisplay>
         

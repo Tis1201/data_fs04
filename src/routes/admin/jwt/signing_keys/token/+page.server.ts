@@ -301,10 +301,10 @@ export const load = restrict(
       return {
         keys: [],
         createForm: await superValidate(zod(createKeySchema), {
-          id: 'factory-create-form'
+          id: 'token-create-form'
         }),
         rotateForm: await superValidate(zod(rotateKeySchema), {
-          id: 'factory-rotate-form'
+          id: 'token-rotate-form'
         }),
         error: {
           message: 'Failed to load factory JWT signing keys',
@@ -325,7 +325,7 @@ export const actions: Actions = {
   createKey: restrict(
     async ({ request, locals }) => {
       const form = await superValidate(request, zod(createKeySchema), {
-        id: 'factory-create-form'
+        id: 'token-create-form'
       });
 
       if (!form.valid) {
@@ -417,7 +417,7 @@ export const actions: Actions = {
       logger.info('Form data received:', { formData: form.data, valid: form.valid });
 
       if (!form.valid) {
-        logger.error('Form validation failed:', form.errors);
+        logger.error(`Form validation failed: ${JSON.stringify(form.errors)}`);
         return fail(400, { form });
       }
 
