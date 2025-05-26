@@ -1,10 +1,15 @@
-import { ReadableStream } from 'stream/web';
+// Using global ReadableStream from web standards
 import { logger } from '$lib/server/logger';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
-import type { App } from '$lib/types';
+
+declare global {
+    interface ReadableStream<R = any> {
+        [Symbol.asyncIterator](): AsyncIterableIterator<R>;
+    }
+}
 
 /**
  * Options for creating an SSE stream
@@ -26,14 +31,14 @@ export function createSSEStream({
     locals,
     onConnectionEstablished,
     onConnectionClosed
-}: SSESteamOptions): ReadableStream {
+}: SSESteamOptions): globalThis.ReadableStream {
     logger.debug('Creating ReadableStream for SSE connection');
     
     // Store connectionId in outer scope to make it accessible in both start and cancel
     let connectionId: string | null = null;
     
-    return new ReadableStream({
-        async start(controller) {
+    return new globalThis.ReadableStream({
+        async start(controller: ReadableStreamDefaultController) {
             try {
                 logger.debug('SSE ReadableStream started');
                 
@@ -41,9 +46,16 @@ export function createSSEStream({
                 logger.debug('Creating SSEConnection instance');
                 const connection = new SSEConnection(connectionMeta, controller);
                 
-                // Register the connection
+                // Register the connection and get the connection ID
                 ConnectionManager.registerConnection(connection);
-                connectionId = connection.meta.id; // Assign to outer scope variable
+                const newConnectionId = connection.meta?.id;
+                
+                if (!newConnectionId) {
+                    throw new Error('Failed to generate connection ID');
+                }
+                
+                // Update the outer scope connectionId
+                connectionId = newConnectionId;
                 
                 // Add subscription for device-specific messages
                 const deviceSubscriptionKey = `subscription:device:${device.id}`;
@@ -70,7 +82,7 @@ export function createSSEStream({
                         }
                     });
                 } catch (dbError) {
-                    logger.error('Failed to update device status on connection error:', dbError);
+                    logger.error(`Failed to update device ${device.id} status on connection error: ${dbError}`);
                 }
                 
                 // Close the controller with error
@@ -78,24 +90,28 @@ export function createSSEStream({
             }
         },
         
-        async cancel(reason) {
+        async cancel(reason?: any) {
             logger.debug(`SSE connection cancelled: ${reason}`);
+            
+            // Only proceed if we have a valid connectionId
+            if (!connectionId) {
+                logger.warn('No connectionId available during connection cleanup');
+                return;
+            }
             
             // Notify that connection is closed
             try {
                 await onConnectionClosed(connectionId);
             } catch (error) {
-                logger.error(`Error in connection closed handler:`, error);
+                logger.error(`Error in connection closed handler: ${error}`);
             }
             
             // Clean up resources
             try {
-                if (connectionId) {
-                    await cleanupConnection(connectionId, device.id, locals);
-                    logger.debug(`Cleanup completed for connection: ${connectionId}`);
-                }
+                await cleanupConnection(connectionId, device.id, locals);
+                logger.debug(`Cleanup completed for connection: ${connectionId}`);
             } catch (error) {
-                logger.error('Error during connection cleanup:', error);
+                logger.error(`Error during connection cleanup: ${error}`);
             }
         }
     });
@@ -128,7 +144,7 @@ async function cleanupConnection(connectionId: string, deviceId: string, locals:
                 await subscriptionRegistry.removeSubscription(sub.key, connectionScope);
                 logger.debug(`Removed subscription: ${sub.key} for connection: ${connectionId}`);
             } catch (subError) {
-                logger.error(`Error removing subscription ${sub.key} for connection ${connectionId}:`, subError);
+                logger.error(`Error removing subscription ${sub.key} for connection ${connectionId}: ${subError}`);
                 // Continue with other subscriptions even if one fails
             }
         }
@@ -145,7 +161,7 @@ async function cleanupConnection(connectionId: string, deviceId: string, locals:
                 });
                 logger.debug(`Updated device ${deviceId} status to disconnected`);
             } catch (updateError) {
-                logger.error(`Failed to update device ${deviceId} status:`, updateError);
+                logger.error(`Failed to update device ${deviceId} status: ${updateError}`);
             }
         } else {
             logger.warn('No device ID provided for cleanup');
