@@ -11,20 +11,38 @@ import { z } from 'zod';
 
 export const load = restrict(
     async ({ locals }) => {
+        // Get available JWT signing keys for factory tokens
+        const signingKeys = await locals.prisma.jwtSigningKey.findMany({
+            where: {
+                keyType: 'FACTORY',
+                isActive: true
+            },
+            select: {
+                id: true,
+                keyId: true,
+                isPrimary: true
+            },
+            orderBy: [
+                { isPrimary: 'desc' },
+                { createdAt: 'desc' }
+            ]
+        });
+
         // Initialize the factory token form with the schema and defaults
         const factoryTokenForm = await superValidate(zod(factoryTokenSchema), {
             defaults: {
-                serialNumber: '',
                 hardwareModel: '',
                 firmwareVersion: '',
                 batchNumber: '',
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default to 30 days from now
-                notes: ''
+                notes: '',
+                factory_signing_key_id: signingKeys.length > 0 ? signingKeys[0].id : ''
             }
         });
 
         return {
-            factoryTokenForm
+            factoryTokenForm,
+            signingKeys
         };
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
@@ -61,15 +79,19 @@ export const actions: Actions = {
                 });
             }
 
-            const { serialNumber, hardwareModel, firmwareVersion, batchNumber, expiresAt, notes } = form.data;
+            const { hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id } = form.data;
 
-            // Check if token with same serial number already exists
-            const existingToken = await locals.prisma.factoryToken.findFirst({
-                where: { serialNumber }
+            // Verify that the signing key exists and is active
+            const signingKey = await locals.prisma.jwtSigningKey.findUnique({
+                where: {
+                    id: factory_signing_key_id,
+                    isActive: true,
+                    keyType: 'FACTORY'
+                }
             });
 
-            if (existingToken) {
-                logger.warn(`Factory token with serial number ${serialNumber} already exists`);
+            if (!signingKey) {
+                logger.warn(`Invalid or inactive signing key: ${factory_signing_key_id}`);
                 
                 // Return a properly formatted error message for the form handler
                 return fail(400, {
@@ -78,28 +100,24 @@ export const actions: Actions = {
                     message: {
                         type: 'error',
                         text: 'Validation Failed',
-                        details: 'Factory token with this serial number already exists',
-                        code: 'DUPLICATE_SERIAL',
+                        details: 'Selected signing key is invalid or inactive',
+                        code: 'INVALID_SIGNING_KEY',
                         timestamp: new Date().toISOString()
                     }
                 });
             }
-
-            // Generate a unique token ID
-            const tokenId = crypto.randomUUID();
             
             // Create factory token
             const factoryToken = await locals.prisma.factoryToken.create({
                 data: {
-                    tokenId,
-                    serialNumber,
                     hardwareModel,
                     firmwareVersion,
                     batchNumber,
                     expiresAt,
                     notes,
                     issuedBy: userInfo.id,
-                    issuedAt: new Date()
+                    issuedAt: new Date(),
+                    factory_signing_key_id
                 }
             });
 
@@ -116,9 +134,9 @@ export const actions: Actions = {
                 },
                 factoryToken: {
                     id: factoryToken.id,
-                    tokenId: factoryToken.tokenId,
-                    serialNumber: factoryToken.serialNumber,
-                    hardwareModel: factoryToken.hardwareModel
+                    hardwareModel: factoryToken.hardwareModel,
+                    firmwareVersion: factoryToken.firmwareVersion,
+                    expiresAt: factoryToken.expiresAt
                 }
             };
         } catch (error) {

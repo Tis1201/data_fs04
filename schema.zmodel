@@ -579,6 +579,9 @@ model JwtSigningKey {
   // Metadata
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdById String
+  
+  // Relations
+  factoryTokens FactoryToken[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
@@ -601,8 +604,6 @@ model JwtSigningKey {
 // Factory-issued JWT tokens for device onboarding
 model FactoryToken {
   id            String   @id @default(cuid())
-  tokenId       String   @unique // JWT ID (jti claim)
-  serialNumber  String   @unique // Device serial number (sub claim)
   
   // Device Information
   hardwareModel String
@@ -621,11 +622,13 @@ model FactoryToken {
   notes         String?  // Any additional notes
   
   // Relations
-  // Device that used this token
-  device        Device?  @relation(fields: [deviceId], references: [id])
-  deviceId      String?  // Null until used for onboarding
+  factory_signing_key_id String
+  factory_signing_key JwtSigningKey @relation(fields: [factory_signing_key_id], references: [id])
   
-  @@index([serialNumber])
+  // Relation to Device
+  device        Device?  @relation(fields: [deviceId], references: [id])
+  deviceId      String?
+  
   @@index([isUsed])
   @@index([expiresAt])
   

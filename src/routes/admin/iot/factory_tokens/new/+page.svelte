@@ -94,18 +94,6 @@
         >
           <div class="space-y-6">
             <FormRow columns={2}>
-              <FormField id="serialNumber" label="Serial Number" error={$errors.serialNumber} required={true}>
-                <Input
-                  id="serialNumber"
-                  name="serialNumber"
-                  type="text"
-                  bind:value={$form.serialNumber}
-                  placeholder="Enter device serial number"
-                  aria-invalid={$errors.serialNumber ? 'true' : undefined}
-                  disabled={$submitting}
-                />
-              </FormField>
-              
               <FormField id="hardwareModel" label="Hardware Model" error={$errors.hardwareModel} required={true}>
                 <Input
                   id="hardwareModel"
@@ -117,9 +105,7 @@
                   disabled={$submitting}
                 />
               </FormField>
-            </FormRow>
-            
-            <FormRow columns={2}>
+              
               <FormField id="firmwareVersion" label="Firmware Version" error={$errors.firmwareVersion} required={true}>
                 <Input
                   id="firmwareVersion"
@@ -131,7 +117,9 @@
                   disabled={$submitting}
                 />
               </FormField>
-              
+            </FormRow>
+            
+            <FormRow columns={2}>
               <FormField id="batchNumber" label="Batch Number" error={$errors.batchNumber}>
                 <Input
                   id="batchNumber"
@@ -142,6 +130,28 @@
                   aria-invalid={$errors.batchNumber ? 'true' : undefined}
                   disabled={$submitting}
                 />
+              </FormField>
+              
+              <FormField id="factory_signing_key_id" label="Signing Key" error={$errors.factory_signing_key_id} required={true}>
+                <select
+                  id="factory_signing_key_id"
+                  name="factory_signing_key_id"
+                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  bind:value={$form.factory_signing_key_id}
+                  aria-invalid={$errors.factory_signing_key_id ? 'true' : undefined}
+                  disabled={$submitting}
+                >
+                  {#if data.signingKeys.length === 0}
+                    <option value="" disabled>No signing keys available</option>
+                  {:else}
+                    {#each data.signingKeys as key}
+                      <option value={key.id}>{key.keyId} {key.isPrimary ? '(Primary)' : ''}</option>
+                    {/each}
+                  {/if}
+                </select>
+                <p class="text-xs text-muted-foreground mt-1">
+                  The signing key used to issue this token
+                </p>
               </FormField>
             </FormRow>
           </div>
