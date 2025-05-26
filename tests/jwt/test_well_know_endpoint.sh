@@ -1,0 +1,1 @@
+curl -v http://localhost:5173/.well-known/jwks.json

@@ -25,7 +25,7 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 ## Features
 
 - Role-based access control with ZenStack-enhanced Prisma
-- Form actions via Zod and Superforms (sveltekit-superforms)
+- [Form handling with Zod and Superforms](./src/lib/components/ui_components_sveltekit/form/README.md)
 - Real-time communication with WebSockets
 - RTP and WebRTC streaming integration
 - Admin dashboard and room management
@@ -98,9 +98,32 @@ fs04_web/
 
 Contributions welcome! Please fork, branch, and submit pull requests. Adhere to existing conventions and ensure tests pass.
 
+## Documentation
+
+### Core Components
+- [JWT Token Management](./src/lib/server/jwt_issuer/README.md) - Authentication and token handling
+- [Device Management](./src/lib/server/device/README.md) - Device registration and management
+- [Messaging System](./src/lib/server/messaging/README.md) - Real-time messaging infrastructure
+- [WhatsApp Integration](./src/lib/server/whatsapp/README.md) - WhatsApp messaging capabilities
+
+### UI Components
+- [Form Handling](./src/lib/components/ui_components_sveltekit/form/README.md) - Comprehensive guide to form handling with validation and error handling
+
+### UI Components
+- [Admin Components](./src/lib/components/admin/README.md) - Reusable admin interface components
+- [Form Components](./src/lib/components/ui_components_sveltekit/form/README.md) - Form building blocks and validation
+
+### API & Infrastructure
+- [API Listeners](./src/routes/api/listen/README.md) - Webhook and event listeners
+- [Docker Setup](./docker/README.md) - Container configuration and deployment
+
+### Testing
+- [Rate Limit Testing](./tests/ratelimit/README.md) - Load and performance testing
+- [WebRTC Testing](./tests/webrtc/README.md) - Video/audio streaming tests
+
 ## License
 
-MIT License 2025 Your Company
+MIT License - see [LICENSE](LICENSE) for details.
 
 ### Core Architecture
 
@@ -564,6 +587,11 @@ This project implements fine-grained access control using Zenstack's row-level s
 - Document any complex access rules in this section
 
 To Dos
+Setup Wizard
+- Create the 3 JWT keys
+- Setup the admin user and password
+- Setup email service provider
+- Generate Device Factory Token
 Access Management
 - User Sign Up Form (user will have own account)
 - User invite Team Members (use jwt with expiry,invited users will share account with owner)
@@ -592,5 +620,9 @@ Modules Access (subscription based)
 - IOT
 - Whatsapp
 - Others in future
+
+
+Notes
+- When signing keys are rotated, factory tokens has to be regenerated as well
 
 

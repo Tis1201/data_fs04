@@ -1,6 +1,9 @@
-import { error } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from '@sveltejs/kit';
+import { logger } from '$lib/server/logger';
+import type { UserInfo } from '$lib/server/types/user';
+import { userInfoByUserId } from '$lib/server/security/auth-utils';
 
 /**
  * Type for route handlers that can be protected
@@ -49,8 +52,87 @@ export function restrict<T>(
     } as AuthenticatedEvent;
     
     // Pass the enhanced event to the handler
-    return handler(authenticatedEvent);
+    return handler(authenticatedEvent as any);
   };
+}
+
+/**
+ * Type for the device authentication result
+ */
+export type DeviceAuthResult = {
+  device: any;
+  userInfo: UserInfo;
+} | {
+  error: string;
+  code?: string;
+  response: Response;
+};
+
+/**
+ * Type for the event object passed to the restrict_device function
+ */
+export type DeviceAuthEvent = {
+  locals: RequestEvent['locals'];
+  request: Request;
+};
+
+/**
+ * Authenticates a device using an API key
+ * @param event Object containing locals and request
+ * @returns Object with device and userInfo if successful, or error response if not
+ */
+export async function restrict_device(
+  event: DeviceAuthEvent
+): Promise<DeviceAuthResult> {
+  const { locals, request } = event;
+  // Try both header variations to handle case sensitivity issues
+  const apiKey = request.headers.get('x-api-key') || request.headers.get('x-api-Key');
+
+  if (!apiKey) {
+    logger.warn('No API Key provided');
+    return {
+      error: 'No API Key provided',
+      response: json({ error: 'No API Key provided' }, { status: 400 })
+    };
+  }
+
+  const prisma = locals.prisma;
+
+  // Find device by apiKey
+  const device = await prisma.device.findFirst({
+    where: { apiKey },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          systemRole: true
+        }
+      }
+    }
+  });
+
+  if (!device) {
+    logger.warn(`Invalid API key: ${apiKey.substring(0, 8)}...`);
+    return {
+      error: 'Invalid API key',
+      code: 'INVALID_API_KEY',
+      response: json({ error: 'Invalid API key', code: 'INVALID_API_KEY' }, { status: 401 })
+    };
+  }
+
+  // Add detailed logging of the device object to debug the issue
+  logger.info(`Device ${device.id} (${device.name || 'unnamed'}) connected via API key, owned by: ${device.user.name}`);
+  logger.debug('Device object structure:', {
+    id: device.id,
+    keys: Object.keys(device),
+    hasId: 'id' in device
+  });
+
+  const userInfo: UserInfo = await userInfoByUserId(device.user.id);
+  
+  return { device, userInfo };
 }
 
 /**

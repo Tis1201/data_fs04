@@ -24,7 +24,31 @@
 
         Lock,
 
-        Ticket
+        Ticket,
+
+        Logs,
+
+        KeySquare,
+
+        Eye,
+
+        MonitorCheck,
+
+        Film,
+
+        Monitor,
+
+        MonitorPlay,
+
+        Factory
+
+
+
+
+
+
+
+
 
 
     } from "lucide-svelte";
@@ -59,6 +83,7 @@
             icon: Network,
             initialExpanded: false,
             subItems: [
+                { href: "/admin/iot/factory_tokens", label: "Factory Tokens", icon: Factory },
                 { href: "/admin/iot/devices", label: "Devices", icon: Router }
             ]
         },
@@ -98,8 +123,26 @@
             icon: Lock, 
             initialExpanded: true,
             subItems: [
-                { href: "/admin/settings/jwt_tokens", label: "JWT Tokens", icon: Ticket },
+                { href: "/admin/jwt/signing_keys", label: "Signing Keys", icon: Key },
                 { href: "/admin/settings/api_keys", label: "API Keys", icon: Key }
+            ]
+        },
+        { 
+            label: "JWT", 
+            icon: KeySquare, 
+            initialExpanded: true,
+            subItems: [
+                { href: "/admin/jwt/refresh_tokens", label: "Refresh Tokens", icon: Ticket },
+                { href: "/admin/jwt/token_logs", label: "Token Logs", icon: Logs },
+            ]
+        },
+        { 
+            label: "Vision", 
+            icon: MonitorCheck, 
+            initialExpanded: true,
+            subItems: [
+                { href: "/admin/vision/streams", label: "Streams", icon: MonitorPlay },
+                { href: "/admin/vision/preview", label: "Preview", icon: Film },
             ]
         },
         { 
@@ -108,6 +151,7 @@
             icon: Activity,
             subItems: [] 
         },
+        
         {
             label: "Debug",
             icon: BugOff,

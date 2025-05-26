@@ -7,6 +7,7 @@ import lucia from '$lib/server/auth';
 import type { PageServerLoad, Actions } from './$types';
 import { loginSchema } from '$lib/schemas/auth';
 import { logger } from '$lib/server/logger';
+import { logSessionActivity, logFailedLogin } from '$lib/server/session-logger';
 
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
@@ -44,7 +45,7 @@ export const load = (async ({ locals }) => {
 }) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    default: async ({ request, cookies }) => {
+    default: async ({ request, cookies, getClientAddress }) => {
         const form = await superValidate(request, zod(loginSchema));
         logger.debug('Login attempt', { email: form.data.email });
 
@@ -67,6 +68,15 @@ export const actions: Actions = {
 
             if (!user?.password) {
                 logger.debug('Invalid credentials - user not found or no password', { email: form.data.email });
+                
+                // Log failed login attempt
+                await logFailedLogin(authPrisma, {
+                    email: form.data.email,
+                    reason: 'user_not_found',
+                    ipAddress: getClientAddress(),
+                    userAgent: request.headers.get('user-agent') || undefined
+                });
+                
                 return fail(400, {
                     form: {
                         ...form,
@@ -79,6 +89,19 @@ export const actions: Actions = {
             const validPassword = await verify(user.password, form.data.password);
             if (!validPassword) {
                 logger.debug('Invalid credentials - wrong password', { email: form.data.email });
+                
+                // Log failed login attempt
+                await logFailedLogin(authPrisma, {
+                    email: form.data.email,
+                    reason: 'invalid_password',
+                    ipAddress: getClientAddress(),
+                    userAgent: request.headers.get('user-agent') || undefined,
+                    accountId: await authPrisma.user.findUnique({
+                        where: { id: user.id },
+                        select: { primaryAccountId: true }
+                    }).then(u => u?.primaryAccountId || undefined)
+                });
+                
                 return fail(400, {
                     form: {
                         ...form,
@@ -112,6 +135,27 @@ export const actions: Actions = {
                     userId: user.id,
                     email: form.data.email,
                     role: user.systemRole
+                });
+                
+                // Get the user's primary account ID
+                const userDetails = await authPrisma.user.findUnique({
+                    where: { id: user.id },
+                    select: { primaryAccountId: true }
+                });
+                
+                // Log successful login
+                await logSessionActivity(authPrisma, {
+                    userId: user.id,
+                    action: 'login',
+                    sessionId: session.id,
+                    ipAddress: getClientAddress(),
+                    userAgent: request.headers.get('user-agent') || undefined,
+                    deviceInfo: {
+                        browser: request.headers.get('sec-ch-ua') || undefined,
+                        platform: request.headers.get('sec-ch-ua-platform') || undefined,
+                        mobile: request.headers.get('sec-ch-ua-mobile') || undefined
+                    },
+                    accountId: userDetails?.primaryAccountId || undefined
                 });
             } catch (sessionError) {
                 // Log detailed session creation error
