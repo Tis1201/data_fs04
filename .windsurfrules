@@ -72,3 +72,9 @@ This project implements fine-grained access control using Zenstack's row-level s
    - Users can read any resource from accounts they are members of
    - Checks the account's members array for the current user's ID
 
+
+### Logging
+For server side
+- logger.debug('Device object structure:', obj) is not going to work
+- Use string replacement instead logger.debug(`Device object structure: ${JSON.stringify(obj)`);
+

@@ -30,21 +30,19 @@ import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionReg
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
 import { restrict_device } from '$lib/server/security/guards';
+import type { Device } from '@prisma/client';
 
 
-export const GET: RequestHandler = async ({ params, locals, request }) => {
-    // Get the API key directly
+async function auth_device(locals: App.Locals, request: Request): Promise<{device: any, userInfo: UserInfo}> {
     const apiKey = request.headers.get('x-api-key') || request.headers.get('x-api-Key');
 
     if (!apiKey) {
         logger.warn('No API Key provided');
-        return json({ error: 'No API Key provided' }, { status: 400 });
+        throw json({ error: 'No API Key provided' }, { status: 400 });
     }
 
-    const prisma = locals.prisma;
-
     // Find device by apiKey
-    const device = await prisma.device.findFirst({
+    const device = await locals.prisma.device.findFirst({
         where: { apiKey },
         include: {
             user: {
@@ -60,18 +58,27 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
 
     if (!device) {
         logger.warn(`Invalid API key: ${apiKey.substring(0, 8)}...`);
-        return json({ error: 'Invalid API key', code: 'INVALID_API_KEY' }, { status: 401 });
+        throw json({ error: 'Invalid API key', code: 'INVALID_API_KEY' }, { status: 401 });
     }
 
     logger.info(`Device ${device.id} (${device.name || 'unnamed'}) connected via API key, owned by: ${device.user.name}`);
 
-    const userInfo = await userInfoByUserId(device.user.id);
+    const userInfo = await userInfoByUserId(device.user.id, locals.prisma);
     
     // Add debugging to check device object structure
-    logger.debug('Device object structure:', { 
+    logger.debug(`Device object structure: ${JSON.stringify({
         deviceId: device.id,
         deviceKeys: Object.keys(device)
-    });
+    })}`);
+    
+    return { device, userInfo };
+}
+
+
+
+export const GET: RequestHandler = async ({ params, locals, request }) => {
+    // Get the API key directly
+    const {device, userInfo} = await auth_device(locals, request);
     
     // Define connectionMeta outside the ReadableStream so it's accessible in both start and cancel functions
     const connectionMeta: ConnectionMeta = {
@@ -109,7 +116,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 logger.debug('Subscription added successfully');
                 
                 // Update device connection status in DB
-                await prisma.device.update({
+                await locals.prisma.device.update({
                     where: { id: device.id },
                     data: {
                         connected: true,
