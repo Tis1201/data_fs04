@@ -163,7 +163,9 @@
                   id="expiresAt"
                   name="expiresAt"
                   disabled={$submitting}
-                  description="Date when this token will expire"
+                  timelineOptions="future"
+                  defaultTimeline="future"
+                  placeholder="Select expiration date"
                 />
                 <p class="text-xs text-muted-foreground mt-1">
                   Date when this token will expire
