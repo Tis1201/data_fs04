@@ -63,17 +63,16 @@
         class: "h-9" // Fixed height for consistency
       },
       {
-        label: "Save",
+        label: $submitting ? 'Saving...' : 'Save',
         icon: Save,
         onClick: () => {
           const form = document.querySelector('form[action="?/createToken"]');
           if (form) form.requestSubmit();
         },
-        class: "h-9" // Fixed height for consistency
+        class: "h-9", // Fixed height for consistency
+        disabled: $submitting
       }
     ]}
-    loading={$submitting}
-    showCreateButton={false}
     compact={true}
     contentSpacing="space-y-4"
   >
