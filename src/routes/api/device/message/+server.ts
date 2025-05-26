@@ -6,42 +6,26 @@ import type { RequestHandler } from './$types';
 import { MessageDispatcher } from '$lib/server/messaging/core/dispatcher';
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
+import { restrict_device } from '$lib/server/security/guards';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-
-    const apiKey = request.headers.get('x-api-key');
-
-    if (!apiKey) {
+    const result = await restrict_device({ locals, request });
+    
+    if ('error' in result) {
         return json({
             success: false,
-            error: 'API key is required',
-            message: 'Missing API key'
-        }, { status: 401 });
+            error: result.error,
+            message: result.error
+        }, { status: result.response.status });
     }
-
-    const prisma = locals.prisma;
-
-    //Find device by apiKey
-    const device = await prisma.device.findFirst({
-        where: { apiKey },
-        include: {
-            user: {
-                select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    systemRole: true
-                }
-            }
-        }
-    });
-
-
-    if (!device || device.status !== 'ACTIVE') {
+    
+    const { device } = result;
+    
+    if (device.status !== 'ACTIVE') {
         return json({
             success: false,
-            error: 'Device not found or not active',
-            message: 'Device not found or not active'
+            error: 'Device not active',
+            message: 'Device not active'
         }, { status: 404 });
     }
 

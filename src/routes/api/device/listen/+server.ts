@@ -29,11 +29,12 @@ import { ConnectionManager } from '$lib/server/messaging/core/connectionManager'
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
+import { restrict_device } from '$lib/server/security/guards';
 
 
 export const GET: RequestHandler = async ({ params, locals, request }) => {
-
-    const apiKey = request.headers.get('x-api-Key');
+    // Get the API key directly
+    const apiKey = request.headers.get('x-api-key') || request.headers.get('x-api-Key');
 
     if (!apiKey) {
         logger.warn('No API Key provided');
@@ -42,7 +43,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
 
     const prisma = locals.prisma;
 
-    //Find device by apiKey
+    // Find device by apiKey
     const device = await prisma.device.findFirst({
         where: { apiKey },
         include: {
@@ -64,7 +65,13 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
 
     logger.info(`Device ${device.id} (${device.name || 'unnamed'}) connected via API key, owned by: ${device.user.name}`);
 
-    const userInfo:UserInfo = await userInfoByUserId(device.user.id);
+    const userInfo = await userInfoByUserId(device.user.id);
+    
+    // Add debugging to check device object structure
+    logger.debug('Device object structure:', { 
+        deviceId: device.id,
+        deviceKeys: Object.keys(device)
+    });
     
     // Define connectionMeta outside the ReadableStream so it's accessible in both start and cancel functions
     const connectionMeta: ConnectionMeta = {
