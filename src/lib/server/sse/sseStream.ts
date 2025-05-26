@@ -4,6 +4,13 @@ import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
+import {
+    ResponseStatus,
+    ResponseCategory,
+    ResponseSeverity,
+    createSystemResponse,
+    createErrorResponse
+} from '$lib/shared/response_format';
 
 declare global {
     interface ReadableStream<R = any> {

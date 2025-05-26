@@ -2,6 +2,12 @@ import type { RequestEvent } from '@sveltejs/kit';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { createSSEStream } from './sseStream';
 import { logger } from '$lib/server/logger';
+import { 
+    ResponseStatus,
+    ResponseCategory,
+    createErrorResponse,
+    toResponse
+} from '$lib/shared/response_format';
 
 /**
  * Options for creating an SSE handler
@@ -130,16 +136,17 @@ export function createSSEHandler<T = unknown>(options: SSERouteOptions<T>) {
                 return error;
             }
             
-            return new Response(JSON.stringify({
-                success: false,
-                error: 'Internal server error',
-                message: 'An unexpected error occurred'
-            }), { 
-                status: 500,
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+            // Create a standardized error response
+            const errorResponse = createErrorResponse({
+                error: error instanceof Error ? error.name : 'UnknownError',
+                message: error instanceof Error ? error.message : 'An unexpected error occurred',
+                status: ResponseStatus.SERVER_ERROR,
+                category: ResponseCategory.DEVICE,
+                details: `Error establishing SSE connection: ${error}`,
+                meta: { deviceId: device?.id }
             });
+            
+            return toResponse(errorResponse);
         }
     };
 }
