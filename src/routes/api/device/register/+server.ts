@@ -13,15 +13,19 @@
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '../../$types';
-import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
 import { checkPinFormat } from '$lib/server/device/devicePinChecker';
 import type { DeviceMeta } from '$lib/server/device/deviceMeta';
 import { v4 as uuidv4 } from 'uuid';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
-import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import { DeviceManager } from '$lib/server/device/deviceManager';
-import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
+import { createSSEHandler } from '$lib/server/sse/sseHandler';
+import { 
+    ResponseStatus,
+    ResponseCategory,
+    createErrorResponse,
+    toResponse
+} from '$lib/shared/response_format';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -29,73 +33,98 @@ import { ConnectionManager } from '$lib/server/messaging/core/connectionManager'
 //RoutingMessage will be sent to scope: "user:userId" to inform of device e.g. all connection belonging to user will receive this message
 //Device will then connect to device/listen with the API Key
 
-export const GET: RequestHandler = async ({ params, locals, request }) => {
-
-    const pin = request.headers.get('X-Device-PIN');
-
-    if (!pin) {
-        logger.warn('No PIN provided');
-        return json({ error: 'No PIN provided' }, { status: 400 });
-    }
-
-    if (!checkPinFormat(pin)) {
-        logger.warn('Invalid PIN format');
-        return json({ error: 'Invalid PIN format' }, { status: 400 });
-    }
-
-    logger.debug(`PIN: ${pin}`);
-
-    //TODO: Verify Factory JWT Token
-
-    const stream = new ReadableStream({
-        start(controller) {
-            logger.debug('SSE connection established');
-
-            const deviceId = uuidv4();
-            // const deviceMeta: DeviceMeta = {
-            //     id: deviceId,
-            //     connectionId: sseManager.getConnectionId(),
-            // }
-            const connectionMeta: ConnectionMeta = {
-                userInfo: {
-                    id: 'admin-1',
-                    email: 'admin@admin.com',
-                    name: 'Admin User',
-                    systemRole: 'ADMIN',
-                    source: 'session'
-                },
-                nodeId: 'node-1',
-                protocol: 'sse',
-                connectedAt: Date.now(),
-            };
-
-            const connection = new SSEConnection(connectionMeta, controller);
-            ConnectionManager.registerConnection(connection);
-
-            logger.debug(`SSE connection established: ${connectionMeta.id}`);
-
-            const deviceMeta: DeviceMeta = {
-                id: deviceId,
-                connectionId: connectionMeta.id,
-            };
-
-            DeviceManager.registerDevice(pin, deviceMeta);
-
-        },
-
-        cancel() {
-            logger.debug('SSE connection closed');
+/**
+ * Device registration endpoint using SSE for real-time communication
+ * Handles PIN validation and device registration
+ */
+export const GET = createSSEHandler({
+    /**
+     * Authenticate the device registration request
+     */
+    authenticate: async (locals, request) => {
+        // Validate the PIN
+        const pin = request.headers.get('X-Device-PIN');
+        
+        if (!pin) {
+            logger.warn('No PIN provided');
+            throw toResponse(createErrorResponse({
+                error: 'ValidationError',
+                message: 'No PIN provided',
+                status: ResponseStatus.BAD_REQUEST,
+                category: ResponseCategory.DEVICE
+            }));
         }
-
-    });
-
-    // Return the SSE response
-    return new Response(stream, {
-        headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive'
+        
+        if (!checkPinFormat(pin)) {
+            logger.warn('Invalid PIN format');
+            throw toResponse(createErrorResponse({
+                error: 'ValidationError',
+                message: 'Invalid PIN format',
+                status: ResponseStatus.BAD_REQUEST,
+                category: ResponseCategory.DEVICE
+            }));
         }
-    });
-}
+        
+        logger.debug(`PIN: ${pin}`);
+        
+        //TODO: Verify Factory JWT Token
+        
+        // Generate a new device ID
+        const deviceId = uuidv4();
+        
+        // Create a temporary device object
+        const device = { id: deviceId };
+        
+        // Create connection metadata
+        const connectionMeta: Omit<ConnectionMeta, 'id' | 'connectedAt'> = {
+            userInfo: {
+                id: 'admin-1',
+                email: 'admin@admin.com',
+                name: 'Admin User',
+                systemRole: 'ADMIN',
+                source: 'session'
+            },
+            nodeId: 'node-1',
+            protocol: 'sse',
+            deviceId: deviceId
+        };
+        
+        // Return the required data
+        return { 
+            connectionMeta, 
+            device,
+            pin // Pass the PIN as additional data
+        };
+    },
+    
+    /**
+     * Handle connection established event
+     */
+    onConnect: async ({ connectionId, device, locals }) => {
+        logger.debug(`Device registration SSE connection established: ${connectionId}`);
+        
+        // Create device metadata with the connection ID
+        const deviceMeta: DeviceMeta = {
+            id: device.id,
+            connectionId: connectionId,
+        };
+        
+        // Register the device with the PIN
+        const pin = locals.pin as string;
+        DeviceManager.registerDevice(pin, deviceMeta);
+        
+        logger.info(`Device ${device.id} registered with PIN ${pin}`);
+    },
+    
+    /**
+     * Handle connection closed event
+     */
+    onDisconnect: async ({ connectionId, device, locals }) => {
+        logger.debug(`Device registration SSE connection closed: ${connectionId}`);
+        // Additional cleanup if needed
+    },
+    
+    // Don't update device status in database for registration connections
+    updateDeviceStatus: false
+});
 
