@@ -54,90 +54,93 @@ export const load = restrict(
 
 export const actions: Actions = {
     // Action for creating a new factory token
-    createToken: async ({ request, locals }) => {
-        // Validate the form data against the schema
-        const form = await superValidate(request, zod(factoryTokenSchema));
+    createToken: restrict(
+        async ({ request, locals }) => {
+            // Validate the form data against the schema
+            const form = await superValidate(request, zod(factoryTokenSchema));
 
-        // If validation fails, return the form with errors
-        if (!form.valid) {
-            return fail(400, { form });
-        }
-
-        try {
-            // Get authenticated user
-            const auth = await locals.auth.validate();
-            const userInfo = auth?.user;
-
-            if (!userInfo) {
-                // Throw a FormValidationError that will be caught and handled by handleFormError
-                throw new FormValidationError(
-                    'You must be logged in to create a factory token',
-                    'AUTH_REQUIRED',
-                    401
-                );
+            // If validation fails, return the form with errors
+            if (!form.valid) {
+                return fail(400, { form });
             }
 
-            const { name, hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id } = form.data;
+            try {
+                // Get authenticated user
+                const auth = await locals.auth.validate();
+                const userInfo = auth?.user;
 
-            // Verify that the signing key exists and is active
-            const signingKey = await locals.prisma.jwtSigningKey.findUnique({
-                where: {
-                    id: factory_signing_key_id,
-                    isActive: true,
-                    keyType: 'FACTORY'
+                if (!userInfo) {
+                    // Throw a FormValidationError that will be caught and handled by handleFormError
+                    throw new FormValidationError(
+                        'You must be logged in to create a factory token',
+                        'AUTH_REQUIRED',
+                        401
+                    );
                 }
-            });
 
-            if (!signingKey) {
-                logger.warn(`Invalid or inactive signing key: ${factory_signing_key_id}`);
-                
-                // Throw a FormValidationError that will be caught and handled by handleFormError
-                throw new FormValidationError(
-                    'Selected signing key is invalid or inactive',
-                    'INVALID_SIGNING_KEY',
-                    400
-                );
-            }
-            
-            // Create factory token
-            const factoryToken = await locals.prisma.factoryToken.create({
-                data: {
-                    name,
-                    hardwareModel,
-                    firmwareVersion,
-                    batchNumber,
-                    expiresAt,
-                    notes,
-                    issuedBy: userInfo.id,
-                    issuedAt: new Date(),
-                    factory_signing_key_id
-                }
-            });
+                const { name, hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id } = form.data;
 
-            logger.info(`Factory token created: ${factoryToken.id} by user ${userInfo.id}`);
-
-            // Return success response with the form and additional data
-            return message(
-                form,
-                createSuccessResponse('Factory token created successfully!', {
-                    details: `Factory token '${factoryToken.name}' has been created.`,
-                    data: {
-                        id: factoryToken.id,
-                        hardwareModel: factoryToken.hardwareModel,
-                        firmwareVersion: factoryToken.firmwareVersion,
-                        expiresAt: factoryToken.expiresAt
+                // Verify that the signing key exists and is active
+                const signingKey = await locals.prisma.jwtSigningKey.findUnique({
+                    where: {
+                        id: factory_signing_key_id,
+                        isActive: true,
+                        keyType: 'FACTORY'
                     }
-                })
-            );
-        } catch (err) {
-            // Use the handleFormError utility to simplify error handling
-            return handleFormError({
-                error: err,
-                form,
-                prisma: locals.prisma,
-                defaultMessage: 'Failed to create factory token. Please try again later.',
-                action: 'factory token creation'
-            });
-        }
-    }
+                });
+
+                if (!signingKey) {
+                    logger.warn(`Invalid or inactive signing key: ${factory_signing_key_id}`);
+                    
+                    // Throw a FormValidationError that will be caught and handled by handleFormError
+                    throw new FormValidationError(
+                        'Selected signing key is invalid or inactive',
+                        'INVALID_SIGNING_KEY',
+                        400
+                    );
+                }
+                
+                // Create factory token
+                const factoryToken = await locals.prisma.factoryToken.create({
+                    data: {
+                        name,
+                        hardwareModel,
+                        firmwareVersion,
+                        batchNumber,
+                        expiresAt,
+                        notes,
+                        issuedBy: userInfo.id,
+                        issuedAt: new Date(),
+                        factory_signing_key_id
+                    }
+                });
+
+                logger.info(`Factory token created: ${factoryToken.id} by user ${userInfo.id}`);
+
+                // Return success response with the form and additional data
+                return message(
+                    form,
+                    createSuccessResponse('Factory token created successfully!', {
+                        details: `Factory token '${factoryToken.name}' has been created.`,
+                        data: {
+                            id: factoryToken.id,
+                            hardwareModel: factoryToken.hardwareModel,
+                            firmwareVersion: factoryToken.firmwareVersion,
+                            expiresAt: factoryToken.expiresAt
+                        }
+                    })
+                );
+            } catch (err) {
+                // Use the handleFormError utility to simplify error handling
+                return handleFormError({
+                    error: err,
+                    form,
+                    prisma: locals.prisma,
+                    defaultMessage: 'Failed to create factory token. Please try again later.',
+                    action: 'factory token creation'
+                });
+            }
+        },
+        [SystemRole.ADMIN] // Only allow admin role to access this action
+    )
 };
