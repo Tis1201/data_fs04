@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { SystemRole } from '../users/schema';
+import { SystemRole } from '$lib/types/roles';
 
 export const load: PageServerLoad = async ({ locals }) => {
     const session = await locals.auth.validate();

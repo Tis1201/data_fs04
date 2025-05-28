@@ -1,19 +1,17 @@
-import { fail, error } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { factoryTokenSchema } from '$lib/schemas/factory-token';
 import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { validateAndGetUserId, validateAuth } from '$lib/server/security/auth-utils';
-import { z } from 'zod';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }:any) => {
         // Get available JWT signing keys for factory tokens
         const signingKeys = await locals.prisma.jwtSigningKey.findMany({
             where: {
@@ -55,7 +53,7 @@ export const load = restrict(
 export const actions: Actions = {
     // Action for creating a new factory token
     createToken: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }:any) => {
             // Validate the form data against the schema
             const form = await superValidate(request, zod(factoryTokenSchema));
 

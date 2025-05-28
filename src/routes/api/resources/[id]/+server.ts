@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { logger } from '$lib/server/logger';
-import { SystemRole } from '../../../../routes/admin/users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { restrict } from '$lib/server/security/guards';

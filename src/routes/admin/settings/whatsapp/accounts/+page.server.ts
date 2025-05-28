@@ -2,7 +2,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { json, fail } from '@sveltejs/kit';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import type { WhatsAppAccountClient } from '$lib/server/whatsapp/WhatsAppAccountClient';
 import { logger } from '$lib/server/logger';

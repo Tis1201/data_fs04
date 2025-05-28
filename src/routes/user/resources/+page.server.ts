@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../admin/users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
 export const load = restrict(

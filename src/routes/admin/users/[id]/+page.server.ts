@@ -5,7 +5,7 @@ import { SYSTEM_ROLES, userEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../schema';
+import { SystemRole } from '$lib/types/roles';
 
 /**
  * Load user data for editing

@@ -7,7 +7,7 @@ import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
 import { randomUUID } from 'crypto';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 
 
 

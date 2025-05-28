@@ -5,7 +5,7 @@ import { deviceEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { v4 as uuidv4 } from 'uuid';

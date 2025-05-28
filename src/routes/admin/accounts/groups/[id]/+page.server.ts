@@ -3,7 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from '../../groups/new/group';
 import { z } from 'zod';

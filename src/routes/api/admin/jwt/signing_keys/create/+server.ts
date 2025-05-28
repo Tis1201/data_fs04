@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../../../admin/users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createKey } from '../../../../../admin/jwt/signing_keys/service';
 
