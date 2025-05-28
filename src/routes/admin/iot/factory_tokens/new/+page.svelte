@@ -7,6 +7,7 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { Label } from "$lib/components/ui/label";
+  import { writable } from 'svelte/store';
   
   // Import the correct AdminPageLayout component with actionButtons support
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -18,6 +19,7 @@
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedDatePicker from "$lib/components/ui_components_sveltekit/form/EnhancedDatePicker.svelte";
   
+  // Import the reusable form handler
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   
@@ -33,25 +35,21 @@
     "Create Factory Token",
   ];
   
-  // Initialize the form with the reusable form handler
+  // Create a form handler with standardized error handling
   const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.factoryTokenForm, {
+    successRedirect: '/admin/iot/factory_tokens',
     validateOnInput: true,
-    onSuccess: (result) => {
-      if (result.data.success === true && result.data.factoryToken) {
-        createdToken = result.data.factoryToken;
-        toast.success("Factory token created successfully!");
-      }
+    onSuccess: () => {
+      // Toast is handled by the redirect
+      toast.success("Factory token created successfully!");
     },
-    onError: (error) => {
-      toast.error(error?.text || "Failed to create factory token");
-    }
+    // onError: (error) => {
+    //   toast.error(error?.text || "Failed to create factory token");
+    // }
   });
-  
-  let createdToken: any = null;
 </script>
 
-{#if !createdToken}
-  <AdminPageLayout
+<AdminPageLayout
     {title}
     crumbs={pageCrumbs}
     actionButtons={[
@@ -63,7 +61,7 @@
         class: "h-9" // Fixed height for consistency
       },
       {
-        label: $submitting ? 'Saving...' : 'Save',
+        label: 'Save',
         icon: Save,
         onClick: () => {
           const form = document.querySelector('form[action="?/createToken"]');
@@ -92,6 +90,23 @@
           compact={true}
         >
           <div class="space-y-6">
+            <FormRow columns={1}>
+              <FormField id="name" label="Token Name" error={$errors.name}>
+                <Input
+                  id="name"
+                  name="name"
+                  type="text"
+                  bind:value={$form.name}
+                  placeholder="Enter a descriptive name for this token (optional)"
+                  aria-invalid={$errors.name ? 'true' : undefined}
+                  disabled={$submitting}
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  A friendly name to help identify this token
+                </p>
+              </FormField>
+            </FormRow>
+            
             <FormRow columns={2}>
               <FormField id="hardwareModel" label="Hardware Model" error={$errors.hardwareModel} required={true}>
                 <Input
@@ -202,75 +217,3 @@
       </FormContainer>
     </div>
   </AdminPageLayout>
-{:else}
-  <!-- Success View -->
-  <AdminPageLayout
-    title="Factory Token Created"
-    crumbs={pageCrumbs}
-    actionButtons={[
-      {
-        label: "Back to Factory Tokens",
-        icon: ArrowLeft,
-        onClick: () => goto('/admin/iot/factory_tokens'),
-        variant: "outline",
-        class: "h-9"
-      }
-    ]}
-    showCreateButton={false}
-    compact={true}
-    contentSpacing="space-y-4"
-  >
-    <AdminCard
-      title="Token Created Successfully"
-      description="The factory token has been created and is ready for use"
-      icon={Key}
-      compact={true}
-    >
-      <div class="flex flex-col items-center justify-center space-y-6 py-4">
-        <div class="flex items-center justify-center w-20 h-20 rounded-full bg-green-100">
-          <Key class="h-10 w-10 text-green-600" />
-        </div>
-        
-        <div class="text-center space-y-2">
-          <h3 class="text-xl font-semibold">Factory Token Created!</h3>
-          <p class="text-muted-foreground">
-            The factory token has been successfully created and is ready for use.
-          </p>
-        </div>
-        
-        <div class="w-full max-w-md bg-muted/30 rounded-lg p-4 border border-muted">
-          <div class="space-y-3">
-            <div class="flex justify-between">
-              <span class="text-sm font-medium">Token ID:</span>
-              <span class="text-sm font-mono">{createdToken.tokenId}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-sm font-medium">Serial Number:</span>
-              <span class="text-sm">{createdToken.serialNumber}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-sm font-medium">Hardware Model:</span>
-              <span class="text-sm">{createdToken.hardwareModel}</span>
-            </div>
-          </div>
-        </div>
-        
-        <div class="flex flex-col sm:flex-row gap-4 w-full max-w-md pt-4">
-          <Button
-            variant="outline"
-            class="w-full"
-            on:click={() => createdToken = null}
-          >
-            Create Another Token
-          </Button>
-          <Button
-            class="w-full"
-            on:click={() => goto("/admin/iot/factory_tokens")}
-          >
-            View All Factory Tokens
-          </Button>
-        </div>
-      </div>
-    </AdminCard>
-  </AdminPageLayout>
-{/if}

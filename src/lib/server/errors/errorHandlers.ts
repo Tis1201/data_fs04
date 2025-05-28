@@ -3,6 +3,7 @@
  */
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, type ApiErrorResponse } from '$lib/types/api';
+import { FormValidationError } from './FormValidationError';
 import type { PrismaClient } from '@prisma/client';
 import { message, type SuperValidated } from 'sveltekit-superforms/server';
 
@@ -184,19 +185,38 @@ export async function handleFormError<T extends Record<string, any>>(
   // Clean the form data to remove file objects that can't be serialized
   const cleanForm = cleanFormData(form);
   
+  // Check if this is a FormValidationError and use its specific properties
+  let errorStatus = status;
+  let errorCode = undefined;
+  let errorMessage = defaultMessage;
+  
+  if (error instanceof FormValidationError) {
+    errorStatus = error.status;
+    errorCode = error.code;
+    errorMessage = error.message;
+    
+    // Log the validation error with more context
+    logger.warn(`Form validation error in ${action}: ${error.message} (code: ${error.code})`);
+  }
+  
   // Process the error to get a standardized error response
   const errorResponse = await handleZenstackError({
     error,
     accountId,
     prisma,
     requestId,
-    defaultMessage
+    defaultMessage: errorMessage
   });
+  
+  // Override the error code if we have a specific one from FormValidationError
+  if (errorCode) {
+    errorResponse.code = errorCode;
+  }
   
   // Return the message with the cleaned form and error response
   return message(
     cleanForm,
     errorResponse,
-    { status }
+    { status: errorStatus }
   );
 }

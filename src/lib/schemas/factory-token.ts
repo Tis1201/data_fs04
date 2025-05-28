@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const factoryTokenSchema = z.object({
+    name: z.string().optional(),
     hardwareModel: z.string().min(1, { message: 'Hardware model is required' }),
     firmwareVersion: z.string().min(1, { message: 'Firmware version is required' }),
     batchNumber: z.string().optional(),

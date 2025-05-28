@@ -8,6 +8,9 @@ import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId, validateAuth } from '$lib/server/security/auth-utils';
 import { z } from 'zod';
+import { handleFormError } from '$lib/server/errors/errorHandlers';
+import { createSuccessResponse } from '$lib/types/api';
+import { FormValidationError } from '$lib/server/errors/FormValidationError';
 
 export const load = restrict(
     async ({ locals }) => {
@@ -31,6 +34,7 @@ export const load = restrict(
         // Initialize the factory token form with the schema and defaults
         const factoryTokenForm = await superValidate(zod(factoryTokenSchema), {
             defaults: {
+                name: '',
                 hardwareModel: '',
                 firmwareVersion: '',
                 batchNumber: '',
@@ -65,21 +69,15 @@ export const actions: Actions = {
             const userInfo = auth?.user;
 
             if (!userInfo) {
-                // Return a properly formatted error message for the form handler
-                return fail(401, {
-                    form,
-                    success: false,
-                    message: {
-                        type: 'error',
-                        text: 'Authentication Required',
-                        details: 'You must be logged in to create a factory token',
-                        code: 'AUTH_REQUIRED',
-                        timestamp: new Date().toISOString()
-                    }
-                });
+                // Throw a FormValidationError that will be caught and handled by handleFormError
+                throw new FormValidationError(
+                    'You must be logged in to create a factory token',
+                    'AUTH_REQUIRED',
+                    401
+                );
             }
 
-            const { hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id } = form.data;
+            const { name, hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id } = form.data;
 
             // Verify that the signing key exists and is active
             const signingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -93,23 +91,18 @@ export const actions: Actions = {
             if (!signingKey) {
                 logger.warn(`Invalid or inactive signing key: ${factory_signing_key_id}`);
                 
-                // Return a properly formatted error message for the form handler
-                return fail(400, {
-                    form,
-                    success: false,
-                    message: {
-                        type: 'error',
-                        text: 'Validation Failed',
-                        details: 'Selected signing key is invalid or inactive',
-                        code: 'INVALID_SIGNING_KEY',
-                        timestamp: new Date().toISOString()
-                    }
-                });
+                // Throw a FormValidationError that will be caught and handled by handleFormError
+                throw new FormValidationError(
+                    'Selected signing key is invalid or inactive',
+                    'INVALID_SIGNING_KEY',
+                    400
+                );
             }
             
             // Create factory token
             const factoryToken = await locals.prisma.factoryToken.create({
                 data: {
+                    name,
                     hardwareModel,
                     firmwareVersion,
                     batchNumber,
@@ -124,35 +117,26 @@ export const actions: Actions = {
             logger.info(`Factory token created: ${factoryToken.id} by user ${userInfo.id}`);
 
             // Return success response with the form and additional data
-            return {
+            return message(
                 form,
-                success: true,
-                message: {
-                    type: 'success',
-                    text: 'Factory token created successfully!',
-                    timestamp: new Date().toISOString()
-                },
-                factoryToken: {
-                    id: factoryToken.id,
-                    hardwareModel: factoryToken.hardwareModel,
-                    firmwareVersion: factoryToken.firmwareVersion,
-                    expiresAt: factoryToken.expiresAt
-                }
-            };
-        } catch (error) {
-            logger.error(`Error creating factory token: ${JSON.stringify(error)}`);
-            
-            // Return a properly formatted error message for the form handler
-            return fail(500, {
+                createSuccessResponse('Factory token created successfully!', {
+                    details: `Factory token '${factoryToken.name}' has been created.`,
+                    data: {
+                        id: factoryToken.id,
+                        hardwareModel: factoryToken.hardwareModel,
+                        firmwareVersion: factoryToken.firmwareVersion,
+                        expiresAt: factoryToken.expiresAt
+                    }
+                })
+            );
+        } catch (err) {
+            // Use the handleFormError utility to simplify error handling
+            return handleFormError({
+                error: err,
                 form,
-                success: false,
-                message: {
-                    type: 'error',
-                    text: 'System Error',
-                    details: 'Failed to create factory token. Please try again later.',
-                    code: 'SYSTEM_ERROR',
-                    timestamp: new Date().toISOString()
-                }
+                prisma: locals.prisma,
+                defaultMessage: 'Failed to create factory token. Please try again later.',
+                action: 'factory token creation'
             });
         }
     }

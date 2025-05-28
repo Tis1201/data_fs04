@@ -21,6 +21,8 @@
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
     import { Badge } from "$lib/components/ui/badge";
+    import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
+    
 
     // Props for DataTable component
     export let props = {
@@ -113,20 +115,20 @@
                 props: {
                     record: {
                         id: record.id,
-                        name: record.tokenId || 'Unnamed Token'
+                        name: record.name || 'Unnamed Token'
                     },
                     baseUrl: '/admin/iot/factory_tokens',
                     showId: true
                 }
             })
         },
-        {
-            id: "serialNumber",
-            label: "Serial Number",
-            sortable: true,
-            width: "15%",
-            render: (record: FactoryToken) => record.serialNumber || "N/A"
-        },
+        // {
+        //     id: "serialNumber",
+        //     label: "Serial Number",
+        //     sortable: true,
+        //     width: "15%",
+        //     render: (record: FactoryToken) => record.serialNumber || "N/A"
+        // },
         {
             id: "hardwareModel",
             label: "Hardware Model",
@@ -134,17 +136,15 @@
             width: "10%",
             render: (record: FactoryToken) => record.hardwareModel || "N/A"
         },
+       
         {
-            id: "isUsed",
+            id: "status",
             label: "Status",
-            sortable: true,
-            width: "10%",
+            width: "15%",
             render: (record: FactoryToken) => ({
-                component: Badge,
+                component: StatusBadge,
                 props: {
-                    variant: record.isUsed ? "destructive" : "success",
-                    class: "capitalize",
-                    children: record.isUsed ? "Used" : "Available"
+                    status:record.isUsed ? "active" : "inactive"
                 }
             })
         },

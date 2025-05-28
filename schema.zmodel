@@ -604,7 +604,7 @@ model JwtSigningKey {
 // Factory-issued JWT tokens for device onboarding
 model FactoryToken {
   id            String   @id @default(cuid())
-  
+  name          String?
   // Device Information
   hardwareModel String
   firmwareVersion String

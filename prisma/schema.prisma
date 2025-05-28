@@ -405,6 +405,7 @@ model JwtSigningKey {
 
 model FactoryToken {
   id                     String        @id() @default(cuid())
+  name                   String?
   hardwareModel          String
   firmwareVersion        String
   batchNumber            String?
