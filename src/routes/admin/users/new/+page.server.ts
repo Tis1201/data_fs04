@@ -3,7 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createUserSchema } from './schema';
 import { hash } from '@node-rs/argon2';

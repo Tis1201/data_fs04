@@ -1,7 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';

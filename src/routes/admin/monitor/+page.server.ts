@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { SystemRole } from '../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import os from 'os';
 import { fail } from '@sveltejs/kit';
 import { exec } from 'child_process';

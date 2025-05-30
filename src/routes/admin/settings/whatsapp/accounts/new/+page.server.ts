@@ -6,7 +6,7 @@ import { createWhatsAppAccountSchema } from '$lib/schemas/whatsapp-account';
 import { zod } from 'sveltekit-superforms/adapters';
 import { v4 as uuidv4 } from 'uuid';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId } from '$lib/server/security/auth-utils';

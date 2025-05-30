@@ -382,20 +382,21 @@ model Resource {
 }
 
 model JwtSigningKey {
-  id          String    @id() @default(cuid())
-  keyId       String
-  keyType     String
-  privateKey  String
-  publicKey   String
-  algorithm   String    @default("RS256")
-  isActive    Boolean   @default(true)
-  isPrimary   Boolean   @default(false)
-  rotatedAt   DateTime?
-  expiresAt   DateTime?
-  createdBy   User      @relation(fields: [createdById], references: [id])
-  createdById String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt()
+  id            String         @id() @default(cuid())
+  keyId         String
+  keyType       String
+  privateKey    String
+  publicKey     String
+  algorithm     String         @default("RS256")
+  isActive      Boolean        @default(true)
+  isPrimary     Boolean        @default(false)
+  rotatedAt     DateTime?
+  expiresAt     DateTime?
+  createdBy     User           @relation(fields: [createdById], references: [id])
+  createdById   String
+  factoryTokens FactoryToken[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt()
 
   @@unique([keyType, keyId], map: "unique_key_id_per_type")
   @@index([keyType, isActive])
@@ -403,23 +404,23 @@ model JwtSigningKey {
 }
 
 model FactoryToken {
-  id              String    @id() @default(cuid())
-  tokenId         String    @unique()
-  serialNumber    String    @unique()
-  hardwareModel   String
-  firmwareVersion String
-  batchNumber     String?
-  isUsed          Boolean   @default(false)
-  usedAt          DateTime?
-  usedByIp        String?
-  issuedAt        DateTime  @default(now())
-  expiresAt       DateTime
-  issuedBy        String
-  notes           String?
-  device          Device?   @relation(fields: [deviceId], references: [id])
-  deviceId        String?
+  id                     String        @id() @default(cuid())
+  name                   String?
+  hardwareModel          String
+  firmwareVersion        String
+  batchNumber            String?
+  isUsed                 Boolean       @default(false)
+  usedAt                 DateTime?
+  usedByIp               String?
+  issuedAt               DateTime      @default(now())
+  expiresAt              DateTime
+  issuedBy               String
+  notes                  String?
+  factory_signing_key_id String
+  factory_signing_key    JwtSigningKey @relation(fields: [factory_signing_key_id], references: [id])
+  device                 Device?       @relation(fields: [deviceId], references: [id])
+  deviceId               String?
 
-  @@index([serialNumber])
   @@index([isUsed])
   @@index([expiresAt])
 }

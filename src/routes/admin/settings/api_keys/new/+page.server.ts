@@ -5,7 +5,7 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { createApiKeySchema } from './schema';
 
 export const load = restrict(

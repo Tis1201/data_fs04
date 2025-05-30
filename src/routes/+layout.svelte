@@ -4,9 +4,9 @@
 </script>
 
 <Toaster 
-    position="top-center"
+    position="bottom-right"
     toastOptions={{
-        duration: 10000, // 10 seconds
+        duration: 5000, // 5 seconds - more appropriate for notifications
         class: 'font-sans',
         style: 'font-size: 0.875rem; line-height: 1.25rem;',
     }}

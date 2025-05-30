@@ -4,7 +4,7 @@ import { error, fail } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
-import { SystemRole } from '../../schema';
+import { SystemRole } from '$lib/types/roles';
 
 // Define table options for Sessions
 const table_options = {

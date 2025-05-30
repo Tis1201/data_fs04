@@ -5,7 +5,7 @@ import { listenerEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 
 export const load = restrict(
     async ({ params, locals }) => {

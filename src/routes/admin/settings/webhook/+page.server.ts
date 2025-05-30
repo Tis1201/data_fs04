@@ -9,7 +9,7 @@ import type { Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
-import { SystemRole } from '../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 
 // Define table options for Webhook Endpoints
 const table_options = {

@@ -4,7 +4,7 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { handleZenstackError, handleFormError } from '$lib/server/errors/errorHandlers';
