@@ -15,13 +15,21 @@
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
     import { toast } from "svelte-sonner";
-    import { api_post } from "$lib/utils/ApiUtils";
+    import { api_post, api_delete, api_patch } from "$lib/utils/ApiUtils";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
     import { Badge } from "$lib/components/ui/badge";
     import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
+    
+    import { invalidate } from '$app/navigation';
+    
+    // Simple function to refresh data from the server
+    async function refreshData() {
+        // This will trigger a reload of the page data without a full page refresh
+        await invalidate('app:factoryTokens');
+    }
     
 
     // Props for DataTable component
@@ -222,36 +230,34 @@
             selectedRecord: state.selectedRecord,
             confirmationOpen: state.confirmationOpen,
             title: 'Delete Factory Token',
-            message: state.selectedRecord ? `Are you sure you want to delete factory token ${state.selectedRecord.tokenId || state.selectedRecord.id}?` : '',
+            message: state.selectedRecord ? `Are you sure you want to delete factory token ${state.selectedRecord.name || state.selectedRecord.id}?` : '',
             confirmButtonText: 'Delete',
             cancelButtonText: 'Cancel'
+        }}
+        useFormSubmission={false}
+        onConfirm={async () => {
+            if (!state.selectedRecord) return;
+            
+            try {
+                // Use the generic API delete function
+                const result = await api_delete(
+                    '/admin/iot/factory_tokens',
+                    state.selectedRecord.id
+                );
+                
+                // If we got here, the operation was successful
+                toast.success('Factory token deleted successfully');
+                
+                // Refresh data from the server
+                await refreshData();
+            } catch (error) {
+                console.error('Error deleting factory token:', error);
+                toast.error(error instanceof Error ? error.message : 'Failed to delete factory token');
+            }
         }}
         on:close={() => {
             state.confirmationOpen = false;
             state.selectedRecord = null;
-        }}
-        on:confirm={async () => {
-            if (!state.selectedRecord) return;
-            
-            const formData = new FormData();
-            formData.append('id', state.selectedRecord.id);
-            
-            try {
-                const response = await api_post('?/delete', formData);
-                
-                if (response.success) {
-                    toast.success('Factory token deleted successfully');
-                    // Refresh the page to update the data
-                    window.location.reload();
-                } else {
-                    toast.error(response.error || 'Failed to delete factory token');
-                }
-            } catch (error) {
-                toast.error('An error occurred while deleting the factory token');
-            } finally {
-                state.confirmationOpen = false;
-                state.selectedRecord = null;
-            }
         }}
     />
 
@@ -276,22 +282,21 @@
             
             isTogglingStatus = true;
             
-            const formData = new FormData();
-            formData.append('id', tokenToToggle.id);
-            formData.append('isUsed', (!tokenToToggle.isUsed).toString());
-            
             try {
-                const response = await api_post('?/toggleStatus', formData);
+                // Use the generic API patch function
+                const result = await api_patch(
+                    '/admin/iot/factory_tokens',
+                    { id: tokenToToggle.id, isUsed: !tokenToToggle.isUsed }
+                );
                 
-                if (response.success) {
-                    toast.success(`Factory token ${tokenToToggle.isUsed ? 'marked as available' : 'marked as used'} successfully`);
-                    // Refresh the page to update the data
-                    window.location.reload();
-                } else {
-                    toast.error(response.error || 'Failed to update factory token status');
-                }
+                // If we got here, the operation was successful
+                toast.success(`Factory token ${tokenToToggle.isUsed ? 'marked as available' : 'marked as used'} successfully`);
+                
+                // Refresh data from the server
+                await refreshData();
             } catch (error) {
-                toast.error('An error occurred while updating the factory token status');
+                console.error('Error updating factory token status:', error);
+                toast.error(error instanceof Error ? error.message : 'Failed to update factory token status');
             } finally {
                 isTogglingStatus = false;
                 statusToggleDialogOpen = false;

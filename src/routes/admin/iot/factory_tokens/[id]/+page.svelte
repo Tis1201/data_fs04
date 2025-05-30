@@ -2,12 +2,15 @@
     import { goto } from '$app/navigation';
     import { ArrowLeft, Save, Trash2, Key, Calendar } from 'lucide-svelte';
     import { toast } from 'svelte-sonner';
+    import { api_delete } from '$lib/utils/ApiUtils';
+    import { writable } from 'svelte/store';
     
     // Import layout components
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     
     // Import form components
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
@@ -55,10 +58,26 @@
         factoryToken.name || factoryToken.hardwareModel
     ];
     
-    // Handle delete
+    // Delete dialog state
+    const state = writable({
+        confirmationOpen: false,
+        selectedRecord: null
+    });
+    
+    // Handle delete using api_delete utility
     function deleteFactoryToken() {
-        if (confirm('Are you sure you want to delete this factory token? This action cannot be undone.')) {
-            document.getElementById('deleteForm').submit();
+        $state.selectedRecord = factoryToken;
+        $state.confirmationOpen = true;
+    }
+    
+    // Handle delete confirmation
+    async function handleDeleteConfirm() {
+        try {
+            await api_delete('/admin/iot/factory_tokens', factoryToken.id);
+            toast.success('Factory token deleted successfully');
+            goto('/admin/iot/factory_tokens');
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Failed to delete factory token');
         }
     }
     
@@ -291,20 +310,21 @@
     </div>
 </AdminPageLayout>
 
-<!-- Hidden form for factory token deletion -->
-<form 
-    id="deleteForm" 
-    method="POST" 
-    action="?/deleteToken" 
-    use:enhance={() => {
-        return ({ result }) => {
-            if (result.type === 'success') {
-                toast.success('Factory token deleted successfully');
-                goto('/admin/iot/factory_tokens');
-            } else if (result.type === 'failure') {
-                toast.error(result.data?.error || 'Failed to delete factory token');
-            }
-        };
+<!-- Delete confirmation dialog -->
+<RecordDeleteDialog
+    state={{
+        selectedRecord: $state.selectedRecord,
+        confirmationOpen: $state.confirmationOpen,
+        title: 'Delete Factory Token',
+        message: $state.selectedRecord ? `Are you sure you want to delete factory token ${$state.selectedRecord.name || $state.selectedRecord.hardwareModel}?` : '',
+        confirmButtonText: 'Delete',
+        cancelButtonText: 'Cancel'
     }}
-    class="hidden"
-></form>
+    useFormSubmission={false}
+    onConfirm={handleDeleteConfirm}
+    on:close={() => {
+        $state.confirmationOpen = false;
+        $state.selectedRecord = null;
+    }}
+/>
+

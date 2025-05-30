@@ -96,39 +96,7 @@ export const actions: Actions = {
         [SystemRole.ADMIN]
     ),
     
-    deleteToken: restrict(
-        async ({ params, locals }) => {
-            const { id } = params;
-            
-            try {
-                // Check if the factory token exists
-                const factoryToken = await locals.prisma.factoryToken.findUnique({
-                    where: { id }
-                });
-                
-                if (!factoryToken) {
-                    return fail(404, { error: 'Factory token not found' });
-                }
-                
-                // Delete the factory token
-                await locals.prisma.factoryToken.delete({
-                    where: { id }
-                });
-                
-                logger.info(`Factory token deleted: ${factoryToken.id} (${factoryToken.name})`);
-                
-                return createSuccessResponse('Factory token deleted successfully', {
-                    details: `Factory token '${factoryToken.name}' has been deleted.`
-                });
-            } catch (err) {
-                logger.error(`Error deleting factory token: ${err}`);
-                return fail(500, { 
-                    error: 'Failed to delete factory token: ' + (err instanceof Error ? err.message : 'Unknown error')
-                });
-            }
-        },
-        [SystemRole.ADMIN]
-    )
+
 };
 
 export const load = restrict(
