@@ -287,6 +287,7 @@ import { CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_
                             </span>
                         </div>
                     {/if}
+
                 </AdminCard>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -365,6 +366,16 @@ import { CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_
                         </div>
                     </div>
                 </div>
+                <svelte:fragment slot="footer">
+                    <MetadataFooter
+                        items={[
+                            { label: "Created", date: device.createdAt, icon: 'calendar' },
+                            { label: "Created By", value: device.user?.name || 'Unknown', icon: 'user' },
+                            { label: "Account", value: device.account?.name || 'None', icon: 'tag' },
+                            { label: "Last Updated", date: device.updatedAt, icon: 'clock' }
+                        ]}
+                    />
+                </svelte:fragment>
             </AdminCard>
 
             <!-- Combined Connection & Security Card -->
