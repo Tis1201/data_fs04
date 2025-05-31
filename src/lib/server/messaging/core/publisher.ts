@@ -10,9 +10,10 @@ export const publisher: Publisher = {
   
   async publish(message: RoutingMessage): Promise<void> {
 
-    const { type, scope, payload, userInfo, connectionId } = message;
+    const { type, scope, payload, userInfo, connectionId, sudo } = message;
 
-    
+    // Debug log for sudo property
+    logger.debug(`[Publisher] Message sudo property: ${sudo}, type: ${typeof sudo}`);
     
     // // Resolve recipients
     const connectionIds = await router.resolve(userInfo, scope);
@@ -22,7 +23,7 @@ export const publisher: Publisher = {
       return;
     }
 
-    const isAllowed = await ScopeAuthorizer.isAllowed(scope, userInfo, type, connectionIds);
+    const isAllowed = await ScopeAuthorizer.isAllowed(scope, userInfo, type, connectionIds, sudo);
     
     logger.debug(`[Publisher] ${isAllowed ? 'Allowed' : 'Not allowed'}: (${scope})`);
 

@@ -82,16 +82,21 @@ export class DefaultDeviceManager {
         // Log the connection information for debugging
         logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
 
-        // Create the message with the new helper method
+        // Create the message with the new helper method and set sudo to true
         const routingMessage = MessageFactory.createDeviceMessage(
             'registered',
             deviceMeta.id,
             deviceMeta.connectionId || '',
             userInfo,
             senderConnectionId,
-            senderConnectionProtocol
+            senderConnectionProtocol,
+            undefined, // No additional payload
+            true // Set sudo to true to bypass authorization
         );
 
+        // Debug log to check if sudo property is set correctly
+        logger.debug(`[DeviceManager] Routing message sudo property: ${routingMessage.sudo}, type: ${typeof routingMessage.sudo}`);
+        
         // Publish the routing message
         await publisher.publish(routingMessage);
         logger.info(`Device registration message sent to device ${deviceMeta.id}`);
@@ -202,17 +207,13 @@ export class DefaultDeviceManager {
             await pinSharedStore.removeMember(pin, deviceMeta);
 
             // Create success message
-            const successMessage = {
-                id: uuidv4(),
-                scope: `connection:${senderConnectionId}`,
-                senderId: 'system',
-                timestamp: new Date().toISOString(),
-                userInfo: senderInfo
-            };
-
-            const successResponse = MessageFactory.toRoutingMessage({
-                ...successMessage,
+            // Create a minimal InMessage with required properties
+            const successMessage: InMessage = {
                 type: 'device',
+                scope: `connection:${senderConnectionId}`,
+                protocol: 'websocket',
+                connectionId: senderConnectionId,
+                userInfo: senderInfo,
                 payload: {
                     action: 'claimed',
                     success: true,
@@ -223,7 +224,19 @@ export class DefaultDeviceManager {
                     requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
                     timestamp: new Date().toISOString()
                 }
-            } as any);
+            };
+
+            // Create the routing message with sudo explicitly set to true
+            const successResponse = MessageFactory.toRoutingMessage(successMessage, { 
+                sudo: true,
+                systemGenerated: true,
+                senderId: 'system',
+                senderConnectionId: senderConnectionId,
+                senderConnectionProtocol: 'websocket'
+            });
+            
+            // Debug log to check if sudo property is set correctly
+            logger.debug(`[DeviceManager] Success response sudo property: ${successResponse.sudo}, type: ${typeof successResponse.sudo}`);
 
             logger.debug(`Published success response for device claim: ${device.id} for user ${senderId}`);
 
