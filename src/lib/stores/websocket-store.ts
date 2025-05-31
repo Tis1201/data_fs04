@@ -247,6 +247,16 @@ const createSocketStore = () => {
     on,
     get status() {
       return getStatus();
+    },
+    /**
+     * Reset the connection - should be called when user logs out or logs in
+     * This ensures the WebSocket connection uses the current user's credentials
+     */
+    resetConnection: () => {
+      console.log('Resetting WebSocket connection');
+      disconnect();
+      // Small delay to ensure clean disconnect before reconnecting
+      setTimeout(() => connect(), 100);
     }
   };
 };
