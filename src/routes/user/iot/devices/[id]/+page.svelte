@@ -97,6 +97,25 @@
         goto(`/user/iot/devices/${device.id}/edit`);
     }
     
+    // Ping device
+    async function pingDevice() {
+        isLoading.set(true);
+        actionStatus.set({ action: "monitor", status: "loading", message: "Pinging device..." });
+        
+        try {
+            // Simulate ping operation
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            actionStatus.set({ action: "monitor", status: "success", message: "Device responded" });
+            toast.success("Device ping successful");
+        } catch (error) {
+            actionStatus.set({ action: "monitor", status: "error", message: "Failed to ping device" });
+            toast.error("Failed to ping device");
+        } finally {
+            isLoading.set(false);
+        }
+    }
+    
     // Take screenshot
     async function retrieveSnapshot() {
         isLoading.set(true);
@@ -208,13 +227,12 @@
             <!-- Monitor Button -->
             <Button 
                 variant="outline" 
-                size="sm" 
-                class="flex flex-col items-center justify-center h-20 p-2"
-                on:click={viewMonitor}
+                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
+                on:click={pingDevice}
                 disabled={$isLoading && $actionStatus.action === "monitor"}
             >
                 {#if $isLoading && $actionStatus.action === "monitor"}
-                    <span class="loading loading-spinner loading-xs"></span>
+                    <Loader2 class="h-5 w-5 animate-spin" />
                 {:else}
                     <Radar class="h-5 w-5" />
                 {/if}
@@ -226,8 +244,7 @@
             <!-- Screenshot Button -->
             <Button 
                 variant="outline" 
-                size="sm" 
-                class="flex flex-col items-center justify-center h-20 p-2"
+                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                 on:click={retrieveSnapshot}
                 disabled={$isLoading && $actionStatus.action === "snapshot"}
             >
@@ -242,8 +259,7 @@
             <!-- Restart App Button -->
             <Button 
                 variant="outline" 
-                size="sm" 
-                class="flex flex-col items-center justify-center h-20 p-2"
+                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                 on:click={restartApp}
                 disabled={$isLoading && $actionStatus.action === "restart"}
             >
@@ -258,13 +274,12 @@
             <!-- Logs Button -->
             <Button 
                 variant="outline" 
-                size="sm" 
-                class="flex flex-col items-center justify-center h-20 p-2"
+                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                 on:click={viewLogs}
                 disabled={$isLoading && $actionStatus.action === "logs"}
             >
                 {#if $isLoading && $actionStatus.action === "logs"}
-                    <span class="loading loading-spinner loading-xs"></span>
+                    <Loader2 class="h-5 w-5 animate-spin" />
                 {:else}
                     <FileText class="h-5 w-5" />
                 {/if}
