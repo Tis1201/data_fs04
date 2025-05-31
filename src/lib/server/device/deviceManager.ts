@@ -146,15 +146,13 @@ export class DefaultDeviceManager {
 
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
-
-
         // logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
 
         const senderInfo = await userInfoByUserId(senderId);
-
-
+        
+        logger.debug(`User info retrieved: ${JSON.stringify(senderInfo)}`);
+        
         try {
-
             if (!deviceMeta) {
                 throw new Error(`No device found with PIN ${pin}`);
             }
@@ -168,6 +166,18 @@ export class DefaultDeviceManager {
             const apiKeyValue = generateId(32);
             const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
             const deviceType = data.deviceType || 'unknown';
+            
+            // Check if user has a current account to include in the device record
+            let accountConnection = null;
+            if (senderInfo?.currentAccount?.account?.id) {
+                logger.debug(`Adding account ${senderInfo.currentAccount.account.id} to device record`);
+                accountConnection = {
+                    connect: { id: senderInfo.currentAccount.account.id }
+                };
+            } else {
+                logger.debug(`No current account found for user ${senderId}`);
+            }
+            
             // Create device record with system info
             const deviceRecord = {
                 id: id,
@@ -193,10 +203,12 @@ export class DefaultDeviceManager {
                 // pin: pin,
                 user: {
                     connect: { id: senderId }
-                }
+                },
+                ...(accountConnection ? { account: accountConnection } : {})
             };
-
+            
             // Save device record in database with user relationship
+            logger.debug(`Upserting device with record: ${JSON.stringify(deviceRecord)}`);
             const device = await prisma.device.upsert({
                 where: { id },
                 update: deviceRecord,
