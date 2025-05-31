@@ -5,6 +5,7 @@ import prisma from '$lib/server/prisma';
 
 
 import type { UserInfo } from '$lib/server/types/user'; // adjust import as needed
+import { logger } from '../logger';
 
 export interface ExtractedUserInfoResult {
   userInfo: UserInfo;
@@ -112,12 +113,16 @@ export async function extractUserInfoFromRequest(
 
   const apiKey = extractApiKey(request);
 
+  logger.debug(`Extracted API key: ${apiKey}`);
+
   if (apiKey) {
     const userInfo: UserInfo | null = await userInfoByApiKey(apiKey);
     return userInfo || { error: 'Invalid API key' };
   }
 
   const auth = await event?.locals.auth.validate();
+
+  logger.debug(`Extracted auth: ${JSON.stringify(auth)}`);
 
   if (auth?.user) {
     // Map Lucia's user object to your canonical UserInfo type

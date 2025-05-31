@@ -43,9 +43,10 @@ export const actions: Actions = {
 
         const pin = form.data.pin;
 
-        // Get the authenticated user
+        // Get the authenticated user and current account
         const auth = await locals.auth.validate();
         const userInfo = auth?.user;
+        const currentAccount = auth?.currentAccount?.account;
 
         if (!userInfo) {
             // Return a properly formatted error message for the form handler
@@ -61,6 +62,23 @@ export const actions: Actions = {
                 }
             });
         }
+        
+        if (!currentAccount) {
+            logger.warn(`User ${userInfo.id} has no current account selected when claiming device`);
+            return fail(400, {
+                form,
+                success: false,
+                message: {
+                    type: 'error',
+                    text: 'Account Required',
+                    details: 'You must select an account before claiming a device',
+                    code: 'ACCOUNT_REQUIRED',
+                    timestamp: new Date().toISOString()
+                }
+            });
+        }
+        
+        logger.info(`Using current account: ${currentAccount.name} (${currentAccount.id}) for device claim`);
 
         logger.info(`User ${userInfo.id} attempting to claim device with PIN: ${pin}`);
 
@@ -82,8 +100,15 @@ export const actions: Actions = {
             });
         }
 
-        // Attempt to claim the device
-        const device = await deviceManager.claimDevice(pin, userInfo);
+        // Attempt to claim the device with account association
+        const device = await deviceManager.claimDevice(
+            pin, 
+            userInfo, 
+            locals.connectionId || 'unknown', 
+            locals.connectionProtocol || 'http', 
+            currentAccount.id, // Pass the account ID for association
+            locals.prisma // Pass the Prisma instance from locals for database operations
+        );
 
         if (!device) {
             const errorMessage = 'The PIN you entered doesn\'t match any available device. Please verify the 6-digit PIN and try again.';
