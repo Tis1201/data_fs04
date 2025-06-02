@@ -154,13 +154,101 @@
         actionStatus.set({ action: "snapshot", status: "loading", message: "Taking screenshot..." });
         
         try {
-            // Simulate screenshot capture
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Call the screenshot handler on the device
+            const responsePayload = await socketStore.sendRequest(
+                {
+                    type: 'device',
+                    scope: `subscription:device:${device.id}`,
+                    payload: {
+                        action: 'message',
+                        type: 'screenshot:request',
+                        deviceId: device.id,
+                        quality: 80 // JPEG quality (1-100)
+                        // no requestId or timestamp here – sendRequest() will append them
+                    }
+                },
+                /* timeoutMs = */ 10000, // Screenshots might take longer than pings
+                /* requestIdPrefix = */ 'screenshot'
+            );
+
+            console.log("Screenshot response:", responsePayload);
             
-            actionStatus.set({ action: "snapshot", status: "success", message: "Screenshot captured" });
-            toast.success("Device screenshot captured successfully");
+            // Check if we have an image in the response
+            if (responsePayload?.image) {
+                // Create a modal or display the image
+                const imageData = responsePayload.image;
+                const format = responsePayload.format || 'jpeg';
+                
+                // Create an image element to display the screenshot
+                const img = document.createElement('img');
+                img.src = `data:image/${format};base64,${imageData}`;
+                img.style.maxWidth = '100%';
+                img.style.height = 'auto';
+                img.style.borderRadius = '8px';
+                img.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+                
+                // Create a modal to display the image
+                const modal = document.createElement('div');
+                modal.style.position = 'fixed';
+                modal.style.top = '0';
+                modal.style.left = '0';
+                modal.style.width = '100%';
+                modal.style.height = '100%';
+                modal.style.backgroundColor = 'rgba(0, 0, 0, 0.75)';
+                modal.style.display = 'flex';
+                modal.style.justifyContent = 'center';
+                modal.style.alignItems = 'center';
+                modal.style.zIndex = '9999';
+                modal.style.padding = '20px';
+                
+                // Create a container for the image
+                const container = document.createElement('div');
+                container.style.position = 'relative';
+                container.style.maxWidth = '90%';
+                container.style.maxHeight = '90%';
+                container.style.overflow = 'auto';
+                container.style.backgroundColor = 'white';
+                container.style.borderRadius = '8px';
+                container.style.padding = '20px';
+                
+                // Create a close button
+                const closeButton = document.createElement('button');
+                closeButton.textContent = '×';
+                closeButton.style.position = 'absolute';
+                closeButton.style.top = '10px';
+                closeButton.style.right = '10px';
+                closeButton.style.fontSize = '24px';
+                closeButton.style.fontWeight = 'bold';
+                closeButton.style.border = 'none';
+                closeButton.style.background = 'none';
+                closeButton.style.cursor = 'pointer';
+                closeButton.style.color = '#333';
+                closeButton.onclick = () => document.body.removeChild(modal);
+                
+                // Add elements to the DOM
+                container.appendChild(img);
+                container.appendChild(closeButton);
+                modal.appendChild(container);
+                document.body.appendChild(modal);
+                
+                // Close modal when clicking outside the image
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        document.body.removeChild(modal);
+                    }
+                });
+                
+                actionStatus.set({ action: "snapshot", status: "success", message: "Screenshot captured" });
+                toast.success("Device screenshot captured successfully");
+            } else {
+                throw new Error("No image data received from device");
+            }
         } catch (error) {
-            actionStatus.set({ action: "snapshot", status: "error", message: "Failed to capture screenshot" });
+            actionStatus.set({ 
+                action: "snapshot", 
+                status: "error", 
+                message: error instanceof Error ? error.message : "Failed to capture screenshot" 
+            });
             toast.error("Failed to capture device screenshot");
             console.error("Error capturing screenshot:", error);
         } finally {
