@@ -125,6 +125,112 @@ Contributions welcome! Please fork, branch, and submit pull requests. Adhere to 
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+## WebSocket Communication
+
+The application uses a robust WebSocket-based communication pattern for real-time interactions with devices. The `sendRequest` method in `websocket-store.ts` provides a convenient way to send messages and wait for responses.
+
+### `sendRequest` Pattern
+
+The `sendRequest` method provides a request-response pattern over WebSockets with the following features:
+- Automatic request ID generation and tracking
+- Timeout handling
+- Type-safe responses
+- Error handling
+- Request deduplication
+
+### Basic Usage
+
+```typescript
+const response = await socketStore.sendRequest(
+  {
+    type: 'message-type',
+    scope: 'subscription:scope',
+    payload: {
+      // Request data
+    }
+  },
+  5000, // Timeout in milliseconds
+  'request-prefix' // Optional prefix for request IDs
+);
+```
+
+### Example: Pinging a Device
+
+```typescript
+async function pingDevice() {
+  try {
+    const response = await socketStore.sendRequest(
+      {
+        type: 'device',
+        scope: `subscription:device:${deviceId}`,
+        payload: {
+          action: 'message',
+          type: 'ping',
+          deviceId: deviceId
+        }
+      },
+      5000, // 5 second timeout
+      'ping' // Request ID prefix
+    );
+    
+    console.log('Ping successful:', response);
+    return true;
+  } catch (error) {
+    console.error('Ping failed:', error);
+    return false;
+  }
+}
+```
+
+### Example: Taking a Screenshot
+
+```typescript
+async function takeScreenshot(deviceId: string) {
+  try {
+    const response = await socketStore.sendRequest(
+      {
+        type: 'device',
+        scope: `subscription:device:${deviceId}`,
+        payload: {
+          action: 'message',
+          type: 'screenshot:request',
+          deviceId: deviceId,
+          quality: 80
+        }
+      },
+      10000, // 10 second timeout for screenshot
+      'screenshot' // Request ID prefix
+    );
+
+    if (response?.image) {
+      // Handle the base64-encoded image
+      const imageUrl = `data:image/jpeg;base64,${response.image}`;
+      return imageUrl;
+    }
+    throw new Error('No image data received');
+  } catch (error) {
+    console.error('Screenshot failed:', error);
+    throw error;
+  }
+}
+```
+
+### Error Handling
+
+The `sendRequest` method will reject with an error in these cases:
+- WebSocket is not connected
+- Request times out (after the specified timeout)
+- Server returns an error response
+- Invalid response format
+
+### Best Practices
+
+1. Always use a descriptive request ID prefix for debugging
+2. Set appropriate timeouts based on the expected operation duration
+3. Handle both success and error cases
+4. Use TypeScript types for request/response payloads
+5. Clean up any pending requests when components unmount
+
 ### Core Architecture
 
 ### Messaging Core Components
