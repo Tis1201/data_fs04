@@ -42,8 +42,17 @@ export const load = restrict(
                     createdBy: true,
                     user: {
                         select: {
+                            id: true,
                             name: true,
                             email: true
+                        }
+                    },
+                    accountId: true,
+                    account: {
+                        select: {
+                            id: true,
+                            name: true,
+                            slug: true
                         }
                     }
                 }

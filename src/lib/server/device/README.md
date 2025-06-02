@@ -42,6 +42,24 @@ This section summarizes the latest, stable, production-ready flow for device onb
 - Device ID and PIN are validated for correctness and uniqueness.
 - Upon successful claim, an API key is generated and securely sent to the device.
 - The claim and registration process uses structured logging for all major events and errors.
+- **Privileged Device Messages**:
+  - Certain system-generated messages use the `sudo` flag to bypass normal authorization checks
+  - Used in `claimDevice` when sending registration confirmation to the device
+  - Ensures critical system messages are delivered even if the device hasn't completed the full authentication flow
+  - Example usage:
+    ```typescript
+    // In deviceManager.ts
+    const routingMessage = MessageFactory.createDeviceMessage(
+      'registered',
+      deviceMeta.id,
+      deviceMeta.connectionId || '',
+      userInfo,
+      senderConnectionId,
+      senderConnectionProtocol,
+      undefined, // No additional payload
+      true // Set sudo to bypass authorization
+    );
+    ```
 
 ### Error Handling & Messaging
 - Error handling is robust: all errors are logged with context and stack traces in development.

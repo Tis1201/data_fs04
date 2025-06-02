@@ -5,6 +5,7 @@ import prisma from '$lib/server/prisma';
 
 
 import type { UserInfo } from '$lib/server/types/user'; // adjust import as needed
+import { logger } from '../logger';
 
 export interface ExtractedUserInfoResult {
   userInfo: UserInfo;
@@ -49,21 +50,50 @@ export async function userInfoByUserId(userId: string): Promise<UserInfo | null>
         id: true,
         email: true,
         name: true,
-        systemRole: true
+        systemRole: true,
+        primaryAccountId: true
       }
     });
 
     if (!user) return null;
+    
+    // Load account memberships
+    const memberships = await prisma.accountMembership.findMany({
+      where: { userId: user.id },
+      include: {
+        account: {
+          select: { id: true, name: true, slug: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    // Determine current account
+    let currentAccount = null;
+    
+    // Try primary account first
+    if (user.primaryAccountId) {
+      currentAccount = memberships.find(m => m.account.id === user.primaryAccountId);
+    }
+    
+    // Finally fallback to first membership
+    if (!currentAccount && memberships.length > 0) {
+      currentAccount = memberships[0];
+    }
+    
+    logger.debug(`User ${userId} has ${memberships.length} account memberships and current account: ${currentAccount?.account?.id || 'none'}`);
 
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       systemRole: user.systemRole,
-      source: 'session'
+      source: 'session',
+      memberships,
+      currentAccount
     };
   } catch (err) {
-    // Optionally log error
+    logger.error(`Error getting user info for user ${userId}: ${JSON.stringify(err)}`);
     return null;
   }
 }
@@ -112,21 +142,77 @@ export async function extractUserInfoFromRequest(
 
   const apiKey = extractApiKey(request);
 
+  logger.debug(`Extracted API key: ${apiKey}`);
+
   if (apiKey) {
     const userInfo: UserInfo | null = await userInfoByApiKey(apiKey);
     return userInfo || { error: 'Invalid API key' };
   }
 
-  const auth = await event?.locals.auth.validate();
+  if (!event) {
+    return { error: 'Event is required for session-based authentication' };
+  }
+
+  const auth = await event.locals.auth.validate();
+
+  logger.debug(`Extracted auth: ${JSON.stringify(auth)}`);
 
   if (auth?.user) {
+    // Get current account ID from cookie
+    const currentAccountId = event.cookies.get('current_account_id');
+
+    // Load account memberships
+    const memberships = await event.locals.prisma.accountMembership.findMany({
+      where: { userId: auth.user.id },
+      include: {
+        account: {
+          select: { id: true, name: true, slug: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    // Determine current account
+    let currentAccount = null;
+    
+    // First try from cookie
+    if (currentAccountId) {
+      currentAccount = memberships.find(m => m.account.id === currentAccountId);
+    }
+    
+    // Then try primary account
+    if (!currentAccount && auth.user.primaryAccountId) {
+      currentAccount = memberships.find(m => m.account.id === auth.user.primaryAccountId);
+    }
+    
+    // Finally fallback to first membership
+    if (!currentAccount && memberships.length > 0) {
+      currentAccount = memberships[0];
+      
+      try {
+        // Set cookie for the default account
+        event.cookies.set('current_account_id', currentAccount.account.id, {
+          path: '/',
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 60 * 60 * 24 * 30 // 30 days
+        });
+      } catch (e) {
+        // If we can't set the cookie (headers already sent), just continue with the current account
+        console.warn('Could not set account cookie - headers may have already been sent');
+      }
+    }
+
     // Map Lucia's user object to your canonical UserInfo type
     const userInfo: UserInfo = {
       id: auth.user.id,
       email: auth.user.email,
       name: auth.user.name ?? null, // If name is not present, default to null
       systemRole: auth.user.systemRole,
-      source: 'session'
+      source: 'session',
+      memberships,
+      currentAccount
     };
     return userInfo;
   }

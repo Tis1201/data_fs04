@@ -89,11 +89,13 @@ export const GET = createSSEHandler({
             deviceId: deviceId
         };
         
+        // Store the PIN in locals so it can be accessed in onConnect
+        locals.pin = pin;
+        
         // Return the required data
         return { 
             connectionMeta, 
-            device,
-            pin // Pass the PIN as additional data
+            device
         };
     },
     

@@ -28,6 +28,7 @@ export interface RoutingMessage extends InMessage {
   senderId?: string;
   senderConnectionId?: string;
   senderConnectionProtocol?: ConnectionProtocol;
+  sudo?: boolean;
 }
   
 /**
@@ -39,6 +40,7 @@ export interface OutMessage extends BaseMessage {
   senderId?: string;
   senderConnectionId?: string;
   senderConnectionProtocol?: ConnectionProtocol;
+  sudo?: boolean;
 }
 
 /**
@@ -59,6 +61,7 @@ export const MessageFactory = {
       ...inMessage,
       id: uuidv4(),
       systemGenerated: false,
+      sudo: false,
       ...overrides
     };
   },
@@ -75,6 +78,7 @@ export const MessageFactory = {
       senderId: routingMessage.senderId || routingMessage.userInfo?.id,
       senderConnectionId: routingMessage.senderConnectionId || routingMessage.connectionId,
       senderConnectionProtocol: routingMessage.senderConnectionProtocol || routingMessage.protocol,
+      sudo: routingMessage.sudo || false,
       ...overrides
     };
   },
@@ -91,6 +95,7 @@ export const MessageFactory = {
       senderConnectionId?: string;
       senderConnectionProtocol?: ConnectionProtocol;
       echoToSender?: boolean;
+      sudo?: boolean;
     }
   ): RoutingMessage {
     return {
@@ -105,7 +110,8 @@ export const MessageFactory = {
       echoToSender: options?.echoToSender ?? false,
       senderId: userInfo.id,
       senderConnectionId: options?.senderConnectionId || '',
-      senderConnectionProtocol: options?.senderConnectionProtocol || 'websocket'
+      senderConnectionProtocol: options?.senderConnectionProtocol || 'websocket',
+      sudo: options?.sudo ?? false
     };
   },
   
@@ -117,7 +123,8 @@ export const MessageFactory = {
     userInfo: UserInfo,
     senderConnectionId: string,
     senderConnectionProtocol: ConnectionProtocol,
-    additionalPayload?: Record<string, unknown>
+    additionalPayload?: Record<string, unknown>,
+    sudo?: boolean
   ): RoutingMessage {
     return this.createSystemMessage(
       'device',
@@ -135,7 +142,8 @@ export const MessageFactory = {
         targetProtocol: 'sse',
         senderConnectionId,
         senderConnectionProtocol,
-        echoToSender: false
+        echoToSender: false,
+        sudo: sudo
       }
     );
   }

@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
-import { SystemRole } from '../../users/schema';
+import { SystemRole } from '$lib/types/roles';
 
 // Define table options for Factory Tokens
 const table_options = {

@@ -1,6 +1,7 @@
 <script lang="ts">
     import "../app.postcss";
     import { Toaster } from "svelte-sonner";
+    import AuthStateHandler from "$lib/components/auth/AuthStateHandler.svelte";
 </script>
 
 <Toaster 
@@ -15,4 +16,5 @@
     closeButton
     richColors
 />
+<AuthStateHandler />
 <slot />

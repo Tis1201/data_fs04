@@ -11,8 +11,9 @@ import type { Authorizer } from '../interfaces/authorizer';
  * - Non-admin users can only publish to their own connections
  */
 export const connectionAuthorizer: Authorizer = {
-  isAllowed(userInfo: UserInfo | undefined, scope: string, type: string, connectionIds: string[]): boolean {
+  isAllowed(userInfo: UserInfo | undefined, scope: string, type: string, connectionIds: string[], sudo?: boolean): boolean {
     logger.debug(`[ConnectionAuthorizer] ENTER isAllowed with scope=${scope}, type=${type}, connectionIds=${JSON.stringify(connectionIds)}`);
+    logger.debug(`[ConnectionAuthorizer] Sudo property: ${sudo}, type: ${typeof sudo}`);
     
     if (!userInfo) {
       logger.debug(`[ConnectionAuthorizer] No userInfo provided, denying access`);
@@ -25,6 +26,19 @@ export const connectionAuthorizer: Authorizer = {
     // Admins can publish to any connection
     if (userInfo.systemRole === 'ADMIN') {
       logger.debug(`[ConnectionAuthorizer] Admin ${userInfo.id} authorized to publish to connection ${scope}`);
+      return true;
+    }
+
+    // Check if sudo is set, if yes, allow
+    // The sudo property is passed from the message to bypass normal authorization checks
+    if (sudo === true) {
+      logger.debug(`[ConnectionAuthorizer] Sudo mode enabled for message, allowing access to ${scope}`);
+      return true;
+    }
+    
+    // Also check for string 'true' for compatibility
+    if (sudo === 'true') {
+      logger.debug(`[ConnectionAuthorizer] Sudo mode enabled (string value) for message, allowing access to ${scope}`);
       return true;
     }
 

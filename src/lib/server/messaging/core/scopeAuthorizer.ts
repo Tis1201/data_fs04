@@ -8,7 +8,8 @@ import { connectionAuthorizer } from '../authorizers/connectionAuthorizer';
 // import { RoomAuthorizer } from './authorizer/roomAuthorizer';
 
 export const ScopeAuthorizer = {
-  async isAllowed(scope: string, userInfo: UserInfo, type: string, connectionIds: string[]): Promise<boolean> {
+  async isAllowed(scope: string, userInfo: UserInfo, type: string, connectionIds: string[], sudo?: boolean): Promise<boolean> {
+    logger.debug(`[ScopeAuthorizer] Sudo property: ${sudo}, type: ${typeof sudo}`);
     const scopes = scope.split(',').map(s => s.trim());
 
     for (const scope of scopes) {
@@ -19,15 +20,15 @@ export const ScopeAuthorizer = {
 
       switch (kind) {
         case 'user':
-          if (!userAuthorizer.isAllowed(userInfo, scope, type, connectionIds)) return false;
+          if (!userAuthorizer.isAllowed(userInfo, scope, type, connectionIds, sudo)) return false;
           break;
 
         case 'subscription':
-          if (!subscriptionAuthorizer.isAllowed(userInfo, scope, type,connectionIds)) return false;
+          if (!subscriptionAuthorizer.isAllowed(userInfo, scope, type, connectionIds, sudo)) return false;
           break;
 
         case 'connection':
-          if (!connectionAuthorizer.isAllowed(userInfo, scope, type,connectionIds)) return false;
+          if (!connectionAuthorizer.isAllowed(userInfo, scope, type, connectionIds, sudo)) return false;
           break;
 
 

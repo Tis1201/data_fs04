@@ -2,6 +2,17 @@ import { toast } from "svelte-sonner";
 import type { FactoryToken } from '@prisma/client';
 
 /**
+ * Generates a unique request ID for API calls or messaging
+ * @param prefix Optional prefix for the ID (default: 'req')
+ * @returns A unique string ID in the format: prefix-timestamp-randomstring
+ */
+export function generateRequestId(prefix: string = 'req'): string {
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 9);
+    return `${prefix}-${timestamp}-${randomStr}`;
+}
+
+/**
  * Generic API response type
  */
 export type ApiResponse<T = any> = {

@@ -82,16 +82,21 @@ export class DefaultDeviceManager {
         // Log the connection information for debugging
         logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
 
-        // Create the message with the new helper method
+        // Create the message with the new helper method and set sudo to true
         const routingMessage = MessageFactory.createDeviceMessage(
             'registered',
             deviceMeta.id,
             deviceMeta.connectionId || '',
             userInfo,
             senderConnectionId,
-            senderConnectionProtocol
+            senderConnectionProtocol,
+            undefined, // No additional payload
+            true // Set sudo to true to bypass authorization
         );
 
+        // Debug log to check if sudo property is set correctly
+        logger.debug(`[DeviceManager] Routing message sudo property: ${routingMessage.sudo}, type: ${typeof routingMessage.sudo}`);
+        
         // Publish the routing message
         await publisher.publish(routingMessage);
         logger.info(`Device registration message sent to device ${deviceMeta.id}`);
@@ -141,15 +146,13 @@ export class DefaultDeviceManager {
 
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
-
-
         // logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
 
         const senderInfo = await userInfoByUserId(senderId);
-
-
+        
+        logger.debug(`User info retrieved: ${JSON.stringify(senderInfo)}`);
+        
         try {
-
             if (!deviceMeta) {
                 throw new Error(`No device found with PIN ${pin}`);
             }
@@ -163,6 +166,18 @@ export class DefaultDeviceManager {
             const apiKeyValue = generateId(32);
             const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
             const deviceType = data.deviceType || 'unknown';
+            
+            // Check if user has a current account to include in the device record
+            let accountConnection = null;
+            if (senderInfo?.currentAccount?.account?.id) {
+                logger.debug(`Adding account ${senderInfo.currentAccount.account.id} to device record`);
+                accountConnection = {
+                    connect: { id: senderInfo.currentAccount.account.id }
+                };
+            } else {
+                logger.debug(`No current account found for user ${senderId}`);
+            }
+            
             // Create device record with system info
             const deviceRecord = {
                 id: id,
@@ -188,10 +203,12 @@ export class DefaultDeviceManager {
                 // pin: pin,
                 user: {
                     connect: { id: senderId }
-                }
+                },
+                ...(accountConnection ? { account: accountConnection } : {})
             };
-
+            
             // Save device record in database with user relationship
+            logger.debug(`Upserting device with record: ${JSON.stringify(deviceRecord)}`);
             const device = await prisma.device.upsert({
                 where: { id },
                 update: deviceRecord,
@@ -202,17 +219,13 @@ export class DefaultDeviceManager {
             await pinSharedStore.removeMember(pin, deviceMeta);
 
             // Create success message
-            const successMessage = {
-                id: uuidv4(),
-                scope: `connection:${senderConnectionId}`,
-                senderId: 'system',
-                timestamp: new Date().toISOString(),
-                userInfo: senderInfo
-            };
-
-            const successResponse = MessageFactory.toRoutingMessage({
-                ...successMessage,
+            // Create a minimal InMessage with required properties
+            const successMessage: InMessage = {
                 type: 'device',
+                scope: `connection:${senderConnectionId}`,
+                protocol: 'websocket',
+                connectionId: senderConnectionId,
+                userInfo: senderInfo,
                 payload: {
                     action: 'claimed',
                     success: true,
@@ -223,7 +236,19 @@ export class DefaultDeviceManager {
                     requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
                     timestamp: new Date().toISOString()
                 }
-            } as any);
+            };
+
+            // Create the routing message with sudo explicitly set to true
+            const successResponse = MessageFactory.toRoutingMessage(successMessage, { 
+                sudo: true,
+                systemGenerated: true,
+                senderId: 'system',
+                senderConnectionId: senderConnectionId,
+                senderConnectionProtocol: 'websocket'
+            });
+            
+            // Debug log to check if sudo property is set correctly
+            logger.debug(`[DeviceManager] Success response sudo property: ${successResponse.sudo}, type: ${typeof successResponse.sudo}`);
 
             logger.debug(`Published success response for device claim: ${device.id} for user ${senderId}`);
 
