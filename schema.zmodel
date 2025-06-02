@@ -525,7 +525,11 @@ model InvitationToken {
 model Resource {
   id          String   @id @default(cuid())
   name        String
-  type        String   // "file", "image", "video", "document"
+  type        String   // "file", "image", "video", "document", "binary"
+  target      String   @default("user") // "device", "account", "user"
+  version     String? @default("1.0.0") // Release version number for binary
+  format      String? // File format for binary, "apk", "bin", "exe", "sh"
+  packageName String? // Package name for binary
   path        String   // File path or URL
   size        Int      // File size in bytes
   createdAt   DateTime @default(now())
@@ -536,6 +540,8 @@ model Resource {
   
   // Relationships
   account     Account @relation(fields: [accountId], references: [id])
+
+  bundleApps   BundleApp[]
   
   // Permission rules
   // Admin has full access to all resources
@@ -747,3 +753,116 @@ model UserSessionLog {
   @@allow('create', true)
 }
 
+/*************************************************
+*
+*
+* Bundles
+*
+*************************************************/
+
+model Bundle {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  os          String       // e.g., "ANDROID"
+  reboot      Boolean      @default(false)
+  status      String       // "DRAFT", "PUBLISHED", "CANCELLED" "COMPLETED", "FAILED"
+  version     String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  cancelAt    DateTime?
+  createdBy   String
+  updatedBy   String
+  accountId   String
+  waveSize    Int          @default(500)
+  scheduledAt DateTime?
+  scheduledAtTimezone String?
+  scheduledAtStartIfMissed Boolean @default(false) 
+
+  // Relationships
+  apps        BundleApp[]
+  waves       BundleWave[]
+
+  // Permission rules
+  // Admin has full access to all bundles
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@index([name])
+  @@index([version])
+  @@index([createdBy])
+  @@index([status])
+}
+
+model BundleApp {
+  id          String   @id @default(cuid())
+  bundleId    String
+  resourceId  String
+  order       Int      // Installation order
+  autoOpen    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+
+  // Relationships
+  bundle      Bundle   @relation(fields: [bundleId], references: [id])
+  resource    Resource @relation(fields: [resourceId], references: [id])
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@index([bundleId])
+  @@index([resourceId])
+}
+
+model BundleWave {
+  id          String            @id @default(cuid())
+  bundleId    String
+  name        String
+  status      String            // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"
+  maxDevices  Int               @default(500)
+  startTime   DateTime?
+  endTime     DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   String
+  updatedBy   String
+
+  // Relationships
+  bundle      Bundle            @relation(fields: [bundleId], references: [id])
+  tasks       WaveInstallTask[]
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@index([bundleId])
+  @@index([status])
+}
+
+model WaveInstallTask {
+  id            String     @id @default(cuid())
+  waveId        String
+  deviceId      String
+  transactionId String?    // For correlating commands/responses
+  status        String     // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK"
+  result        String?      // Detailed installation result
+  errorDetails  String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  retryCount    Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  createdBy     String
+  updatedBy     String
+
+  // Relationships
+  wave          BundleWave @relation(fields: [waveId], references: [id])
+  
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@unique([waveId, deviceId])  // Ensure one task per device per wave
+  @@index([status])
+  @@index([deviceId])
+  @@index([waveId])
+}

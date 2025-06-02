@@ -364,17 +364,21 @@ model InvitationToken {
 }
 
 model Resource {
-  id        String   @id() @default(cuid())
-  name      String
-  type      String
-  path      String
-  size      Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt()
-  createdBy String
-  updatedBy String
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id])
+  id         String      @id() @default(cuid())
+  name       String
+  type       String
+  target     String      @default("user")
+  version    String?     @default("1.0.0")
+  format     String?
+  path       String
+  size       Int
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt()
+  createdBy  String
+  updatedBy  String
+  accountId  String
+  account    Account     @relation(fields: [accountId], references: [id])
+  bundleApps BundleApp[]
 
   @@index([name])
   @@index([type])
@@ -499,4 +503,90 @@ model UserSessionLog {
   @@index([timestamp])
   @@index([sessionId])
   @@index([accountId])
+}
+
+model Bundle {
+  id                       String       @id() @default(cuid())
+  name                     String
+  description              String?
+  os                       String
+  reboot                   Boolean      @default(false)
+  status                   String
+  version                  String
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt()
+  cancelAt                 DateTime?
+  createdBy                String
+  updatedBy                String
+  accountId                String
+  waveSize                 Int          @default(500)
+  scheduledAt              DateTime?
+  scheduledAtTimezone      String?
+  scheduledAtStartIfMissed Boolean      @default(false)
+  apps                     BundleApp[]
+  waves                    BundleWave[]
+
+  @@index([name])
+  @@index([version])
+  @@index([createdBy])
+  @@index([status])
+}
+
+model BundleApp {
+  id         String   @id() @default(cuid())
+  bundleId   String
+  resourceId String
+  order      Int
+  autoOpen   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt()
+  createdBy  String
+  updatedBy  String
+  bundle     Bundle   @relation(fields: [bundleId], references: [id])
+  resource   Resource @relation(fields: [resourceId], references: [id])
+
+  @@index([bundleId])
+  @@index([resourceId])
+}
+
+model BundleWave {
+  id         String            @id() @default(cuid())
+  bundleId   String
+  name       String
+  status     String
+  maxDevices Int               @default(500)
+  startTime  DateTime?
+  endTime    DateTime?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt()
+  createdBy  String
+  updatedBy  String
+  bundle     Bundle            @relation(fields: [bundleId], references: [id])
+  tasks      WaveInstallTask[]
+
+  @@index([bundleId])
+  @@index([status])
+}
+
+model WaveInstallTask {
+  id            String     @id() @default(cuid())
+  waveId        String
+  deviceId      String
+  transactionId String?
+  status        String
+  result        String?
+  errorDetails  String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  retryCount    Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt()
+  createdBy     String
+  updatedBy     String
+  wave          BundleWave @relation(fields: [waveId], references: [id])
+
+  @@unique([waveId, deviceId])
+  @@index([status])
+  @@index([deviceId])
+  @@index([waveId])
 }
