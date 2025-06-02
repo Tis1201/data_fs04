@@ -104,81 +104,44 @@
     async function pingDevice() {
         isLoading.set(true);
         actionStatus.set({ action: "monitor", status: "loading", message: "Pinging device..." });
-        
+
         try {
-            // Generate a unique request ID for this ping
-            const requestId = generateRequestId('ping');
-            const timestamp = Date.now();
-            
-            // Send WebSocket message to ping the device
-            const message = {
-              type: 'device',
-              payload: {
-                action: 'message',
-                type: 'ping',
-                deviceId: device.id,
-                timestamp: timestamp,
-                requestId: requestId
-              },
-              scope: `subscription:device:${device.id}`
-            };
-            
-            // Create a promise that will resolve when we get a pong response
-            const pongPromise = new Promise((resolve, reject) => {
-              // Set a timeout to reject if we don't get a response
-              const timeoutId = setTimeout(() => {
-                // Remove the event listener to avoid memory leaks
-                socketStore.unsubscribe(handlePongMessage);
-                reject(new Error('Ping timed out - no response from device'));
-              }, 10000); // 10 second timeout
-              
-              // Function to handle incoming messages
-              const handlePongMessage = (event) => {
-                try {
-                  const data = JSON.parse(event.data);
-                  // Check if this is a pong message that matches our request
-                  if (data.payload && 
-                      data.payload.type === 'pong' && 
-                      (data.payload.responseId === requestId || data.payload.replyTo === timestamp)) {
-                    
-                    // Calculate round-trip time
-                    const rtt = Date.now() - timestamp;
-                    
-                    // Clean up
-                    clearTimeout(timeoutId);
-                    socketStore.unsubscribe(handlePongMessage);
-                    
-                    // Log the response for debugging
-                    console.debug('Received pong response:', data.payload);
-                    
-                    // Resolve with the pong data and RTT
-                    resolve({ pong: data.payload, rtt });
-                  }
-                } catch (err) {
-                  console.error('Error handling WebSocket message:', err);
-                }
-              };
-              
-              // Subscribe to WebSocket messages
-              socketStore.subscribe(handlePongMessage);
+            // Instead of manually generating requestId & timestamp,
+            // call socketStore.sendRequest({ type, scope, payload }, timeoutMs).
+            const responsePayload = await socketStore.sendRequest(
+                {
+                    type: 'device',
+                    scope: `subscription:device:${device.id}`,
+                    payload: {
+                        action: 'message',
+                        type: 'ping',
+                        deviceId: device.id
+                        // no requestId or timestamp here – sendRequest() will append them
+                    }
+                },
+                /* timeoutMs = */ 5000,
+                /* requestIdPrefix = */ 'ping'
+            );
+
+            console.log("responsePayload", responsePayload)
+
+            // If we get here, the device replied before timeout
+            actionStatus.set({
+                action: "monitor",
+                status: "success",
+                message: "Ping succeeded!"
             });
-            
-            // Send the ping message
-            socketStore.send(message);
-            
-            // Wait for the pong response
-            const { pong, rtt } = await pongPromise;
-            
-            // Update UI with success
-            actionStatus.set({ 
-              action: "monitor", 
-              status: "success", 
-              message: `Device responded in ${rtt}ms` 
-            });
-            toast.success(`Ping successful! Round-trip time: ${rtt}ms`);
+            toast.success("Device replied to ping.");
         } catch (error) {
-            actionStatus.set({ action: "monitor", status: "error", message: "Failed to ping device" });
-            toast.error("Failed to ping device");
+            // If sendRequest() rejected (timeout or other error), we land here
+            actionStatus.set({
+                action: "monitor",
+                status: "error",
+                message: error instanceof Error
+                    ? error.message
+                    : "Ping failed"
+            });
+            toast.error("Failed to ping device.");
             console.error("Error pinging device:", error);
         } finally {
             isLoading.set(false);
