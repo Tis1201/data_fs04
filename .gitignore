@@ -9,6 +9,17 @@ pnpm-lock.yaml
 
 workings/
 
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite-journal
+*.sqlite3-journal
+prisma/dev.db
+prisma/dev.db-*
+
+
 static/uploads
 
 whatsapp-media
