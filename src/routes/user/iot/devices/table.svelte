@@ -79,7 +79,7 @@
                         name: record.name || 'Unnamed Device'
                     },
                     baseUrl: '/user/iot/devices',
-                    showId: false
+                    showId: true
                 }
             })
         },

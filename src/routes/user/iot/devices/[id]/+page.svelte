@@ -2,6 +2,7 @@
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
     import { writable } from "svelte/store";
+    import { socketStore } from "$lib/stores/websocket-store";
     import { Button } from "$lib/components/ui/button";
     import { Badge } from "$lib/components/ui/badge";
     import { Skeleton } from "$lib/components/ui/skeleton";
@@ -103,14 +104,30 @@
         actionStatus.set({ action: "monitor", status: "loading", message: "Pinging device..." });
         
         try {
-            // Simulate ping operation
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Send WebSocket message to ping the device
+            const message = {
+              type: 'device',
+              payload: {
+                action: 'message',
+                type: 'ping',
+                deviceId: device.id,
+                timestamp: Date.now()
+              },
+              scope: `subscription:device:${device.id}`
+            };
             
-            actionStatus.set({ action: "monitor", status: "success", message: "Device responded" });
-            toast.success("Device ping successful");
+            socketStore.send(message);
+            
+            // Wait for a short time to simulate waiting for response
+            // In a real implementation, you would listen for a response message
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            actionStatus.set({ action: "monitor", status: "success", message: "Ping sent to device" });
+            toast.success("Ping sent to device successfully");
         } catch (error) {
             actionStatus.set({ action: "monitor", status: "error", message: "Failed to ping device" });
             toast.error("Failed to ping device");
+            console.error("Error pinging device:", error);
         } finally {
             isLoading.set(false);
         }
