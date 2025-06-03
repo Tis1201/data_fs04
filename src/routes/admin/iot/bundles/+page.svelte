@@ -1,5 +1,5 @@
 <script lang="ts">
-    import ResourceTable from "./table.svelte";
+    import BundleTable from "./table.svelte";
     import { Plus } from "lucide-svelte";
     import type { PageData } from "./$types";
     import { goto } from "$app/navigation";
@@ -8,7 +8,7 @@
 
     export let data: PageData;
 
-    $: ({ resources: records, meta } = data);
+    $: ({ bundles: records, meta } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
     
@@ -21,22 +21,22 @@
     const pageCrumbs = [
         ["Admin", "/admin"],
         "IOT",
-        "Resources"
+        "Bundles"
     ];
 </script>
 
 <AdminPageLayout
-    title="Resources"
+    title="Bundles"
     crumbs={pageCrumbs}
     actionButtons={[
         {
-            label: "Add Resource",
+            label: "Add Bundle",
             icon: Plus,
-            onClick: () => goto('/admin/iot/resources/new')
+            onClick: () => goto('/admin/iot/bundles/new')
         }
     ]}
 >
-    <ResourceTable
+    <BundleTable
         props={{
             records,
             pagination,

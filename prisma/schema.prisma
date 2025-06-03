@@ -364,21 +364,22 @@ model InvitationToken {
 }
 
 model Resource {
-  id         String      @id() @default(cuid())
-  name       String
-  type       String
-  target     String      @default("user")
-  version    String?     @default("1.0.0")
-  format     String?
-  path       String
-  size       Int
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt()
-  createdBy  String
-  updatedBy  String
-  accountId  String
-  account    Account     @relation(fields: [accountId], references: [id])
-  bundleApps BundleApp[]
+  id          String      @id() @default(cuid())
+  name        String
+  type        String
+  target      String      @default("user")
+  version     String?     @default("1.0.0")
+  format      String?
+  packageName String?
+  path        String
+  size        Int
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt()
+  createdBy   String
+  updatedBy   String
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id])
+  bundleApps  BundleApp[]
 
   @@index([name])
   @@index([type])
@@ -518,11 +519,12 @@ model Bundle {
   cancelAt                 DateTime?
   createdBy                String
   updatedBy                String
-  accountId                String
+  accountId                String?
   waveSize                 Int          @default(500)
   scheduledAt              DateTime?
   scheduledAtTimezone      String?
   scheduledAtStartIfMissed Boolean      @default(false)
+  updateStrategy           String?      @default("IMMEDIATE")
   apps                     BundleApp[]
   waves                    BundleWave[]
 

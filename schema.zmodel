@@ -773,11 +773,12 @@ model Bundle {
   cancelAt    DateTime?
   createdBy   String
   updatedBy   String
-  accountId   String
+  accountId   String?
   waveSize    Int          @default(500)
   scheduledAt DateTime?
   scheduledAtTimezone String?
   scheduledAtStartIfMissed Boolean @default(false) 
+  updateStrategy String? @default("IMMEDIATE") // "IMMEDIATE", "ON_REBOOT"
 
   // Relationships
   apps        BundleApp[]
