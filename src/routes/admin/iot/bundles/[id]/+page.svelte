@@ -24,6 +24,7 @@
     // No form handler needed for view-only page
     import { Separator } from "$lib/components/ui/separator";
     import * as Tabs from "$lib/components/ui/tabs";
+    import BundleAppsComponent from "./BundleAppsComponent.svelte";
     
     import { writable } from 'svelte/store';
     
@@ -310,10 +311,11 @@
                         <p class="text-sm text-muted-foreground">{appsCount} app{appsCount !== 1 ? 's' : ''} in this bundle</p>
                     </svelte:fragment>
                     
-                    <!-- App list would go here -->
-                    <div class="py-4 text-center text-muted-foreground" class:hidden={appsCount > 0}>
-                        No apps added to this bundle yet
-                    </div>
+                    <BundleAppsComponent 
+                        bundleId={bundle.id} 
+                        apps={bundle.apps} 
+                        resources={data.resources || []}
+                    />
                 </AdminCard>
                 
                 <!-- Selected Devices -->

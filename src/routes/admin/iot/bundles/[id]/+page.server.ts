@@ -64,6 +64,20 @@ export const load = restrict(
           name: 'asc'
         }
       });
+      
+      // Fetch resources (apps) for the bundle apps component
+      const resources = await locals.prisma.resource.findMany({
+        where: {
+          type: 'APK' // Assuming we're only interested in APK resources
+        },
+        select: {
+          id: true,
+          name: true
+        },
+        orderBy: {
+          name: 'asc'
+        }
+      });
 
       // Create a form with the bundle data
       const form = await superValidate(bundle, zod(bundleSchema));
@@ -77,6 +91,7 @@ export const load = restrict(
       return {
         bundle: bundleWithAccount,
         accounts,
+        resources,
         form,
         meta: {
           title: `Bundle: ${bundle.name || bundle.id}`,
