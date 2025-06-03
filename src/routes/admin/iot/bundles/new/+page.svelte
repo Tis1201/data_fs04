@@ -94,9 +94,19 @@
             // Show success view instead of redirecting
             console.log('Form success result:', JSON.stringify(result));
             
-            // Extract bundle data using our helper function
+            // Based on the logs, we know exactly where the bundle data is
+            // Direct access to the bundle data at data.form.message.data
+            if (result?.data?.form?.message?.data) {
+                showSuccess = true;
+                createdBundle = result.data.form.message.data;
+                console.log('Bundle data found:', createdBundle);
+                toast.success("Bundle created successfully!");
+                return;
+            }
+            
+            // Try fallback methods if the direct path fails
             const bundleData = extractBundleData(result);
-            console.log('Extracted bundle data:', bundleData);
+            console.log('Extracted bundle data via fallback:', bundleData);
             
             // Always show success view
             showSuccess = true;
