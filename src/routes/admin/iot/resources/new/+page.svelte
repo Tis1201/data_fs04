@@ -43,14 +43,15 @@
         successRedirect: '/admin/iot/resources',
         validateOnInput: true,
         onSuccess: () => {
-            // Toast is handled by the redirect
+            // Reset file field after successful submission
+            fileField.set(null);
         }
     });
     
     // File upload handling with Superform
     let uploadError = '';
     
-    // Create a file proxy for the file field
+    // Create a file proxy for the form's file field
     const fileField = fileProxy(form, 'file');
     
     // Track uploaded files for display
@@ -58,60 +59,31 @@
     
     import { browser } from '$app/environment';
     
-    // Initialize uploadedFiles if fileField already has a value
+    // Sync fileField with uploadedFiles
     $: {
         if (browser && $fileField && typeof File !== 'undefined' && $fileField instanceof File) {
-            // Only update if the arrays don't match to avoid infinite loops
-            if (uploadedFiles.length === 0 || uploadedFiles[0] !== $fileField) {
+            if (!uploadedFiles?.length || uploadedFiles[0] !== $fileField) {
                 uploadedFiles = [$fileField];
             }
-        } else if (uploadedFiles.length > 0 && $fileField === null) {
+        } else if (uploadedFiles?.length > 0 && $fileField === null) {
             uploadedFiles = [];
         }
     }
     
-    // Handle file upload from EnhancedFileUpload component
-    function handleFileUpload(event: CustomEvent<{files: File[]}>) {
-        const files = event.detail.files;
-        if (files.length > 0) {
-            const file = files[0]; // Take only the first file
-            
-            // Update both the form field and the display array
-            $fileField = file;
-            uploadedFiles = [file];
-            
-            // Auto-fill form fields based on the file
-            if (!$form.name || $form.name === '') {
-                $form.name = file.name.split('.')[0]; // Use filename without extension
-            }
-            
-            // Set file type based on MIME type
-            const mimeType = file.type;
-            if (mimeType.startsWith('image/')) {
-                $form.type = 'image';
-            } else if (mimeType.startsWith('video/')) {
-                $form.type = 'video';
-            } else if (mimeType.startsWith('text/') || 
-                      mimeType.includes('pdf') || 
-                      mimeType.includes('document') || 
-                      mimeType.includes('spreadsheet') || 
-                      mimeType.includes('presentation')) {
-                $form.type = 'document';
-            } else {
-                $form.type = 'file';
-            }
-            
-            // Set file size
+    // Handle file upload
+    function handleFileUpload(event: CustomEvent<File[]>) {
+        const [file] = event.detail;
+        if (file) {
+            $form.name = file.name;
             $form.size = file.size;
-            
-            // Set path to the filename for now
-            $form.path = file.name;
+            $form.type = file.type;
+            fileField.set(file);
         }
     }
     
     // Handle file removal
     function handleFileRemove() {
-        $fileField = null;
+        fileField.set(null);
         uploadedFiles = [];
         
         // Clear related form fields
@@ -119,6 +91,8 @@
             $form.path = '';
         }
     }
+    
+    let formElement: HTMLFormElement;
 </script>
 
 <AdminPageLayout
@@ -135,14 +109,11 @@
       {
         label: "Save",
         icon: Save,
-        onClick: () => {
-          if (form) form.requestSubmit();
-        },
+        type: "submit",
         class: "h-9", // Fixed height for consistency
         disabled: $submitting
       }
     ]}
-    loading={$submitting}
     compact={true}
     contentSpacing="space-y-4"
 >
@@ -154,6 +125,7 @@
                 {enhance}
                 novalidate
                 errorMessage={$errorMessage}
+                bind:this={formElement}
             >
                 <AdminCard
                     title="Upload Resource"
@@ -167,12 +139,12 @@
                                     <EnhancedFileUpload
                                         id="file"
                                         name="file"
+                                        bind:value={uploadedFiles}
+                                        on:change={handleFileUpload}
+                                        on:clear={handleFileRemove}
                                         accept="*/*"
+                                        maxSize={100 * 1024 * 1024}
                                         multiple={false}
-                                        files={uploadedFiles}
-                                        on:fileupload={handleFileUpload}
-                                        on:fileremove={handleFileRemove}
-                                        allowPaste={true}
                                     />
                                     <p class="text-xs text-muted-foreground mt-1">
                                         Upload a file by dragging and dropping, or paste an image directly from clipboard.
@@ -201,7 +173,6 @@
                                         {...$constraints.name}
                                     />
                                 </FormField>
-                                
                                 <FormField id="type" label="Resource Type" error={$errors.type}>
                                     <EnhancedSelect
                                         id="type"
@@ -216,6 +187,95 @@
                             </FormRow>
 
                             <FormRow columns={2}>
+                                <FormField id="description" label="Description" error={$errors.description}>
+                                    <Textarea
+                                        id="description"
+                                        name="description"
+                                        bind:value={$form.description}
+                                        placeholder="Enter resource description"
+                                        rows="3"
+                                        aria-invalid={$errors.description ? 'true' : undefined}
+                                        {...$constraints.description}
+                                    />
+                                </FormField>
+                                
+                                <FormField id="target" label="Target" error={$errors.target}>
+                                    <EnhancedSelect
+                                        id="target"
+                                        name="target"
+                                        bind:value={$form.target}
+                                        placeholder="Select target"
+                                        aria-invalid={$errors.target ? 'true' : undefined}
+                                        {...$constraints.target}
+                                        options={[
+                                            { value: 'user', label: 'User' },
+                                            { value: 'device', label: 'Device' },
+                                            { value: 'account', label: 'Account' }
+                                        ]}
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Select the target type for this resource
+                                    </p>
+                                </FormField>
+                            </FormRow>
+                            
+                            <FormRow columns={2}>
+                                <FormField id="version" label="Version" error={$errors.version}>
+                                    <Input
+                                        id="version"
+                                        name="version"
+                                        bind:value={$form.version}
+                                        placeholder="1.0.0"
+                                        aria-invalid={$errors.version ? 'true' : undefined}
+                                        {...$constraints.version}
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Version number for binary resources
+                                    </p>
+                                </FormField>
+                                
+                                <FormField id="format" label="Format" error={$errors.format}>
+                                    <EnhancedSelect
+                                        id="format"
+                                        name="format"
+                                        bind:value={$form.format}
+                                        placeholder="Select format"
+                                        aria-invalid={$errors.format ? 'true' : undefined}
+                                        {...$constraints.format}
+                                        options={[
+                                            { value: 'apk', label: 'APK (Android Package)' },
+                                            { value: 'bin', label: 'BIN (Binary)' },
+                                            { value: 'exe', label: 'EXE (Windows Executable)' },
+                                            { value: 'sh', label: 'SH (Shell Script)' },
+                                            { value: 'dmg', label: 'DMG (macOS Disk Image)' },
+                                            { value: 'pkg', label: 'PKG (Package)' },
+                                            { value: 'deb', label: 'DEB (Debian Package)' },
+                                            { value: 'rpm', label: 'RPM (Red Hat Package)' },
+                                            { value: 'zip', label: 'ZIP (Archive)' }
+                                        ]}
+                                        allowCustom
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Select the format for binary resources
+                                    </p>
+                                </FormField>
+                            </FormRow>
+                            
+                            <FormRow columns={2}>
+                                <FormField id="packageName" label="Package Name" error={$errors.packageName}>
+                                    <Input
+                                        id="packageName"
+                                        name="packageName"
+                                        bind:value={$form.packageName}
+                                        placeholder="com.example.app"
+                                        aria-invalid={$errors.packageName ? 'true' : undefined}
+                                        {...$constraints.packageName}
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Package name for binary resources
+                                    </p>
+                                </FormField>
+                                
                                 <FormField id="accountId" label="Account" error={$errors.accountId}>
                                     <EnhancedSelect
                                         id="accountId"
@@ -229,7 +289,9 @@
                                         Select the account to assign this resource to
                                     </p>
                                 </FormField>
-
+                            </FormRow>
+                            
+                            <FormRow columns={1}>
                                 <FormField id="size" label="Size (bytes)" error={$errors.size}>
                                     <Input
                                         id="size"

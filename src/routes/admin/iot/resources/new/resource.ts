@@ -5,11 +5,25 @@ export const resourceSchema = z.object({
     name: z.string()
         .min(1, { message: 'Resource name is required' })
         .max(100, { message: 'Name must be 100 characters or less' }),
+    description: z.string()
+        .optional(),
     type: z.string()
         .min(1, { message: 'Resource type is required' })
-        .refine(value => ['file', 'image', 'video', 'document'].includes(value), { 
-            message: 'Type must be one of: file, image, video, document' 
+        .refine(value => ['file', 'image', 'video', 'document', 'binary'].includes(value), { 
+            message: 'Type must be one of: file, image, video, document, binary' 
         }),
+    target: z.string()
+        .default('user')
+        .refine(value => ['user', 'device', 'account'].includes(value), {
+            message: 'Target must be one of: user, device, account'
+        }),
+    version: z.string()
+        .optional()
+        .default('1.0.0'),
+    format: z.string()
+        .optional(),
+    packageName: z.string()
+        .optional(),
     path: z.string()
         .min(1, { message: 'Path or URL is required' })
         .max(500, { message: 'Path must be 500 characters or less' }),

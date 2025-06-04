@@ -85,7 +85,8 @@ export const load = restrict(
                 { value: 'file', label: 'File' },
                 { value: 'image', label: 'Image' },
                 { value: 'video', label: 'Video' },
-                { value: 'document', label: 'Document' }
+                { value: 'document', label: 'Document' },
+                { value: 'binary', label: 'Binary' }
             ];
             
             return {
@@ -174,7 +175,12 @@ export const actions: Actions = {
                 const resource = await locals.prisma.resource.create({
                     data: {
                         name: form.data.name,
+                        description: form.data.description,
                         type: form.data.type,
+                        target: form.data.target,
+                        version: form.data.version,
+                        format: form.data.format,
+                        packageName: form.data.packageName,
                         path: form.data.path,
                         size: form.data.size,
                         accountId: accountId,
