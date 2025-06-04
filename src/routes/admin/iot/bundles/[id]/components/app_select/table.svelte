@@ -15,24 +15,27 @@
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
+    
+    // Create stores for filters
+    const selectedTypes = writable<string[]>($page.url.searchParams.get('types')?.split(',').filter(Boolean) || []);
     import { toast } from "svelte-sonner";
     import { api_post } from "$lib/utils/ApiUtils";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
+    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     
     // Create event dispatcher
     const dispatch = createEventDispatcher();
-    import { handleTableSort as originalHandleTableSort, handleTablePagination as originalHandleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     
-    // Wrapper functions to ensure events are properly formatted
-    function handleTableSort(event: CustomEvent) {
-        // Make sure we're passing a properly formatted CustomEvent
-        originalHandleTableSort(event);
+    // Forward events to parent component
+    function tableSort(event: CustomEvent) {
+        dispatch('sort', event.detail);
     }
     
-    function handleTablePagination(event: CustomEvent) {
-        // Make sure we're passing a properly formatted CustomEvent
-        originalHandleTablePagination(event);
+    function tablePagination(event: CustomEvent) {
+        // Always use 5 per page
+        const modifiedEvent = { ...event.detail, per_page: 5 };
+        dispatch('pagination', modifiedEvent);
     }
     import { enhance } from "$app/forms";
     import { formatBytes } from "$lib/utils/format";
@@ -242,12 +245,54 @@
             selectedRecord: state.selectedRecord,
             confirmationOpen: state.confirmationOpen
         }}
-        onConfirm={handleDeleteConfirm}
+        on:confirm={handleDeleteConfirm}
         title="Delete Resource"
         getDescription={(resource) => `Are you sure you want to delete this resource? This action cannot be undone.`}
         actionName="delete"
         action="?/delete"
     />
+
+    <!-- Filters -->
+    <div class="flex flex-wrap gap-2 mb-4">
+        <div class="w-1/3">
+            <DebouncedTextFilter
+                placeholder="Search by app name..."
+                paramName="search"
+                value={$page.url.searchParams.get('search') || ''}
+                on:change={(e) => {
+                    const url = new URL(window.location.href);
+                    if (e.detail) {
+                        url.searchParams.set('search', e.detail);
+                    } else {
+                        url.searchParams.delete('search');
+                    }
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
+            />
+        </div>
+        
+        <!-- Type filter -->
+        <PopoverFilter
+            label="Type"
+            options={[
+                { label: "File", value: "file" },
+                { label: "Image", value: "image" },
+                { label: "Video", value: "video" },
+                { label: "Document", value: "document" },
+                { label: "Binary", value: "binary" }
+            ]}
+            selectedValues={$selectedTypes}
+            onChange={(values) => {
+                selectedTypes.set(values);
+                const url = new URL(window.location.href);
+                url.searchParams.set('types', values.join(','));
+                if (!values.length) url.searchParams.delete('types');
+                url.searchParams.set('page', '1');
+                goto(url.toString(), { replaceState: true, noScroll: true });
+            }}
+        />
+    </div>
 
     <!-- Data Table -->
     {#if props.loading}
@@ -256,12 +301,17 @@
         <DataTable
             props={{
                 records: props.records,
-                pagination: props.pagination,
-                sort: props.sort
+                pagination: {
+                    ...props.pagination,
+                    per_page: 5 // Force 5 per page
+                },
+                sort: props.sort,
+                perPageOptions: [5], // Only allow 5 per page
+                defaultPerPage: 5
             }}
             columns={columns}
-            on:sort={handleTableSort}
-            on:pagination={handleTablePagination}
+            on:sort={tableSort}
+            on:pagination={tablePagination}
             on:rowClick={(event) => dispatch('rowClick', event.detail)}
         />
     {/if}

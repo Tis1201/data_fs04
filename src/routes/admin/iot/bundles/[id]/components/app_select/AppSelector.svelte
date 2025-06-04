@@ -6,12 +6,14 @@
   import * as Dialog from '$lib/components/ui/dialog';
   import { writable } from 'svelte/store';
   import { browser } from '$app/environment';
-  import { goto } from '$app/navigation';
+  import { goto } from "$app/navigation";
   import { toast } from 'svelte-sonner';
   import AppTable from "./table.svelte";
   import { Switch } from '$lib/components/ui/switch';
   import { Label } from '$lib/components/ui/label';
   import type { Resource } from "@prisma/client";
+  import { handleTableSort as utilHandleTableSort, handleTablePagination as utilHandleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+  import { Skeleton } from '$lib/components/ui/skeleton';
   
   interface TableMeta {
     current_page: number;
@@ -59,91 +61,90 @@
     loading: false
   };
   
-  // Load apps when dialog opens or URL params change
-  $: if (open) {
-    loadApps();
-  }
-  
-  // Watch for URL changes to reload data
+  // Single reactive statement to handle all loading conditions
   $: if (browser && open) {
     loadApps();
   }
   
-  // Initialize component
-  $: if (browser) {
-    loadApps();
-  }
+  // Initialize data loading when component mounts
+  onMount(() => {
+    if (browser && open) {
+      loadApps();
+    }
+  });
   
   async function loadApps() {
     try {
-      tableData.loading = true;
+      // Set loading state
+      tableData = {
+        ...tableData,
+        loading: true
+      };
       
-      // Get current URL params
+      // Get current URL params from the page URL
+      const currentUrl = $page.url;
       const params = new URLSearchParams();
       
-      // Add pagination parameters safely
-      if (tableData.pagination && tableData.pagination.page) {
-        params.append('page', tableData.pagination.page.toString());
-      } else {
-        params.append('page', '1');
-      }
+      // Add pagination parameters - always use 5 per page
+      const urlPage = currentUrl.searchParams.get('page');
       
-      if (tableData.pagination && tableData.pagination.per_page) {
-        params.append('per_page', tableData.pagination.per_page.toString());
-      } else {
-        params.append('per_page', '10');
-      }
+      const page = urlPage ? parseInt(urlPage) : tableData.pagination?.page || 1;
+      // Always use 5 per page
+      const perPage = 5;
       
-      // Add sort parameters
-      if (tableData.sort && tableData.sort.field) {
-        params.append('sort', tableData.sort.field);
-        params.append('order', tableData.sort.order || 'asc');
-      }
+      params.append('page', page.toString());
+      params.append('per_page', '5');
       
-      // Add search parameters if they exist
-      const search = $page.url.searchParams.get('search');
+      // Add sort parameters - prefer URL values over state values
+      const urlSort = currentUrl.searchParams.get('sort');
+      const urlOrder = currentUrl.searchParams.get('order');
+      
+      const sortField = urlSort || tableData.sort?.field || 'name';
+      const sortOrder = urlOrder || tableData.sort?.order || 'asc';
+      
+      params.append('sort', sortField);
+      params.append('order', sortOrder);
+      
+      // Add filter parameters if they exist
+      const search = currentUrl.searchParams.get('search');
       if (search) params.append('search', search);
       
-      const types = $page.url.searchParams.get('types');
+      const types = currentUrl.searchParams.get('types');
       if (types) params.append('types', types);
       
-      const statuses = $page.url.searchParams.get('statuses');
-      if (statuses) params.append('statuses', statuses);
-      
       // Make the API request
-      console.log(`Making API request to: /admin/iot/bundles/${bundleId}/components/app_select?${params}`);
       const response = await fetch(`/admin/iot/bundles/${bundleId}/components/app_select?${params}`);
       
       if (!response.ok) {
-        console.error(`API request failed with status: ${response.status}`);
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      console.log('API response status:', response.status);
-      
       const data: ApiResponse = await response.json();
       
-      console.log('API Response:', data);
-      console.log('Resources count:', data.resources?.length || 0);
-      
-      // Update table data with the response
+      // Update table data with the response following standard pattern
       tableData = {
         ...tableData,
-        records: data.resources,
+        loading: false,
+        records: data.resources || [],
         pagination: {
-          ...tableData.pagination,
-          page: data.meta.current_page,
-          per_page: data.meta.per_page,
-          total_records: data.meta.total,
-          total_pages: data.meta.last_page
+          page: data.meta?.current_page || 1,
+          per_page: data.meta?.per_page || 5,
+          total_records: data.meta?.total || 0,
+          total_pages: data.meta?.last_page || 1
+        },
+        sort: {
+          field: $page.url.searchParams.get('sort') || 'name',
+          order: ($page.url.searchParams.get('order') as 'asc' | 'desc') || 'asc'
         }
       };
       
     } catch (error) {
       console.error('Failed to load apps:', error);
       toast.error('Failed to load apps. Please try again.');
-    } finally {
-      tableData.loading = false;
+      tableData = {
+        ...tableData,
+        loading: false
+      };
     }
   }
   export let open = false;
@@ -157,8 +158,6 @@
     close: void;
     autoOpenChange: boolean;
   }>();
-  
-  // Filter states have been moved to table.svelte
   
   // Close the dialog
   function closeDialog() {
@@ -180,47 +179,27 @@
     closeDialog();
   }
   
-  // Handle table sort
+  // Use standard table sort handler
   function handleTableSort(event: CustomEvent) {
-    const { field, order } = event.detail;
+    // Use standard utility function for URL update and navigation
+    utilHandleTableSort(event, true);
     
-    // Update local state
-    tableData = {
-      ...tableData,
-      sort: { field, order },
-      pagination: {
-        ...tableData.pagination,
-        page: 1 // Reset to first page when sorting changes
-      }
-    };
-    
-    // Update URL
-    const url = new URL(window.location.href);
-    url.searchParams.set('sort', field);
-    url.searchParams.set('order', order);
-    url.searchParams.set('page', '1');
-    goto(url.toString(), { replaceState: true, noScroll: true });
+    // Reload data after URL update
+    loadApps();
   }
   
-  // Handle table pagination
+  // Use standard table pagination handler
   function handleTablePagination(event: CustomEvent) {
-    const { page, per_page } = event.detail;
+    // Override the per_page in the event detail to always use 5
+    const modifiedEvent = new CustomEvent('pagination', {
+      detail: { ...event.detail, per_page: 5 }
+    });
     
-    // Update local state
-    tableData = {
-      ...tableData,
-      pagination: {
-        ...tableData.pagination,
-        page,
-        per_page
-      }
-    };
+    // Use standard utility function for URL update and navigation
+    utilHandleTablePagination(modifiedEvent, 'appSelectorPageSize', true);
     
-    // Update URL
-    const url = new URL(window.location.href);
-    url.searchParams.set('page', page.toString());
-    url.searchParams.set('per_page', per_page.toString());
-    goto(url.toString(), { replaceState: true, noScroll: true });
+    // Reload data after URL update
+    loadApps();
   }
   
   // Handle confirm button click
@@ -274,23 +253,34 @@
         <Label for="autoOpen">Automatically open app after installation</Label>
       </div>
 
+      <!-- Table Container - Following standard pattern from factory tokens -->
       <div class="mt-4 border rounded-md overflow-hidden">
-        <AppTable
-          props={{
-            records: tableData.records,
-            pagination: tableData.pagination,
-            sort: tableData.sort,
-            loading: tableData.loading,
-            selectedResourceId: selectedResource?.id
-          }}
-          on:rowClick={({ detail }) => {
-            if (detail) {
-              handleRowClick(detail);
-            }
-          }}
-          on:sort={handleTableSort}
-          on:pagination={handleTablePagination}
-        />
+        {#if tableData.loading}
+          <div class="p-4 space-y-4">
+            <Skeleton class="h-8 w-full" />
+            <Skeleton class="h-4 w-3/4" />
+            <Skeleton class="h-4 w-1/2" />
+            <Skeleton class="h-4 w-2/3" />
+            <Skeleton class="h-4 w-3/4" />
+          </div>
+        {:else}
+          <AppTable
+            props={{
+              records: tableData.records,
+              pagination: tableData.pagination,
+              sort: tableData.sort,
+              loading: tableData.loading,
+              selectedResourceId: selectedResource?.id
+            }}
+            on:rowClick={({ detail }) => {
+              if (detail) {
+                handleRowClick(detail);
+              }
+            }}
+            on:sort={handleTableSort}
+            on:pagination={handleTablePagination}
+          />
+        {/if}
       </div>
     </div>
 
