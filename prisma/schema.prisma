@@ -366,6 +366,7 @@ model InvitationToken {
 model Resource {
   id          String      @id() @default(cuid())
   name        String
+  description String?
   type        String
   target      String      @default("user")
   version     String?     @default("1.0.0")

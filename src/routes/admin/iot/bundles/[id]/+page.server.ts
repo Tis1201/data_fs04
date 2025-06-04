@@ -72,7 +72,15 @@ export const load = restrict(
         },
         select: {
           id: true,
-          name: true
+          name: true,
+          description: true,
+          version: true,
+          createdAt: true,
+          updatedAt: true,
+          size: true,
+          format: true,
+          packageName: true,
+          target: true
         },
         orderBy: {
           name: 'asc'

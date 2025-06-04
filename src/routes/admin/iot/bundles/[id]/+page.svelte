@@ -306,11 +306,6 @@
                 
                 <!-- Bundle Apps -->
                 <AdminCard>
-                    <svelte:fragment slot="header">
-                        <h3 class="text-lg font-medium">Bundle Apps</h3>
-                        <p class="text-sm text-muted-foreground">{appsCount} app{appsCount !== 1 ? 's' : ''} in this bundle</p>
-                    </svelte:fragment>
-                    
                     <BundleAppsComponent 
                         bundleId={bundle.id} 
                         apps={bundle.apps} 

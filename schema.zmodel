@@ -525,6 +525,7 @@ model InvitationToken {
 model Resource {
   id          String   @id @default(cuid())
   name        String
+  description String?
   type        String   // "file", "image", "video", "document", "binary"
   target      String   @default("user") // "device", "account", "user"
   version     String? @default("1.0.0") // Release version number for binary
