@@ -43,11 +43,14 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Separator } from "$lib/components/ui/separator";
     import * as Tabs from "$lib/components/ui/tabs";
+    import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
+    import { Progress } from "$lib/components/ui/progress";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     
     // Local Components
     import AppSelector from "./components/app_select/AppSelector.svelte";
     import BundleDeviceComponent from "./components/bundle_device/BundleDeviceComponent.svelte";
+    import WaveComponent from "./components/waves/WaveComponent.svelte";
     
     export let data;
     const { bundle } = data;
@@ -400,17 +403,10 @@
             
             <!-- Waves Tab -->
             <Tabs.Content value="waves" class="space-y-6">
-                <AdminCard>
-                    <svelte:fragment slot="header">
-                        <h3 class="text-lg font-medium">Deployment Waves</h3>
-                        <p class="text-sm text-muted-foreground">{wavesCount} wave{wavesCount !== 1 ? 's' : ''} configured</p>
-                    </svelte:fragment>
-                    
-                    <!-- Waves progress visualization would go here -->
-                    <div class="py-4 text-center text-muted-foreground" class:hidden={wavesCount > 0}>
-                        No waves configured for this bundle yet
-                    </div>
-                </AdminCard>
+                <WaveComponent 
+                    bundleId={bundle.id}
+                    loading={false}
+                />
                 
                 <AdminCard>
                     <svelte:fragment slot="header">
@@ -418,9 +414,37 @@
                         <p class="text-sm text-muted-foreground">Overall deployment status</p>
                     </svelte:fragment>
                     
-                    <!-- Progress metrics and charts would go here -->
-                    <div class="py-4 text-center text-muted-foreground">
-                        No deployment data available yet
+                    <!-- Overall progress metrics -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <Card>
+                            <CardHeader class="pb-2">
+                                <CardTitle class="text-sm font-medium">Total Devices</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div class="text-2xl font-bold">{bundle.devices?.length || 0}</div>
+                            </CardContent>
+                        </Card>
+                        
+                        <Card>
+                            <CardHeader class="pb-2">
+                                <CardTitle class="text-sm font-medium">Deployment Progress</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div class="space-y-2">
+                                    <Progress value={35} />
+                                    <div class="text-xs text-muted-foreground text-right">35%</div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                        
+                        <Card>
+                            <CardHeader class="pb-2">
+                                <CardTitle class="text-sm font-medium">Status</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <Badge variant="default">In Progress</Badge>
+                            </CardContent>
+                        </Card>
                     </div>
                 </AdminCard>
             </Tabs.Content>
