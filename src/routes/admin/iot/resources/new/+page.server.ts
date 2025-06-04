@@ -112,6 +112,9 @@ export const actions: Actions = {
                 dataType: 'json'
             });
             
+            // Add debug logging to see what's being submitted
+            logger.debug(`Form submission data: ${JSON.stringify(form.data)}`);
+            
             // Check if the form is valid
             if (!form.valid) {
                 return fail(400, { form });
@@ -119,6 +122,19 @@ export const actions: Actions = {
             
             // Get the account ID from the form
             const accountId = form.data.accountId;
+            
+            // Check if accountId is empty or undefined
+            if (!accountId) {
+                logger.error('Account ID is missing in form submission');
+                return message(
+                    form,
+                    createErrorResponse('Missing account', {
+                        details: 'Please select an account for this resource.'
+                    })
+                );
+            }
+            
+            logger.debug(`Processing resource creation for account ID: ${accountId}`);
             
             // Verify that the account exists
             let accountName = 'Unknown Account';
@@ -170,6 +186,22 @@ export const actions: Actions = {
                 }
                 
                 logger.debug(`Admin creating resource with account ID: ${accountId}`);
+                
+                // Log the data being sent to Prisma
+                logger.debug(`Creating resource with data: ${JSON.stringify({
+                    name: form.data.name,
+                    description: form.data.description,
+                    type: form.data.type,
+                    target: form.data.target,
+                    version: form.data.version,
+                    format: form.data.format,
+                    packageName: form.data.packageName,
+                    path: form.data.path,
+                    size: form.data.size,
+                    accountId: accountId,
+                    createdBy: auth.user.id,
+                    updatedBy: auth.user.id
+                })}`);
                 
                 // Create the resource using Prisma
                 const resource = await locals.prisma.resource.create({

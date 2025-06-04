@@ -18,7 +18,18 @@
     import { api_post } from "$lib/utils/ApiUtils";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
-    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import { handleTableSort as originalHandleTableSort, handleTablePagination as originalHandleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    
+    // Wrapper functions to ensure events are properly formatted
+    function handleTableSort(event: CustomEvent) {
+        // Make sure we're passing a properly formatted CustomEvent
+        originalHandleTableSort(event);
+    }
+    
+    function handleTablePagination(event: CustomEvent) {
+        // Make sure we're passing a properly formatted CustomEvent
+        originalHandleTablePagination(event);
+    }
     import { enhance } from "$app/forms";
     import { formatBytes } from "$lib/utils/format";
 
@@ -212,7 +223,7 @@
                 return {
                     component: RecordActions,
                     props: {
-                        actions
+                        items: actions
                     }
                 };
             }
@@ -245,8 +256,8 @@
                 sort: props.sort
             }}
             columns={columns}
-            on:sort={(e) => handleTableSort(e.detail.field, e.detail.order)}
-            on:pagination={(e) => handleTablePagination(e.detail.page)}
+            on:sort={handleTableSort}
+            on:pagination={handleTablePagination}
         />
     {/if}
 </div>

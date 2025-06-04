@@ -7,12 +7,6 @@
     // Import the correct AdminPageLayout component with actionButtons support
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
-    import Card from "$lib/components/ui/card/card.svelte";
-    import CardHeader from "$lib/components/ui/card/card-header.svelte";
-    import CardTitle from "$lib/components/ui/card/card-title.svelte";
-    import CardDescription from "$lib/components/ui/card/card-description.svelte";
-    import CardContent from "$lib/components/ui/card/card-content.svelte";
-    // import ActionButton from "$lib/components/admin/layout/ActionButton.svelte";
     
     // Import form components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
@@ -38,24 +32,61 @@
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { fileProxy } from 'sveltekit-superforms/client';
     
-    // Create a form handler with standardized error handling
+    // Create form handler with proper store initialization
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
         successRedirect: '/admin/iot/resources',
         validateOnInput: true,
         onSuccess: () => {
-            // Reset file field after successful submission
             fileField.set(null);
         }
     });
     
-    // File upload handling with Superform
-    let uploadError = '';
-    
-    // Create a file proxy for the form's file field
+    // Initialize file proxy with proper store
     const fileField = fileProxy(form, 'file');
-    
-    // Track uploaded files for display
     let uploadedFiles: File[] = [];
+    let uploadError = '';
+    let uploadSuccess = '';
+
+    // Handle file upload from EnhancedFileUpload component (user form logic)
+    function handleFileUpload(event: CustomEvent<{files: File[]}>) {
+        const files = event.detail.files;
+        if (files.length > 0) {
+            const file = files[0]; // Take only the first file
+            $fileField = file;
+            uploadedFiles = [file];
+            uploadSuccess = `File "${file.name}" selected successfully!`;
+            if (!$form.name || $form.name === '') {
+                $form.name = file.name.split('.')[0];
+            }
+            // Set file type based on MIME type
+            const mimeType = file.type;
+            if (mimeType.startsWith('image/')) {
+                $form.type = 'image';
+            } else if (mimeType.startsWith('video/')) {
+                $form.type = 'video';
+            } else if (mimeType.startsWith('text/') || 
+                      mimeType.includes('pdf') || 
+                      mimeType.includes('document') || 
+                      mimeType.includes('spreadsheet') || 
+                      mimeType.includes('presentation')) {
+                $form.type = 'document';
+            } else {
+                $form.type = 'file';
+            }
+            $form.size = file.size;
+            $form.path = file.name;
+        }
+    }
+
+    // Handle file removal (user form logic)
+    function handleFileRemove() {
+        $fileField = null;
+        uploadedFiles = [];
+        uploadSuccess = '';
+        if ($form.type === 'image' || $form.type === 'video' || $form.type === 'document' || $form.type === 'file') {
+            $form.path = '';
+        }
+    }
     
     import { browser } from '$app/environment';
     
@@ -70,29 +101,27 @@
         }
     }
     
-    // Handle file upload
-    function handleFileUpload(event: CustomEvent<File[]>) {
-        const [file] = event.detail;
-        if (file) {
-            $form.name = file.name;
-            $form.size = file.size;
-            $form.type = file.type;
-            fileField.set(file);
-        }
-    }
-    
-    // Handle file removal
-    function handleFileRemove() {
-        fileField.set(null);
-        uploadedFiles = [];
-        
-        // Clear related form fields
-        if ($form.type === 'image' || $form.type === 'video' || $form.type === 'document' || $form.type === 'file') {
-            $form.path = '';
-        }
-    }
-    
+    // Form submission is handled by the Save button onClick handler
+    // Make sure we have a valid form reference for submission
     let formElement: HTMLFormElement;
+    
+    // Function to handle form submission
+    function submitForm() {
+        if (formElement && typeof formElement.requestSubmit === 'function') {
+            formElement.requestSubmit();
+        } else if (formElement && typeof formElement.submit === 'function') {
+            formElement.submit();
+        } else {
+            const form = document.querySelector('form[action="?/create"]');
+            if (form && typeof form.requestSubmit === 'function') {
+                (form as HTMLFormElement).requestSubmit();
+            } else if (form && typeof (form as HTMLFormElement).submit === 'function') {
+                (form as HTMLFormElement).submit();
+            } else {
+                console.error('Form element not found or submit method not available');
+            }
+        }
+    }
 </script>
 
 <AdminPageLayout
@@ -109,9 +138,9 @@
       {
         label: "Save",
         icon: Save,
-        type: "submit",
-        class: "h-9", // Fixed height for consistency
-        disabled: $submitting
+        class: "h-9 btn-primary",
+        disabled: $submitting,
+        onClick: submitForm
       }
     ]}
     compact={true}
@@ -135,20 +164,29 @@
                 >
                         <div class="space-y-6">
                             <FormRow columns={1}>
-                                <FormField id="file" label="File Upload" error={uploadError}>
+                                <FormField id="file" label="File Upload" error={''}>
                                     <EnhancedFileUpload
                                         id="file"
                                         name="file"
+                                        accept="image/*,video/*,application/*,text/*"
                                         bind:value={uploadedFiles}
+                                        error={uploadError}
                                         on:change={handleFileUpload}
-                                        on:clear={handleFileRemove}
-                                        accept="*/*"
-                                        maxSize={100 * 1024 * 1024}
+                                        on:drop={handleFileUpload}
+                                        on:paste={handleFileUpload}
+                                        on:remove={handleFileRemove}
+                                        on:error={(e) => uploadError = e.detail.message}
+                                        preview={true}
                                         multiple={false}
                                     />
                                     <p class="text-xs text-muted-foreground mt-1">
                                         Upload a file by dragging and dropping, or paste an image directly from clipboard.
                                     </p>
+                                    {#if uploadSuccess}
+                                        <p class="text-xs text-green-600 font-medium mt-1">
+                                            ✓ {uploadSuccess}
+                                        </p>
+                                    {/if}
                                 </FormField>
                             </FormRow>
                         </div>
@@ -333,6 +371,7 @@
                             </FormRow>
                         </div>
                 </AdminCard>
-            </FormContainer>
+
+          </FormContainer>
         </div>
 </AdminPageLayout>
