@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { onMount } from 'svelte';
     import { toast } from 'svelte-sonner';
     import { api_post, api_delete } from '$lib/utils/ApiUtils';
     import { invalidate } from '$app/navigation';
@@ -9,31 +9,23 @@
     import { Label } from "$lib/components/ui/label";
     import { Switch } from "$lib/components/ui/switch";
     import * as Dialog from "$lib/components/ui/dialog";
-    import { Trash, ArrowUpDown, Plus, Search } from 'lucide-svelte';
-    import ResourceSelect from "$lib/components/ui_components_sveltekit/form/ResourceSelect.svelte";
+    import { Trash, ArrowUpDown, Plus } from 'lucide-svelte';
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
-    import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import { page } from "$app/stores";
     
     import type { BundleApp } from "@prisma/client";
+    import AppSelector from "./components/app_select/AppSelector.svelte";
     
     export let bundleId: string;
     export let apps: (BundleApp & { resource: { name: string, id: string } })[] = [];
-    export let resources: { id: string, name: string }[] = [];
     
     // State for add app dialog
     let addDialogOpen = false;
-    let selectedResourceId = "";
     let autoOpen = false;
     let addingApp = false;
-    let searchLoading = false;
-    let searchQuery = "";
-    let searchType = "APK";
-    let searchResults = resources;
     let installationOrder = 1;
     
     // State for delete confirmation dialog
@@ -45,6 +37,16 @@
         confirmButtonText: "Remove",
         cancelButtonText: "Cancel"
     };
+    
+    // Calculate the next order number based on existing apps
+    $: {
+        if (apps.length > 0) {
+            const maxOrder = Math.max(...apps.map(app => app.order));
+            installationOrder = maxOrder + 1;
+        } else {
+            installationOrder = 1;
+        }
+    }
     
     // Calculate the next order number based on existing apps
     $: {
@@ -81,76 +83,26 @@
         }
     }
     
-    // Watch for URL changes to trigger search
-    $: {
-        if ($page.url.searchParams.has('search')) {
-            const query = $page.url.searchParams.get('search') || '';
-            performSearch(query, searchType);
-        }
-    }
-    
-    // Server-side search function
-    async function performSearch(query, type = "APK") {
-        searchLoading = true;
-        searchQuery = query;
-        searchType = type;
-        
-        try {
-            // Build the URL with search parameters
-            const url = new URL(`/admin/iot/bundles/${bundleId}/apps/add`, window.location.origin);
-            url.searchParams.set('query', query);
-            url.searchParams.set('type', type);
-            
-            const response = await fetch(url.toString(), {
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`Search failed: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            searchResults = data.resources || [];
-        } catch (error) {
-            console.error('Error searching resources:', error);
-            searchResults = [];
-        } finally {
-            searchLoading = false;
-        }
-    }
-    
-    // Legacy handler for direct ResourceSelect search
-    async function handleResourceSearch(query, type = "APK") {
-        performSearch(query, type);
-    }
-    
-    // Handle add app submission
-    async function handleAddApp() {
-        if (!selectedResourceId) {
-            toast.error("Please select an app");
-            return;
-        }
+    // Handle app selection from AppSelector
+    async function handleAppSelect(event: CustomEvent<{ detail: { id: string; name: string } }>) {
+        const resource = event.detail;
+        if (!resource) return;
         
         addingApp = true;
         
         try {
             await api_post(`/api/admin/iot/bundles/${bundleId}/apps`, {
-                resourceId: selectedResourceId,
+                resourceId: resource.id,
                 order: installationOrder,
                 autoOpen
             });
             
-            toast.success("App added to bundle successfully");
+            toast.success(`Added ${resource.name} to bundle`);
             await invalidate('app:bundle');
             
             // Reset form and close dialog
-            selectedResourceId = '';
-            autoOpen = false;
             addDialogOpen = false;
-            searchQuery = '';
-            searchResults = resources;
+            autoOpen = false;
             
         } catch (error) {
             toast.error("Failed to add app to bundle");
@@ -158,20 +110,6 @@
         } finally {
             addingApp = false;
         }
-    }
-    
-    // Reset form when dialog opens
-    function onDialogOpen() {
-        // Calculate the next order number
-        if (apps.length > 0) {
-            const maxOrder = Math.max(...apps.map(app => app.order));
-            installationOrder = maxOrder + 1;
-        } else {
-            installationOrder = 1;
-        }
-        
-        selectedResourceId = '';
-        autoOpen = false;
     }
 </script>
 
@@ -187,85 +125,15 @@
     </Button>
 </div>
 
-<!-- Add App Dialog -->
-<Dialog.Root bind:open={addDialogOpen} onOpenChange={onDialogOpen}>
-    <!-- Dialog Content -->
-    <Dialog.Content class="sm:max-w-[500px]">
-        <Dialog.Header>
-            <Dialog.Title>Add App to Bundle</Dialog.Title>
-            <Dialog.Description>
-                Select an app to add to this bundle
-            </Dialog.Description>
-        </Dialog.Header>
-    
-    <div class="space-y-4 py-4">
-        <!-- Search filter -->
-        <div class="mb-4">
-            <DebouncedTextFilter
-                placeholder="Search apps..."
-                paramName="search"
-                value={$page.url.searchParams.get('search') || ''}
-                className="w-full"
-            />
-        </div>
-        
-        <!-- App selection -->
-        <FormRow>
-            <FormField
-                id="resourceId"
-                label="App"
-                required={true}
-            >
-                <ResourceSelect
-                    bind:value={selectedResourceId}
-                    placeholder="Select an app"
-                    searchPlaceholder="Search apps..."
-                    resources={searchResults}
-                    required={true}
-                    loading={searchLoading}
-                    resourceType={searchType}
-                />
-            </FormField>
-        </FormRow>
-        
-        <!-- Installation order -->
-        <FormRow>
-            <FormField
-                id="order"
-                label="Installation Order"
-                required={true}
-            >
-                <Input
-                    type="number"
-                    min="1"
-                    bind:value={installationOrder}
-                />
-            </FormField>
-        </FormRow>
-        
-        <!-- Auto open switch -->
-        <FormRow>
-            <FormField
-                id="autoOpen"
-                label="Auto Open"
-            >
-                <div class="flex items-center space-x-2">
-                    <Switch
-                        id="autoOpen"
-                        bind:checked={autoOpen}
-                    />
-                    <Label for="autoOpen">Automatically open app after installation</Label>
-                </div>
-            </FormField>
-        </FormRow>
-    </div>
-    
-    <Dialog.Footer>
-        <Button variant="outline" on:click={() => addDialogOpen = false}>Cancel</Button>
-        <Button on:click={handleAddApp}>Add App</Button>
-    </Dialog.Footer>
-</Dialog.Content>
-</Dialog.Root>
+<!-- App Selector Dialog -->
+<AppSelector 
+    bind:open={addDialogOpen}
+    {bundleId}
+    on:select={handleAppSelect}
+    on:close={() => addDialogOpen = false}
+    autoOpen={autoOpen}
+    on:autoOpenChange={(e) => autoOpen = e.detail}
+/>
 
 <!-- Delete Confirmation Dialog -->
 <RecordDeleteDialog
