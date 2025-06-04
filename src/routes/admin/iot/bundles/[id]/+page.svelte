@@ -485,5 +485,5 @@
     state={state}
     onConfirm={handleDeleteConfirm}
     useFormSubmission={false}
-    onClose={() => state.confirmationOpen = false}
+    on:close={() => state.confirmationOpen = false}
 />

@@ -48,7 +48,7 @@
     records: [],
     pagination: {
       page: 1,
-      per_page: 10,
+      per_page: 5,
       total_records: 0,
       total_pages: 1
     },
@@ -79,15 +79,36 @@
       tableData.loading = true;
       
       // Get current URL params
-      const params = new URLSearchParams({
-        page: tableData.pagination.page.toString(),
-        per_page: tableData.pagination.per_page.toString(),
-        sort: tableData.sort.field,
-        order: tableData.sort.order,
-        ...($page.url.searchParams.get('search') && { search: $page.url.searchParams.get('search') }),
-        ...($page.url.searchParams.get('types') && { types: $page.url.searchParams.get('types') }),
-        ...($page.url.searchParams.get('statuses') && { statuses: $page.url.searchParams.get('statuses') })
-      });
+      const params = new URLSearchParams();
+      
+      // Add pagination parameters safely
+      if (tableData.pagination && tableData.pagination.page) {
+        params.append('page', tableData.pagination.page.toString());
+      } else {
+        params.append('page', '1');
+      }
+      
+      if (tableData.pagination && tableData.pagination.per_page) {
+        params.append('per_page', tableData.pagination.per_page.toString());
+      } else {
+        params.append('per_page', '10');
+      }
+      
+      // Add sort parameters
+      if (tableData.sort && tableData.sort.field) {
+        params.append('sort', tableData.sort.field);
+        params.append('order', tableData.sort.order || 'asc');
+      }
+      
+      // Add search parameters if they exist
+      const search = $page.url.searchParams.get('search');
+      if (search) params.append('search', search);
+      
+      const types = $page.url.searchParams.get('types');
+      if (types) params.append('types', types);
+      
+      const statuses = $page.url.searchParams.get('statuses');
+      if (statuses) params.append('statuses', statuses);
       
       // Make the API request
       console.log(`Making API request to: /admin/iot/bundles/${bundleId}/components/app_select?${params}`);
