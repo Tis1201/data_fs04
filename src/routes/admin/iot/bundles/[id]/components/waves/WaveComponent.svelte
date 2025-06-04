@@ -1,57 +1,55 @@
 <script lang="ts">
-    import { Plus, Calendar, Users, ArrowUpDown, MoreHorizontal, Play, Pause, AlertCircle } from 'lucide-svelte';
-    import { Button } from "$lib/components/ui/button";
+    import { Calendar, Users } from 'lucide-svelte';
+    import { AlertCircle, Pause, Play } from "lucide-svelte";
     import { Badge } from "$lib/components/ui/badge";
-    import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
+    import { Card, CardContent } from "$lib/components/ui/card";
     import { Progress } from "$lib/components/ui/progress";
     import { Skeleton } from "$lib/components/ui/skeleton";
-    import { Separator } from "$lib/components/ui/separator";
-    import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import { AdminCard } from "$lib/components/admin";
+    import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+    import { createEventDispatcher } from "svelte";
     
+    // Props
     export let bundleId: string;
-    export let loading: boolean = false;
+    export let loading = false;
+    export let empty = false;
+    export let selectedWaveId = null;
     
-    // Mock data for waves
+    // Event dispatcher
+    const dispatch = createEventDispatcher();
+    
+    // Simplified mock data for waves
     const mockWaves = [
         {
             id: "wave1",
             name: "Wave 1",
             status: "COMPLETED",
-            maxDevices: 100,
             startTime: new Date(2025, 5, 1, 10, 0).toISOString(),
             endTime: new Date(2025, 5, 1, 14, 30).toISOString(),
-            createdAt: new Date(2025, 5, 1, 8, 0).toISOString(),
             progress: 100,
-            devicesTotal: 100,
-            devicesCompleted: 100,
+            devicesTotal: 2,
+            devicesCompleted: 2,
             devicesFailed: 0
         },
         {
             id: "wave2",
             name: "Wave 2",
             status: "IN_PROGRESS",
-            maxDevices: 200,
             startTime: new Date(2025, 5, 2, 10, 0).toISOString(),
             endTime: null,
-            createdAt: new Date(2025, 5, 1, 8, 5).toISOString(),
             progress: 65,
-            devicesTotal: 200,
-            devicesCompleted: 130,
+            devicesTotal: 1,
+            devicesCompleted: 0,
             devicesFailed: 0
         },
         {
             id: "wave3",
             name: "Wave 3",
             status: "PENDING",
-            maxDevices: 200,
             startTime: null,
             endTime: null,
-            createdAt: new Date(2025, 5, 1, 8, 10).toISOString(),
             progress: 0,
-            devicesTotal: 200,
+            devicesTotal: 1,
             devicesCompleted: 0,
             devicesFailed: 0
         },
@@ -59,27 +57,23 @@
             id: "wave4",
             name: "Wave 4",
             status: "FAILED",
-            maxDevices: 100,
             startTime: new Date(2025, 5, 3, 10, 0).toISOString(),
             endTime: new Date(2025, 5, 3, 10, 15).toISOString(),
-            createdAt: new Date(2025, 5, 1, 8, 15).toISOString(),
-            progress: 15,
-            devicesTotal: 100,
-            devicesCompleted: 10,
-            devicesFailed: 5
+            progress: 45,
+            devicesTotal: 1,
+            devicesCompleted: 0,
+            devicesFailed: 1
         },
         {
             id: "wave5",
             name: "Wave 5",
-            status: "TIMEOUT",
-            maxDevices: 150,
+            status: "ROLLED_BACK",
             startTime: new Date(2025, 5, 2, 14, 0).toISOString(),
             endTime: new Date(2025, 5, 2, 18, 0).toISOString(),
-            createdAt: new Date(2025, 5, 1, 8, 20).toISOString(),
-            progress: 75,
-            devicesTotal: 150,
-            devicesCompleted: 112,
-            devicesFailed: 0
+            progress: 80,
+            devicesTotal: 1,
+            devicesCompleted: 0,
+            devicesFailed: 1
         }
     ];
     
@@ -95,7 +89,7 @@
             'IN_PROGRESS': 'default',
             'PENDING': 'secondary',
             'FAILED': 'destructive',
-            'TIMEOUT': 'warning'
+            'ROLLED_BACK': 'warning'
         };
         return variantMap[status] || 'outline';
     }
@@ -107,14 +101,14 @@
             'IN_PROGRESS': 'In Progress',
             'PENDING': 'Pending',
             'FAILED': 'Failed',
-            'TIMEOUT': 'Timeout'
+            'ROLLED_BACK': 'Rolled Back'
         };
         return statusMap[status] || status;
     }
     
-    // Mock actions - these would be connected to real API calls in a real implementation
+    // Mock action handlers
     function viewWaveDetails(waveId) {
-        console.log(`View details for wave ${waveId}`);
+        console.log(`View wave details ${waveId}`);
     }
     
     function startWave(waveId) {
@@ -124,150 +118,162 @@
     function pauseWave(waveId) {
         console.log(`Pause wave ${waveId}`);
     }
+    
+    // Select a wave and emit the event
+    function selectWave(waveId) {
+        selectedWaveId = waveId;
+        const selectedWave = mockWaves.find(wave => wave.id === waveId);
+        dispatch('selectWave', { wave: selectedWave });
+    }
 </script>
 
 <AdminCard>
-    <svelte:fragment slot="header">
-        <div class="flex justify-between items-center">
-            <div>
-                <h3 class="text-lg font-medium">Deployment Waves</h3>
-                <p class="text-sm text-muted-foreground">Waves are created when a bundle is published and cannot be modified afterward</p>
-            </div>
-            <!-- <Button variant="outline" size="sm" class="h-8" disabled>
-                <Plus class="h-4 w-4 mr-2" />
-                Add Wave
-            </Button> -->
-        </div>
-    </svelte:fragment>
-    
+    <svelte:fragment slot="title">Deployment Waves</svelte:fragment>
+    <svelte:fragment slot="description">Manage deployment waves for this bundle</svelte:fragment>
     {#if loading}
         <div class="space-y-4">
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-24 w-full" />
-            <Skeleton class="h-24 w-full" />
-        </div>
-    {:else if mockWaves.length === 0}
-        <div class="py-8 text-center">
-            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <Calendar class="h-6 w-6 text-muted-foreground" />
+            <div class="flex justify-between">
+                <Skeleton class="h-8 w-1/4" />
+                <Skeleton class="h-8 w-1/4" />
             </div>
-            <h3 class="mt-4 text-lg font-medium">No waves created</h3>
-            <p class="mt-2 text-sm text-muted-foreground">
-                Waves will be created when this bundle is published
-            </p>
+            <Skeleton class="h-4 w-full" />
+            <div class="space-y-2">
+                {#each Array(3) as _}
+                    <Skeleton class="h-12 w-full" />
+                {/each}
+            </div>
+        </div>
+    {:else if empty}
+        <div class="py-8 text-center">
+            <div>
+                <h3 class="mt-4 text-lg font-medium">No waves created</h3>
+                <p class="mt-2 text-sm text-muted-foreground">
+                    Waves will be created when this bundle is published
+                </p>
+            </div>
         </div>
     {:else}
         <div class="space-y-6">
             <!-- Summary metrics -->
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                <div class="bg-muted/30 p-3 rounded-md">
-                    <div class="text-xs text-muted-foreground mb-1">Total</div>
-                    <div class="text-xl font-medium">{mockWaves.length}</div>
-                </div>
+            <div class="grid grid-cols-3 gap-4 md:grid-cols-5">
+                <Card>
+                    <CardContent class="p-4 text-center">
+                        <p class="text-xs font-medium uppercase text-muted-foreground">Total</p>
+                        <p class="text-2xl font-bold">{mockWaves.length}</p>
+                    </CardContent>
+                </Card>
                 
-                <div class="bg-muted/30 p-3 rounded-md">
-                    <div class="text-xs text-muted-foreground mb-1">Completed</div>
-                    <div class="text-xl font-medium text-success">{mockWaves.filter(w => w.status === 'COMPLETED').length}</div>
-                </div>
+                <Card>
+                    <CardContent class="p-4 text-center">
+                        <p class="text-xs font-medium uppercase text-muted-foreground">Completed</p>
+                        <p class="text-2xl font-bold text-green-600">{mockWaves.filter(w => w.status === 'COMPLETED').length}</p>
+                    </CardContent>
+                </Card>
                 
-                <div class="bg-muted/30 p-3 rounded-md">
-                    <div class="text-xs text-muted-foreground mb-1">In Progress</div>
-                    <div class="text-xl font-medium">{mockWaves.filter(w => w.status === 'IN_PROGRESS').length}</div>
-                </div>
+                <Card>
+                    <CardContent class="p-4 text-center">
+                        <p class="text-xs font-medium uppercase text-muted-foreground">In Progress</p>
+                        <p class="text-2xl font-bold text-blue-600">{mockWaves.filter(w => w.status === 'IN_PROGRESS').length}</p>
+                    </CardContent>
+                </Card>
                 
-                <div class="bg-muted/30 p-3 rounded-md">
-                    <div class="text-xs text-muted-foreground mb-1">Timeout</div>
-                    <div class="text-xl font-medium text-warning">{mockWaves.filter(w => w.status === 'TIMEOUT').length}</div>
-                </div>
+                <Card>
+                    <CardContent class="p-4 text-center">
+                        <p class="text-xs font-medium uppercase text-muted-foreground">Failed</p>
+                        <p class="text-2xl font-bold text-red-600">{mockWaves.filter(w => w.status === 'FAILED').length}</p>
+                    </CardContent>
+                </Card>
                 
-                <div class="bg-muted/30 p-3 rounded-md">
-                    <div class="text-xs text-muted-foreground mb-1">Failed</div>
-                    <div class="text-xl font-medium text-destructive">{mockWaves.filter(w => w.status === 'FAILED').length}</div>
-                </div>
+                <Card>
+                    <CardContent class="p-4 text-center">
+                        <p class="text-xs font-medium uppercase text-muted-foreground">Rolled Back</p>
+                        <p class="text-2xl font-bold text-yellow-600">{mockWaves.filter(w => w.status === 'ROLLED_BACK').length}</p>
+                    </CardContent>
+                </Card>
             </div>
             
             <!-- Waves table -->
             <div class="rounded-md border">
-                <table class="w-full">
-                    <thead>
-                        <tr class="bg-muted/50">
-                            <th class="p-3 text-left text-sm font-medium text-muted-foreground">Wave Name</th>
-                            <th class="p-3 text-left text-sm font-medium text-muted-foreground">Status</th>
-                            <th class="p-3 text-left text-sm font-medium text-muted-foreground">Devices</th>
-                            <th class="p-3 text-left text-sm font-medium text-muted-foreground">Progress</th>
-                            <th class="p-3 text-left text-sm font-medium text-muted-foreground">Start Time</th>
-                            <th class="p-3 text-left text-sm font-medium text-muted-foreground">End Time</th>
-                            <th class="p-3 text-right text-sm font-medium text-muted-foreground">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Wave Name</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Devices</TableHead>
+                            <TableHead>Progress</TableHead>
+                            <TableHead>Start Time</TableHead>
+                            <TableHead>End Time</TableHead>
+                            <TableHead class="text-right">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
                         {#each mockWaves as wave (wave.id)}
-                            <tr class="border-t hover:bg-muted/50">
-                                <td class="p-3">
-                                    <div class="text-sm font-medium">{wave.name}</div>
-                                    <div class="text-xs text-muted-foreground">
-                                        <RelativeDate date={wave.createdAt} />
-                                    </div>
-                                </td>
-                                <td class="p-3">
+                            <TableRow 
+                                class="cursor-pointer {selectedWaveId === wave.id ? 'bg-muted/70' : ''}"
+                                on:click={() => selectWave(wave.id)}
+                            >
+                                <TableCell>
+                                    <div class="font-medium">{wave.name}</div>
+                                </TableCell>
+                                <TableCell>
                                     <Badge variant={getStatusVariant(wave.status)}>
                                         {getStatusDisplay(wave.status)}
                                     </Badge>
-                                </td>
-                                <td class="p-3">
-                                    <div class="text-sm">
+                                </TableCell>
+                                <TableCell>
+                                    <div>
                                         {wave.devicesCompleted}/{wave.devicesTotal}
                                         {#if wave.devicesFailed > 0}
-                                            <span class="text-destructive text-sm ml-1">
+                                            <span class="text-destructive ml-1">
                                                 ({wave.devicesFailed} failed)
                                             </span>
                                         {/if}
                                     </div>
-                                </td>
-                                <td class="p-3 w-40">
-                                    <div class="space-y-1">
+                                </TableCell>
+                                <TableCell>
+                                    <div class="w-[100px] space-y-1">
                                         <Progress value={wave.progress} />
                                         <div class="text-xs text-muted-foreground text-right">{wave.progress}%</div>
                                     </div>
-                                </td>
-                                <td class="p-3 text-sm">
+                                </TableCell>
+                                <TableCell>
                                     {formatDate(wave.startTime)}
-                                </td>
-                                <td class="p-3 text-sm">
+                                </TableCell>
+                                <TableCell>
                                     {formatDate(wave.endTime)}
-                                </td>
-                                <td class="p-3">
-                                    <div class="flex justify-end">
-                                        <RecordActions 
-                                            actions={[
-                                                {
-                                                    label: 'View Details',
-                                                    onClick: () => viewWaveDetails(wave.id)
-                                                },
-                                                ...(wave.status === 'PENDING' ? [{
-                                                    label: 'Start Wave',
-                                                    icon: Play,
-                                                    onClick: () => startWave(wave.id)
-                                                }] : []),
-                                                ...(wave.status === 'IN_PROGRESS' ? [{
-                                                    label: 'Pause Wave',
-                                                    icon: Pause,
-                                                    onClick: () => pauseWave(wave.id)
-                                                }] : []),
-                                                ...(wave.status === 'FAILED' ? [{
-                                                    label: 'View Errors',
-                                                    icon: AlertCircle,
-                                                    variant: 'destructive',
-                                                    onClick: () => viewWaveDetails(wave.id)
-                                                }] : [])
-                                            ]}
-                                        />
+                                </TableCell>
+                                <TableCell class="text-right">
+                                    <div class="flex justify-end space-x-2">
+                                        <button 
+                                            class="text-sm text-blue-600 hover:underline" 
+                                            on:click|stopPropagation={() => viewWaveDetails(wave.id)}
+                                        >
+                                            View
+                                        </button>
+                                        
+                                        {#if wave.status === 'PENDING'}
+                                            <button 
+                                                class="text-sm text-green-600 hover:underline" 
+                                                on:click|stopPropagation={() => startWave(wave.id)}
+                                            >
+                                                Start
+                                            </button>
+                                        {/if}
+                                        
+                                        {#if wave.status === 'IN_PROGRESS'}
+                                            <button 
+                                                class="text-sm text-yellow-600 hover:underline" 
+                                                on:click|stopPropagation={() => pauseWave(wave.id)}
+                                            >
+                                                Pause
+                                            </button>
+                                        {/if}
                                     </div>
-                                </td>
-                            </tr>
+                                </TableCell>
+                            </TableRow>
                         {/each}
-                    </tbody>
-                </table>
+                    </TableBody>
+                </Table>
             </div>
         </div>
     {/if}

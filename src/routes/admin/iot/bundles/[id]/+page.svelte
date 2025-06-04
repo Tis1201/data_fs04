@@ -51,9 +51,13 @@
     import AppSelector from "./components/app_select/AppSelector.svelte";
     import BundleDeviceComponent from "./components/bundle_device/BundleDeviceComponent.svelte";
     import WaveComponent from "./components/waves/WaveComponent.svelte";
+    import BundleDeviceProgressComponent from "./components/bundle_device_progress/BundleDeviceProgressComponent.svelte";
     
     export let data;
     const { bundle } = data;
+
+    // Selected wave for device progress view
+    let selectedWave = null;
     
     // Format date for display
     function formatDate(date) {
@@ -406,47 +410,14 @@
                 <WaveComponent 
                     bundleId={bundle.id}
                     loading={false}
+                    selectedWaveId={selectedWave?.id}
+                    on:selectWave={(event) => selectedWave = event.detail.wave}
                 />
                 
-                <AdminCard>
-                    <svelte:fragment slot="header">
-                        <h3 class="text-lg font-medium">Deployment Progress</h3>
-                        <p class="text-sm text-muted-foreground">Overall deployment status</p>
-                    </svelte:fragment>
-                    
-                    <!-- Overall progress metrics -->
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                        <Card>
-                            <CardHeader class="pb-2">
-                                <CardTitle class="text-sm font-medium">Total Devices</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div class="text-2xl font-bold">{bundle.devices?.length || 0}</div>
-                            </CardContent>
-                        </Card>
-                        
-                        <Card>
-                            <CardHeader class="pb-2">
-                                <CardTitle class="text-sm font-medium">Deployment Progress</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <div class="space-y-2">
-                                    <Progress value={35} />
-                                    <div class="text-xs text-muted-foreground text-right">35%</div>
-                                </div>
-                            </CardContent>
-                        </Card>
-                        
-                        <Card>
-                            <CardHeader class="pb-2">
-                                <CardTitle class="text-sm font-medium">Status</CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                                <Badge variant="default">In Progress</Badge>
-                            </CardContent>
-                        </Card>
-                    </div>
-                </AdminCard>
+                <BundleDeviceProgressComponent
+                    selectedWave={selectedWave}
+                    loading={false}
+                />
             </Tabs.Content>
         </Tabs.Root>
 </AdminPageLayout>
