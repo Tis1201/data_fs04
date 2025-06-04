@@ -1,0 +1,276 @@
+<script lang="ts">
+    import { goto } from "$app/navigation";
+    import { ArrowLeft, Save, FileText, File, Upload } from "lucide-svelte";
+    import { Input } from "$lib/components/ui/input";
+    import { Textarea } from "$lib/components/ui/textarea";
+    
+    // Import the correct AdminPageLayout component with actionButtons support
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
+    import Card from "$lib/components/ui/card/card.svelte";
+    import CardHeader from "$lib/components/ui/card/card-header.svelte";
+    import CardTitle from "$lib/components/ui/card/card-title.svelte";
+    import CardDescription from "$lib/components/ui/card/card-description.svelte";
+    import CardContent from "$lib/components/ui/card/card-content.svelte";
+    // import ActionButton from "$lib/components/admin/layout/ActionButton.svelte";
+    
+    // Import form components
+    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
+    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
+    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
+    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import EnhancedFileUpload from "$lib/components/ui_components_sveltekit/form/EnhancedFileUpload.svelte";
+    
+    import type { PageData } from "./$types";
+    
+    export let data: PageData;
+    const title = "Add IoT Resource";
+
+    // Define breadcrumbs for this page - admin context
+    const pageCrumbs = [
+        ["Dashboard", "/admin"],
+        ["IoT", "/admin/iot"],
+        ["Resources", "/admin/iot/resources"],
+        "Add Resource"
+    ];
+    
+    // Import the reusable form handler and superform tools
+    import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+    import { fileProxy } from 'sveltekit-superforms/client';
+    
+    // Create a form handler with standardized error handling
+    const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
+        successRedirect: '/admin/iot/resources',
+        validateOnInput: true,
+        onSuccess: () => {
+            // Toast is handled by the redirect
+        }
+    });
+    
+    // File upload handling with Superform
+    let uploadError = '';
+    
+    // Create a file proxy for the file field
+    const fileField = fileProxy(form, 'file');
+    
+    // Track uploaded files for display
+    let uploadedFiles: File[] = [];
+    
+    import { browser } from '$app/environment';
+    
+    // Initialize uploadedFiles if fileField already has a value
+    $: {
+        if (browser && $fileField && typeof File !== 'undefined' && $fileField instanceof File) {
+            // Only update if the arrays don't match to avoid infinite loops
+            if (uploadedFiles.length === 0 || uploadedFiles[0] !== $fileField) {
+                uploadedFiles = [$fileField];
+            }
+        } else if (uploadedFiles.length > 0 && $fileField === null) {
+            uploadedFiles = [];
+        }
+    }
+    
+    // Handle file upload from EnhancedFileUpload component
+    function handleFileUpload(event: CustomEvent<{files: File[]}>) {
+        const files = event.detail.files;
+        if (files.length > 0) {
+            const file = files[0]; // Take only the first file
+            
+            // Update both the form field and the display array
+            $fileField = file;
+            uploadedFiles = [file];
+            
+            // Auto-fill form fields based on the file
+            if (!$form.name || $form.name === '') {
+                $form.name = file.name.split('.')[0]; // Use filename without extension
+            }
+            
+            // Set file type based on MIME type
+            const mimeType = file.type;
+            if (mimeType.startsWith('image/')) {
+                $form.type = 'image';
+            } else if (mimeType.startsWith('video/')) {
+                $form.type = 'video';
+            } else if (mimeType.startsWith('text/') || 
+                      mimeType.includes('pdf') || 
+                      mimeType.includes('document') || 
+                      mimeType.includes('spreadsheet') || 
+                      mimeType.includes('presentation')) {
+                $form.type = 'document';
+            } else {
+                $form.type = 'file';
+            }
+            
+            // Set file size
+            $form.size = file.size;
+            
+            // Set path to the filename for now
+            $form.path = file.name;
+        }
+    }
+    
+    // Handle file removal
+    function handleFileRemove() {
+        $fileField = null;
+        uploadedFiles = [];
+        
+        // Clear related form fields
+        if ($form.type === 'image' || $form.type === 'video' || $form.type === 'document' || $form.type === 'file') {
+            $form.path = '';
+        }
+    }
+</script>
+
+<AdminPageLayout
+    {title}
+    crumbs={pageCrumbs}
+    actionButtons={[
+      {
+        label: "Back",
+        icon: ArrowLeft,
+        href: "/admin/iot/resources",
+        variant: "outline",
+        class: "h-9" // Fixed height for consistency
+      },
+      {
+        label: "Save",
+        icon: Save,
+        onClick: () => {
+          if (form) form.requestSubmit();
+        },
+        class: "h-9", // Fixed height for consistency
+        disabled: $submitting
+      }
+    ]}
+    loading={$submitting}
+    compact={true}
+    contentSpacing="space-y-4"
+>
+    <div class="w-full space-y-6">
+            <FormContainer
+                method="POST"
+                action="?/create"
+                enctype="multipart/form-data"
+                {enhance}
+                novalidate
+                errorMessage={$errorMessage}
+            >
+                <AdminCard
+                    title="Upload Resource"
+                    description="Drag and drop a file or paste an image"
+                    icon={Upload}
+                    compact={true}
+                >
+                        <div class="space-y-6">
+                            <FormRow columns={1}>
+                                <FormField id="file" label="File Upload" error={uploadError}>
+                                    <EnhancedFileUpload
+                                        id="file"
+                                        name="file"
+                                        accept="*/*"
+                                        multiple={false}
+                                        files={uploadedFiles}
+                                        on:fileupload={handleFileUpload}
+                                        on:fileremove={handleFileRemove}
+                                        allowPaste={true}
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Upload a file by dragging and dropping, or paste an image directly from clipboard.
+                                    </p>
+                                </FormField>
+                            </FormRow>
+                        </div>
+                </AdminCard>
+                
+                <AdminCard
+                    title="Resource Information"
+                    description="Add a new IoT resource"
+                    icon={File}
+                    compact={true}
+                >
+                        <div class="space-y-6">
+                            <FormRow columns={2}>
+                                <FormField id="name" label="Resource Name" error={$errors.name}>
+                                    <Input
+                                        id="name"
+                                        name="name"
+                                        type="text"
+                                        bind:value={$form.name}
+                                        placeholder="Enter resource name"
+                                        aria-invalid={$errors.name ? 'true' : undefined}
+                                        {...$constraints.name}
+                                    />
+                                </FormField>
+                                
+                                <FormField id="type" label="Resource Type" error={$errors.type}>
+                                    <EnhancedSelect
+                                        id="type"
+                                        name="type"
+                                        bind:value={$form.type}
+                                        placeholder="Select resource type"
+                                        aria-invalid={$errors.type ? 'true' : undefined}
+                                        {...$constraints.type}
+                                        options={data.resourceTypes}
+                                    />
+                                </FormField>
+                            </FormRow>
+
+                            <FormRow columns={2}>
+                                <FormField id="accountId" label="Account" error={$errors.accountId}>
+                                    <EnhancedSelect
+                                        id="accountId"
+                                        name="accountId"
+                                        bind:value={$form.accountId}
+                                        placeholder="Select account"
+                                        aria-invalid={$errors.accountId ? 'true' : undefined}
+                                        options={data.accountOptions}
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Select the account to assign this resource to
+                                    </p>
+                                </FormField>
+
+                                <FormField id="size" label="Size (bytes)" error={$errors.size}>
+                                    <Input
+                                        id="size"
+                                        name="size"
+                                        type="number"
+                                        bind:value={$form.size}
+                                        placeholder="Enter size in bytes"
+                                        min="0"
+                                        aria-invalid={$errors.size ? 'true' : undefined}
+                                        {...$constraints.size}
+                                    />
+                                </FormField>
+                            </FormRow>
+                        </div>
+                </AdminCard>
+                
+                <AdminCard
+                    title="Resource Path"
+                    description="Specify the path or URL for this resource"
+                    icon={FileText}
+                    compact={true}
+                >
+                        <div class="space-y-6">
+                            <FormRow columns={1}>
+                                <FormField id="path" label="Path or URL" error={$errors.path}>
+                                    <Textarea
+                                        id="path"
+                                        name="path"
+                                        bind:value={$form.path}
+                                        placeholder="Enter resource path or URL"
+                                        rows="3"
+                                        aria-invalid={$errors.path ? 'true' : undefined}
+                                        {...$constraints.path}
+                                    />
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Enter the file path or URL where this resource can be accessed.
+                                    </p>
+                                </FormField>
+                            </FormRow>
+                        </div>
+                </AdminCard>
+            </FormContainer>
+        </div>
+</AdminPageLayout>

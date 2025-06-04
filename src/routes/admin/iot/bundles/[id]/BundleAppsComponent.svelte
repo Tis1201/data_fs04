@@ -176,12 +176,11 @@
 </script>
 
 <!-- Bundle Apps Header and Add Button -->
-<div class="flex justify-between items-center mb-4">
+<div class="flex justify-between items-center mb-2">
     <div>
         <h3 class="text-lg font-medium">Bundle Apps</h3>
         <p class="text-sm text-muted-foreground">{apps.length} app{apps.length !== 1 ? 's' : ''} in this bundle</p>
     </div>
-    
     <Button variant="outline" size="sm" on:click={() => addDialogOpen = true}>
         <Plus class="h-4 w-4 mr-2" />
         Add App
@@ -277,35 +276,35 @@
 />
 
 <!-- App List Table -->
-<div class="w-full">
+<div class="w-full mt-1">
     <table class="w-full border-collapse">
         <thead>
             <tr class="border-b">
-                <th class="text-left py-2 px-4 font-medium text-sm">Order</th>
-                <th class="text-left py-2 px-4 font-medium text-sm">App</th>
-                <th class="text-left py-2 px-4 font-medium text-sm">Auto Open</th>
-                <th class="text-left py-2 px-4 font-medium text-sm">Added</th>
-                <th class="text-right py-2 px-4 font-medium text-sm">Actions</th>
+                <th class="text-left py-1.5 px-3 font-medium text-sm">Order</th>
+                <th class="text-left py-1.5 px-3 font-medium text-sm">App</th>
+                <th class="text-left py-1.5 px-3 font-medium text-sm">Auto Open</th>
+                <th class="text-left py-1.5 px-3 font-medium text-sm">Added</th>
+                <th class="text-right py-1.5 px-3 font-medium text-sm">Actions</th>
             </tr>
         </thead>
         <tbody>
             {#if apps.length === 0}
                 <tr>
-                    <td colspan="5" class="py-4 text-center text-muted-foreground">
+                    <td colspan="5" class="py-3 text-center text-muted-foreground">
                         No apps added to this bundle yet
                     </td>
                 </tr>
             {:else}
                 {#each apps as app}
                     <tr class="border-b hover:bg-muted/50">
-                        <td class="py-2 px-4">{app.order}</td>
-                        <td class="py-2 px-4">{app.resource.name}</td>
-                        <td class="py-2 px-4">{app.autoOpen ? 'Yes' : 'No'}</td>
-                        <td class="py-2 px-4">
+                        <td class="py-1.5 px-3">{app.order}</td>
+                        <td class="py-1.5 px-3">{app.resource.name}</td>
+                        <td class="py-1.5 px-3">{app.autoOpen ? 'Yes' : 'No'}</td>
+                        <td class="py-1.5 px-3">
                             <RelativeDate date={app.createdAt} />
                         </td>
-                        <td class="py-2 px-4 text-right">
-                            <div class="flex justify-end space-x-2">
+                        <td class="py-1.5 px-3 text-right">
+                            <div class="flex justify-end space-x-1">
                                 <Button 
                                     variant="ghost" 
                                     size="icon"
