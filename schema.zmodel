@@ -784,6 +784,10 @@ model Bundle {
   // Relationships
   apps        BundleApp[]
   waves       BundleWave[]
+  devices     BundleDevice[]  // Add this line
+  progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
+
+  
 
   // Permission rules
   // Admin has full access to all bundles
@@ -817,6 +821,66 @@ model BundleApp {
   @@index([resourceId])
 }
 
+model BundleDevice {
+  id          String   @id @default(cuid())
+  bundleId    String
+  deviceId    String
+  status      String   @default("PENDING") // "PENDING", "INCLUDED", "EXCLUDED"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+
+  // Relationships
+  bundle      Bundle   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  //device      Device   @relation(fields: [deviceId], references: [id])
+  progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
+
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth().systemRole == 'USER')
+  
+  @@unique([bundleId, deviceId])  // A device can only be in a bundle once
+  @@index([bundleId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+model BundleDeviceProgress {
+  id            String       @id @default(cuid())
+  bundleId      String       // Reference to the bundle
+  waveId        String       // Reference to the wave
+  bundleDeviceId String      // Reference to the BundleDevice entry
+  transactionId String?      // For correlating commands/responses
+  status        String       @default("PENDING") // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK"
+  result        String?      // Detailed installation result
+  errorDetails  String?      // Detailed error information if failed
+  startedAt     DateTime?    // When installation started
+  completedAt   DateTime?    // When installation completed/failed
+  retryCount    Int          @default(0)
+  metadata      String?        // For any additional progress data
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  createdBy     String       // Who initiated this deployment
+  updatedBy     String
+
+  // Relationships
+  bundle        Bundle       @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  wave          BundleWave   @relation(fields: [waveId], references: [id], onDelete: Cascade)
+  bundleDevice  BundleDevice @relation(fields: [bundleDeviceId], references: [id], onDelete: Cascade)
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth().systemRole == 'USER')
+  
+  @@index([bundleId])
+  @@index([waveId])
+  @@index([bundleDeviceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 model BundleWave {
   id          String            @id @default(cuid())
   bundleId    String
@@ -832,8 +896,10 @@ model BundleWave {
 
   // Relationships
   bundle      Bundle            @relation(fields: [bundleId], references: [id])
-  tasks       WaveInstallTask[]
+  progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
 
+
+  
   // Permission rules
   @@allow('all', auth().systemRole == 'ADMIN')
 
@@ -841,30 +907,3 @@ model BundleWave {
   @@index([status])
 }
 
-model WaveInstallTask {
-  id            String     @id @default(cuid())
-  waveId        String
-  deviceId      String
-  transactionId String?    // For correlating commands/responses
-  status        String     // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK"
-  result        String?      // Detailed installation result
-  errorDetails  String?
-  startedAt     DateTime?
-  completedAt   DateTime?
-  retryCount    Int        @default(0)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  createdBy     String
-  updatedBy     String
-
-  // Relationships
-  wave          BundleWave @relation(fields: [waveId], references: [id])
-  
-  // Permission rules
-  @@allow('all', auth().systemRole == 'ADMIN')
-
-  @@unique([waveId, deviceId])  // Ensure one task per device per wave
-  @@index([status])
-  @@index([deviceId])
-  @@index([waveId])
-}

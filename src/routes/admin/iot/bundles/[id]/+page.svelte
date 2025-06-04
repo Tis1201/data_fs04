@@ -14,7 +14,10 @@
         Settings, 
         BarChart3, 
         Activity,
-        Plus
+        Plus,
+
+        Play
+
     } from 'lucide-svelte';
     import { api_post, api_delete } from '$lib/utils/ApiUtils';
     
@@ -44,6 +47,7 @@
     
     // Local Components
     import AppSelector from "./components/app_select/AppSelector.svelte";
+    import BundleDeviceComponent from "./components/bundle_device/BundleDeviceComponent.svelte";
     
     export let data;
     const { bundle } = data;
@@ -207,6 +211,13 @@
         class: "h-9"
       },
       {
+        label: "Publish",
+        icon: Play,
+        onClick: () => goto(`/admin/iot/bundles/${bundle.id}/publish`),
+        variant: "outline",
+        class: "h-9"
+      },
+      {
         label: "Delete",
         icon: Trash2,
         onClick: deleteBundle,
@@ -225,8 +236,13 @@
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Bundle ID</p>
-                    <p class="text-sm font-mono break-all">{bundle.id}</p>
+                    <p class="text-xs text-muted-foreground">Name</p>
+                    <p class="text-sm font-mono break-all">{bundle.name}</p>
+                </div>
+
+                <div class="space-y-1">
+                    <p class="text-xs text-muted-foreground">Description</p>
+                    <p class="text-sm">{bundle.description || 'No description provided'}</p>
                 </div>
                 
                 <div class="space-y-1">
@@ -238,15 +254,7 @@
                     </div>
                 </div>
                 
-                <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Account</p>
-                    <p class="text-sm">{bundle.account?.name || 'Not assigned'}</p>
-                </div>
                 
-                <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">OS & Version</p>
-                    <p class="text-sm">{bundle.os} {bundle.version}</p>
-                </div>
                 
                 <div class="space-y-1">
                     <p class="text-xs text-muted-foreground">Scheduled For</p>
@@ -256,6 +264,11 @@
                 <div class="space-y-1">
                     <p class="text-xs text-muted-foreground">Wave Size</p>
                     <p class="text-sm">{bundle.waveSize || 'Not specified'}</p>
+                </div>
+
+                <div class="space-y-1">
+                    <p class="text-xs text-muted-foreground">Waves</p>
+                    <p class="text-sm">{wavesCount} wave{wavesCount !== 1 ? 's' : ''} of 10</p>
                 </div>
                 
                 <div class="space-y-1">
@@ -268,15 +281,16 @@
                     <p class="text-sm">{bundle.devices?.length || 0} device{(bundle.devices?.length || 0) !== 1 ? 's' : ''}</p>
                 </div>
                 
-                <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Waves</p>
-                    <p class="text-sm">{wavesCount} wave{wavesCount !== 1 ? 's' : ''}</p>
-                </div>
+               
+
+                
 
             </div>
             <svelte:fragment slot="footer">
                 <MetadataFooter
                     items={[
+                        { label: "ID", value: bundle.id },
+                        // { label: "Reboot", value: bundle.reboot ? 'Yes' : 'No'},
                         { label: 'Created', date: bundle.createdAt, icon: 'calendar' },
                         { label: 'Updated', date: bundle.updatedAt, icon: 'clock' }
                     ]}
@@ -299,74 +313,6 @@
             
             <!-- Bundle Info Tab -->
             <Tabs.Content value="info" class="space-y-6">
-                <!-- Bundle Details -->
-                <AdminCard>
-                    <svelte:fragment slot="header">
-                        <h3 class="text-lg font-medium">Bundle Details</h3>
-                        <p class="text-sm text-muted-foreground">Basic information</p>
-                    </svelte:fragment>
-                    
-                    <div class="space-y-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="space-y-1">
-                                <p class="text-xs text-muted-foreground">Name</p>
-                                <p class="text-sm">{bundle.name}</p>
-                            </div>
-                            
-                            <div class="space-y-1">
-                                <p class="text-xs text-muted-foreground">Description</p>
-                                <p class="text-sm">{bundle.description || 'No description'}</p>
-                            </div>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="space-y-1">
-                                <p class="text-xs text-muted-foreground">Wave Size</p>
-                                <p class="text-sm">{bundle.waveSize || 'Not specified'}</p>
-                            </div>
-                            
-                            <div class="space-y-1">
-                                <p class="text-xs text-muted-foreground">Update Strategy</p>
-                                <p class="text-sm">{bundle.updateStrategy || 'Not specified'}</p>
-                            </div>
-                        </div>
-                        
-                        <div class="p-3 rounded-md bg-muted/50">
-                            <h4 class="text-sm font-medium mb-2">Device Behavior</h4>
-                            <div class="space-y-3">
-                                <div class="flex items-center justify-between">
-                                    <Label>Reboot Device</Label>
-                                    <div>{bundle.reboot ? 'Yes' : 'No'}</div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="p-3 rounded-md bg-muted/50">
-                            <h4 class="text-sm font-medium mb-2">Scheduling</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div class="space-y-1">
-                                    <p class="text-xs text-muted-foreground">Schedule Date</p>
-                                    <p class="text-sm">{formatDate(bundle.scheduledAt)}</p>
-                                </div>
-                                
-                                <div class="space-y-1">
-                                    <p class="text-xs text-muted-foreground">Schedule Time</p>
-                                    <p class="text-sm">{bundle.scheduledTime || 'Not specified'}</p>
-                                </div>
-                                
-                                <div class="space-y-1">
-                                    <p class="text-xs text-muted-foreground">Timezone</p>
-                                    <p class="text-sm">{bundle.scheduledAtTimezone || 'Not specified'}</p>
-                                </div>
-                                
-                                <div class="space-y-1">
-                                    <p class="text-xs text-muted-foreground">Start If Missed</p>
-                                    <p class="text-sm">{bundle.scheduledAtStartIfMissed ? 'Yes' : 'No'}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </AdminCard>
                 
                 <!-- Bundle Apps -->
                 <AdminCard>
@@ -439,15 +385,16 @@
                 
                 <!-- Selected Devices -->
                 <AdminCard>
-                    <svelte:fragment slot="header">
+                    <!-- <svelte:fragment slot="header">
                         <h3 class="text-lg font-medium">Selected Devices</h3>
                         <p class="text-sm text-muted-foreground">Devices targeted by this bundle</p>
-                    </svelte:fragment>
+                    </svelte:fragment> -->
                     
-                    <!-- Device list would go here -->
-                    <div class="py-4 text-center text-muted-foreground">
-                        No devices selected yet
-                    </div>
+                    <BundleDeviceComponent 
+                        bundleId={data.bundle.id}
+                        devices={data.bundleDevices || []}
+                        loading={false}
+                    />
                 </AdminCard>
             </Tabs.Content>
             

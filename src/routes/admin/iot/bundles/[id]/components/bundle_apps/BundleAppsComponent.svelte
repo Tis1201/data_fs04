@@ -17,7 +17,7 @@
     import { page } from "$app/stores";
     
     import type { BundleApp } from "@prisma/client";
-    import AppSelector from "./components/app_select/AppSelector.svelte";
+    import AppSelector from "../app_select/AppSelector.svelte";
     
     export let bundleId: string;
     export let apps: (BundleApp & { resource: { name: string, id: string } })[] = [];
