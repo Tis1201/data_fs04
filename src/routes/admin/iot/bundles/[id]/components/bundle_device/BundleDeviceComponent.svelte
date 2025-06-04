@@ -7,7 +7,12 @@
     import { Button } from "$lib/components/ui/button";
     import { Badge } from "$lib/components/ui/badge";
     import * as Dialog from "$lib/components/ui/dialog";
-    import { Trash, Plus, Smartphone, Wifi, WifiOff, Info, ArrowUpDown } from 'lucide-svelte';
+    import * as Popover from "$lib/components/ui/popover";
+    import * as Select from "$lib/components/ui/select";
+    import { Checkbox } from "$lib/components/ui/checkbox";
+    import { Label } from "$lib/components/ui/label";
+    import { Separator } from "$lib/components/ui/separator";
+    import { Trash, Plus, Smartphone, Wifi, WifiOff, Info, ArrowUpDown, Filter, Check, X } from 'lucide-svelte';
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import { Skeleton } from "$lib/components/ui/skeleton";
@@ -76,15 +81,77 @@
     // Use sample data for demonstration
     $: displayDevices = devices.length > 0 ? devices : sampleDevices;
     
-    // Search functionality
+    // Filter state
     let searchTerm = '';
-    $: filteredDevices = searchTerm ? 
-        displayDevices.filter(d => 
+    let filterOpen = false;
+    let filters = {
+        status: {
+            PENDING: false,
+            INCLUDED: false,
+            EXCLUDED: false
+        },
+        deviceStatus: {
+            ONLINE: false,
+            OFFLINE: false
+        },
+        model: {}
+    };
+    
+    // Extract unique models for filtering
+    $: {
+        const modelSet = new Set();
+        displayDevices.forEach(d => {
+            if (d.device.model) {
+                modelSet.add(d.device.model);
+                if (filters.model[d.device.model] === undefined) {
+                    filters.model[d.device.model] = false;
+                }
+            }
+        });
+    }
+    
+    // Check if any filters are active
+    $: activeFilters = Object.values(filters.status).some(v => v) || 
+                       Object.values(filters.deviceStatus).some(v => v) || 
+                       Object.values(filters.model).some(v => v);
+    
+    // Apply filters
+    $: filteredDevices = displayDevices.filter(d => {
+        // Text search filter
+        const matchesSearch = !searchTerm || 
             d.device.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             d.device.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            d.status.toLowerCase().includes(searchTerm.toLowerCase())
-        ) : 
-        displayDevices;
+            d.status.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        if (!matchesSearch) return false;
+        
+        // If no filters are active, show all
+        if (!activeFilters) return true;
+        
+        // Status filter
+        const statusFiltersActive = Object.values(filters.status).some(v => v);
+        const matchesStatus = !statusFiltersActive || filters.status[d.status];
+        
+        // Device status filter
+        const deviceStatusFiltersActive = Object.values(filters.deviceStatus).some(v => v);
+        const matchesDeviceStatus = !deviceStatusFiltersActive || 
+            (d.device.status && filters.deviceStatus[d.device.status]);
+        
+        // Model filter
+        const modelFiltersActive = Object.values(filters.model).some(v => v);
+        const matchesModel = !modelFiltersActive || 
+            (d.device.model && filters.model[d.device.model]);
+        
+        return matchesStatus && matchesDeviceStatus && matchesModel;
+    });
+    
+    // Reset all filters
+    function resetFilters() {
+        Object.keys(filters.status).forEach(key => filters.status[key] = false);
+        Object.keys(filters.deviceStatus).forEach(key => filters.deviceStatus[key] = false);
+        Object.keys(filters.model).forEach(key => filters.model[key] = false);
+        filterOpen = false;
+    }
     
     // Sorting functionality
     let sortField = 'device.name';
@@ -224,14 +291,14 @@
         <h3 class="text-lg font-medium">Bundle Devices</h3>
         <p class="text-sm text-muted-foreground">{filteredDevices.length} device{filteredDevices.length !== 1 ? 's' : ''} in this bundle</p>
     </div>
-    <Button variant="outline" size="sm" on:click={() => addDialogOpen = true}>
+    <!-- <Button variant="outline" size="sm" on:click={() => addDialogOpen = true}>
         <Plus class="h-4 w-4 mr-2" />
         Add Device
-    </Button>
+    </Button> -->
 </div>
 
 <!-- Search and Filter Bar -->
-<div class="flex items-center space-x-2 mb-4">
+<!-- <div class="flex items-center space-x-2 mb-4">
     <div class="relative flex-1">
         <Search class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input 
@@ -241,7 +308,7 @@
             bind:value={searchTerm}
         />
     </div>
-</div>
+</div> -->
 
 <!-- Device Selector Dialog -->
 <DeviceSelector 
@@ -260,7 +327,7 @@
 />
 
 <!-- Device List Table -->
-<div class="w-full mt-1 border rounded-md overflow-hidden">
+<!-- <div class="w-full mt-1 border rounded-md overflow-hidden"> -->
     {#if loading}
         <div class="space-y-2 p-4">
             <Skeleton class="h-8 w-full" />
@@ -268,6 +335,126 @@
             <Skeleton class="h-8 w-full" />
         </div>
     {:else}
+        <div class="flex justify-between items-center mb-4">
+            <div class="relative w-72">
+                <Search class="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    type="search" 
+                    placeholder="Search devices..." 
+                    class="pl-8 w-full" 
+                    bind:value={searchTerm}
+                />
+            </div>
+            <div class="flex items-center gap-2">
+                <Popover.Root bind:open={filterOpen}>
+                    <Popover.Trigger>
+                        <div>
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                class="flex items-center gap-1 {activeFilters ? 'bg-primary/10 border-primary' : ''}"
+                            >
+                                <Filter class="h-4 w-4" />
+                                Filter
+                                {#if activeFilters}
+                                    <Badge variant="secondary" class="ml-1 h-5 px-1">
+                                        {Object.values(filters.status).filter(v => v).length + 
+                                         Object.values(filters.deviceStatus).filter(v => v).length +
+                                         Object.values(filters.model).filter(v => v).length}
+                                    </Badge>
+                                {/if}
+                            </Button>
+                        </div>
+                    </Popover.Trigger>
+                    <Popover.Content class="w-80 p-0" align="end">
+                        <div class="p-4 pb-0">
+                            <h4 class="font-medium leading-none mb-2">Filter Devices</h4>
+                            <p class="text-sm text-muted-foreground">Select options to filter the device list.</p>
+                        </div>
+                        
+                        <div class="p-4">
+                    <h5 class="text-sm font-medium mb-2">Bundle Status</h5>
+                    <div class="grid grid-cols-1 gap-2">
+                        {#each Object.keys(filters.status) as status}
+                            <div class="flex items-center space-x-2">
+                                <Checkbox 
+                                    id="status-{status}" 
+                                    bind:checked={filters.status[status]} 
+                                />
+                                <Label for="status-{status}" class="text-sm font-normal">
+                                    {status === 'INCLUDED' ? 'Included' : 
+                                     status === 'EXCLUDED' ? 'Excluded' : 'Pending'}
+                                </Label>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+                
+                <Separator />
+                
+                <div class="p-4">
+                    <h5 class="text-sm font-medium mb-2">Device Status</h5>
+                    <div class="grid grid-cols-1 gap-2">
+                        {#each Object.keys(filters.deviceStatus) as status}
+                            <div class="flex items-center space-x-2">
+                                <Checkbox 
+                                    id="device-status-{status}" 
+                                    bind:checked={filters.deviceStatus[status]} 
+                                />
+                                <Label for="device-status-{status}" class="text-sm font-normal">
+                                    {status === 'ONLINE' ? 'Online' : 'Offline'}
+                                </Label>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+                
+                {#if Object.keys(filters.model).length > 0}
+                    <Separator />
+                    <div class="p-4">
+                        <h5 class="text-sm font-medium mb-2">Device Model</h5>
+                        <div class="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
+                            {#each Object.keys(filters.model) as model}
+                                <div class="flex items-center space-x-2">
+                                    <Checkbox 
+                                        id="model-{model}" 
+                                        bind:checked={filters.model[model]} 
+                                    />
+                                    <Label for="model-{model}" class="text-sm font-normal">
+                                        {model}
+                                    </Label>
+                                </div>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+                
+                <div class="flex items-center justify-between p-4 pt-0">
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        on:click={resetFilters}
+                        disabled={!activeFilters}
+                    >
+                        Reset
+                    </Button>
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        on:click={() => filterOpen = false}
+                    >
+                        <Check class="h-4 w-4 mr-1" /> Apply
+                    </Button>
+                </div>
+            </Popover.Content>
+                </Popover.Root>
+                <Button on:click={() => showDeviceSelector = true} variant="outline" class="flex items-center gap-1">
+                    <Plus class="h-4 w-4" />
+                    Add Device
+                </Button>
+            </div>
+        </div>
+
         <table class="w-full border-collapse">
             <thead>
                 <tr class="border-b bg-muted/50">
@@ -390,4 +577,4 @@
             </tbody>
         </table>
     {/if}
-</div>
+<!-- </div> -->
