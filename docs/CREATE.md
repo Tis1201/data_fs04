@@ -10,104 +10,282 @@ admin/
     new/
       +page.svelte      # Create form component
       +page.server.ts   # Form handling and data submission
+      +types.ts         # TypeScript types and schemas (optional)
 ```
 
 ## 1. Server-side Implementation (+page.server.ts)
 
-### Schema Definition
+### Required Imports
+
 ```typescript
-// $lib/schemas/your-entity.ts
+import { fail, error } from '@sveltejs/kit';
+import type { PageServerLoad, Actions } from './$types';
+import { superValidate, message } from 'sveltekit-superforms/server';
+import { zod } from 'sveltekit-superforms/adapters';
+import { restrict } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
+import { logger } from '$lib/server/logger';
+import { handleFormError } from '$lib/server/errors/errorHandlers';
+import { FormValidationError } from '$lib/server/errors/FormValidationError';
+import { createSuccessResponse } from '$lib/types/api';
+import { yourEntitySchema } from './types';  // Or from shared schema file
+```
+
+### Schema Definition
+
+Define your schema in a separate file (recommended) or at the top of your server file:
+
+```typescript
+// File: ./types.ts or $lib/schemas/your-entity.ts
 import { z } from 'zod';
 
 export const yourEntitySchema = z.object({
   name: z.string().min(1, 'Name is required'),
   description: z.string().optional(),
-  // Add other fields as needed
+  // Add other fields with proper validation
+  status: z.enum(['DRAFT', 'PUBLISHED']).default('DRAFT'),
+  // Example of date validation
+  scheduledAt: z.string().datetime().optional(),
+  // Example of number validation with constraints
+  waveSize: z.number().int().min(1).default(100),
+  // Example of boolean with default
+  isActive: z.boolean().default(true)
 });
+
+export type YourEntitySchema = typeof yourEntitySchema;
 ```
 
 ### Server Load Function
+
+The load function is used to initialize the form with default values and load any related data needed for the form.
+
 ```typescript
-import { superValidate } from 'sveltekit-superforms/server';
-import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
-import { yourEntitySchema } from '$lib/schemas/your-entity';
-
 export const load = restrict(
-  async ({ locals }) => {
-    // Initialize form with defaults
-    const form = await superValidate(zod(yourEntitySchema), {
-      defaults: {
-        name: '',
-        description: ''
-      }
-    });
+    async ({ locals, auth }) => {  // auth is provided by the restrict guard
+        try {
+            // Create a form with default values
+            const form = await superValidate(zod(yourEntitySchema), {
+                id: 'your-entity-form',
+                defaults: {
+                    name: '',
+                    description: '',
+                    // Set other default values
+                }
+            });
+            
+            // Get the authenticated user from the enhanced event
+            const userInfo = auth.user;
+            
+            // Example: Load related data (e.g., account memberships)
+            const relatedData = await locals.prisma.someRelatedModel.findMany({
+                where: { userId: userInfo.id },
+                select: { id: true, name: true }
+            });
+            
+            return { 
+                form,
+                relatedData,
+                // Include any other data needed by the form
+            };
+        } catch (err) {
+            // Log the error and return a user-friendly message
+            logger.error(`Error loading form: ${JSON.stringify(err)}`);
+            throw error(500, 'Failed to load form');
+        }
+    },
+    [SystemRole.ADMIN]  // Restrict to admin users
+) satisfies PageServerLoad;
 
-    // Load any related data needed for the form
-    const relatedData = await locals.prisma.relatedModel.findMany();
+### Form Action Handler
 
-    return { form, relatedData };
-  },
-  [SystemRole.ADMIN]
-);
+The form action handles form submissions, validates input, and creates/updates the resource.
+
+```typescript
+export const actions: Actions = {
+    create: restrict(
+        async ({ request, locals, auth }) => {
+            // Validate the form data
+            const form = await superValidate(request, zod(yourEntitySchema));
+            
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+            
+            try {
+                // Get the authenticated user from the enhanced event
+                const userInfo = auth.user;
+                
+                // Example: Look up related data if needed
+                let relatedId = form.data.someRelatedId;
+                if (!relatedId) {
+                    // Handle case where related ID is required but not provided
+                    const defaultRelated = await locals.prisma.someRelatedModel.findFirst({
+                        where: { userId: userInfo.id },
+                        select: { id: true }
+                    });
+                    
+                    if (!defaultRelated) {
+                        throw new FormValidationError(
+                            'No related item available',
+                            'NO_RELATED_ITEM',
+                            400
+                        );
+                    }
+                    relatedId = defaultRelated.id;
+                }
+
+                // Create the new record
+                const newRecord = await locals.prisma.yourModel.create({
+                    data: {
+                        name: form.data.name,
+                        description: form.data.description || null,
+                        // Map other fields
+                        status: 'DRAFT',
+                        createdBy: userInfo.id,
+                        updatedBy: userInfo.id,
+                        // Add relationships if needed
+                        relatedId: relatedId
+                    }
+                });
+
+                logger.info(`Created new record: ${newRecord.id}`);
+                
+                // Return success response with the new record's data
+                return message(
+                    form,
+                    createSuccessResponse('Record created successfully!', {
+                        details: `Record '${newRecord.name}' has been created.`,
+                        data: {
+                            id: newRecord.id,
+                            name: newRecord.name,
+                            // Include other fields needed by the client
+                        }
+                    })
+                );
+                
+            } catch (err) {
+                // Handle any errors that occur during creation
+                return handleFormError({
+                    error: err,
+                    form,
+                    prisma: locals.prisma,
+                    defaultMessage: 'Failed to create record. Please try again later.',
+                    action: 'create'
+                });
+            }
+        },
+        [SystemRole.ADMIN]  // Restrict to admin users
+    )
+};
 ```
 
-### Form Action
-```typescript
-export const actions = {
-  default: restrict(
-    async ({ request, locals }) => {
-      const form = await superValidate(request, zod(yourEntitySchema));
-      
-      if (!form.valid) {
-        return fail(400, { form });
-      }
+## Best Practices
 
-      try {
-        const auth = await locals.auth.validate();
-        if (!auth?.user) {
-          // Throw a FormValidationError that will be caught and handled by handleFormError
-          throw new FormValidationError(
-            'You must be logged in to perform this action',
-            'AUTH_REQUIRED',
-            401
-          );
+### Error Handling
+
+1. **Use FormValidationError** for expected validation errors
+2. **Use handleFormError** for consistent error responses
+3. **Log errors** with appropriate context
+4. **Provide user-friendly messages** while keeping sensitive details in logs
+
+### Security
+
+1. **Always use the restrict guard** to enforce authentication and authorization
+2. **Never trust client input** - validate all data
+3. **Use Prisma's select** to limit returned fields
+4. **Sanitize user input** before displaying it
+
+### Performance
+
+1. **Only select needed fields** from the database
+2. **Use pagination** for large data sets
+3. **Consider caching** frequently accessed data
+4. **Use transactions** for multiple related operations
+
+### Code Organization
+
+1. **Keep schemas separate** from route handlers
+2. **Use TypeScript** for type safety
+3. **Document complex logic** with comments
+4. **Follow consistent naming conventions**
+
+## Example: Complete Implementation
+
+For a complete working example, refer to the bundle creation implementation in:
+
+```
+src/routes/admin/iot/bundles/new/+page.server.ts
+```
+
+This implementation demonstrates all the patterns and best practices outlined in this guide.
+                    // Set default values here
+                }
+            });
+            
+            return { form };
+        } catch (err) {
+            logger.error(`Error loading form: ${JSON.stringify(err)}`);
+            throw error(500, 'Failed to load form');
         }
-
-        // Create the record
-        const record = await locals.prisma.yourEntity.create({
-          data: {
-            ...form.data,
-            createdById: auth.user.id
-          }
-        });
-
-        // Return success response with detailed message and data
-        return message(
-          form,
-          createSuccessResponse('Resource created successfully!', {
-            details: `Resource '${record.name}' has been created.`,
-            data: {
-              id: record.id,
-              // Include other relevant fields that might be needed after creation
-              ...(record.name && { name: record.name }),
-              ...(record.createdAt && { createdAt: record.createdAt })
-            }
-          })
-        );
-      } catch (err) {
-        return handleFormError({
-          error: err,
-          form,
-          prisma: locals.prisma,
-          defaultMessage: 'Failed to create resource',
-          action: 'create'
-        });
-      }
     },
-    [SystemRole.ADMIN]
-  )
+    [SystemRole.ADMIN] // Only allow admin role to access this route
+) satisfies PageServerLoad;
+```
+
+### Form Action with Enhanced Event
+
+**Best Practice**: Use the enhanced event from the restrict guard to access the authenticated user.
+
+```typescript
+export const actions: Actions = {
+    create: restrict(
+        async ({ request, locals, auth }) => { // Use auth from enhanced event
+            // Validate the form data
+            const form = await superValidate(request, zod(yourEntitySchema));
+            
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+            
+            try {
+                // Get authenticated user directly from the enhanced event
+                const userInfo = auth.user; // No need to re-validate auth
+                
+                // Create the entity
+                const entity = await locals.prisma.yourEntity.create({
+                    data: {
+                        // Your entity fields
+                        createdBy: userInfo.id,
+                        updatedBy: userInfo.id
+                    }
+                });
+                
+                // Return standardized success response
+                return message(
+                    form,
+                    createSuccessResponse('Entity created successfully!', {
+                        details: `Entity '${entity.name}' has been created.`,
+                        data: {
+                            id: entity.id,
+                            name: entity.name,
+                            // Include other relevant fields
+                        }
+                    })
+                );
+            } catch (err) {
+                // Use the handleFormError utility for standardized error handling
+                return handleFormError({
+                    error: err,
+                    form,
+                    prisma: locals.prisma,
+                    defaultMessage: 'Failed to create entity. Please try again later.',
+                    action: 'entity creation'
+                });
+            }
+        },
+        [SystemRole.ADMIN] // Only allow admin role to access this action
+    )
+};
 };
 ```
 

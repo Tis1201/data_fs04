@@ -364,17 +364,23 @@ model InvitationToken {
 }
 
 model Resource {
-  id        String   @id() @default(cuid())
-  name      String
-  type      String
-  path      String
-  size      Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt()
-  createdBy String
-  updatedBy String
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id])
+  id          String      @id() @default(cuid())
+  name        String
+  description String?
+  type        String
+  target      String      @default("user")
+  version     String?     @default("1.0.0")
+  format      String?
+  packageName String?
+  path        String
+  size        Int
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt()
+  createdBy   String
+  updatedBy   String
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id])
+  bundleApps  BundleApp[]
 
   @@index([name])
   @@index([type])
@@ -499,4 +505,116 @@ model UserSessionLog {
   @@index([timestamp])
   @@index([sessionId])
   @@index([accountId])
+}
+
+model Bundle {
+  id                       String                 @id() @default(cuid())
+  name                     String
+  description              String?
+  os                       String
+  reboot                   Boolean                @default(false)
+  status                   String
+  version                  String
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt()
+  cancelAt                 DateTime?
+  createdBy                String
+  updatedBy                String
+  accountId                String?
+  waveSize                 Int                    @default(500)
+  scheduledAt              DateTime?
+  scheduledAtTimezone      String?
+  scheduledAtStartIfMissed Boolean                @default(false)
+  updateStrategy           String?                @default("IMMEDIATE")
+  apps                     BundleApp[]
+  waves                    BundleWave[]
+  devices                  BundleDevice[]
+  progress                 BundleDeviceProgress[]
+
+  @@index([name])
+  @@index([version])
+  @@index([createdBy])
+  @@index([status])
+}
+
+model BundleApp {
+  id         String   @id() @default(cuid())
+  bundleId   String
+  resourceId String
+  order      Int
+  autoOpen   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt()
+  createdBy  String
+  updatedBy  String
+  bundle     Bundle   @relation(fields: [bundleId], references: [id])
+  resource   Resource @relation(fields: [resourceId], references: [id])
+
+  @@index([bundleId])
+  @@index([resourceId])
+}
+
+model BundleDevice {
+  id        String                 @id() @default(cuid())
+  bundleId  String
+  deviceId  String
+  status    String                 @default("PENDING")
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt()
+  createdBy String
+  updatedBy String
+  bundle    Bundle                 @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  progress  BundleDeviceProgress[]
+
+  @@unique([bundleId, deviceId])
+  @@index([bundleId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+model BundleDeviceProgress {
+  id             String       @id() @default(cuid())
+  bundleId       String
+  waveId         String
+  bundleDeviceId String
+  transactionId  String?
+  status         String       @default("PENDING")
+  result         String?
+  errorDetails   String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  retryCount     Int          @default(0)
+  metadata       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt()
+  createdBy      String
+  updatedBy      String
+  bundle         Bundle       @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  wave           BundleWave   @relation(fields: [waveId], references: [id], onDelete: Cascade)
+  bundleDevice   BundleDevice @relation(fields: [bundleDeviceId], references: [id], onDelete: Cascade)
+
+  @@index([bundleId])
+  @@index([waveId])
+  @@index([bundleDeviceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BundleWave {
+  id         String                 @id() @default(cuid())
+  bundleId   String
+  name       String
+  status     String
+  maxDevices Int                    @default(500)
+  startTime  DateTime?
+  endTime    DateTime?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt()
+  createdBy  String
+  updatedBy  String
+  bundle     Bundle                 @relation(fields: [bundleId], references: [id])
+  progress   BundleDeviceProgress[]
+
+  @@index([bundleId])
+  @@index([status])
 }
