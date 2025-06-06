@@ -4,57 +4,82 @@ import { lucia } from '$lib/server/auth/lucia';
 import { PrismaClient } from '@prisma/client';
 import { logSessionActivity } from '$lib/server/session-logger';
 import { logger } from '$lib/server/logger';
+import { terminateBySessionId } from '$lib/server/websocket/WSManager';
 
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
 
+// Helper function to handle async operations that shouldn't block the response
+async function handleAsyncOperations(sessionId: string, userId: string, request: Request, ipAddress: string) {
+    try {
+        // 1) Log the logout event
+        const user = await authPrisma.user.findUnique({
+            where: { id: userId },
+            select: { primaryAccountId: true }
+        }).catch(error => {
+            logger.error('Error fetching user during logout', { error, userId });
+            return null;
+        });
+
+        // 2) Log the session activity
+        logSessionActivity(authPrisma, {
+            userId,
+            action: 'logout',
+            sessionId,
+            ipAddress,
+            userAgent: request.headers.get('user-agent') || undefined,
+            accountId: user?.primaryAccountId || undefined
+        }).catch(error => {
+            logger.error('Error logging session activity', { error, userId });
+        });
+
+        // 3) Terminate WebSocket connections
+        terminateBySessionId(sessionId).then(count => {
+            if (count > 0) {
+                logger.info(`Terminated ${count} WebSocket connections for session ${sessionId}`);
+            }
+        }).catch(error => {
+            logger.error('Error terminating WebSocket connections', { error, sessionId });
+        });
+
+        // 4) Invalidate the session (this should be last as it might affect other operations)
+        lucia.invalidateSession(sessionId).catch(error => {
+            logger.error('Error invalidating session', { error, sessionId });
+        });
+
+        logger.info('User logged out successfully', { userId });
+    } catch (error) {
+        logger.error('Unexpected error during logout', { error, userId });
+    }
+}
+
 export const load: PageServerLoad = async ({ locals, cookies, request, getClientAddress }) => {
     // 1) Validate the session
     const session = await locals.auth.validate();
-    if (session) {
-        try {
-            // 2) Log the logout event
-            const user = await authPrisma.user.findUnique({
-                where: { id: session.user.id },
-                select: { primaryAccountId: true }
-            });
-
-            await logSessionActivity(authPrisma, {
-                userId: session.user.id,
-                action: 'logout',
-                sessionId: session.session.id,
-                ipAddress: getClientAddress(),
-                userAgent: request.headers.get('user-agent') || undefined,
-                accountId: user?.primaryAccountId || undefined
-            });
-
-            logger.info('User logged out successfully', { userId: session.user.id });
-
-            logger.debug(`Session ID: ', ${session.session.id}`);
-
-            // 3) Invalidate the session in the database
-            await lucia.invalidateSession(session.session.id);
-        } catch (error) {
-            // If something goes wrong with logging or invalidation, at least make sure we still clear the cookie
-            logger.error('Error during logout process', { error, userId: session.user.id });
-            try {
-                await lucia.invalidateSession(session.session.id);
-            } catch {
-                // swallow any invalidate‐error here so the logout can continue
-            }
-        }
-
-        // 4) Clear the cookie at exactly the same path and attributes used originally
-        const blank = lucia.createBlankSessionCookie();
-        cookies.set(blank.name, blank.value, {
-            path: "/",                  // ← must match your original cookie path
-            httpOnly: blank.attributes.httpOnly,
-            sameSite: blank.attributes.sameSite,
-            secure: blank.attributes.secure,
-            maxAge: 0                    // expire immediately
-        });
+    if (!session) {
+        throw redirect(302, '/auth/login');
     }
 
-    // 5) Redirect to the login page
+    const sessionId = session.session.id;
+    const userId = session.user.id;
+    const ipAddress = getClientAddress();
+
+    // 2) Clear cookies first
+    cookies.delete('current_account_id', { path: '/' });
+    const blank = lucia.createBlankSessionCookie();
+    cookies.set(blank.name, blank.value, {
+        path: "/",
+        httpOnly: blank.attributes.httpOnly,
+        sameSite: blank.attributes.sameSite,
+        secure: blank.attributes.secure,
+        maxAge: 0
+    });
+
+    // 3) Start async operations but don't wait for them
+    handleAsyncOperations(sessionId, userId, request, ipAddress).catch(error => {
+        logger.error('Error in async logout operations', { error, userId });
+    });
+
+    // 4) Redirect immediately
     throw redirect(302, '/auth/login');
 };

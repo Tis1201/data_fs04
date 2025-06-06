@@ -1,233 +1,216 @@
 import { WebSocket } from 'ws';
-import crypto from 'crypto';
-import { log } from 'console';
-import {handleWebRTCMessage} from "../webrtc/WebrtcSignalingUtils"
-import {logger} from '../logger';
-import {handleRoomMessage} from '../room/RoomManager';
+import { logger } from '../logger';
+import { handleWebRTCMessage } from '../webrtc/WebrtcSignalingUtils';
+import { handleRoomMessage } from '../room/RoomManager';
 
 /**
- * Extended WebSocket type with additional properties
+ * Extended WebSocket type with extra metadata.
  */
 export interface ExtendedWebSocket extends WebSocket {
-    isAlive: boolean;
-    socketId: string;
-    userId: string;
-    userRole: string;
+  isAlive: boolean;
+  socketId: string;
+  userId: string;
+  userRole: string;
 }
+
+
+
 
 /**
- * WebSocket Manager
- * Manages WebSocket connections and broadcasts messages
+ * WebSocketManager is a singleton that:
+ *  - Tracks all connected clients
+ *  - Provides broadcast/unicast functionality
+ *  - Periodically logs the total number of clients
  */
 export class WebSocketManager {
-    private static instance: WebSocketManager;
-    private clients = new Set<ExtendedWebSocket>();
-    // private userClientMap = new Map<string, Set<ExtendedWebSocket>>();
+  private static instance: WebSocketManager;
+  private clients = new Set<ExtendedWebSocket>();
 
-    private constructor() {
-        logger.info('WebSocket Manager initialized');
+  private constructor() {
+    logger.info('WebSocket Manager initialized');
+
+    // Every 5 seconds, log the total number of connected clients
+    // setInterval(() => {
+    //   const count = this.getClientCount();
+    //   logger.info(`[wss:manager] Total connected clients: ${count}`);
+    // }, 5000);
+  }
+
+  static getInstance(): WebSocketManager {
+    if (!WebSocketManager.instance) {
+      WebSocketManager.instance = new WebSocketManager();
+    }
+    return WebSocketManager.instance;
+  }
+
+  /**
+   * Add a new client to the registry.
+   */
+  addClient = (ws: ExtendedWebSocket): void => {
+    this.clients.add(ws);
+    logger.info(`[wss:manager] Added client ${ws.socketId} (user: ${ws.userId}). Now ${this.getClientCount()} total.`);
+  };
+
+  /**
+   * Remove a client from the registry.
+   */
+  removeClient = (ws: ExtendedWebSocket): void => {
+    if (this.clients.delete(ws)) {
+      logger.info(`[wss:manager] Removed client ${ws.socketId} (user: ${ws.userId}). Now ${this.getClientCount()} total.`);
+    } else {
+      logger.warn(`[wss:manager] Tried to remove client ${ws.socketId}, but it was not found.`);
+    }
+  };
+
+  /**
+   * Return how many clients are currently connected.
+   */
+  getClientCount = (): number => {
+    return this.clients.size;
+  };
+
+  /**
+   * Return an array of all connected clients.
+   */
+  getClients = (): ExtendedWebSocket[] => {
+    return Array.from(this.clients);
+  };
+
+  /**
+   * Find a client by its socketId.
+   */
+  getClientBySocketId = (socketId: string): ExtendedWebSocket | undefined => {
+    return Array.from(this.clients).find((ws) => ws.socketId === socketId);
+  };
+
+  /**
+   * Get all clients belonging to a particular userId.
+   */
+  getClientsByUserId = (userId: string): ExtendedWebSocket[] => {
+    const matches = Array.from(this.clients).filter((ws) => ws.userId === userId);
+    logger.debug(`[wss:manager] Found ${matches.length} clients for user ${userId}.`);
+    return matches;
+  };
+
+  /**
+   * Broadcast a message (object or string) to all connected clients.
+   */
+  broadcast = (message: any): void => {
+    const json = JSON.stringify(message);
+    logger.info(`[wss:manager] Broadcasting to ${this.getClientCount()} clients.`);
+    for (const ws of this.clients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(json);
+      }
+    }
+  };
+
+  /**
+   * Send a message to a single client by its socketId.
+   * Returns true if successful, false otherwise.
+   */
+  unicast = (message: any, socketId: string): boolean => {
+    const client = this.getClientBySocketId(socketId);
+    if (!client) {
+      logger.warn(`[wss:manager] No client with socketId ${socketId}.`);
+      return false;
+    }
+    if (client.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    try {
+      client.send(JSON.stringify(message));
+      return true;
+    } catch (err) {
+      logger.error(`[wss:manager] Error sending to ${socketId}:`, err);
+      return false;
+    }
+  };
+
+  /**
+   * Send a message to all sockets of a given userId.
+   * Returns the number of clients to which the message was actually sent.
+   */
+  sendToUser = (message: any, userId: string): number => {
+    const clients = this.getClientsByUserId(userId);
+    if (clients.length === 0) {
+      logger.warn(`[wss:manager] No clients found for user: ${userId}`);
+      return 0;
     }
 
-    static getInstance(): WebSocketManager {
-        if (!WebSocketManager.instance) {
-            WebSocketManager.instance = new WebSocketManager();
-        }
-        return WebSocketManager.instance;
-    }
-
-    addClient(ws: ExtendedWebSocket): void {
-        // Add to the main clients Set first
-        this.clients.add(ws);
-
-        // if (ws.userId) {
-        //     // Get or create the user's client set
-        //     const userClients = this.userClientMap.get(ws.userId) || new Set();
-        //     userClients.add(ws);
-        //     this.userClientMap.set(ws.userId, userClients);
-            
-        //     // Log the current state after adding
-        //     logger.debug(`[wss:manager] added client: ${ws.socketId} for user: ${ws.userId}`);
-        //     logger.debug(`[wss:manager] userClientMap size after add: ${this.userClientMap.size}`);
-        //     logger.debug(`[wss:manager] user ${ws.userId} has ${userClients.size} clients`);
-        // } else {
-        //     logger.warn(`[wss:manager] client ${ws.socketId} has no userId, not adding to userClientMap`);
-        // }
-    }  
-
-    removeClient(ws: ExtendedWebSocket): void {
-        // Remove from the main clients Set
-        this.clients.delete(ws);
-
-        // if (ws.userId) {
-        //     // Remove from user's client set
-        //     const userClients = this.userClientMap.get(ws.userId);
-        //     if (userClients) {
-        //         logger.debug(`[wss:manager] removing client ${ws.socketId} from user ${ws.userId}, before: ${userClients.size} clients`);
-        //         userClients.delete(ws);
-        //         logger.debug(`[wss:manager] after removal: ${userClients.size} clients remaining`);
-                
-        //         // Only remove from userClientMap if the client was actually in the set
-        //         if (userClients.size === 0) {
-        //             this.userClientMap.delete(ws.userId);
-        //             logger.debug(`[wss:manager] removed user ${ws.userId} from userClientMap, new size: ${this.userClientMap.size}`);
-        //         }
-        //     } else {
-        //         logger.warn(`[wss:manager] tried to remove client ${ws.socketId} for user ${ws.userId} but user not in map`);
-        //     }
-        // } 
-
-        logger.debug(`[wss:manager] removed client: ${ws.socketId} for user: ${ws.userId}`);
-    }
-
-    getClientCount(): number {
-        return this.clients.size;
-    }
-
-    getClients(): ExtendedWebSocket[] {
-        return Array.from(this.clients);
-    }
-
-    /**
-     * Get a client by socketId
-     */
-    getClientBySocketId(socketId: string): ExtendedWebSocket | undefined {
-        return Array.from(this.clients).find(ws => ws.socketId === socketId);
-    }
-
-    getClientsByUserId(userId: string): ExtendedWebSocket[] {
-        logger.debug(`[wss:manager] Getting clients for userId: ${userId}`);
-        logger.debug(`[wss:manager] Total clients in registry: ${this.clients.size}`);
-
-        const clients = Array.from(this.clients).filter(ws => {
-            const matches = ws.userId === userId;
-            logger.debug(`[wss:manager] Client ${ws.socketId} ${matches ? 'matches' : 'does not match'} userId ${userId}, current userId: ${ws.userId}`);
-            return matches;
-        }); 
-
-        logger.debug(`[wss:manager] Found ${clients.length} matching clients for userId ${userId}`);
-        return clients;
-    }
-
-    broadcast(message: any): void {
-        const jsonMessage = JSON.stringify(message);
-        logger.info(`[wss:manager] broadcasting to ${this.clients.size} clients`);
-
-        this.clients.forEach((ws) => {
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(jsonMessage);
-            }
-        });
-    } 
- 
-    unicast(message: any, socketId: string): boolean {
-        const client = Array.from(this.clients).find(ws => ws.socketId === socketId);
-
-        if (!client) {
-            logger.warn(`[wss:manager] No client found with socketId: ${socketId}`);
-            return false;
-        }
-
+    const json = JSON.stringify(message);
+    let sentCount = 0;
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
         try {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify(message));
-                return true;
-            }
-            return false;
-        } catch (error) {
-            logger.error(`[wss:manager] Error unicasting to client ${socketId}:`, error);
-            return false;
+          client.send(json);
+          sentCount++;
+        } catch (err) {
+          logger.error(`[wss:manager] Error sending to ${client.socketId}:`, err);
         }
+      }
+    }
+    return sentCount;
+  };
+
+  /**
+   * Central entry point for handling an incoming message from a client.
+   * Dispatches to the appropriate handler based on `data.type`.
+   */
+  handleMessage = (message: string, ws: ExtendedWebSocket): void => {
+    let data;
+    try {
+      data = JSON.parse(message);
+    } catch {
+      logger.warn(`[wss:manager] Invalid JSON from ${ws.socketId}: ${message}`);
+      return;
     }
 
-    sendToUser(message: any, userId: string): number {
+    logger.info(
+      `[wss:manager] Received [${data.type}] from ${ws.socketId} (user: ${ws.userId}).`
+    );
 
-        logger.debug(`this.clients size: ${this.clients.size}`);
-        this.clients.forEach((ws) => {
-           logger.debug(`[wss:manager] Client ${ws.socketId} for user ${ws.userId}`);
-        }); 
-
-        const clients = this.getClientsByUserId(userId);
-
-        if (clients.length === 0) {
-            logger.warn(`[wss:manager] No clients found for user: ${userId}`);
-            return 0;
-        } 
-
-        let successCount = 0;
-        const jsonMessage = JSON.stringify(message);
-
-        for (const client of clients) {
-            try {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(jsonMessage);
-                    successCount++;
-                }
-            } catch (error) {
-                logger.error(`[wss:manager] Error sending to client ${client.socketId}:`, error);
-            }
+    switch (data.type) {
+      case 'ping':
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
         }
- 
-        return successCount;
+        break;
+
+      case 'register':
+        logger.info(`[wss:manager] Client registered: ${ws.socketId} for user ${ws.userId}`);
+        break;
+
+      case 'webrtc':
+        handleWebRTCMessage(data, ws, this);
+        break;
+
+      case 'room':
+        handleRoomMessage(data, ws, this);
+        break;
+
+      default:
+        logger.warn(`[wss:manager] Unknown message type: ${data.type}`);
     }
+  };
 
-    handleMessage(message: string, ws: ExtendedWebSocket): void {
-        // logger.info(`[wss:manager] RAW MESSAGE RECEIVED: ${message}`)
-        // try {
-            const data = JSON.parse(message);
-            logger.info(`[wss:manager] PARSED MESSAGE: type=${data.type}, from=${ws.socketId}, content=${JSON.stringify(data)}`);
-            // logger.debug(`[wss:manager] received message from ${ws.socketId}:${data.type}:${message}`);
+  /**
+   * Called when a client connection throws an error.
+   * We log it and remove the client so it won't linger.
+   */
+  handleClientError = (ws: ExtendedWebSocket, error: Error): void => {
+    logger.error(`[wss:manager] Error on client ${ws.socketId}:`, error);
+    this.removeClient(ws);
+  };
 
-            switch (data.type) {
-                case 'ping':
-                    ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-                    break;
-                case 'register':
-                    logger.info(`[wss:manager] client registered: ${ws.socketId} for user ${ws.userId}`)
-                    break;
-                case 'subscribe':
-                    break;
-                // case 'whatsapp':
-                //     this.handleWhatsAppMessage(data, ws);
-                //     break;
-                case 'webrtc':
-                    handleWebRTCMessage(data, ws, this);
-                    break;
-                // case 'webrtc':
-                //     handleRoomCMessage(data, ws, this);
-                //     break;   
-                case 'room':
-                    handleRoomMessage(data, ws, this); 
-                    break;
-                default:
-                    logger.warn(`[wss:manager] unknown message type: ${data.type}`);
-            }
-        // } catch (error) {
-        //     logger.error(`[wss:manager] error handling message from ${ws.socketId}:`, error);
-        // }
-    }
-
-   
-
-    handleClientError(ws: ExtendedWebSocket, error: Error): void {
-        logger.error(`[wss:manager] client error (${ws.socketId}):`, error);
-        this.removeClient(ws);
-    }
-
-    handleClientDisconnect(ws: ExtendedWebSocket): void {
-        logger.info(`[wss:manager] client disconnected: ${ws.socketId} for user ${ws.userId}`);
-        this.removeClient(ws);
-        // Add a longer delay before removing to prevent race conditions
-        // This gives time for reconnection attempts to complete
-        // setTimeout(() => {
-        //     // Check if the client is still in the set before removing
-        //     if (this.clients.has(ws)) {
-        //         logger.debug(`[wss:manager] removing disconnected client ${ws.socketId} after delay`);
-        //         this.removeClient(ws);
-        //     } else {
-        //         logger.debug(`[wss:manager] client ${ws.socketId} already removed, skipping`);
-        //     }
-        // }, 1000); // Increased from 100ms to 1000ms
-    } 
+  /**
+   * Called when a client disconnects cleanly. Remove it from the registry.
+   */
+  handleClientDisconnect = (ws: ExtendedWebSocket): void => {
+    logger.info(`[wss:manager] Client disconnected: ${ws.socketId} for user ${ws.userId}`);
+    this.removeClient(ws);
+  };
 }
 
+// Export the single shared instance
 export const wsManager = WebSocketManager.getInstance();

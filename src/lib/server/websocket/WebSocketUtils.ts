@@ -14,6 +14,7 @@ export interface ExtendedWebSocket extends WebSocketBase {
     socketId: string;
     userId?: string;
     userRole?: string;
+    sessionId?: string;
 }
 
 // Extended WebSocket server interface
