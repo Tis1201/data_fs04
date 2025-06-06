@@ -234,6 +234,16 @@ const createSocketStore = () => {
           pingInterval = null;
         }
 
+        // Don't attempt to reconnect for authentication failures (code 1008)
+        if (event.code === 1008) {
+          console.log('WebSocket closed due to authentication failure. Not attempting to reconnect.');
+          update(state => ({ 
+            ...state, 
+            error: new Error(`Authentication failed: ${event.reason || 'Session invalid or expired'}`)
+          }));
+          return;
+        }
+
         // Attempt exponential-backoff reconnect up to MAX_RECONNECT_ATTEMPTS
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttempts++;

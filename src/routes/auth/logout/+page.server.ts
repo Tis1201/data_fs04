@@ -9,46 +9,52 @@ import { logger } from '$lib/server/logger';
 const authPrisma = new PrismaClient();
 
 export const load: PageServerLoad = async ({ locals, cookies, request, getClientAddress }) => {
-    // Get the current session
+    // 1) Validate the session
     const session = await locals.auth.validate();
     if (session) {
         try {
-            // Get user details for logging
+            // 2) Log the logout event
             const user = await authPrisma.user.findUnique({
                 where: { id: session.user.id },
                 select: { primaryAccountId: true }
             });
-            
-            // Log the logout event
+
             await logSessionActivity(authPrisma, {
                 userId: session.user.id,
                 action: 'logout',
-                sessionId: session.sessionId,
+                sessionId: session.session.id,
                 ipAddress: getClientAddress(),
                 userAgent: request.headers.get('user-agent') || undefined,
                 accountId: user?.primaryAccountId || undefined
             });
-            
+
             logger.info('User logged out successfully', { userId: session.user.id });
-            
-            // Delete the session cookie
-            const sessionCookie = lucia.createBlankSessionCookie();
-            cookies.set(sessionCookie.name, sessionCookie.value, {
-                path: ".",
-                ...sessionCookie.attributes
-            });
+
+            logger.debug(`Session ID: ', ${session.session.id}`);
+
+            // 3) Invalidate the session in the database
+            await lucia.invalidateSession(session.session.id);
         } catch (error) {
-            // Log error but continue with logout
-            logger.error('Error logging logout event', { error, userId: session.user.id });
-            
-            // Delete the session cookie even if logging fails
-            const sessionCookie = lucia.createBlankSessionCookie();
-            cookies.set(sessionCookie.name, sessionCookie.value, {
-                path: ".",
-                ...sessionCookie.attributes
-            });
+            // If something goes wrong with logging or invalidation, at least make sure we still clear the cookie
+            logger.error('Error during logout process', { error, userId: session.user.id });
+            try {
+                await lucia.invalidateSession(session.session.id);
+            } catch {
+                // swallow any invalidate‐error here so the logout can continue
+            }
         }
+
+        // 4) Clear the cookie at exactly the same path and attributes used originally
+        const blank = lucia.createBlankSessionCookie();
+        cookies.set(blank.name, blank.value, {
+            path: "/",                  // ← must match your original cookie path
+            httpOnly: blank.attributes.httpOnly,
+            sameSite: blank.attributes.sameSite,
+            secure: blank.attributes.secure,
+            maxAge: 0                    // expire immediately
+        });
     }
 
+    // 5) Redirect to the login page
     throw redirect(302, '/auth/login');
 };
