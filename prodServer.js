@@ -58,80 +58,105 @@ const handler = (req, res) => {
 // Create HTTP server
 const server = createServer(handler);
 
-// Initialize WebSocket server if available
-let wsInitialized = false;
-try {
-  // Try to dynamically find WebSocket utilities
-  let webSocketUtils;
-  let importError;
-  
-  // First, try to find WebSocket utilities in the build directory
+  // Initialize WebSocket server if available
+  let wsInitialized = false;
   try {
-    const fs = await import('fs');
-    const buildChunksDir = './build/server/chunks';
+    // Try to dynamically find WebSocket utilities
+    let webSocketUtils;
     
-    if (fs.existsSync(buildChunksDir)) {
-      // Find any file with WebSocket in the name
-      const files = fs.readdirSync(buildChunksDir)
-        .filter(file => file.includes('WebSocket') && file.endsWith('.js'));
+    // First, try to find WebSocket utilities in the build directory
+    try {
+      const fs = await import('fs');
+      const buildChunksDir = './build/server/chunks';
       
-      if (files.length > 0) {
-        const wsPath = `${buildChunksDir}/${files[0]}`;
-        console.log(`Found WebSocket utilities in build: ${wsPath}`);
-        webSocketUtils = await import(wsPath);
-      }
-    }
-  } catch (e) {
-    console.log('Error finding WebSocket utilities in build:', e.message);
-  }
-  
-  // Only use the build directory, no fallbacks
-  if (!webSocketUtils) {
-    console.log('WebSocket utilities not found in build directory');
-    throw new Error('WebSocket utilities not found in build directory');
-  }
-  
-  if (!webSocketUtils) {
-    console.log('Import error details:', importError);
-    throw new Error('Could not find WebSocket utilities in any expected location');
-  }
-  
-  // Initialize WebSocket server
-  // Handle both original and bundled export formats
-  if (webSocketUtils.createWSSGlobalInstance) {
-    // Original source format
-    webSocketUtils.createWSSGlobalInstance();
-    server.on('upgrade', webSocketUtils.onHttpServerUpgrade);
-    wsInitialized = true;
-  } else if (webSocketUtils.s) {
-    // Bundled format - s is startupWebsocketServer
-    webSocketUtils.s();
-    
-    // We need to manually set up the upgrade handler since it's not exported
-    // Use the global instance from the symbol
-    const wss = global[webSocketUtils.G];
-    if (wss) {
-      server.on('upgrade', (req, socket, head) => {
-        const pathname = req.url ? new URL(req.url, 'http://localhost').pathname : null;
-        if (pathname !== '/websocket') return;
+      if (fs.existsSync(buildChunksDir)) {
+        // Find files with WebSocket in the name
+        const files = fs.readdirSync(buildChunksDir)
+          .filter(file => file.includes('WebSocket') && file.endsWith('.js'));
         
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          wss.emit('connection', ws, req);
-        });
-      });
-      wsInitialized = true;
+        console.log('Found WebSocket files:', files);
+        
+        // Try each file until we find one with the right exports
+        for (const file of files) {
+          try {
+            const wsPath = `${buildChunksDir}/${file}`;
+            console.log(`Trying WebSocket utilities from: ${wsPath}`);
+            const module = await import(wsPath);
+            console.log(`Module exports:`, Object.keys(module));
+            
+            // Check if this module has the exports we need
+            if (module.G || module.s || module.createWSSGlobalInstance) {
+              webSocketUtils = module;
+              console.log(`Found valid WebSocket utilities in: ${file}`);
+              break;
+            }
+          } catch (e) {
+            console.log(`Error importing ${file}:`, e.message);
+          }
+        }
+      }
+    } catch (e) {
+      console.log('Error finding WebSocket utilities in build:', e.message);
     }
+    
+    if (!webSocketUtils) {
+      console.log('WebSocket utilities not found in build directory');
+      throw new Error('WebSocket utilities not found in build directory');
+    }
+    
+    // Initialize WebSocket server
+    // Handle both original and bundled export formats
+    if (webSocketUtils.createWSSGlobalInstance) {
+      console.log('Using original source format WebSocket utilities');
+      webSocketUtils.createWSSGlobalInstance();
+      server.on('upgrade', webSocketUtils.onHttpServerUpgrade);
+      wsInitialized = true;
+    } else if (webSocketUtils.s) {
+      console.log('Using bundled format WebSocket utilities');
+      // Bundled format - s is startupWebsocketServer
+      webSocketUtils.s();
+      
+      // Find the global symbol
+      const globalSymbol = webSocketUtils.G;
+      console.log('Global symbol found:', !!globalSymbol);
+      
+      if (globalSymbol) {
+        // We need to manually set up the upgrade handler
+        const wss = global[globalSymbol];
+        console.log('WebSocket server instance found:', !!wss);
+        
+        if (wss) {
+          server.on('upgrade', (req, socket, head) => {
+            const pathname = req.url ? new URL(req.url, 'http://localhost').pathname : null;
+            console.log(`Upgrade request for: ${pathname}`);
+            
+            if (pathname !== '/websocket') return;
+            
+            wss.handleUpgrade(req, socket, head, (ws) => {
+              console.log('WebSocket connection established');
+              wss.emit('connection', ws, req);
+            });
+          });
+          wsInitialized = true;
+        } else {
+          throw new Error('WebSocket server instance not found in global');
+        }
+      } else {
+        throw new Error('WebSocket global symbol not found');
+      }
+    } else {
+      throw new Error('No valid WebSocket initialization method found');
+    }
+    
+    if (wsInitialized) {
+      console.log('WebSocket server initialized successfully');
+    } else {
+      throw new Error('Could not initialize WebSocket server with the available exports');
+    }
+  } catch (error) {
+    console.log('WebSocket initialization failed:', error.message);
+    console.log('Continuing without WebSocket support');
   }
-  
-  if (wsInitialized) {
-    console.log('WebSocket server initialized successfully');
-  } else {
-    throw new Error('Could not initialize WebSocket server with the available exports');
-  }
-} catch (error) {
-  console.log('WebSocket initialization failed:', error.message);
-  console.log('Continuing without WebSocket support');
-}
 
 // Start the server
 const PORT = process.env.PORT || 3000;
