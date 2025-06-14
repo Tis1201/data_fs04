@@ -9,6 +9,7 @@ export interface BaseMessage {
   type: string;
   scope: string;  // Consider renaming to 'target' or 'recipient'
   payload: Record<string, unknown>;  // More type-safe than 'any'
+  requestId?: string;  // Optional request ID for request-response tracking
 }
 
 /**
@@ -74,6 +75,8 @@ export const MessageFactory = {
       type: routingMessage.type,
       scope: routingMessage.scope,
       payload: routingMessage.payload,
+      // Preserve requestId if it exists
+      requestId: routingMessage.requestId,
       // Use explicit sender properties if available, otherwise fall back to default values
       senderId: routingMessage.senderId || routingMessage.userInfo?.id,
       senderConnectionId: routingMessage.senderConnectionId || routingMessage.connectionId,

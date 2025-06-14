@@ -7,6 +7,7 @@ export interface BaseMessage {
     scope: string;
     payload: Record<string, unknown>;
     timestamp: string;
+    requestId?: string; // Optional request ID for request-response tracking
 }
 
 // Client message types (from client to server)
@@ -16,13 +17,15 @@ export interface ClientMessage extends BaseMessage {
 export function createClientMessage(
     type: string,
     scope: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    requestId?: string
 ): ClientMessage {
     return {
         type,
         scope,
         payload,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        requestId
     };
 }
 
@@ -44,7 +47,8 @@ export const SSEMessageSchema = z.object({
     type: z.string(),
     scope: z.string(),
     payload: z.record(z.string(), z.unknown()),
-    timestamp: z.string().optional().default(() => new Date().toISOString())
+    timestamp: z.string().optional().default(() => new Date().toISOString()),
+    requestId: z.string().optional() // Optional request ID for request-response tracking
 });
 
 export type SSEMessageInput = z.infer<typeof SSEMessageSchema>;
@@ -54,7 +58,7 @@ export function createSSEMessage(
     baseMessage: BaseMessage
 ): SSEMessage {
     return {
-        id: crypto.randomUUID(),
+        id: baseMessage.requestId || crypto.randomUUID(),
         event: baseMessage.type,
         data: baseMessage.payload,
         timestamp: baseMessage.timestamp,

@@ -123,6 +123,8 @@ export const POST: RequestHandler = restrict(
                 type: message.type,
                 scope: message.scope,
                 payload: message.payload,
+                // Preserve requestId if it exists in the incoming message
+                requestId: message.requestId,
                 userInfo: auth.user,
                 protocol: 'sse',
                 connectionId: '',  // Will be filled by the router

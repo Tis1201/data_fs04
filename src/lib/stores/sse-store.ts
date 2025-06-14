@@ -1,5 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { generateRequestId } from "$lib/utils/ApiUtils";
+
 
 export type SSEMessage = {
     id: string;
@@ -226,6 +228,8 @@ function createSSEStore() {
         };
     }
     
+
+    
     /**
      * Send a message request to the SSE server
      * @param partialMsg Message with type, scope and payload
@@ -234,14 +238,14 @@ function createSSEStore() {
      * @returns Promise that resolves with the response or rejects on timeout/error
      */
     async function sendRequest(
-        partialMsg: { type: string; scope: string; payload: Record<string, any> },
+        partialMsg: { type: string; scope: string; payload: Record<string, any>; requestId?: string },
         timeoutMs = 5000,
         requestIdPrefix = ''
     ): Promise<any> {
-        // Generate a unique request ID
-        const requestId = `${requestIdPrefix}${requestIdPrefix ? '-' : ''}${crypto.randomUUID()}`;
+        // Generate a unique request ID if not provided
+        const requestId = partialMsg.requestId || generateRequestId(requestIdPrefix);
         
-        // Create the full message with timestamp and request ID
+        // Create the full message with timestamp and request ID as a first-class property
         const message = {
             ...partialMsg,
             timestamp: new Date().toISOString(),

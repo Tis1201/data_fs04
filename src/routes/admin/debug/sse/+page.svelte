@@ -49,14 +49,18 @@
      * @param payload Message payload
      * @returns Promise that resolves when the message is sent
      */
-    async function sendSSEMessage(type: string, scope: string, payload: Record<string, unknown>) {
+    async function sendSSEMessage(type: string, scope: string, payload: Record<string, any>) {
         try {
-            // Use the new sendRequest function from the SSE store
+            // Generate a unique requestId for tracking
+            const requestId = `req_${Math.random().toString(36).substring(2, 15)}`;
+            
+            // Use the sendRequest function from the SSE store with requestId as a first-class property
             return await sseStore.sendRequest(
                 { 
                     type, 
                     scope, 
-                    payload 
+                    payload, 
+                    requestId
                 }
             );
         } catch (e) {

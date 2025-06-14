@@ -492,7 +492,7 @@ const createSocketStore = () => {
    * If the socket is not OPEN, immediately rejects.
    */
   function sendRequest(
-    partialMsg: { type: string; scope: string; payload: Record<string, any> },
+    partialMsg: { type: string; scope: string; payload: Record<string, any>; requestId?: string },
     timeoutMs = 5000,
     requestIdPrefix = ''
   ): Promise<any> {
@@ -501,16 +501,15 @@ const createSocketStore = () => {
         return reject(new Error('WebSocket is not open'));
       }
 
-      // 1) Create a unique requestId (optionally prefixed)
-      const requestId = generateRequestId(requestIdPrefix);
+      // 1) Create a unique requestId (optionally prefixed) if not provided
+      const requestId = partialMsg.requestId || generateRequestId(requestIdPrefix);
 
-      // 2) Build the full message:
-      //    • attach payload.requestId
-      //    • attach timestamp
+      // 2) Build the full message with requestId as a first-class property
       const fullMessage: ClientMessage = {
         type: partialMsg.type,
         scope: partialMsg.scope,
-        payload: { ...partialMsg.payload, requestId },
+        payload: partialMsg.payload,
+        requestId,
         timestamp: new Date().toISOString()
       };
 
