@@ -4,6 +4,13 @@ import { ConnectionManager } from '$lib/server/messaging/core/connectionManager'
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import type { RequestHandler } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
+import { z } from 'zod';
+import { v4 as uuidv4 } from 'uuid';
+import type { BaseMessage, RoutingMessage } from '$lib/server/messaging/interfaces/message';
+import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { SSEMessageSchema, type SSEMessageInput, createSSEMessage } from '$lib/types/messages';
 
 /**
  * SSE connection endpoint for web UI usage - accessible to both admin and regular users
@@ -79,4 +86,64 @@ export const GET: RequestHandler = restrict(
         });
     },
     [SystemRole.ADMIN, SystemRole.USER] // Allow both admin and regular users
+);
+
+
+
+/**
+ * POST handler for sending messages through SSE connections
+ * Only accessible to admin users
+ */
+export const POST: RequestHandler = restrict(
+    async ({ request, locals, auth }: any) => {
+        try {
+            const body = await request.json();
+            
+            // Validate the incoming message using the shared schema
+            const messageResult = SSEMessageSchema.safeParse(body);
+            
+            if (!messageResult.success) {
+                logger.error(`Invalid SSE message format: ${JSON.stringify(messageResult.error)}`);
+                return json({ 
+                    success: false, 
+                    error: 'Invalid message format',
+                    details: messageResult.error.format()
+                }, { status: 400 });
+            }
+            
+            const message = messageResult.data as BaseMessage;
+            
+            // Create a routing message for the publisher
+            const routingMessage: RoutingMessage = {
+                id: uuidv4(),
+                type: message.type,
+                scope: message.scope,
+                payload: message.payload,
+                userInfo: auth.user,
+                protocol: 'sse',
+                connectionId: '',  // Will be filled by the router
+                systemGenerated: false,
+                senderId: auth.user?.id,
+                senderConnectionProtocol: 'sse',
+                timestamp: message.timestamp || new Date().toISOString()
+            };
+            
+            // Use the publisher to route and deliver the message
+            await publisher.publish(routingMessage);
+            
+            return json({ 
+                success: true, 
+                message: routingMessage
+            });
+            
+        } catch (error) {
+            logger.error(`Error sending SSE message: ${error}`);
+            return json({ 
+                success: false, 
+                error: 'Failed to send message',
+                details: error instanceof Error ? error.message : String(error)
+            }, { status: 500 });
+        }
+    },
+    [SystemRole.ADMIN, SystemRole.USER] // Only admin users can send messages
 );

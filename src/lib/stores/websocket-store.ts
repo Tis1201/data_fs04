@@ -99,7 +99,7 @@ const createSocketStore = () => {
   const addMessage = (message: WebSocketMessage) => {
     update(state => ({
       ...state,
-      messages: [...state.messages, message]
+      messages: Array.isArray(state.messages) ? [...state.messages, message] : [message]
     }));
   };
 

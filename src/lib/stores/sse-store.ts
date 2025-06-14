@@ -61,11 +61,15 @@ function createSSEStore() {
      * Add a message to the store and notify listeners
      */
     const addMessage = (message: SSEMessage) => {
-        update(state => ({
-            ...state,
-            messages: [...state.messages, message].slice(-100), // Keep last 100 messages
-            lastEvent: message
-        }));
+        update(state => {
+            // Ensure messages is always an array
+            const messages = Array.isArray(state.messages) ? state.messages : [];
+            return {
+                ...state,
+                messages: [...messages, message].slice(-100), // Keep last 100 messages
+                lastEvent: message
+            };
+        });
         
         // Notify listeners for this event type and wildcard listeners
         const listeners = [
