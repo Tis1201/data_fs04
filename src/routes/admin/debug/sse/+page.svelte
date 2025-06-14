@@ -30,17 +30,8 @@
     $: connected = $sseStore.status === 'OPEN';
     $: connectionId = $sseStore.connectionId;
 
-    // Connect to SSE when the component mounts
-    onMount(() => {
-        if (!connected) {
-            sseStore.connect('/api/sse');
-        }
-        
-        return () => {
-            // Disconnect when the component is destroyed
-            sseStore.disconnect();
-        };
-    });
+    // Connection is managed by the authentication flow
+    // This component just subscribes to the existing connection
 
     /**
      * Helper function to send a message via the SSE store
