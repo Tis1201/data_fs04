@@ -136,10 +136,13 @@ export const POST: RequestHandler = restrict(
             
             // Use the publisher to route and deliver the message
             await publisher.publish(routingMessage);
+
+            //let's sleep simulate for 10 seconds
             
+            // Only acknowledge receipt - the actual response will be sent via SSE
             return json({ 
                 success: true, 
-                message: routingMessage
+                requestId: routingMessage.requestId
             });
             
         } catch (error) {

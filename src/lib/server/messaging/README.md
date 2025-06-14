@@ -57,6 +57,59 @@ function makeSubscriberScope(type: string, id: string) {
 
 ---
 
+## Request-Response Correlation with `requestId`
+
+All messages in the system support `requestId` as a first-class property to enable request-response correlation:
+
+- **Request-Response Pattern**: When a client sends a message with a `requestId`, any response to that message should include the same `requestId`.
+- **Automatic Generation**: If not provided, a unique `requestId` is automatically generated using `generateRequestId()`.
+- **Cross-Protocol Support**: Works consistently across both WebSocket and SSE protocols.
+
+#### 1. SSE Message Example
+```json
+{
+  "type": "message",
+  "scope": "connection:0954c685-f574-4500-824d-34c001f13df3",
+  "payload": {"content": "test"},
+  "requestId": "req_y1f9ik1bik",
+  "timestamp": "2025-06-14T08:28:43.367Z"
+}
+```
+
+#### 2. Full Message Response with Sender Context
+```json
+{
+  "id": "3a271eca-92c4-479c-8bfd-bcd05b5e5bbf",
+  "type": "message",
+  "scope": "connection:0954c685-f574-4500-824d-34c001f13df3",
+  "payload": {
+    "content": "test"
+  },
+  "requestId": "req_ms0z7rx4j3",
+  "senderId": "cm8ygueii0000hsswg8xuc0yz",
+  "senderConnectionId": "",
+  "senderConnectionProtocol": "sse",
+  "sudo": false,
+  "timestamp": "2025-06-14T08:33:03.024Z"
+}
+```
+
+#### 3. System-Generated Message
+```json
+{
+  "id": "b5256df2-a852-431b-bae6-e2db6d6dafd2",
+  "timestamp": "2025-06-14T08:29:28.290Z",
+  "status": 200,
+  "severity": "info",
+  "category": "system",
+  "message": "Connection heartbeat",
+  "meta": {
+    "connectionId": "0954c685-f574-4500-824d-34c001f13df3"
+  },
+  "event": "ping"
+}
+```
+
 ## Message State Model
 
 The message pipeline is built on **three clearly separated message types**:
