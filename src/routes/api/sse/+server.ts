@@ -100,8 +100,9 @@ export const POST: RequestHandler = restrict(
             // Read the request body only once
             const body = await request.json();
             
-            // Log the received message
+            // Log the received message with focus on connectionId
             logger.debug(`SSE message received: ${JSON.stringify(body)}`);
+            logger.debug(`SSE message senderConnectionId: ${body.senderConnectionId || 'NOT SET'}`);
             
             // Validate the incoming message using the shared schema
             const messageResult = SSEMessageSchema.safeParse(body);
@@ -130,9 +131,14 @@ export const POST: RequestHandler = restrict(
                 connectionId: '',  // Will be filled by the router
                 systemGenerated: false,
                 senderId: auth.user?.id,
+                // Use the senderConnectionId from the message if available
+                senderConnectionId: message.senderConnectionId || '',
                 senderConnectionProtocol: 'sse',
                 timestamp: message.timestamp || new Date().toISOString()
             };
+            
+            // Log the routing message before publishing
+            logger.debug(`SSE routing message created with senderConnectionId: ${routingMessage.senderConnectionId}`);
             
             // Use the publisher to route and deliver the message
             await publisher.publish(routingMessage);

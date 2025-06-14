@@ -2,6 +2,7 @@
     import { onMount, onDestroy, afterUpdate } from 'svelte';
     import { page } from '$app/stores';
     import { socketStore } from '$lib/stores/websocket-store';
+    import { sseStore } from '$lib/stores/sse-store';
     import { browser } from '$app/environment';
     
     // Track the previous authentication state and route
@@ -9,7 +10,7 @@
     let previousPath: string | null = null;
     let unsubscribe: () => void;
     
-    // Function to handle WebSocket connection based on auth state
+    // Function to handle WebSocket and SSE connections based on auth state
     function handleAuthStateChange(isAuthenticated: boolean, currentPath: string) {
         if (!browser) return;
         
@@ -25,34 +26,63 @@
         
         // If auth state changed from logged out to logged in
         if (previousAuthState === false && isAuthenticated === true) {
-            console.log('[AuthStateHandler] User logged in, resetting WebSocket connection');
+            console.log('[AuthStateHandler] User logged in, resetting connections');
             // Small delay to ensure auth cookies are set before reconnecting
             setTimeout(() => {
-                socketStore.resetConnection(true); // Force immediate reconnect
+                socketStore.resetConnection(true); // Force immediate reconnect WebSocket
+                
+                // Connect to SSE endpoint
+                if (sseStore) {
+                    console.log('[AuthStateHandler] Connecting to SSE endpoint');
+                    sseStore.connect('/api/sse');
+                }
             }, 100);
         }
         // If auth state changed from logged in to logged out
         else if (previousAuthState === true && isAuthenticated === false) {
-            console.log('[AuthStateHandler] User logged out, disconnecting WebSocket');
+            console.log('[AuthStateHandler] User logged out, disconnecting connections');
             socketStore.disconnect();
+            sseStore.disconnect();
         }
-        // If we're navigating to a user route and WebSocket is not connected
+        // If we're navigating to a user route and connections are not open
         else if (isAuthenticated && isRouteChange && currentPath.startsWith('/user')) {
-            console.log('[AuthStateHandler] Navigating to user route, checking WebSocket connection');
+            console.log('[AuthStateHandler] Navigating to user route, checking connections');
             if (socketStore.status !== 'OPEN') {
                 console.log('[AuthStateHandler] WebSocket not connected, resetting connection');
                 socketStore.resetConnection(true); // Force immediate reconnect for user routes
             }
+            
+            // Check SSE connection
+            if (sseStore && !sseStore.isConnected) {
+                console.log('[AuthStateHandler] SSE not connected, connecting');
+                sseStore.connect('/api/sse');
+            }
         }
-        // If we're authenticated but WebSocket is not connected
-        else if (isAuthenticated && socketStore.status !== 'OPEN') {
-            console.log('[AuthStateHandler] Authenticated but WebSocket not connected, resetting');
-            socketStore.resetConnection(true); // Force immediate reconnect when authenticated
+        // If we're authenticated but connections are not open
+        else if (isAuthenticated) {
+            // Check WebSocket
+            if (socketStore.status !== 'OPEN') {
+                console.log('[AuthStateHandler] Authenticated but WebSocket not connected, resetting');
+                socketStore.resetConnection(true); // Force immediate reconnect when authenticated
+            }
+            
+            // Check SSE
+            if (sseStore && !sseStore.isConnected) {
+                console.log('[AuthStateHandler] Authenticated but SSE not connected, connecting');
+                sseStore.connect('/api/sse');
+            }
         }
-        // If we're not authenticated but WebSocket is connected
-        else if (!isAuthenticated && socketStore.status === 'OPEN') {
-            console.log('[AuthStateHandler] Not authenticated but WebSocket is connected, disconnecting');
-            socketStore.disconnect();
+        // If we're not authenticated but connections are open
+        else if (!isAuthenticated) {
+            if (socketStore.status === 'OPEN') {
+                console.log('[AuthStateHandler] Not authenticated but WebSocket is connected, disconnecting');
+                socketStore.disconnect();
+            }
+            
+            if (sseStore && sseStore.isConnected) {
+                console.log('[AuthStateHandler] Not authenticated but SSE is connected, disconnecting');
+                sseStore.disconnect();
+            }
         }
         
         // Update previous state
@@ -73,9 +103,18 @@
         });
         
         // Initial connection check
-        if (previousAuthState && socketStore.status !== 'OPEN') {
-            console.log('[AuthStateHandler] Initial mount: Connecting WebSocket');
-            socketStore.resetConnection();
+        if (previousAuthState) {
+            // Check WebSocket
+            if (socketStore.status !== 'OPEN') {
+                console.log('[AuthStateHandler] Initial mount: Connecting WebSocket');
+                socketStore.resetConnection();
+            }
+            
+            // Check SSE
+            if (sseStore && !sseStore.isConnected) {
+                console.log('[AuthStateHandler] Initial mount: Connecting SSE');
+                sseStore.connect('/api/sse');
+            }
         }
         
         // Subscribe to page store to detect auth state and route changes
@@ -89,6 +128,7 @@
         const handleBeforeUnload = () => {
             console.log('[AuthStateHandler] Page unloading, cleaning up');
             socketStore.disconnect();
+            sseStore.disconnect();
         };
         
         window.addEventListener('beforeunload', handleBeforeUnload);

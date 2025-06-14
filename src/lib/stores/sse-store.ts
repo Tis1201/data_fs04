@@ -151,12 +151,31 @@ function createSSEStore() {
                             connectionId: message.data.connectionId
                         }));
                         console.log(`[SSE] Received connection ID: ${message.data.connectionId}`);
+                        // Immediately verify the connectionId is set in the store
+                        let verifyState: SSEState | null = null;
+                        const verifyUnsub = subscribe(s => { verifyState = s; });
+                        verifyUnsub();
+                        console.log(`[SSE] Store state after connectionId update:`, {
+                            connectionId: verifyState?.connectionId,
+                            status: verifyState?.status
+                        });
                     }
 
                     // Check if this message is a response to a pending request
                     const requestId = data.requestId || (data.payload?.requestId as string);
                     if (requestId && pendingRequests[requestId]) {
                         console.log(`[SSE] Received response for request: ${requestId}`);
+                        
+                        // Add detailed logging for screenshot responses
+                        if (requestId.startsWith('screenshot-')) {
+                            console.log(`[SSE] Screenshot response structure:`, {
+                                hasTopLevelImage: !!data.image,
+                                hasPayloadImage: !!(data.payload && data.payload.image),
+                                payloadType: data.payload?.type,
+                                responseFormat: data.payload?.format || data.format
+                            });
+                        }
+                        
                         const { resolve, timer } = pendingRequests[requestId];
                         clearTimeout(timer);
                         delete pendingRequests[requestId];
@@ -261,50 +280,134 @@ function createSSEStore() {
             // Generate a unique request ID if not provided
             const requestId = partialMsg.requestId || generateRequestId(requestIdPrefix);
             
-            // Create the full message with timestamp and request ID as a first-class property
+            // Function to get the current connection ID from the store
+            const getConnectionId = (): string | null => {
+                let id: string | null = null;
+                const unsub = subscribe(state => { id = state.connectionId; });
+                unsub();
+                return id;
+            };
+            
+            // Get the current connection ID
+            let currentConnectionId = getConnectionId();
+            
+            // If no connection ID is available, wait for it with a timeout
+            if (!currentConnectionId) {
+                console.log(`[SSE] No connectionId available when sending request ${requestId}, waiting for connection...`);
+                
+                // Create a promise that resolves when connectionId is available or rejects after timeout
+                const waitForConnectionId = new Promise<string>((resolveId, rejectId) => {
+                    // Set a timeout for waiting
+                    const waitTimer = setTimeout(() => {
+                        if (unsubscribeWait) unsubscribeWait();
+                        rejectId(new Error('Timed out waiting for SSE connection ID'));
+                    }, Math.min(2000, timeoutMs / 2)); // Wait at most 2 seconds or half the request timeout
+                    
+                    // Subscribe to the store and wait for connectionId to be set
+                    const unsubscribeWait = subscribe(state => {
+                        if (state.connectionId) {
+                            clearTimeout(waitTimer);
+                            unsubscribeWait();
+                            resolveId(state.connectionId);
+                        }
+                    });
+                });
+                
+                // Wait for connection ID or proceed after timeout
+                return waitForConnectionId
+                    .then(connectionId => {
+                        console.log(`[SSE] ConnectionId became available: ${connectionId}`);
+                        // Call sendRequest again now that we have a connectionId
+                        return sendRequest(partialMsg, timeoutMs, requestIdPrefix);
+                    })
+                    .catch(error => {
+                        console.warn(`[SSE] ${error.message}, proceeding with empty connectionId`);
+                        // Continue with the request anyway, using empty connectionId
+                        currentConnectionId = getConnectionId(); // Check one more time
+                        
+                        // Create the message and send it
+                        const message = {
+                            ...partialMsg,
+                            timestamp: new Date().toISOString(),
+                            requestId,
+                            senderConnectionId: currentConnectionId || ''
+                        };
+                        
+                        console.log(`[SSE] Sending request ${requestId} with senderConnectionId: ${message.senderConnectionId} (after waiting):`, message);
+                        
+                        // Continue with the regular send flow
+                        sendMessage(message, requestId, timeoutMs, resolve, reject);
+                        return null; // This return is just to satisfy TypeScript
+                    });
+            }
+            
+            // We have a connectionId, proceed normally
+            console.log(`[SSE] ConnectionId available: ${currentConnectionId}`);
+            
+            // Create the full message with timestamp, request ID, and connectionId
             const message = {
                 ...partialMsg,
                 timestamp: new Date().toISOString(),
-                requestId
+                requestId,
+                senderConnectionId: currentConnectionId
             };
             
-            console.log(`[SSE] Sending request ${requestId}:`, message);
+            console.log(`[SSE] Sending request ${requestId} with senderConnectionId: ${message.senderConnectionId}:`, message);
             
-            // Start a timer to reject if no response arrives within timeoutMs
-            const timer = setTimeout(() => {
-                delete pendingRequests[requestId];
-                reject(new Error(`Request ${requestId} timed out after ${timeoutMs}ms`));
-            }, timeoutMs);
-            
-            // Store resolve/reject + timer so that onmessage can resolve them
-            pendingRequests[requestId] = { resolve, reject, timer };
-            
-            // Send the message via POST to the SSE endpoint
-            fetch('/api/sse', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(message)
-            })
-            .then(response => {
-                if (!response.ok) {
-                    // Only handle HTTP errors here, not the actual response
-                    // The actual response will come through the SSE connection
-                    return response.json().then(errorData => {
-                        throw new Error(`SSE request failed: ${errorData.error || response.statusText}`);
-                    });
-                }
-                // Don't resolve here - wait for the SSE message with matching requestId
-            })
-            .catch(error => {
-                // Only handle fetch errors (network issues, etc.)
-                console.error('[SSE] Send request failed:', error);
-                clearTimeout(timer);
-                delete pendingRequests[requestId];
-                reject(error);
-            });
+            // Send the message using the helper function
+            sendMessage(message, requestId, timeoutMs, resolve, reject);
         });
+    }
+    
+    /**
+     * Helper function to send a message via POST to the SSE endpoint
+     * @param message The complete message to send
+     * @param requestId The request ID for tracking
+     * @param timeoutMs Timeout in milliseconds
+     * @param resolve Promise resolve function
+     * @param reject Promise reject function
+     */
+    function sendMessage(
+        message: any,
+        requestId: string,
+        timeoutMs: number,
+        resolve: (value: any) => void,
+        reject: (reason: any) => void
+    ) {
+        // Start a timer to reject if no response arrives within timeoutMs
+        const timer = setTimeout(() => {
+            delete pendingRequests[requestId];
+            reject(new Error(`Request ${requestId} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        
+        // Store resolve/reject + timer so that onmessage can resolve them
+        pendingRequests[requestId] = { resolve, reject, timer };
+        
+        // Send the message via POST to the SSE endpoint
+        fetch('/api/sse', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(message)
+        })
+        .then(response => {
+            if (!response.ok) {
+                // Only handle HTTP errors here, not the actual response
+                // The actual response will come through the SSE connection
+                return response.json().then(errorData => {
+                    throw new Error(`SSE request failed: ${errorData.error || response.statusText}`);
+                });
+            }
+            // Don't resolve here - wait for the SSE message with matching requestId
+        })
+        .catch(error => {
+            // Only handle fetch errors (network issues, etc.)
+            console.error('[SSE] Send request failed:', error);
+            clearTimeout(timer);
+            delete pendingRequests[requestId];
+            reject(error);
+        })
     }
 
     return {
