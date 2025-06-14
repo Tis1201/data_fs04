@@ -10,8 +10,7 @@
     import { Input } from "$lib/components/ui/input";
     import { Badge } from "$lib/components/ui/badge";
     import { ScrollArea } from "$lib/components/ui/scroll-area";
-    import { sseStore, type SSEMessage } from '$lib/stores/sse-store';
-    import { createClientMessage } from '$lib/types/messages';
+    import { sseStore } from '$lib/stores/sse-store';
     import { onMount } from 'svelte';
     
     // Define breadcrumbs for this page
@@ -43,34 +42,44 @@
         };
     });
 
-    // Send a message
+    /**
+     * Helper function to send a message via the SSE store
+     * @param type Message type
+     * @param scope Message scope
+     * @param payload Message payload
+     * @returns Promise that resolves when the message is sent
+     */
+    async function sendSSEMessage(type: string, scope: string, payload: Record<string, unknown>) {
+        try {
+            // Use the new sendRequest function from the SSE store
+            return await sseStore.sendRequest(
+                { 
+                    type, 
+                    scope, 
+                    payload 
+                }
+            );
+        } catch (e) {
+            error = `Error sending message: ${e.message}`;
+            throw e;
+        }
+    }
+    
+    // Send a user message from the input field
     async function sendMessage() {
         if (!message.trim()) return;
         
         try {
             sending = true;
             
-            // Create a simple message
-            const clientMessage = createClientMessage('message', 'all', { content: message });
+            // Send the message with the helper function using the standard format
+            await sendSSEMessage('message', `connection:${connectionId}`, { content: message });
             
-            // Send the message
-            const response = await fetch('/api/sse', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(clientMessage)
-            });
-            
-            if (!response.ok) {
-                const result = await response.json();
-                error = `Failed to send message: ${result.error || response.statusText}`;
-            } else {
-                // Clear the message input on success
-                message = '';
-            }
+            // Clear the message input on success
+            message = '';
         } catch (e) {
-            error = `Error sending message: ${e.message}`;
+            // Error is already set in sendSSEMessage
+            console.error('Failed to send message:', e);
         } finally {
             sending = false;
         }

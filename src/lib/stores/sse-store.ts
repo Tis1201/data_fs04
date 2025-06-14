@@ -42,7 +42,8 @@ function createSSEStore() {
             connect: () => {},
             disconnect: () => {},
             on: () => () => {},
-            clearMessages: () => {}
+            clearMessages: () => {},
+            sendRequest: () => Promise.reject(new Error('Not available during SSR'))
         };
     }
 
@@ -224,6 +225,50 @@ function createSSEStore() {
             }
         };
     }
+    
+    /**
+     * Send a message request to the SSE server
+     * @param partialMsg Message with type, scope and payload
+     * @param timeoutMs Timeout in milliseconds
+     * @param requestIdPrefix Optional prefix for the request ID
+     * @returns Promise that resolves with the response or rejects on timeout/error
+     */
+    async function sendRequest(
+        partialMsg: { type: string; scope: string; payload: Record<string, any> },
+        timeoutMs = 5000,
+        requestIdPrefix = ''
+    ): Promise<any> {
+        // Generate a unique request ID
+        const requestId = `${requestIdPrefix}${requestIdPrefix ? '-' : ''}${crypto.randomUUID()}`;
+        
+        // Create the full message with timestamp and request ID
+        const message = {
+            ...partialMsg,
+            timestamp: new Date().toISOString(),
+            requestId
+        };
+        
+        try {
+            // Send the message via POST to the SSE endpoint
+            const response = await fetch('/api/sse', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(message)
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(`SSE request failed: ${errorData.error || response.statusText}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('[SSE] Send request failed:', error);
+            throw error;
+        }
+    }
 
     return {
         // Core functionality
@@ -232,6 +277,7 @@ function createSSEStore() {
         disconnect,
         on,
         clearMessages,
+        sendRequest,
         
         // Helper methods
         get isConnected() {

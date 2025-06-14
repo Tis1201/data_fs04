@@ -514,6 +514,8 @@ const createSocketStore = () => {
         timestamp: new Date().toISOString()
       };
 
+      console.log(`Sending request ${JSON.stringify(fullMessage)}`);
+
       // 3) Start a timer to reject if no response arrives
       const timer = setTimeout(() => {
         delete pendingRequests[requestId];

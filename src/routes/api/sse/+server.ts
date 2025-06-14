@@ -97,7 +97,11 @@ export const GET: RequestHandler = restrict(
 export const POST: RequestHandler = restrict(
     async ({ request, locals, auth }: any) => {
         try {
+            // Read the request body only once
             const body = await request.json();
+            
+            // Log the received message
+            logger.debug(`SSE message received: ${JSON.stringify(body)}`);
             
             // Validate the incoming message using the shared schema
             const messageResult = SSEMessageSchema.safeParse(body);
