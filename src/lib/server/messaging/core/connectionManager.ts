@@ -13,6 +13,20 @@ type UserId = string;
 class DefaultConnectionManager {
   private liveConnections = new Map<ConnectionId, Connection>();
   private userConnections = new Map<UserId, Set<ConnectionId>>();
+  private connectionLogInterval: NodeJS.Timeout | null = null;
+  
+  private startConnectionLogging(): void {
+    if (this.connectionLogInterval) return; // Already running
+    
+    this.connectionLogInterval = setInterval(() => {
+      logger.info(`[ConnectionManager] Active connections: ${this.liveConnections.size}, Users: ${this.userConnections.size}`);
+      
+      // Log detailed connection info
+      if (this.liveConnections.size > 0) {
+        logger.info(`[ConnectionManager] Connection IDs: ${Array.from(this.liveConnections.keys()).join(', ')}`);
+      }
+    }, 60000); // Log every minute
+  }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
     // Set a UUID in connection.meta if not present
@@ -27,17 +41,26 @@ class DefaultConnectionManager {
     const connSet = this.userConnections.get(userInfo.id) ?? new Set();
     connSet.add(id);
 
-    logger.debug(`[ConnectionManager] Registered connection: ${id}, [${connection.meta.protocol}] for user: ${userInfo.id}`);
+    logger.info(`[ConnectionManager] Registered connection: ${id}, [${connection.meta.protocol}] for user: ${userInfo.id}`);
+    logger.info(`[ConnectionManager] Total connections: ${this.liveConnections.size}, Users with connections: ${this.userConnections.size}`);
 
     this.userConnections.set(userInfo.id, connSet);
 
     // Store metadata in the shared store
     connectionSharedStore.addMember(connection.meta.id,connection.meta);
+    
+    // Log connection counts every minute
+    if (this.liveConnections.size === 1) {
+      this.startConnectionLogging();
+    }
   }
 
   unregisterConnection(connId: ConnectionId): void {
     const connection = this.liveConnections.get(connId);
-    if (!connection) return;
+    if (!connection) {
+      logger.warn(`[ConnectionManager] Attempted to unregister non-existent connection: ${connId}`);
+      return;
+    }
 
     this.liveConnections.delete(connId);
 
@@ -52,7 +75,13 @@ class DefaultConnectionManager {
 
     connectionSharedStore.remove(connId);
 
-    logger.debug(`[ConnectionManager] Unregistered connection: ${connId}`);
+    logger.info(`[ConnectionManager] Unregistered connection: ${connId}`);
+    logger.info(`[ConnectionManager] Remaining connections: ${this.liveConnections.size}, Users: ${this.userConnections.size}`);
+    
+    // Log remaining connection IDs if any
+    if (this.liveConnections.size > 0) {
+      logger.info(`[ConnectionManager] Remaining connection IDs: ${Array.from(this.liveConnections.keys()).join(', ')}`);
+    }
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {

@@ -7,7 +7,25 @@ type WSClient = WebSocket & {
     sessionId?: string;
 };
 
-const clients = new Map<string, WSClient>();
+// Use global tracking if available, otherwise create a new Map
+let clients: Map<string, WSClient>;
+
+// Make clients available globally for synchronization with prodServer.js
+if (typeof global !== 'undefined') {
+    // Check if global tracking exists from prodServer.js
+    if (global.__WS_CLIENTS_MAP__) {
+        clients = global.__WS_CLIENTS_MAP__;
+        logger.info(`[WSManager] Using existing global client tracking with ${clients.size} clients`);
+    } else {
+        clients = new Map<string, WSClient>();
+        global.__WS_CLIENTS_MAP__ = clients;
+        logger.info('[WSManager] Created new global client tracking');
+    }
+} else {
+    clients = new Map<string, WSClient>();
+    logger.info('[WSManager] Created new local client tracking (global not available)');
+}
+
 let connectionCounter = 0;
 
 // Setup periodic logging

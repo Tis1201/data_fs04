@@ -110,6 +110,16 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
             onClose();
         });
         
+        // Add message handler to log incoming messages
+        ws.on('message', (data: Buffer | string) => {
+            try {
+                const message = JSON.parse(data.toString());
+                logger.info(`[WS] Received message from client ${clientId}:`, JSON.stringify(message));
+            } catch (err) {
+                logger.info(`[WS] Received non-JSON message from client ${clientId}:`, data.toString());
+            }
+        });
+        
         try {
             connection.start(); // start event listeners inside WSConnection
             logger.info(`[WS] Successfully started connection for client ${clientId}`);
