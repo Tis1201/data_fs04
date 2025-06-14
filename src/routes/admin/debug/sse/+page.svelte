@@ -3,7 +3,7 @@
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { sseMessages, type SSEMessage } from '$lib/stores/sse-store';
+    import { sseStore, type SSEMessage } from '$lib/stores/sse-store';
     import { Badge } from "$lib/components/ui/badge";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { Button } from "$lib/components/ui/button";
@@ -17,8 +17,8 @@
 
     let connected = false;
     let error: string | null = null;
-    let eventSource: EventSource | null = null;
     let expandedMessages = new Set<string>();
+    let messages: SSEMessage[] = [];
 
     function toggleMessage(messageId: string) {
         if (expandedMessages.has(messageId)) {
@@ -30,72 +30,29 @@
     }
 
     onMount(() => {
-        connectSSE();
+        // Subscribe to the SSE store to get messages and connection status
+        const unsubscribe = sseStore.subscribe((state) => {
+            messages = state.messages;
+            connected = state.status === 'OPEN';
+            error = state.error?.message || null;
+        });
+
+        // Connect to the SSE endpoint
+        sseStore.connect('/api/sse');
+
+        return () => {
+            unsubscribe();
+            sseStore.disconnect();
+        };
     });
 
     onDestroy(() => {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        sseStore.disconnect();
     });
-
-    function connectSSE() {
-        try {
-            eventSource = new EventSource('/api/sse');
-            
-            eventSource.onopen = () => {
-                connected = true;
-                error = null;
-            };
-
-            eventSource.onerror = (e) => {
-                connected = false;
-                error = 'Connection error';
-                console.error('SSE error:', e);
-            };
-
-            const handleEvent = (e: MessageEvent) => {
-                try {
-                    const data = JSON.parse(e.data);
-                    let content: string | undefined;
-                    if (typeof data === 'string') {
-                        content = data;
-                    } else if (data?.content) {
-                        content = data.content;
-                    }
-
-                    const message: SSEMessage = {
-                        id: crypto.randomUUID(),
-                        event: e.type === 'message' ? data.event || 'message' : e.type,
-                        content,
-                        data,
-                        timestamp: data.timestamp || new Date().toISOString(),
-                        sender: data.sender
-                    };
-                    sseMessages.addMessage(message);
-                    console.log('Received SSE message:', message);
-                } catch (err) {
-                    console.error(`Error parsing ${e.type} event:`, err);
-                }
-            };
-
-            eventSource.onmessage = handleEvent;
-            eventSource.addEventListener('connected', handleEvent);
-            eventSource.addEventListener('webhook', handleEvent); // Listen for webhook events
-
-        } catch (err) {
-            error = err.message;
-            console.error('Error connecting to SSE:', err);
-        }
-    }
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
     <PageHeader title="SSE Debug">
-        <!-- <svelte:fragment slot="description">
-            View real-time Server-Sent Events
-        </svelte:fragment> -->
         <svelte:fragment slot="action">
             <Badge variant={connected ? "success" : "destructive"}>
                 {connected ? "Connected" : "Disconnected"}
@@ -125,7 +82,7 @@
                         <Skeleton class="h-[40px] w-full" />
                     </div>
                 {:else}
-                    {#each $sseMessages as message}
+                    {#each messages as message}
                         <div class="border rounded-lg overflow-hidden">
                             <div class="p-4 space-y-2">
                                 <div class="flex justify-between items-start gap-4">
