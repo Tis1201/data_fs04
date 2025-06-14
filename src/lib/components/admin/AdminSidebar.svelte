@@ -172,6 +172,7 @@
             icon: BugOff,
             initialExpanded: false,
             subItems: [
+                { href: "/admin/debug/sse", label: "SSE", icon: Zap },
                 { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap }
             ]
         },

@@ -1,7 +1,7 @@
 // Device listening endpoint with API key authentication
 // Uses the sseHandler utility for consistent SSE connection management
 
-import { createSSEHandler } from '../../../../lib/server/sse/sseHandler';
+import { createSSEHandler } from '../../../../lib/server/sse/device/sseHandler';
 import { auth_device } from '$lib/server/device/deviceAuth';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 

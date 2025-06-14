@@ -66,7 +66,7 @@ function startLogging() {
 }
 
 // Start logging when the module loads
-startLogging();
+// startLogging();
 
 /**
  * Add a new WebSocket client and return its ID
