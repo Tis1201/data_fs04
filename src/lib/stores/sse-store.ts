@@ -70,11 +70,13 @@ function createSSEStore() {
      */
     const addMessage = (message: SSEMessage) => {
         update(state => {
-            // Ensure messages is always an array
+            // Ensure messages is always an array and limit to last 10 messages
             const messages = Array.isArray(state.messages) ? state.messages : [];
+            // Keep only the last 9 messages and add the new one (total 10)
+            const updatedMessages = [...messages, message].slice(-10);
             return {
                 ...state,
-                messages: [...messages, message].slice(-100), // Keep last 100 messages
+                messages: updatedMessages,
                 lastEvent: message
             };
         });
