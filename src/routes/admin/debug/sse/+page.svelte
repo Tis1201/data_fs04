@@ -1,182 +1,197 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { ArrowLeft, Send, RefreshCw, Trash2 } from "lucide-svelte";
+    import { goto } from "$app/navigation";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { sseMessages, type SSEMessage } from '$lib/stores/sse-store';
-    import { Badge } from "$lib/components/ui/badge";
-    import { Skeleton } from "$lib/components/ui/skeleton";
+    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+    import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '$lib/components/ui/card';
     import { Button } from "$lib/components/ui/button";
-    import { ChevronDown, ChevronUp } from "lucide-svelte";
-
+    import { Input } from "$lib/components/ui/input";
+    import { Badge } from "$lib/components/ui/badge";
+    import { ScrollArea } from "$lib/components/ui/scroll-area";
+    import { sseStore } from '$lib/stores/sse-store';
+    import { onMount } from 'svelte';
+    
+    // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        "Debug",
+        ["Debug", "/admin/debug"],
         "SSE"
     ];
 
+    let message = '';
+    let sending = false;
     let connected = false;
     let error: string | null = null;
-    let eventSource: EventSource | null = null;
-    let expandedMessages = new Set<string>();
+    
+    // Subscribe to the SSE store
+    $: messages = $sseStore.messages;
+    $: connected = $sseStore.status === 'OPEN';
+    $: connectionId = $sseStore.connectionId;
 
-    function toggleMessage(messageId: string) {
-        if (expandedMessages.has(messageId)) {
-            expandedMessages.delete(messageId);
-        } else {
-            expandedMessages.add(messageId);
+    // Connection is managed by the authentication flow
+    // This component just subscribes to the existing connection
+
+    /**
+     * Helper function to send a message via the SSE store
+     * @param type Message type
+     * @param scope Message scope
+     * @param payload Message payload
+     * @returns Promise that resolves when the message is sent
+     */
+    async function sendSSEMessage(type: string, scope: string, payload: Record<string, any>) {
+        try {
+            // Generate a unique requestId for tracking
+            const requestId = `req_${Math.random().toString(36).substring(2, 15)}`;
+            
+            // Use the sendRequest function from the SSE store with requestId as a first-class property
+            return await sseStore.sendRequest(
+                { 
+                    type, 
+                    scope, 
+                    payload, 
+                    requestId
+                }
+            );
+        } catch (e) {
+            error = `Error sending message: ${e.message}`;
+            throw e;
         }
-        expandedMessages = expandedMessages; // Trigger reactivity
+    }
+    
+    // Send a user message from the input field
+    async function sendMessage() {
+        if (!message.trim()) return;
+        
+        try {
+            sending = true;
+            
+            // Send the message with the helper function using the standard format
+            await sendSSEMessage('message', `connection:${connectionId}`, { content: message });
+            
+            // Clear the message input on success
+            message = '';
+        } catch (e) {
+            // Error is already set in sendSSEMessage
+            console.error('Failed to send message:', e);
+        } finally {
+            sending = false;
+        }
     }
 
-    onMount(() => {
-        connectSSE();
-    });
+    // Reconnect to SSE
+    function reconnect() {
+        sseStore.disconnect();
+        sseStore.connect('/api/sse');
+    }
 
-    onDestroy(() => {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
-    });
-
-    function connectSSE() {
-        try {
-            eventSource = new EventSource('/api/sse');
-            
-            eventSource.onopen = () => {
-                connected = true;
-                error = null;
-            };
-
-            eventSource.onerror = (e) => {
-                connected = false;
-                error = 'Connection error';
-                console.error('SSE error:', e);
-            };
-
-            const handleEvent = (e: MessageEvent) => {
-                try {
-                    const data = JSON.parse(e.data);
-                    let content: string | undefined;
-                    if (typeof data === 'string') {
-                        content = data;
-                    } else if (data?.content) {
-                        content = data.content;
-                    }
-
-                    const message: SSEMessage = {
-                        id: crypto.randomUUID(),
-                        event: e.type === 'message' ? data.event || 'message' : e.type,
-                        content,
-                        data,
-                        timestamp: data.timestamp || new Date().toISOString(),
-                        sender: data.sender
-                    };
-                    sseMessages.addMessage(message);
-                    console.log('Received SSE message:', message);
-                } catch (err) {
-                    console.error(`Error parsing ${e.type} event:`, err);
-                }
-            };
-
-            eventSource.onmessage = handleEvent;
-            eventSource.addEventListener('connected', handleEvent);
-            eventSource.addEventListener('webhook', handleEvent); // Listen for webhook events
-
-        } catch (err) {
-            error = err.message;
-            console.error('Error connecting to SSE:', err);
-        }
+    // Clear all messages
+    function clearMessages() {
+        sseStore.clearMessages();
     }
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
     <PageHeader title="SSE Debug">
-        <!-- <svelte:fragment slot="description">
-            View real-time Server-Sent Events
-        </svelte:fragment> -->
         <svelte:fragment slot="action">
-            <Badge variant={connected ? "success" : "destructive"}>
-                {connected ? "Connected" : "Disconnected"}
-            </Badge>
+            <ActionButton
+                label="Back"
+                icon={ArrowLeft}
+                href="/admin/debug"
+            />
         </svelte:fragment>
     </PageHeader>
-
-    {#if error}
-        <div class="text-destructive mb-4">
-            Error: {error}
-        </div>
-    {/if}
-
-    <Card>
-        <CardHeader>
-            <CardTitle>SSE Messages</CardTitle>
-            <CardDescription>
-                Real-time messages from the SSE server
-            </CardDescription>
-        </CardHeader>
-        <CardContent>
-            <div class="space-y-4">
-                {#if !connected}
-                    <div class="space-y-3">
-                        <Skeleton class="h-[40px] w-full" />
-                        <Skeleton class="h-[40px] w-full" />
-                        <Skeleton class="h-[40px] w-full" />
-                    </div>
-                {:else}
-                    {#each $sseMessages as message}
-                        <div class="border rounded-lg overflow-hidden">
-                            <div class="p-4 space-y-2">
-                                <div class="flex justify-between items-start gap-4">
+    
+    <PageContent>
+        <Card class="w-full">
+            <CardHeader>
+                <CardTitle>SSE Debug Console</CardTitle>
+                <CardDescription>Simple Server-Sent Events testing</CardDescription>
+                <div class="flex items-center gap-4 mt-2">
+                    {#if connected}
+                        <Badge variant="success">Connected</Badge>
+                        {#if connectionId}
+                            <Badge variant="outline">ID: {connectionId}</Badge>
+                        {/if}
+                    {:else}
+                        <Badge variant="destructive">Disconnected</Badge>
+                    {/if}
+                    <Button size="sm" variant={connected ? "outline" : "default"} on:click={reconnect}>
+                        <RefreshCw class="h-4 w-4 mr-2" />
+                        Reconnect
+                    </Button>
+                    <Button size="sm" variant="outline" on:click={clearMessages}>
+                        <Trash2 class="h-4 w-4 mr-2" />
+                        Clear
+                    </Button>
+                </div>
+            </CardHeader>
+            
+            <CardContent class="space-y-4">
+                <!-- Simple message input -->
+                <div class="flex items-center space-x-2">
+                    <Input 
+                        type="text" 
+                        placeholder="Type a message..." 
+                        bind:value={message} 
+                        on:keydown={(e) => e.key === 'Enter' && sendMessage()}
+                        disabled={sending || !connected}
+                    />
+                    <Button 
+                        on:click={sendMessage} 
+                        disabled={sending || !connected || !message.trim()}
+                    >
+                        <Send class="h-4 w-4 mr-2" />
+                        Send
+                    </Button>
+                </div>
+                
+                <!-- Message list -->
+                <ScrollArea class="h-[400px] border rounded-md p-4">
+                    {#if messages && messages.length > 0}
+                        <div class="space-y-4">
+                            {#each [...messages].reverse() as message}
+                                <div class="border rounded-lg p-4 space-y-2">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <Badge variant="outline">
                                             {message.event}
                                         </Badge>
-                                        {#if message.sender}
-                                            <Badge variant="secondary">
-                                                {message.sender.name || message.sender.email}
-                                            </Badge>
+                                        {#if message.timestamp}
+                                            <span class="text-xs text-muted-foreground">
+                                                {new Date(message.timestamp).toLocaleTimeString()}
+                                            </span>
                                         {/if}
-                                        <div class="text-sm text-muted-foreground">
-                                            {new Date(message.timestamp).toLocaleString()}
+                                    </div>
+                                    
+                                    {#if message.content}
+                                        <div class="text-sm">
+                                            {message.content}
                                         </div>
+                                    {/if}
+                                    
+                                    <div class="text-xs font-mono bg-muted rounded p-2 overflow-x-auto">
+                                        {JSON.stringify(message.data, null, 2)}
                                     </div>
-                                    <Button 
-                                        variant="ghost" 
-                                        size="icon"
-                                        on:click={() => toggleMessage(message.id)}
-                                    >
-                                        {#if expandedMessages.has(message.id)}
-                                            <ChevronUp class="h-4 w-4" />
-                                        {:else}
-                                            <ChevronDown class="h-4 w-4" />
-                                        {/if}
-                                    </Button>
                                 </div>
-
-                                {#if message.content}
-                                    <div class="text-sm font-mono bg-muted rounded p-2">
-                                        {message.content}
-                                    </div>
-                                {/if}
-                            </div>
-
-                            {#if expandedMessages.has(message.id)}
-                                <div class="border-t bg-muted">
-                                    <pre class="p-4 text-sm font-mono leading-relaxed overflow-x-auto">
-                                        <code>{JSON.stringify(message.data, null, 4)}</code>
-                                    </pre>
-                                </div>
-                            {/if}
+                            {/each}
                         </div>
                     {:else}
-                        <div class="text-center text-muted-foreground py-8">
-                            No messages yet
+                        <div class="flex items-center justify-center h-32 text-muted-foreground">
+                            No messages yet. Send a message to see it appear here.
                         </div>
-                    {/each}
-                {/if}
-            </div>
-        </CardContent>
-    </Card>
+                    {/if}
+                </ScrollArea>
+            </CardContent>
+            
+            <CardFooter>
+                <p class="text-sm text-muted-foreground">
+                    Status: {$sseStore.status}
+                    {#if error}
+                        <span class="text-destructive ml-2">Error: {error}</span>
+                    {/if}
+                </p>
+            </CardFooter>
+        </Card>
+    </PageContent>
 </PageContainer>

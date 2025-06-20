@@ -728,6 +728,16 @@ Modules Access (subscription based)
 - Others in future
 
 
+Remove Websocket (it sucks)
+- Replace device communications with SSE
+- Remove Websocket Middleware
+
+Security
+- Replace all with restrict
+export const POST: RequestHandler = restrict(
+    async ({ request, locals, auth }: any) => {
+
+
 Notes
 - When signing keys are rotated, factory tokens has to be regenerated as well
 

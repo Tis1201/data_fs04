@@ -54,6 +54,8 @@ export class WSConnection implements Connection {
       userInfo: this.meta.userInfo,
       protocol: this.meta.protocol,
       connectionId: this.meta.id,
+      // Extract requestId if it exists in the parsed message
+      requestId: parsed.requestId,
     };
 
     if(parsed.type === 'ping') {

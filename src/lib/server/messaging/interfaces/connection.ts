@@ -12,6 +12,7 @@ export type ConnectionProtocol =
 export interface ConnectionMeta {
   id?: string;              // Unique connection ID
   userInfo: UserInfo;          // Owner of the connection
+  sessionId?: string;        // Session ID if available
   nodeId: string;          // Node or instance managing it
   protocol: ConnectionProtocol;
   connectedAt: number;     // Unix timestamp

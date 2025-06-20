@@ -63,75 +63,247 @@ let wsInitialized = false;
 try {
   // Try to dynamically find WebSocket utilities
   let webSocketUtils;
-  let importError;
   
   // First, try to find WebSocket utilities in the build directory
   try {
     const fs = await import('fs');
-    const buildChunksDir = './build/server/chunks';
+    const buildDir = './build';
     
-    if (fs.existsSync(buildChunksDir)) {
-      // Find any file with WebSocket in the name
-      const files = fs.readdirSync(buildChunksDir)
-        .filter(file => file.includes('WebSocket') && file.endsWith('.js'));
+    async function findWebSocketUtilsPath(buildDir) {
+      const buildChunksDir = `${buildDir}/server/chunks`;
       
-      if (files.length > 0) {
-        const wsPath = `${buildChunksDir}/${files[0]}`;
-        console.log(`Found WebSocket utilities in build: ${wsPath}`);
-        webSocketUtils = await import(wsPath);
+      if (fs.existsSync(buildChunksDir)) {
+        const files = fs.readdirSync(buildChunksDir);
+        
+        // First, try to find WebSocketUtils.js directly
+        const exactMatch = files.find(file => file.startsWith('WebSocketUtils'));
+        if (exactMatch) {
+          return `${buildChunksDir}/${exactMatch}`;
+        }
+        
+        // Otherwise, look for any file containing WebSocket
+        for (const file of files) {
+          if (file.includes('WebSocket') && file.endsWith('.js')) {
+            try {
+              const wsPath = `${buildChunksDir}/${file}`;
+              const content = fs.readFileSync(wsPath, 'utf8');
+              
+              // Check if the file contains key WebSocket functions
+              if (content.includes('startupWebsocketServer') || 
+                  content.includes('onHttpServerUpgrade') || 
+                  content.includes('GlobalThisWSS')) {
+                return wsPath;
+              }
+            } catch (e) {
+              console.error(`Error checking ${file}:`, e.message);
+            }
+          }
+        }
+      }
+      
+      return null;
+    }
+    
+    async function findModulePath(buildDir, moduleName) {
+      const buildChunksDir = `${buildDir}/server/chunks`;
+      
+      if (fs.existsSync(buildChunksDir)) {
+        const files = fs.readdirSync(buildChunksDir);
+        
+        // First, try to find exact module name
+        const exactMatch = files.find(file => file.startsWith(moduleName));
+        if (exactMatch) {
+          return `${buildChunksDir}/${exactMatch}`;
+        }
+        
+        // Otherwise, look for any file containing the module name
+        for (const file of files) {
+          if (file.includes(moduleName) && file.endsWith('.js')) {
+            try {
+              const modulePath = `${buildChunksDir}/${file}`;
+              const content = fs.readFileSync(modulePath, 'utf8');
+              
+              // Check if the file contains key functions or exports related to the module
+              if (content.includes(`export function add${moduleName.replace('Manager', '')}`) || 
+                  content.includes(`export const ${moduleName.toLowerCase()}`) ||
+                  content.includes(`export * from './${moduleName}'`)) {
+                return modulePath;
+              }
+            } catch (e) {
+              console.error(`Error checking ${file}:`, e.message);
+            }
+          }
+        }
+      }
+      
+      return null;
+    }
+    
+    // Find WebSocket utilities path
+    const wsUtilsPath = await findWebSocketUtilsPath(buildDir);
+    const wsManagerPath = await findModulePath(buildDir, 'WSManager');
+    
+    if (wsUtilsPath) {
+      console.log(`Found WebSocket utilities at: ${wsUtilsPath}`);
+      
+      // Import the WebSocket utilities
+      webSocketUtils = await import(wsUtilsPath);
+      console.log('WebSocket utilities imported:', Object.keys(webSocketUtils).join(', '));
+    } else {
+      console.log('WebSocket utilities not found in build directory');
+    }
+    
+    // Import WSManager if found
+    if (wsManagerPath) {
+      console.log(`Found WSManager at: ${wsManagerPath}`);
+      try {
+        const wsManager = await import(wsManagerPath);
+        console.log('WSManager imported:', Object.keys(wsManager).join(', '));
+      } catch (err) {
+        console.error('Failed to import WSManager:', err);
       }
     }
-  } catch (e) {
-    console.log('Error finding WebSocket utilities in build:', e.message);
-  }
-  
-  // Only use the build directory, no fallbacks
-  if (!webSocketUtils) {
-    console.log('WebSocket utilities not found in build directory');
-    throw new Error('WebSocket utilities not found in build directory');
-  }
-  
-  if (!webSocketUtils) {
-    console.log('Import error details:', importError);
-    throw new Error('Could not find WebSocket utilities in any expected location');
-  }
-  
-  // Initialize WebSocket server
-  // Handle both original and bundled export formats
-  if (webSocketUtils.createWSSGlobalInstance) {
-    // Original source format
-    webSocketUtils.createWSSGlobalInstance();
-    server.on('upgrade', webSocketUtils.onHttpServerUpgrade);
-    wsInitialized = true;
-  } else if (webSocketUtils.s) {
-    // Bundled format - s is startupWebsocketServer
-    webSocketUtils.s();
     
-    // We need to manually set up the upgrade handler since it's not exported
-    // Use the global instance from the symbol
-    const wss = global[webSocketUtils.G];
-    if (wss) {
-      server.on('upgrade', (req, socket, head) => {
-        const pathname = req.url ? new URL(req.url, 'http://localhost').pathname : null;
-        if (pathname !== '/websocket') return;
-        
-        wss.handleUpgrade(req, socket, head, (ws) => {
-          wss.emit('connection', ws, req);
-        });
-      });
+    if (webSocketUtils && webSocketUtils.createWSSGlobalInstance) {
+      console.log('Using original source format WebSocket utilities');
+      webSocketUtils.createWSSGlobalInstance();
+      server.on('upgrade', webSocketUtils.onHttpServerUpgrade);
       wsInitialized = true;
+    } else if (webSocketUtils.s) {
+      console.log('Using bundled format WebSocket utilities');
+      // Bundled format - s is startupWebsocketServer
+      webSocketUtils.s();
+      
+      // Find the global symbol
+      const globalSymbol = webSocketUtils.G;
+      console.log('Global symbol found:', !!globalSymbol);
+      
+      if (globalSymbol) {
+        // We need to manually set up the upgrade handler
+        const wss = global[globalSymbol];
+        console.log('WebSocket server instance found:', !!wss);
+        
+        if (wss) {
+          // Track WebSocket clients
+          const wsClients = new Map();
+          let wsClientCounter = 0;
+          
+          // Set up periodic logging of client count
+          setInterval(() => {
+            console.log(`[WS] Current connected clients: ${wsClients.size}`);
+            
+            // Log client details in verbose mode
+            if (wsClients.size > 0) {
+              for (const [id, client] of wsClients.entries()) {
+                console.log(`[WS] Client ${id} (${client.sessionId || 'no-session'})`);
+              }
+            }
+          }, 5000);
+          
+          server.on('upgrade', (req, socket, head) => {
+            const pathname = req.url ? new URL(req.url, 'http://localhost').pathname : null;
+            console.log(`Upgrade request for: ${pathname}`);
+            
+            if (pathname !== '/websocket') return;
+            
+            wss.handleUpgrade(req, socket, head, (ws) => {
+              // Add client tracking
+              const clientId = `ws-${Date.now()}-${++wsClientCounter}`;
+              
+              // Extract session ID from cookies if available
+              let sessionId = null;
+              if (req.headers.cookie) {
+                const cookies = req.headers.cookie.split(';').map(c => c.trim());
+                const sessionCookie = cookies.find(c => c.startsWith('auth_session='));
+                if (sessionCookie) {
+                  sessionId = sessionCookie.split('=')[1];
+                }
+              }
+              
+              // Add client to tracking map
+              Object.assign(ws, { id: clientId, sessionId });
+              wsClients.set(clientId, ws);
+              
+              // Attempt to register with WSManager directly
+              // This is a workaround to ensure both tracking systems are in sync
+              try {
+                // WSManager expects clients to have these properties
+                ws.userId = sessionId; // Use sessionId as userId for tracking
+                
+                // Access the global clients Map from WSManager
+                // This is hacky but necessary to ensure proper tracking
+                const globalClients = global.__WS_CLIENTS_MAP__;
+                if (globalClients && typeof globalClients.set === 'function') {
+                  globalClients.set(clientId, ws);
+                  console.log(`[WS] Client ${clientId} registered with global WSManager`);
+                } else {
+                  // Create global tracking if it doesn't exist
+                  global.__WS_CLIENTS_MAP__ = wsClients;
+                  console.log(`[WS] Created global WSManager tracking with ${wsClients.size} clients`);
+                }
+              } catch (err) {
+                console.error(`[WS] Failed to register with WSManager:`, err);
+              }
+              
+              console.log(`WebSocket connection established: ${clientId} (Total: ${wsClients.size})`);
+              
+              // Handle disconnection
+              ws.on('close', () => {
+                if (wsClients.delete(clientId)) {
+                  console.log(`WebSocket client disconnected: ${clientId} (Remaining: ${wsClients.size})`);
+                  
+                  // Also remove from global WSManager tracking if it exists
+                  try {
+                    const globalClients = global.__WS_CLIENTS_MAP__;
+                    if (globalClients && typeof globalClients.delete === 'function') {
+                      globalClients.delete(clientId);
+                      console.log(`[WS] Client ${clientId} unregistered from global WSManager (Remaining: ${globalClients.size})`);
+                    }
+                  } catch (err) {
+                    console.error(`[WS] Failed to unregister from WSManager:`, err);
+                  }
+                }
+              });
+              
+              // Handle errors
+              ws.on('error', (err) => {
+                console.error(`WebSocket error for client ${clientId}:`, err.message);
+              });
+              
+              // Add message handler to log incoming messages
+              ws.on('message', (data) => {
+                try {
+                  const message = JSON.parse(data.toString());
+                  console.log(`[WS] Received message from client ${clientId}:`, JSON.stringify(message));
+                } catch (err) {
+                  console.log(`[WS] Received non-JSON message from client ${clientId}:`, data.toString());
+                }
+              });
+              
+              // Emit the connection event
+              wss.emit('connection', ws, req);
+            });
+          });
+          wsInitialized = true;
+        } else {
+          throw new Error('WebSocket server instance not found in global');
+        }
+      } else {
+        throw new Error('WebSocket global symbol not found');
+      }
+    } else {
+      throw new Error('No valid WebSocket initialization method found');
     }
+    
+    if (wsInitialized) {
+      console.log('WebSocket server initialized successfully');
+    } else {
+      throw new Error('Could not initialize WebSocket server with the available exports');
+    }
+  } catch (error) {
+    console.log('WebSocket initialization failed:', error.message);
+    console.log('Continuing without WebSocket support');
   }
-  
-  if (wsInitialized) {
-    console.log('WebSocket server initialized successfully');
-  } else {
-    throw new Error('Could not initialize WebSocket server with the available exports');
-  }
-} catch (error) {
-  console.log('WebSocket initialization failed:', error.message);
-  console.log('Continuing without WebSocket support');
-}
 
 // Start the server
 const PORT = process.env.PORT || 3000;
@@ -153,3 +325,7 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+
+// Close any missing braces/brackets to fix syntax error
+}  // Close the try block from line 68
+}  // Close the try block from line 63

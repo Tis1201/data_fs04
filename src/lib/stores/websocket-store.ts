@@ -99,7 +99,7 @@ const createSocketStore = () => {
   const addMessage = (message: WebSocketMessage) => {
     update(state => ({
       ...state,
-      messages: [...state.messages, message]
+      messages: Array.isArray(state.messages) ? [...state.messages, message] : [message]
     }));
   };
 
@@ -141,18 +141,85 @@ const createSocketStore = () => {
   // ─── Connection Lifecycle ────────────────────────────────────────────────────
 
   /**
+   * Exponential backoff reconnect logic.
+   * After a failed connection, waits longer between each attempt.
+   */
+  const scheduleReconnect = () => {
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      const error = new Error(`Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached`);
+      console.error('[WebSocket]', error.message);
+      set(state => ({
+        ...state,
+        status: 'CLOSED',
+        error
+      }));
+      return;
+    }
+
+    // Don't try to reconnect if we're already reconnecting
+    if (reconnectTimer) {
+      return;
+    }
+
+    // Calculate delay with jitter to prevent thundering herd problem
+    const baseDelay = Math.min(
+      BASE_RECONNECT_INTERVAL * Math.pow(2, reconnectAttempts),
+      MAX_RECONNECT_INTERVAL
+    );
+    const jitter = Math.random() * 1000; // Add up to 1s of jitter
+    const delay = Math.floor(baseDelay + jitter);
+
+    reconnectAttempts++;
+    const statusMessage = `Reconnecting in ${Math.round(delay/1000)}s... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
+    console.log(`[WebSocket] ${statusMessage}`);
+    
+    set(state => ({
+      ...state,
+      status: 'RECONNECTING',
+      error: new Error(statusMessage)
+    }));
+
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      console.log(`[WebSocket] Attempting to reconnect (attempt ${reconnectAttempts})`);
+      connect();
+    }, delay);
+  };
+
+  /**
    * Establish a WebSocket connection to ws(s)://<host><WS_URL_PATH>[?queryParams].
    * Sets up event handlers for open, message, close, error.
    * On close, will attempt exponential-backoff reconnect up to MAX_RECONNECT_ATTEMPTS.
    */
   const connect = (queryParams = '') => {
     // If already have a socket that isn't fully closed, close it first
-    if (socket && socket.readyState !== WebSocket.CLOSED) {
-      socket.close();
+    if (socket) {
+      try {
+        // Remove all event listeners to prevent memory leaks
+        socket.onopen = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        
+        // Only close if not already in a closing or closed state
+        if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+          socket.close(1000, 'Reconnecting...');
+        }
+      } catch (err) {
+        console.error('Error while closing previous socket:', err);
+      }
+      socket = null;
     }
+    
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
+    }
+
+    // Only attempt to reconnect if we haven't exceeded max attempts
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.warn('Max reconnection attempts reached, giving up');
+      return;
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -160,12 +227,15 @@ const createSocketStore = () => {
     const url = `${protocol}//${host}${WS_URL_PATH}${queryParams ? '?' + queryParams : ''}`;
 
     try {
+      console.log(`[WebSocket] Connecting to ${url} (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
       socket = new WebSocket(url);
       update(state => ({ ...state, status: 'CONNECTING', error: null }));
 
       socket.onopen = () => {
         reconnectAttempts = 0;
         const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
+        console.log(`[WebSocket] Connected with ID: ${socketId}`);
+        
         set({
           status: 'OPEN',
           error: null,
@@ -177,27 +247,46 @@ const createSocketStore = () => {
         if (pingInterval) clearInterval(pingInterval);
         pingInterval = setInterval(() => {
           if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'ping' }));
+            try {
+              socket.send(JSON.stringify({ type: 'ping' }));
+            } catch (err) {
+              console.error('[WebSocket] Error sending ping:', err);
+              // Try to reconnect if ping fails
+              scheduleReconnect();
+            }
           }
         }, PING_INTERVAL);
       };
 
       socket.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data) as WebSocketMessage;
+          if (!event.data) {
+            console.warn('[WebSocket] Received empty message');
+            return;
+          }
+
+          let message: WebSocketMessage;
+          try {
+            message = JSON.parse(event.data) as WebSocketMessage;
+          } catch (err) {
+            console.error('[WebSocket] Error parsing message:', err, 'Raw data:', event.data);
+            return;
+          }
 
           // If this message has a payload.requestId that matches a pending request,
           // resolve that promise and do not dispatch further.
           const rid = (message.payload as any)?.requestId as string | undefined;
           if (rid && pendingRequests[rid]) {
-            const { resolve, timer } = pendingRequests[rid];
+            const { resolve, timer, timeout } = pendingRequests[rid];
             clearTimeout(timer);
+            clearTimeout(timeout);
             delete pendingRequests[rid];
             return resolve(message.payload);
           }
 
           // Handle welcome messages (e.g. server may send socketId, userId, role)
           if (message.type === 'welcome') {
+            console.log('[WebSocket] Received welcome message:', message);
             update(state => ({
               ...state,
               socket: {
@@ -234,33 +323,51 @@ const createSocketStore = () => {
           pingInterval = null;
         }
 
-        // Attempt exponential-backoff reconnect up to MAX_RECONNECT_ATTEMPTS
-        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          reconnectAttempts++;
-          const backoffTime = Math.min(
-            BASE_RECONNECT_INTERVAL * Math.pow(2, reconnectAttempts - 1) + Math.random() * 1000,
-            MAX_RECONNECT_INTERVAL
-          );
-          reconnectTimer = setTimeout(() => {
-            update(state => ({ ...state, status: 'RECONNECTING' }));
-            connect(queryParams);
-          }, backoffTime);
-        } else {
-          update(state => ({ ...state, error: new Error('Maximum reconnection attempts reached') }));
+        // Update state with close reason
+        update(state => ({
+          ...state,
+          status: 'CLOSED',
+          error: event.wasClean 
+            ? null 
+            : new Error(`Connection closed: ${event.code} ${event.reason || 'No reason provided'}`),
+          socket: {
+            ...state.socket,
+            readyState: socket?.readyState
+          }
+        }));
+
+        // Don't try to reconnect if this was a clean close (e.g., logout)
+        if (event.code === 1000) {
+          console.log('[WebSocket] Clean close, not reconnecting');
+          return;
         }
+
+        // Attempt exponential-backoff reconnect up to MAX_RECONNECT_ATTEMPTS
+        scheduleReconnect();
       };
 
-      socket.onerror = () => {
-        addMessage({
-          type: 'error',
-          scope: 'system',
-          payload: {
-            content: 'WebSocket error',
-            message: 'Connection error',
-            timestamp: new Date().toISOString()
+      socket.onerror = (event) => {
+        // Get the error message from the event if possible
+        const errorMessage = event instanceof ErrorEvent 
+          ? event.message 
+          : 'WebSocket connection error';
+          
+        console.error('[WebSocket] Connection error:', errorMessage);
+        
+        update(state => ({
+          ...state,
+          status: 'CLOSED',
+          error: new Error(errorMessage),
+          socket: {
+            ...state.socket,
+            readyState: socket?.readyState
           }
-        });
-        update(state => ({ ...state, error: new Error('WebSocket connection error') }));
+        }));
+
+        // Schedule a reconnect on error
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          scheduleReconnect();
+        }
       };
     } catch (err) {
       set({
@@ -385,7 +492,7 @@ const createSocketStore = () => {
    * If the socket is not OPEN, immediately rejects.
    */
   function sendRequest(
-    partialMsg: { type: string; scope: string; payload: Record<string, any> },
+    partialMsg: { type: string; scope: string; payload: Record<string, any>; requestId?: string },
     timeoutMs = 5000,
     requestIdPrefix = ''
   ): Promise<any> {
@@ -394,18 +501,19 @@ const createSocketStore = () => {
         return reject(new Error('WebSocket is not open'));
       }
 
-      // 1) Create a unique requestId (optionally prefixed)
-      const requestId = generateRequestId(requestIdPrefix);
+      // 1) Create a unique requestId (optionally prefixed) if not provided
+      const requestId = partialMsg.requestId || generateRequestId(requestIdPrefix);
 
-      // 2) Build the full message:
-      //    • attach payload.requestId
-      //    • attach timestamp
+      // 2) Build the full message with requestId as a first-class property
       const fullMessage: ClientMessage = {
         type: partialMsg.type,
         scope: partialMsg.scope,
-        payload: { ...partialMsg.payload, requestId },
+        payload: partialMsg.payload,
+        requestId,
         timestamp: new Date().toISOString()
       };
+
+      console.log(`Sending request ${JSON.stringify(fullMessage)}`);
 
       // 3) Start a timer to reject if no response arrives
       const timer = setTimeout(() => {
@@ -478,17 +586,35 @@ const createSocketStore = () => {
   };
 
   /**
-   * resetConnection:
-   *  • Forcefully close any existing socket, clear intervals/timers,
-   *    then reconnect after a brief delay.
-   *  • Useful when user logs out or authentication changes, so you want
-   *    to re-establish with new credentials.
+   * Forcefully close the current connection (if any) and establish a new one.
+   * This is useful when you need to force a fresh connection, such as after authentication.
+   * @param immediate - If true, will reconnect immediately. If false, will use the normal backoff strategy.
    */
-  const resetConnection = () => {
-    console.log('Resetting WebSocket connection');
+  const resetConnection = (immediate = false) => {
+    console.log(`[WebSocket] Resetting connection${immediate ? ' (immediate)' : ' (with backoff)'}`);
+    
+    // Reset reconnection attempts if we're forcing a reset
+    if (immediate) {
+      reconnectAttempts = 0;
+    }
+    
+    // Close any existing connection
     disconnect();
-    // Small delay to ensure clean disconnect before reconnecting
-    setTimeout(() => connect(), 100);
+    
+    // Clear any pending reconnection timer
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    
+    // If immediate, connect right away, otherwise let the normal reconnection logic handle it
+    if (immediate) {
+      console.log('[WebSocket] Reconnecting immediately');
+      connect();
+    } else {
+      console.log('[WebSocket] Will reconnect using backoff strategy');
+      scheduleReconnect();
+    }
   };
 
   // Automatically connect on store initialization

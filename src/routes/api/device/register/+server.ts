@@ -19,7 +19,7 @@ import type { DeviceMeta } from '$lib/server/device/deviceMeta';
 import { v4 as uuidv4 } from 'uuid';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { DeviceManager } from '$lib/server/device/deviceManager';
-import { createSSEHandler } from '$lib/server/sse/sseHandler';
+import { createSSEHandler } from '$lib/server/sse/device/sseHandler';
 import { 
     ResponseStatus,
     ResponseCategory,
