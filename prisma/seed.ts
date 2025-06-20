@@ -11,13 +11,13 @@ function generateApiKey(length = 32): string {
 
 async function main() {
     // Create admin user
-    const hashedPassword = await hash('admin123'); // You should change this password
+    const hashedPassword = await hash('admin0823'); // You should change this password
     
     const admin = await prisma.user.upsert({
-        where: { email: 'admin@example.com' },
+        where: { email: 'admin@admin.com' },
         update: {},
         create: {
-            email: 'admin@example.com',
+            email: 'admin@admin.com',
             password: hashedPassword,
             systemRole: 'ADMIN',
             rolesString: 'admin',

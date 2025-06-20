@@ -39,6 +39,7 @@ model Account {
   resources     Resource[] // Resources owned by this account
   refreshTokens RefreshToken[]
   tokenUsageLogs TokenUsageLog[]
+  whatsappAccounts WhatsAppAccount[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -372,8 +373,17 @@ model WhatsAppAccount {
   user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   listeners     ListenerWhatsAppAccount[]
   
-  @@allow('all', auth().systemRole == 'ADMIN') 
+  // Account relationship
+  accountId     String?
+  account       Account?   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN') // Admin can do everything
+  @@allow('read', auth() != null && (account == null || account.members?[userId == auth().id])) // Account members can read
+  @@allow('create,update,delete', auth() != null && createdBy == auth().id) // Creator can modify
+  
   @@index([createdBy])
+  @@index([accountId])
 }
 
 model WhatsAppAuthData {
