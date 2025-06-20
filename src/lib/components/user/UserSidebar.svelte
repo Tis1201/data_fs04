@@ -30,7 +30,10 @@
 
         Files,
 
-        Building2
+        Building2,
+
+        MessageCircle
+
 
 
 
@@ -76,6 +79,17 @@
                 { href: "/user/iot/devices", label: "Devices", icon: Router }
             ]
         },
+
+        {
+            label: "Integrations",
+            icon: Network,
+            initialExpanded: false,
+            subItems: [
+                { href: "/user/integrations/whatsapp", label: "Whatsapp", icon: MessageCircle }
+            ]
+        },
+
+
         // { 
         //     label: "Communications", 
         //     icon: MessageSquare, 
