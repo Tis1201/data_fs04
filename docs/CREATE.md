@@ -103,8 +103,7 @@ The form action handles form submissions, validates input, and creates/updates t
 ```typescript
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals, auth }) => {
-            // Validate the form data
+        re    // Validate the form data
             const form = await superValidate(request, zod(yourEntitySchema));
             
             if (!form.valid) {

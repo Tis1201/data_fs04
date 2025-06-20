@@ -85,7 +85,7 @@
             icon: Network,
             initialExpanded: false,
             subItems: [
-                { href: "/user/integrations/whatsapp", label: "Whatsapp", icon: MessageCircle }
+                { href: "/user/integrations/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }
             ]
         },
 
