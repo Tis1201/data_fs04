@@ -328,6 +328,6 @@ export class DefaultDeviceManager {
 export const DeviceManager = new DefaultDeviceManager();
 
 // For testing, register some mock devices
-DeviceManager.registerDevice('123456', { id: uuidv4(), deviceType: 'CAMERA' });
-DeviceManager.registerDevice('654321', { id: uuidv4(), deviceType: 'SENSOR' });
-DeviceManager.registerDevice('111111', { id: uuidv4(), deviceType: 'CONTROLLER' });
+// DeviceManager.registerDevice('123456', { id: uuidv4(), deviceType: 'CAMERA' });
+// DeviceManager.registerDevice('654321', { id: uuidv4(), deviceType: 'SENSOR' });
+// DeviceManager.registerDevice('111111', { id: uuidv4(), deviceType: 'CONTROLLER' });
