@@ -26,7 +26,7 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 
 - Role-based access control with ZenStack-enhanced Prisma
 - [Form handling with Zod and Superforms](./src/lib/components/ui_components_sveltekit/form/README.md)
-- Real-time communication with WebSockets
+- Real-time communication with Server-Sent Events (SSE)
 - RTP and WebRTC streaming integration
 - Admin dashboard and room management
 - Event listener management with webhook and WhatsApp integrations
@@ -42,7 +42,7 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 - Backend: ZenStack (Prisma) & LuciaAuth
 - Validation: Zod & Superform
 - UI: Tailwind CSS, shadcn-svelte, lucide icons
-- Real-time: WebSockets, WebRTC
+- Real-time: Server-Sent Events (SSE), WebRTC
 - Testing: Vitest, Playwright
 - Streaming: OpenCV, FFmpeg, RTP
 
@@ -439,42 +439,38 @@ Account-specific roles that define permissions within a particular account:
      - Improves perceived performance
      - Creates a smoother, more professional user experience
 
-## WebSocket Implementation
+## Real-time Communication
 
-The application includes a WebSocket server for real-time communication:
+### Server-Sent Events (SSE)
 
-### Development Mode
-
-In development mode, the WebSocket server is automatically attached to the Vite dev server:
-
-1. WebSocket initialization happens in `src/lib/server/websocket/WebSocketUtils.ts`
-2. Client connections are managed through `src/lib/stores/websocket-store.ts`
-3. To use WebSockets in a component:
+1. SSE is used for server-to-client real-time updates
+2. Client connections are managed through `src/lib/stores/sse-store.ts`
+3. To use SSE in a component:
    ```svelte
-   import { socketStore } from '$lib/stores/websocket-store';
+   import { sseStore } from '$lib/stores/sse-store';
    
-   // Connect to WebSocket
-   socketStore.connect();
-   
-   // Send a message
-   socketStore.send({ type: 'message', content: 'Hello' });
+   // Connect to SSE endpoint
+   sseStore.connect('/api/sse');
    
    // Listen for messages
-   $: messages = $socketStore.messages;
+   const unsubscribe = sseStore.on('message', (data) => {
+     console.log('Received:', data);
+   });
    ```
 
-### Production Mode
+### WebSocket (Deprecated)
 
-In production, a custom server handles both HTTP and WebSocket connections:
+> ⚠️ **Deprecation Notice**: WebSocket support has been deprecated in favor of Server-Sent Events (SSE).
+> Existing WebSocket code is being phased out and will be removed in a future release.
+> Please migrate to using SSE for real-time communication.
 
-1. **Build Process**:
-   ```bash
-   # Build the application with ZenStack support
-   npm run build
-   
-   # Start the production server
-   npm run prodServer
-   ```
+For reference, the deprecated WebSocket implementation was previously located in:
+- `src/lib/server/websocket/` (server-side)
+- `src/lib/stores/websocket-store.ts` (client-side)
+
+## Production Deployment
+
+In production, the real-time communication is handled through Server-Sent Events (SSE) which is natively supported by modern web servers and has better compatibility with HTTP/2.
 
 2. **Custom Server**:
    - `prodServer.ts` creates an HTTP server with the SvelteKit handler
@@ -722,6 +718,10 @@ Audit Log
 - sign in errors
 - password reset etc
 
+IOT
+- Remove websocket comms
+- Replace with SSE comms
+
 Modules Access (subscription based)
 - IOT
 - Whatsapp
@@ -732,10 +732,16 @@ Remove Websocket (it sucks)
 - Replace device communications with SSE
 - Remove Websocket Middleware
 
+Build
+- Remove websocket middleware
+
 Security
 - Replace all with restrict
 export const POST: RequestHandler = restrict(
     async ({ request, locals, auth }: any) => {
+
+
+
 
 
 Notes

@@ -74,7 +74,7 @@ model Group {
   description String?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt()
-  permissions String
+  permissions Permission[]
   accountId   String
   account     Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
   members     GroupMembership[]
@@ -95,6 +95,21 @@ model GroupMembership {
   @@unique([groupId, membershipId])
   @@index([groupId])
   @@index([membershipId])
+}
+
+model Permission {
+  id        String   @id() @default(cuid())
+  groupId   String
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  module    String
+  action    String
+  allowed   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt()
+
+  @@unique([groupId, module, action])
+  @@index([groupId])
+  @@index([module, action])
 }
 
 model User {

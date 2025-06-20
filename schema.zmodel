@@ -102,7 +102,7 @@ model Group {
   description   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  permissions   String    // JSON string of permissions
+  permissions   Permission[]  // Relation to permissions
   
   // Relationships
   accountId     String
@@ -139,6 +139,29 @@ model GroupMembership {
   @@index([membershipId])
 }
 
+// Permission model
+model Permission {
+  id          String   @id @default(cuid())
+  groupId     String
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  module      String   // e.g., "DASHBOARD", "USERS"
+  action      String   // e.g., "VIEW", "EDIT"
+  allowed     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([groupId, module, action])
+  @@index([groupId])
+  @@index([module, action])
+  
+  // Authorization rules
+  @@allow('read', group.account.members?[userId == auth().id])
+  @@allow('create,update,delete', 
+    group.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']]
+  )
+}
+
+// User model
 model User {
   id            String    @id @default(cuid())
   name          String?
