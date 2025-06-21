@@ -253,7 +253,7 @@
 
     onMount(() => {
         console.log("[WHATSAPP_FORM] onMount - Start");
-        
+
         // Set up SSE event listener for WhatsApp events
         const unsubscribe = onSSEEvent("message", (message) => {
             // console.log(
@@ -261,40 +261,53 @@
             //     message,
             // );
 
-            const msg_type = message.type;const msg_scope = message.scope;
+            const msg_type = message.type;
+            const msg_scope = message.scope;
             const msg_payload = message.payload;
             const msg_payload_action = message.payload.action;
 
-            
-            if (msg_type === "whatsapp" && msg_payload_action === "qrCode") {
-                const qrCode = msg_payload.content?.qrCode;
-                const clientId = msg_payload.content?.clientId;
+            if (msg_type === "whatsapp") {
+                if (msg_payload_action === "qrCode") {
+                    const qrCode = msg_payload.content?.qrCode;
+                    const clientId = msg_payload.content?.clientId;
 
-                console.log('[WHATSAPP_FORM] Received QR code:', { 
-                    hasQrCode: !!qrCode,
-                    clientId: clientId || 'Not provided'
-                });
+                    console.log("[WHATSAPP_FORM] Received QR code:", {
+                        hasQrCode: !!qrCode,
+                        clientId: clientId || "Not provided",
+                    });
 
-                if (qrCode) {
-                    whatsAppState.update(state => ({
-                        ...state,
-                        qrCode: qrCode,
-                        clientId: clientId || state.clientId,
-                        connectionStatus: 'awaiting_scan'
-                    }));
+                    if (qrCode) {
+                        whatsAppState.update((state) => ({
+                            ...state,
+                            qrCode: qrCode,
+                            clientId: clientId || state.clientId,
+                            connectionStatus: "awaiting_scan",
+                        }));
+                    }
+                }
+                if (msg_payload_action === "connected") {
+                    {
+                        // "action": "connected",
+                        // "content": {
+                        //     "clientId": "cf7ba15c-cb48-4118-9c31-c643339bce31",
+                        //     "pushName": "xxx",
+                        //     "displayName": "xxx xxx",
+                        //     "phoneNumber": "98273423"
+                        // }
+}
+                    console.log("payload", msg_payload)
                 }
             }
-
         });
 
         // Call requestNewQRCode without await
-        requestNewQRCode().catch(error => {
-            console.error("[WHATSAPP_FORM] Error requesting QR code:", error);
-        });
+        // requestNewQRCode().catch(error => {
+        //     console.error("[WHATSAPP_FORM] Error requesting QR code:", error);
+        // });
 
         // Return cleanup function
         return () => {
-            console.log('[WHATSAPP_FORM] Cleaning up');
+            console.log("[WHATSAPP_FORM] Cleaning up");
             unsubscribe();
         };
     });
