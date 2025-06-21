@@ -6,6 +6,7 @@ import { createErrorResponse, type ApiErrorResponse } from '$lib/types/api';
 import { FormValidationError } from './FormValidationError';
 import type { PrismaClient } from '@prisma/client';
 import { message, type SuperValidated } from 'sveltekit-superforms/server';
+import { json, type HttpError } from '@sveltejs/kit';
 
 /**
  * Options for handling Zenstack/Prisma errors
@@ -219,4 +220,133 @@ export async function handleFormError<T extends Record<string, any>>(
     errorResponse,
     { status: errorStatus }
   );
+}
+
+/**
+ * Options for the API error handler
+ */
+export interface ApiErrorHandlerOptions {
+  /** The error that was caught */
+  error: unknown;
+  /** The Prisma client for looking up related information */
+  prisma?: PrismaClient;
+  /** Optional account ID for access policy violations */
+  accountId?: string;
+  /** Default error message if none can be determined */
+  defaultMessage?: string;
+  /** HTTP status code to return (default: 500) */
+  status?: number;
+  /** Optional request ID for tracking errors */
+  requestId?: string;
+  /** Optional action name for logging context */
+  action?: string;
+}
+
+/**
+ * Standardized API error handler for SvelteKit endpoints
+ * Processes errors and returns a consistent JSON response format
+ */
+export async function handleApiError(
+  options: ApiErrorHandlerOptions
+) {
+  const {
+    error,
+    prisma,
+    accountId,
+    defaultMessage = 'An error occurred while processing your request',
+    status = 500,
+    requestId,
+    action = 'API request'
+  } = options;
+  
+  // Log the error with context
+  logger.error(`Error in ${action}: ${error instanceof Error ? error.message : String(error)}`);
+  if (error instanceof Error && error.stack) {
+    logger.debug(`Stack trace: ${error.stack}`);
+  }
+  
+  // Determine the appropriate status code
+  let errorStatus = status;
+  
+  // Handle HTTP errors from SvelteKit
+  if (error && typeof error === 'object' && 'status' in error) {
+    const httpError = error as HttpError;
+    errorStatus = httpError.status || errorStatus;
+  }
+  
+  // Process the error to get a standardized error response
+  const errorResponse = await handleZenstackError({
+    error,
+    accountId,
+    prisma,
+    requestId,
+    defaultMessage
+  });
+  
+  // Return a standardized JSON response
+  return json({
+    success: false,
+    error: errorResponse.text,
+    details: errorResponse.details || undefined,
+    code: errorResponse.code || undefined,
+    requestId: errorResponse.requestId || undefined,
+    timestamp: errorResponse.timestamp
+  }, { status: errorStatus });
+}
+
+/**
+ * Options for the combined form and API error handler
+ */
+export interface FormApiErrorHandlerOptions<T extends Record<string, any>> extends FormErrorHandlerOptions<T> {
+  /** Whether to return an API-style JSON response instead of a form message */
+  apiResponse?: boolean;
+}
+
+/**
+ * Combined form and API error handler
+ * Can return either a form error message or an API-style JSON response
+ * Useful for form actions that may be called via API or form submission
+ */
+export async function handleFormApiError<T extends Record<string, any>>(
+  options: FormApiErrorHandlerOptions<T>
+) {
+  const {
+    error,
+    form,
+    prisma,
+    accountId,
+    defaultMessage = 'An error occurred while processing your request',
+    status = 500,
+    requestId,
+    action = 'form submission',
+    apiResponse = false
+  } = options;
+  
+  // Log the error with context
+  logger.error(`Error in ${action}: ${error instanceof Error ? error.message : String(error)}`);
+  
+  if (apiResponse) {
+    // Return an API-style JSON response
+    return handleApiError({
+      error,
+      prisma,
+      accountId,
+      defaultMessage,
+      status,
+      requestId,
+      action
+    });
+  } else {
+    // Return a form error message
+    return handleFormError({
+      error,
+      form,
+      prisma,
+      accountId,
+      defaultMessage,
+      status,
+      requestId,
+      action
+    });
+  }
 }

@@ -1,6 +1,10 @@
 import { logger } from '$lib/server/logger';
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
+import { MessageDispatcher } from '$lib/server/messaging/core/dispatcher';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
+import { handleApiError } from '$lib/server/errors/errorHandlers';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import type { RequestHandler } from '@sveltejs/kit';
@@ -9,7 +13,6 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import type { BaseMessage, RoutingMessage } from '$lib/server/messaging/interfaces/message';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
-import { publisher } from '$lib/server/messaging/core/publisher';
 import { SSEMessageSchema, type SSEMessageInput, createSSEMessage } from '$lib/types/messages';
 
 /**
@@ -109,55 +112,76 @@ export const POST: RequestHandler = restrict(
             
             if (!messageResult.success) {
                 logger.error(`Invalid SSE message format: ${JSON.stringify(messageResult.error)}`);
-                return json({ 
-                    success: false, 
-                    error: 'Invalid message format',
-                    details: messageResult.error.format()
-                }, { status: 400 });
+                return handleApiError({
+                    error: new Error('Invalid message format'),
+                    defaultMessage: 'Invalid message format',
+                    action: 'SSE message validation',
+                    status: 400
+                });
             }
             
             const message = messageResult.data as BaseMessage;
             
-            // Create a routing message for the publisher
+            // Generate a connection ID if not provided in the message
+            const connectionId = message.senderConnectionId || `sse-${uuidv4()}`;
+            
+            // Determine if this is a WhatsApp message
+            const isWhatsAppMessage = message.type === 'whatsapp';
+            
+            // Create a routing message for the publisher (will be used for non-WhatsApp messages)
             const routingMessage: RoutingMessage = {
                 id: uuidv4(),
                 type: message.type,
                 scope: message.scope,
                 payload: message.payload,
-                // Preserve requestId if it exists in the incoming message
                 requestId: message.requestId,
                 userInfo: auth.user,
                 protocol: 'sse',
                 connectionId: '',  // Will be filled by the router
                 systemGenerated: false,
                 senderId: auth.user?.id,
-                // Use the senderConnectionId from the message if available
-                senderConnectionId: message.senderConnectionId || '',
+                senderConnectionId: connectionId,
                 senderConnectionProtocol: 'sse',
                 timestamp: message.timestamp || new Date().toISOString()
             };
             
-            // Log the routing message before publishing
-            logger.debug(`SSE routing message created with senderConnectionId: ${routingMessage.senderConnectionId}`);
+            // Create an InMessage object similar to how WSConnection does it
+            const inMessage = {
+                type: message.type,
+                scope: message.scope,
+                payload: message.payload,
+                userInfo: auth.user,
+                protocol: 'sse',
+                connectionId: connectionId,
+                requestId: message.requestId
+            };
             
-            // Use the publisher to route and deliver the message
-            await publisher.publish(routingMessage);
-
-            //let's sleep simulate for 10 seconds
+            // Log the message being processed
+            logger.info(`[SSE] Processing message: type=${inMessage.type}, action=${inMessage.payload?.action}`);
             
-            // Only acknowledge receipt - the actual response will be sent via SSE
-            return json({ 
-                success: true, 
+            if (isWhatsAppMessage) {
+                // For WhatsApp messages, directly dispatch to the handler
+                await MessageDispatcher.dispatch(inMessage);
+                // The WhatsApp handler will publish responses via the publisher
+            } else {
+                // For other message types, use the publisher as before
+                await publisher.publish(routingMessage);
+            }
+            
+            // Return success response
+            return json({
+                success: true,
+                message: 'Message received and processed successfully',
                 requestId: routingMessage.requestId
             });
             
         } catch (error) {
-            logger.error(`Error sending SSE message: ${error}`);
-            return json({ 
-                success: false, 
-                error: 'Failed to send message',
-                details: error instanceof Error ? error.message : String(error)
-            }, { status: 500 });
+            // Single standardized error handler for all errors
+            return handleApiError({
+                error,
+                defaultMessage: 'Failed to process SSE message',
+                action: 'SSE message handling'
+            });
         }
     },
     [SystemRole.ADMIN, SystemRole.USER] // Only admin users can send messages

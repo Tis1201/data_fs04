@@ -30,60 +30,160 @@ export class WhatsAppHandler implements Handler {
     }
 
     private async handleQRRequest(message: InMessage): Promise<void> {
-        const { payload } = message;
+        const { payload, requestId } = message;
         const { action } = payload;
 
-        logger.info(`[WhatsAppHandler] Handling QR code request: ${JSON.stringify(message)}`);
+        logger.info(`[WhatsAppHandler] Handling QR code request: ${JSON.stringify({ messageId: message.id, requestId })}`);
 
-        // TODO: Implement actual QR code request handling
-        // This would typically involve:
-        // 1. Creating a new WhatsApp client instance
-        // 2. Generating a QR code
-        // 3. Sending the QR code back to the client
-        const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient(message.userInfo.id);
-        const qrCode = await qrCodePromise;
+        try {
+            // Create a new WhatsApp client instance and get the QR code
+            const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(message.userInfo.id);
+            
+            // Wait for the QR code to be generated
+            const qrCode = await qrCodePromise;
+            
+            logger.debug(`Generated QR code for client ${clientId} for user ${message.userInfo.id}`);
 
-        message.payload.content = qrCode;
+            // Add subscription for this client
+            subscriptionRegistry.addSubscription(`subscription:whatsapp:${clientId}`, `subscriber:connection:${message.connectionId}`);
 
-        subscriptionRegistry.addSubscription(`subscription:whatsapp:${clientId}`, `subscriber:connection:${message.connectionId}`);
-
-        // Create routing message with overrides
-        const qrMessage: InMessage = {
-            type: 'whatsapp',
-            scope: message.scope,
-            protocol: message.protocol,
-            connectionId: message.connectionId,
-            userInfo: message.userInfo,
-            payload: {
-                action: 'qrCode',
-                content:{
-                    qrCode: qrCode,
-                    clientId: clientId
+            // Create response message with the same requestId
+            const qrMessage: InMessage = {
+                id: message.id, // Preserve original message ID if available
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId, // IMPORTANT: Preserve the requestId
+                payload: {
+                    action: 'qrCode',
+                    content: {
+                        qrCode: null, // Initial response has null QR code
+                        clientId: clientId
+                    }
                 }
+            };
+
+            // Send initial response to unblock the client
+            const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+            publisher.publish(initialResponse);
+            
+            // The actual QR code will be sent via subscription
+            // This ensures the client gets both an immediate response and the QR code when ready
+            if (qrCode) {
+                // Create a separate message for the subscription with the actual QR code
+                const subscriptionMessage: InMessage = {
+                    type: 'whatsapp',
+                    scope: `subscription:whatsapp:${clientId}`,
+                    protocol: message.protocol,
+                    connectionId: clientId, // Use clientId as the connection ID for the subscription message
+                    userInfo: message.userInfo,
+                    payload: {
+                        action: 'qrCode',
+                        content: {
+                            qrCode: qrCode,
+                            clientId: clientId
+                        }
+                    }
+                };
+                
+                const subscriptionRoutingMessage: RoutingMessage = MessageFactory.toRoutingMessage(subscriptionMessage, {
+                    systemGenerated: true
+                });
+                
+                publisher.publish(subscriptionRoutingMessage);
             }
-        };
-
-        // Create routing message with overrides
-        const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
-            systemGenerated: true,
-            echoToSender: true
-        });
-
-        publisher.publish(routingMessage);
-
-
+        } catch (error) {
+            logger.error(`[WhatsAppHandler] Error handling QR request: ${error.message}`, error);
+            
+            // Send error response with the same requestId
+            const errorMessage: InMessage = {
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId, // IMPORTANT: Preserve the requestId
+                payload: {
+                    action: 'error',
+                    content: {
+                        error: 'Failed to generate QR code',
+                        message: error.message
+                    }
+                }
+            };
+            
+            const errorRoutingMessage: RoutingMessage = MessageFactory.toRoutingMessage(errorMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+            
+            publisher.publish(errorRoutingMessage);
+        }
     }
 
     private async handleMessage(message: InMessage): Promise<void> {
-        const { payload } = message;
+        const { payload, requestId } = message;
         const { content } = payload;
 
-        logger.info(`[WhatsAppHandler] Handling message: ${JSON.stringify(message)}`);
+        logger.info(`[WhatsAppHandler] Handling message: ${JSON.stringify({ messageId: message.id, requestId })}`);
 
-        // Echo the message back
-        payload.content = `Echo: ${content}`;
-        const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message);
-        publisher.publish(routingMessage);
+        try {
+            // Process the message (currently just echoing)
+            const responseContent = `Echo: ${content}`;
+            
+            // Create response with the same requestId
+            const responseMessage: InMessage = {
+                id: message.id, // Preserve original message ID if available
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId, // IMPORTANT: Preserve the requestId
+                payload: {
+                    action: 'message_response',
+                    content: responseContent
+                }
+            };
+            
+            const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(responseMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+            
+            publisher.publish(routingMessage);
+        } catch (error) {
+            logger.error(`[WhatsAppHandler] Error handling message: ${error.message}`, error);
+            
+            // Send error response with the same requestId
+            const errorMessage: InMessage = {
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId, // IMPORTANT: Preserve the requestId
+                payload: {
+                    action: 'error',
+                    content: {
+                        error: 'Failed to process message',
+                        message: error.message
+                    }
+                }
+            };
+            
+            const errorRoutingMessage: RoutingMessage = MessageFactory.toRoutingMessage(errorMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+            
+            publisher.publish(errorRoutingMessage);
+        }
     }
 }
 

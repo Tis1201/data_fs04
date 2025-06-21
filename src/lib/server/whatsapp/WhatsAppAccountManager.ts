@@ -347,6 +347,39 @@ export class WhatsAppAccountManager extends EventEmitter {
       }
     }
   }
+  
+  /**
+   * Creates a new WhatsApp client and returns the client ID and QR code promise
+   * 
+   * This is used by the SSE system to generate QR codes for new WhatsApp connections
+   * 
+   * @param userId - ID of the user who is creating this client
+   * @returns Object containing the client ID and a promise for the QR code
+   */
+  public async createNewClient(userId: string): Promise<{ clientId: string, qrCodePromise?: Promise<string> }> {
+    try {
+      logger.info(`Creating new WhatsApp client for user ${userId} via SSE`);
+      
+      // Create a new client instance
+      const { clientId } = await this.createClient(userId);
+      
+      // Get the client instance
+      const client = this.getClient(clientId);
+      
+      if (!client) {
+        throw new Error(`Failed to retrieve newly created client with ID ${clientId}`);
+      }
+      
+      // Return the client ID and QR code promise
+      return { 
+        clientId,
+        qrCodePromise: client.getQRCode()
+      };
+    } catch (error) {
+      logger.error(`Error creating new WhatsApp client: ${error}`);
+      throw error;
+    }
+  }
 }
 
 // Export a singleton instance
