@@ -286,16 +286,32 @@
                     }
                 }
                 if (msg_payload_action === "connected") {
-                    {
-                        // "action": "connected",
-                        // "content": {
-                        //     "clientId": "cf7ba15c-cb48-4118-9c31-c643339bce31",
-                        //     "pushName": "xxx",
-                        //     "displayName": "xxx xxx",
-                        //     "phoneNumber": "98273423"
-                        // }
-}
-                    console.log("payload", msg_payload)
+                    const clientId = msg_payload.content?.clientId;
+                    const pushName = msg_payload.content?.pushName;
+                    const displayName = msg_payload.content?.displayName;
+                    const phoneNumber = msg_payload.content?.phoneNumber;
+                    
+                    console.log("[WHATSAPP_FORM] Received connected event:", {
+                        clientId,
+                        pushName,
+                        displayName,
+                        phoneNumber
+                    });
+                    
+                    // Update the WhatsApp state with connection info
+                    whatsAppState.update((state) => ({
+                        ...state,
+                        connectionStatus: "connected",
+                        clientId: clientId || state.clientId,
+                        displayName: displayName || pushName || state.displayName,
+                        phoneNumber: phoneNumber || state.phoneNumber
+                    }));
+                    
+                    // Advance to page 2 (Account Details)
+                    currentStep = 2;
+                    
+                    // Update the form with the new connection details
+                    whatsAppState.subscribe(updateFormFromState)();
                 }
             }
         });
