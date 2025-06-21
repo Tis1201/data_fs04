@@ -127,6 +127,7 @@
             validateOnInput: true,
             debugMode: true,
             action: "?/createAccount",
+            successRedirect: "/user/integrations/whatsapp/accounts",
             onSubmit: (formData) => {
                 // Check if we have a valid client ID before submitting
                 const clientId = formData.get("client_id");
