@@ -338,63 +338,65 @@
             <!-- Step 1: QR Code Display -->
             <FormCard
                 title="Connect WhatsApp"
-                description="Scan the QR code with your WhatsApp app to connect this account."
+                description="Connect your WhatsApp account to enable integration with our platform."
             >
                 <div
-                    class="flex flex-col items-center justify-center space-y-4 p-4"
+                    class="flex flex-col items-center justify-center space-y-6 p-4"
                 >
-                    <!-- Connection status display -->
-                    <div
-                        class="mb-4 p-3 rounded-md w-full flex items-center gap-2 {getStatusBgColor(
-                            $whatsAppState.connectionStatus,
-                        )}"
-                    >
-                        {#if $whatsAppState.connectionStatus === "awaiting_scan"}
-                            <QrCode class="h-5 w-5 text-amber-600" />
-                            <div>
-                                <p class="text-sm font-medium">
-                                    Waiting for QR code scan
-                                </p>
-                                <p class="text-xs text-muted-foreground">
-                                    Scan the QR code with your WhatsApp app
-                                </p>
-                            </div>
-                        {:else if $whatsAppState.connectionStatus === "connecting"}
-                            <RefreshCw
-                                class="h-5 w-5 text-blue-600 animate-spin"
-                            />
-                            <div>
-                                <p class="text-sm font-medium">Connecting</p>
-                                <p class="text-xs text-muted-foreground">
-                                    Establishing connection to WhatsApp
-                                </p>
-                            </div>
-                        {:else if $whatsAppState.connectionStatus === "connected"}
-                            <CheckCircle class="h-5 w-5 text-green-600" />
-                            <div>
-                                <p class="text-sm font-medium">Connected</p>
-                                <p class="text-xs text-muted-foreground">
-                                    Successfully connected to WhatsApp
-                                </p>
-                            </div>
-                        {:else if $whatsAppState.connectionStatus === "authenticated"}
-                            <CheckCircle class="h-5 w-5 text-green-600" />
-                            <div>
-                                <p class="text-sm font-medium">Authenticated</p>
-                                <p class="text-xs text-muted-foreground">
-                                    Successfully authenticated with WhatsApp
-                                </p>
-                            </div>
-                        {:else}
-                            <AlertTriangle class="h-5 w-5 text-red-600" />
-                            <div>
-                                <p class="text-sm font-medium">Disconnected</p>
-                                <p class="text-xs text-muted-foreground">
-                                    Not connected to WhatsApp
-                                </p>
-                            </div>
-                        {/if}
-                    </div>
+                    <!-- Connection status display - only shown after connection attempts or when there's a status -->
+                    {#if $whatsAppState.connectionStatus !== "disconnected" || $whatsAppState.qrCode}
+                        <div
+                            class="mb-4 p-3 rounded-md w-full flex items-center gap-2 {getStatusBgColor(
+                                $whatsAppState.connectionStatus,
+                            )}"
+                        >
+                            {#if $whatsAppState.connectionStatus === "awaiting_scan"}
+                                <QrCode class="h-5 w-5 text-amber-600" />
+                                <div>
+                                    <p class="text-sm font-medium">
+                                        Waiting for QR code scan
+                                    </p>
+                                    <p class="text-xs text-muted-foreground">
+                                        Scan the QR code with your WhatsApp app
+                                    </p>
+                                </div>
+                            {:else if $whatsAppState.connectionStatus === "connecting"}
+                                <RefreshCw
+                                    class="h-5 w-5 text-blue-600 animate-spin"
+                                />
+                                <div>
+                                    <p class="text-sm font-medium">Connecting</p>
+                                    <p class="text-xs text-muted-foreground">
+                                        Establishing connection to WhatsApp
+                                    </p>
+                                </div>
+                            {:else if $whatsAppState.connectionStatus === "connected"}
+                                <CheckCircle class="h-5 w-5 text-green-600" />
+                                <div>
+                                    <p class="text-sm font-medium">Connected</p>
+                                    <p class="text-xs text-muted-foreground">
+                                        Successfully connected to WhatsApp
+                                    </p>
+                                </div>
+                            {:else if $whatsAppState.connectionStatus === "authenticated"}
+                                <CheckCircle class="h-5 w-5 text-green-600" />
+                                <div>
+                                    <p class="text-sm font-medium">Authenticated</p>
+                                    <p class="text-xs text-muted-foreground">
+                                        Successfully authenticated with WhatsApp
+                                    </p>
+                                </div>
+                            {:else if $whatsAppState.connectionStatus === "disconnected" && $whatsAppState.qrCode}
+                                <AlertTriangle class="h-5 w-5 text-red-600" />
+                                <div>
+                                    <p class="text-sm font-medium">Disconnected</p>
+                                    <p class="text-xs text-muted-foreground">
+                                        Not connected to WhatsApp
+                                    </p>
+                                </div>
+                            {/if}
+                        </div>
+                    {/if}
 
                     {#if $whatsAppState.qrCode}
                         <!-- Display the generated QR code -->
@@ -432,33 +434,44 @@
                         </div>
                         <Skeleton class="h-4 w-48" />
                     {:else}
-                        <div
-                            class="w-64 h-64 border-2 border-dashed border-muted-foreground rounded-md flex items-center justify-center"
-                        >
-                            <div class="text-center">
-                                <QrCode
-                                    class="h-12 w-12 mx-auto mb-2 text-muted-foreground"
-                                />
-                                <p class="text-sm text-muted-foreground">
-                                    QR code not available
-                                </p>
+                        <div class="flex flex-col items-center justify-center text-center max-w-md space-y-4">
+                            <div
+                                class="w-64 h-64 border-2 border-dashed border-muted-foreground/50 rounded-md flex flex-col items-center justify-center bg-muted/30 p-4"
+                            >
+                                <div class="text-center p-2 flex-1 flex flex-col items-center justify-center">
+                                    <QrCode
+                                        class="h-16 w-16 mx-auto mb-4 text-primary/70"
+                                    />
+                                    <p class="text-sm font-medium text-primary">
+                                        WhatsApp Connection
+                                    </p>
+                                    <p class="text-xs text-muted-foreground mt-2 mb-4">
+                                        Connect your WhatsApp account
+                                    </p>
+                                    <Button
+                                        variant="default"
+                                        class="w-full mt-2"
+                                        on:click={requestNewQRCode}
+                                    >
+                                        <QrCode class="h-4 w-4 mr-2" />
+                                        Generate QR Code
+                                    </Button>
+                                </div>
+                            </div>
+                            <div class="space-y-2 max-w-sm">
+                                <h4 class="text-sm font-medium">How to connect:</h4>
+                                <ol class="text-xs text-muted-foreground list-decimal list-inside space-y-1 text-left">
+                                    <li>Click the "Generate QR Code" button above</li>
+                                    <li>Open WhatsApp on your phone</li>
+                                    <li>Go to Settings > Linked Devices</li>
+                                    <li>Tap on "Link a Device" and scan the QR code</li>
+                                </ol>
                             </div>
                         </div>
-                        <p class="text-sm text-center text-muted-foreground">
-                            Click the button below to request a QR code
-                        </p>
                     {/if}
                 </div>
 
-                <div class="mt-4 flex flex-col gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        on:click={requestNewQRCode}
-                    >
-                        <RefreshCw class="h-4 w-4 mr-2" />
-                        Request New QR Code
-                    </Button>
+                <div class="mt-6 flex flex-col gap-3 w-64">
 
                     {#if $whatsAppState.connectionStatus === "connected" || $whatsAppState.connectionStatus === "authenticated"}
                         <Button
