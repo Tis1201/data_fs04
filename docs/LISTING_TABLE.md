@@ -995,35 +995,56 @@ export const DELETE = restrict(
 
 ### Client-Side Implementation
 
-In your table component, implement the delete handler like this:
+In your table component, implement the delete handler with the DataTable refresh pattern:
 
-```typescript
-async function handleDelete(id: string) {
-    try {
-        const response = await fetch(`/api/items/${id}`, {
-            method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
-
-        const result = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(result.error || 'Failed to delete item');
-        }
-
-        // Show success message
-        toast.success(result.text || 'Item deleted successfully');
-        
-        // Refresh the table data
-        await invalidate('table:data');
-        
-    } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'An error occurred');
+```svelte
+<script lang="ts">
+    // Reference to the DataTable component
+    let dataTable: any;
+    
+    // Simple function to refresh data
+    async function refreshData() {
+        // Just call the DataTable's refreshData method with specific dependencies
+        await dataTable?.refreshData(['app:your-entity']);
     }
-}
+    
+    async function handleDelete(id: string) {
+        try {
+            const response = await fetch(`/api/items/${id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            const result = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to delete item');
+            }
+
+            // Show success message
+            toast.success(result.text || 'Item deleted successfully');
+            
+            // Refresh the table data using DataTable's refresh method
+            await refreshData();
+            
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'An error occurred');
+        }
+    }
+</script>
+
+<!-- In your template, bind the DataTable reference -->
+<DataTable bind:this={dataTable} {columns} {data} />
 ```
+
+### DataTable Refresh Pattern
+
+1. **Reference the DataTable**: Use `let dataTable: any;` to create a reference to the DataTable component
+2. **Refresh Function**: Create a simple `refreshData` function that calls the DataTable's `refreshData` method
+3. **Pass Dependencies**: Include any specific dependencies (like `app:your-entity`) that need to be invalidated
+4. **Call on Action**: Call `refreshData()` after successful operations like create, update, or delete
 
 ### Best Practices
 

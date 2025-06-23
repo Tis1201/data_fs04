@@ -150,6 +150,15 @@
         state.confirmationOpen = true;
     }
     
+    // Reference to the DataTable component
+    let dataTable: any;
+    
+    // Simple function to refresh data
+    async function refreshData() {
+        // Just call the DataTable's refreshData method with our specific dependency
+        await dataTable?.refreshData(['app:whatsapp-accounts']);
+    }
+    
     async function handleDelete() {
         if (!state.selectedRecord) return;
         
@@ -167,16 +176,9 @@
                 // Use the standardized response format text field
                 toast.success(result.text || "WhatsApp account deleted successfully");
                 
-                // Use a combination of approaches to ensure the table data is refreshed
-                // 1. Invalidate the data dependency
-                await invalidate('app:whatsapp-accounts');
-                // 2. Force SvelteKit to reload the current page data without a full page refresh
-                await goto($page.url.pathname + $page.url.search, {
-                    replaceState: true,
-                    noScroll: true,
-                    keepFocus: true,
-                    invalidateAll: true
-                });
+                // Dispatch a custom event to refresh the data
+                // This will be handled by our refreshData function
+                refreshData();
             } else {
                 // Handle error from standardized error response
                 toast.error(result.error || `Error deleting WhatsApp account: ${result.message || 'Unknown error'}`);
@@ -229,6 +231,7 @@
 
         <!-- Data table -->
         <DataTable
+            bind:this={dataTable}
             {columns}
             {props}
             on:sort={handleTableSort}
