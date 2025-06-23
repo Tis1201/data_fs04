@@ -4,7 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { logger } from '$lib/server/logger';
-import WebSocket from 'ws';
+import { handleApiError } from '$lib/server/errors/errorHandlers';
 
 // Define table options for WhatsApp accounts
 const table_options = {
@@ -24,7 +24,7 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals, auth }) => {
+    async ({ url, locals, auth }: any) => {
         try {
             // Get the current user's account ID from auth.currentAccount
             // The middleware should have already resolved this
@@ -54,33 +54,14 @@ export const load = restrict(
                 table_state: result.table_state
             };
         } catch (err) {
-            logger.error(`Error loading WhatsApp accounts: ${JSON.stringify(err)}`);
-            
-            // Check if there's a specific database error
-            if (err.code && err.code.startsWith('P')) {
-                logger.error(`Prisma error code: ${err.code}, message: ${err.message}`);
-                
-                // Check if the model doesn't exist
-                if (err.code === 'P2021') {
-                    logger.error('The WhatsAppAccount model might not exist in the database schema');
-                }
-            }
-            
-            return {
-                accounts: [],
-                table_state: {
-                    pagination: {
-                        page: 1,
-                        per_page: 10,
-                        total_records: 0,
-                        total_pages: 0
-                    },
-                    sort: {
-                        field: 'createdAt',
-                        order: 'desc'
-                    }
-                }
-            };
+            // Use the standardized API error handler
+            return handleApiError({
+                error: err,
+                prisma: locals.prisma,
+                accountId: auth.currentAccount?.account?.id,
+                defaultMessage: 'Failed to load WhatsApp accounts',
+                action: 'loading WhatsApp accounts'
+            });
         }
     },
     ['USER', 'ADMIN'] // Allow both user and admin roles to access this route
