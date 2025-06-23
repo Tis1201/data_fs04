@@ -59,7 +59,7 @@ export const load = restrict(
             
             return {
                 accounts: result.records,
-                table_state: result.table_state
+                meta: result.meta
             };
         } catch (err) {
             // Use the standardized API error handler

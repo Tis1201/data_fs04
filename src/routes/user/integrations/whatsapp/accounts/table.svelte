@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onMount } from 'svelte';
-    import { page } from "$app/stores";
+    import { page } from '$app/stores';
+    import { browser } from '$app/environment';
+    import { goto } from '$app/navigation';
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import EnhancedPopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/EnhancedPopoverFilter.svelte";
@@ -11,22 +13,27 @@
     import type { WhatsAppAccount } from "@prisma/client";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import type { TableProps, TableState } from "$lib/components/ui_components_sveltekit/table/types";
+    
+    // Get initial sort from URL or use defaults
+    let initialSort = {
+        field: $page.url.searchParams.get('sort') || 'createdAt',
+        order: ($page.url.searchParams.get('order') || 'desc') as 'asc' | 'desc'
+    };
 
     // Props for DataTable component
     export let props: TableProps<WhatsAppAccount> = {
         records: [],
         pagination: {
-            page: 1,
-            per_page: 10,
+            page: Number($page.url.searchParams.get('page')) || 1,
+            per_page: Number($page.url.searchParams.get('per_page')) || 10,
             total_records: 0,
             total_pages: 0
         },
-        sort: {
-            field: "createdAt",
-            order: "desc"
-        },
+        sort: initialSort,
         loading: false
     };
+    
+    // We don't need to manually handle URL changes here as handleTableSort will do it
     
     // Filter values are now handled by the UrlFilter component
 
@@ -36,6 +43,7 @@
             id: "name",
             label: "Name",
             sortable: true,
+            field: "name",
             width: "30%",
             render: (record: WhatsAppAccount) => ({
                 component: NameWithIdLink,
@@ -50,12 +58,14 @@
             id: "phoneNumber",
             label: "Phone Number",
             sortable: true,
+            field: "phoneNumber",
             width: "20%"
         },
         {
             id: "description",
             label: "Description",
             sortable: true,
+            field: "description",
             width: "40%",
             render: (record: WhatsAppAccount) => record.description || "N/A"
         },
@@ -63,6 +73,8 @@
             id: "status",
             label: "Status",
             sortable: true,
+            field: "client_status", // Using client_status for sorting
+            sortKey: "client_status", // Explicit sort key for the DataTable
             width: "20%",
             render: (record: WhatsAppAccount) => ({
                 component: StatusBadge,
@@ -77,6 +89,7 @@
             id: "createdAt",
             label: "Created At",
             sortable: true,
+            field: "createdAt",
             width: "20%",
             render: (record: WhatsAppAccount) => ({
                 component: RelativeDate,

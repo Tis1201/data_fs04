@@ -88,107 +88,557 @@ export const dataTable: DataTableConfig = {
 };
 ```
 
-## 3. Server-side Data Loading
+## 3. Server-side Data Loading with Sorting and Filtering
+
+### Using fetchTableData Utility
+
+For consistent table behavior, use the `fetchTableData` utility which handles:
+- Pagination
+- Sorting
+- Filtering
+- Search
+- Row-level security
 
 ```typescript
 // +page.server.ts
-import { error } from '@sveltejs/kit';
-import { restrict } from '$lib/utils/security';
+import { restrict } from '$lib/server/security/guards';
+import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 
-export const load = async ({ locals, url }) => {
-  await restrict(locals, ['ADMIN']);
-  
-  const page = Number(url.searchParams.get('page') || 1);
-  const perPage = 10;
-  
-  const [records, total] = await Promise.all([
-    locals.prisma.yourEntity.findMany({
-      skip: (page - 1) * perPage,
-      take: perPage,
-      orderBy: { createdAt: 'desc' }
-    }),
-    locals.prisma.yourEntity.count()
-  ]);
-
-  return {
-    records,
-    pagination: {
-      page,
-      per_page: perPage,
-      total_records: total,
-      total_pages: Math.ceil(total / perPage)
-    }
-  };
+// Define table options
+const tableOptions = {
+  modelName: 'yourEntity', // Must match Prisma model name
+  searchableFields: ['name', 'email'], // Fields to search in
+  allowedFilters: ['status', 'type'], // Allowed filter parameters
+  defaultSortField: 'createdAt',
+  defaultSortOrder: 'desc' as const,
+  defaultPerPage: 10,
+  // Map URL parameters to database fields
+  filterMappings: {
+    'status': { 
+      field: 'status', 
+      operator: 'in',
+      valueTransformer: (value: string) => value.toUpperCase()
+    },
+    'type': { field: 'type', operator: 'equals' }
+  },
+  // Optional base where clause for additional filtering
+  baseWhere: {
+    accountId: locals.account?.id // Example: Filter by current account
+  }
 };
+
+export const load = restrict(
+  async ({ url, locals }) => {
+    try {
+      const result = await fetchTableData(locals, url, tableOptions);
+      
+      return {
+        records: result.records,
+        meta: result.meta // Contains pagination, sorting, and filter info
+      };
+    } catch (error) {
+      // Handle errors consistently
+      return handleApiError({
+        error,
+        prisma: locals.prisma,
+        defaultMessage: 'Failed to load records',
+        action: 'loading records'
+      });
+    }
+  },
+  ['USER', 'ADMIN'] // Required roles
+);
 ```
 
-## 4. Table Component (table.svelte)
+### Response Structure
 
-### Layout Components
+The server should return:
 
-#### Admin Pages
-Use `AdminPageLayout` for admin interfaces:
+```typescript
+{
+  records: T[];         // Array of records
+  meta: {
+    pagination: {
+      page: number;      // Current page
+      per_page: number;  // Items per page
+      total_records: number;
+      total_pages: number;
+    };
+    sort: {
+      field: string;     // Current sort field
+      order: 'asc' | 'desc';
+    };
+    filters: Record<string, any>; // Applied filters
+  }
+}
+```
+
+## 4. Table Component with Sorting (table.svelte)
+
+### Basic Setup
 
 ```svelte
 <script lang="ts">
-  import AdminPageLayout from '$lib/layouts/AdminPageLayout.svelte';
-  import Table from './table.svelte';
-  export let data;
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { handleTableSort, handleTablePagination } from '$lib/components/ui_components_sveltekit/table/pagination/pagination-utils';
+  import DataTable from '$lib/components/ui_components_sveltekit/table/DataTable.svelte';
+  
+  export let data: {
+    records: any[];
+    meta: {
+      pagination: {
+        page: number;
+        per_page: number;
+        total_records: number;
+        total_pages: number;
+      };
+      sort: {
+        field: string;
+        order: 'asc' | 'desc';
+      };
+    };
+  };
+
+  // Extract data for the table
+  $: props = {
+    records: data.records,
+    pagination: data.meta.pagination,
+    sort: data.meta.sort
+  };
+
+  // Initialize with URL parameters
+  $: initialSort = {
+    field: $page.url.searchParams.get('sort') || 'createdAt',
+    order: ($page.url.searchParams.get('order') || 'desc') as 'asc' | 'desc'
+  };
 </script>
 
-<AdminPageLayout title="Admin Title" description="Manage entities">
-  <Table {data} />
-</AdminPageLayout>
+<DataTable
+  {columns}
+  {props}
+  on:sort={handleTableSort}
+  on:pagination={handleTablePagination}
+/>
 ```
 
-#### User Pages
-Use `UserPageLayout` for user-facing interfaces:
+### Column Definition with Sorting
+
+```typescript
+const columns = [
+  {
+    id: 'name',
+    label: 'Name',
+    sortable: true,  // Make column sortable
+    field: 'name',   // Field to sort by (defaults to id if not specified)
+    sortKey: 'name', // Optional: use different field for sorting
+    width: '25%',
+    render: (record) => record.name
+  },
+  {
+    id: 'status',
+    label: 'Status',
+    sortable: true,
+    field: 'status',
+    render: (record) => ({
+      component: 'StatusBadge',
+      props: { 
+        status: record.status,
+        className: 'capitalize'
+      }
+    })
+  },
+  // ... other columns
+];
+```
+
+### Handling URL Parameters
+
+The table automatically handles URL parameters for:
+- `page`: Current page number
+- `per_page`: Items per page
+- `sort`: Field to sort by
+- `order`: Sort direction ('asc' or 'desc')
+- Any custom filter parameters
+
+### Client-Side Sorting (if needed)
+
+For client-side sorting, use the `sortedRecords` store:
 
 ```svelte
-<script lang="ts">
-  import UserPageLayout from '$lib/layouts/UserPageLayout.svelte';
-  import Table from './table.svelte';
-  export let data;
+<script>
+  import { sortedRecords } from '$lib/stores/table';
+  
+  $: sorted = sortedRecords($page.url, data.records, {
+    sortField: 'name',
+    sortOrder: 'asc'
+  });
 </script>
 
-<UserPageLayout>
-  <Table {data} />
-</UserPageLayout>
+{#each $sorted as record}
+  <!-- Render records -->
+{/each}
 ```
+
+## 5. Best Practices
+
+1. **Consistent Parameter Naming**
+   - Use `sort` for sort field
+   - Use `order` for sort direction ('asc' or 'desc')
+   - Use `page` for current page
+   - Use `per_page` for items per page
+
+2. **Server-Side Sorting**
+   - Always implement server-side sorting for large datasets
+   - Use `fetchTableData` for consistent behavior
+   - Validate sort fields against allowed columns
+
+3. **Client-Side State**
+   - Keep URL as the single source of truth
+   - Use `$page.url` for reading state
+   - Use `goto` with `replaceState: true` for updates
+
+4. **Error Handling**
+   - Handle invalid sort parameters gracefully
+   - Provide default values for missing parameters
+   - Log errors with context
+
+5. **Performance**
+   - Add database indexes for sortable columns
+   - Consider composite indexes for common sort+filter combinations
+   - Use cursor-based pagination for very large datasets
+
+## 6. Common Patterns
 
 ### Filter Components
 
 #### DebouncedTextFilter
-Use for text search inputs with debouncing:
+Use for text search with debouncing:
 
 ```svelte
 <DebouncedTextFilter
-  label="Search"
-  placeholder="Search by name..."
+  placeholder="Search..."
   paramName="search"
+  value={$page.url.searchParams.get('search') || ''}
   debounceMs={300}
+  onSearch={(value) => {
+    const url = new URL($page.url);
+    if (value) {
+      url.searchParams.set('search', value);
+    } else {
+      url.searchParams.delete('search');
+    }
+    url.searchParams.set('page', '1');
+    goto(url.toString(), { replaceState: true });
+  }}
 />
 ```
 
 #### EnhancedPopoverFilter
-Enhanced version of PopoverFilter with URL parameter handling built-in:
+For filter dropdowns with URL synchronization:
 
 ```svelte
+<script>
+  import { enhance } from '$app/forms';
+  
+  let selectedValues = [];
+  
+  // Initialize from URL
+  $: if (browser) {
+    const params = new URL($page.url).searchParams.get('status');
+    selectedValues = params ? params.split(',') : [];
+  }
+</script>
+
 <EnhancedPopoverFilter
   label="Status"
-  paramName="status"
   options={[
     { value: 'ACTIVE', label: 'Active' },
     { value: 'INACTIVE', label: 'Inactive' }
   ]}
+  {selectedValues}
+  onChange={(values) => {
+    selectedValues = values;
+    const url = new URL($page.url);
+    if (values.length) {
+      url.searchParams.set('status', values.join(','));
+    } else {
+      url.searchParams.delete('status');
+    }
+    url.searchParams.set('page', '1');
+    goto(url.toString(), { replaceState: true });
+  }}
 />
 ```
 
-Key features:
-- Automatically syncs with URL parameters
-- Handles multiple selections
-- Resets pagination when filters change
-- Preserves filter state on page reload
+## 7. Column Renderers
+
+### StatusBadge
+Display status indicators with appropriate colors and labels.
+
+```typescript
+{
+  id: 'status',
+  label: 'Status',
+  field: 'status',
+  sortable: true,
+  render: (record) => ({
+    component: 'StatusBadge',
+    props: {
+      status: record.status,  // 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'SUSPENDED' | 'DRAFT'
+      value: record.status,  // Alternative to status prop
+      className: 'custom-class' // Optional additional classes
+    }
+  })
+}
+```
+
+### DateDisplay
+Display dates with relative or formatted output.
+
+```typescript
+{
+  id: 'createdAt',
+  label: 'Created',
+  field: 'createdAt',
+  sortable: true,
+  render: (record) => ({
+    component: 'DateDisplay',
+    props: {
+      date: record.createdAt,  // Date | string | null
+      format: 'relative',     // 'relative' | 'calendar' | 'full'
+      emptyText: 'Never',     // Text to show when date is null
+      showTooltip: true,      // Show tooltip on hover
+      useHoverCard: false,    // Use hover card instead of tooltip
+      iconSize: 14            // Size of the calendar icon
+    }
+  })
+}
+```
+
+### NameWithIdLink
+Display a clickable name with optional ID and badge.
+
+```typescript
+{
+  id: 'name',
+  label: 'Name',
+  field: 'name',
+  sortable: true,
+  render: (record) => ({
+    component: 'NameWithIdLink',
+    props: {
+      record: {
+        id: record.id,
+        name: record.name
+      },
+      baseUrl: '/admin/entities',  // Base URL for the edit link
+      idField: 'id',               // Field name for ID
+      nameField: 'name',           // Field name for display name
+      showId: true,                // Show ID below the name
+      showBadge: true,             // Show optional badge
+      badgeText: 'Default',         // Badge text
+      badgeClass: 'bg-yellow-50 text-yellow-800' // Badge style
+    }
+  })
+}
+```
+
+### RecordActions
+Display action buttons in a dropdown menu.
+
+```typescript
+{
+  id: 'actions',
+  label: 'Actions',
+  width: '100px',
+  render: (record) => ({
+    component: 'RecordActions',
+    props: {
+      items: [
+        {
+          label: 'Edit',
+          icon: 'Pencil',
+          onClick: () => goto(`/admin/entities/${record.id}/edit`)
+        },
+        {
+          label: 'Delete',
+          icon: 'Trash2',
+          onClick: () => handleDelete(record.id),
+          className: 'text-red-600 hover:bg-red-50'
+        }
+      ]
+    }
+  })
+}
+```
+
+### AlgorithmBadge
+Display algorithm information in a badge.
+
+```typescript
+{
+  id: 'algorithm',
+  label: 'Algorithm',
+  field: 'algorithm',
+  render: (record) => ({
+    component: 'AlgorithmBadge',
+    props: {
+      algorithm: record.algorithm  // Algorithm name/code
+    }
+  })
+}
+```
+
+### JwtStatusBadge
+Display JWT token status.
+
+```typescript
+{
+  id: 'tokenStatus',
+  label: 'Token Status',
+  render: (record) => ({
+    component: 'JwtStatusBadge',
+    props: {
+      isPrimary: record.isPrimary,
+      isActive: record.isActive
+    }
+  })
+}
+```
+
+### ActionDropdown (Internal)
+Internal component used by RecordActions. Not typically used directly.
+
+## 8. Complete Example
+
+### Server-Side (+page.server.ts)
+
+```typescript
+import { restrict } from '$lib/server/security/guards';
+import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+
+const tableOptions = {
+  modelName: 'yourEntity',
+  searchableFields: ['name', 'email'],
+  allowedFilters: ['status'],
+  defaultSortField: 'createdAt',
+  defaultSortOrder: 'desc',
+  defaultPerPage: 10,
+  filterMappings: {
+    'status': { 
+      field: 'status',
+      operator: 'in',
+      valueTransformer: (value: string) => value.toUpperCase()
+    }
+  }
+};
+
+export const load = restrict(
+  async ({ url, locals }) => {
+    try {
+      const result = await fetchTableData(locals, url, tableOptions);
+      return {
+        records: result.records,
+        meta: result.meta
+      };
+    } catch (error) {
+      return handleApiError({
+        error,
+        prisma: locals.prisma,
+        defaultMessage: 'Failed to load records',
+        action: 'loading records'
+      });
+    }
+  },
+  ['USER', 'ADMIN']
+);
+```
+
+### Page Component (+page.svelte)
+
+```svelte
+<script lang="ts">
+  import type { PageData } from './$types';
+  import UserPageLayout from '$lib/components/user/layout/UserPageLayout.svelte';
+  import Table from './table.svelte';
+  import { initPagination } from '$lib/components/ui_components_sveltekit/table/pagination/pagination-utils';
+  
+  export let data: PageData;
+  
+  // Initialize pagination with stored preferences
+  initPagination('preferredPageSize');
+  
+  // Define breadcrumbs
+  const pageCrumbs = [
+    ['Your Section', '/your-section'],
+    'Your Page'
+  ];
+  
+  const pageTitle = "Your Records";
+</script>
+
+<UserPageLayout {pageCrumbs} {pageTitle}>
+  <div class="space-y-4">
+    <Table {data} />
+  </div>
+</UserPageLayout>
+```
+
+## 8. Best Practices (Continued)
+
+### Performance Optimization
+
+1. **Database Indexing**
+   - Add indexes for frequently filtered/sorted columns
+   - Consider composite indexes for common query patterns
+   ```sql
+   CREATE INDEX idx_status_created ON your_entity(status, created_at);
+   ```
+
+2. **Query Optimization**
+   - Use `select` to fetch only needed fields
+   - Implement cursor-based pagination for large datasets
+   - Consider materialized views for complex queries
+
+3. **Caching**
+   - Implement caching for frequently accessed data
+   - Use `stale-while-revalidate` pattern for better UX
+   - Cache filter/sort combinations that are commonly used
+
+### Testing
+
+1. **Unit Tests**
+   - Test sorting with different field combinations
+   - Verify URL parameter handling
+   - Test edge cases (empty results, single page, etc.)
+
+2. **Integration Tests**
+   - Test full flow from UI to database
+   - Verify security restrictions
+   - Test with different user roles
+
+3. **Performance Testing**
+   - Test with large datasets
+   - Monitor query performance
+   - Test concurrent user scenarios
+
+### Accessibility
+
+1. **Keyboard Navigation**
+   - Ensure sortable columns are focusable
+   - Support keyboard shortcuts for common actions
+   - Provide visible focus states
+
+2. **Screen Readers**
+   - Add ARIA attributes for sortable columns
+   - Provide status messages for loading states
+   - Ensure proper heading structure
+
+3. **Responsive Design**
+   - Test on different screen sizes
+   - Implement horizontal scrolling for wide tables
+   - Consider card layouts for mobile views
 
 ### Complete Table Example
 
