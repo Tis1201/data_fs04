@@ -12,7 +12,7 @@ import { SystemRole } from '$lib/types/roles';
 
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals, auth }) => {
         // Initialize the form with the schema and defaults
         const form = await superValidate(zod(createWhatsAppAccountSchema), {
             defaults: {
@@ -23,7 +23,9 @@ export const load = restrict(
         try {
             // Get the authenticated user ID
             const user_id = await validateAndGetUserId(locals);
-            logger.debug(`Loading WhatsApp account creation page for user: ${user_id}`);
+            const accountId = auth.currentAccount?.account?.id;
+            
+            logger.debug(`Loading WhatsApp account creation page for user: ${user_id}, account: ${accountId}`);
             
             return { 
                 form, 
@@ -77,12 +79,19 @@ export const actions: Actions = {
                 
                 const clientInfo = client ? client.getInfo() : null;
                 
+                // Get the current account ID
+                const accountId = auth.currentAccount?.account?.id;
+                if (!accountId) {
+                    return fail(400, message(form, 'No account selected. Please select an account first.', { status: 'error' }));
+                }
+                
                 // Create the WhatsApp account in the database
                 const account = await prisma.whatsAppAccount.create({
                     data: {
                         description: form.data.description,
                         client_id: form.data.client_id,
                         createdBy: userInfo.id,
+                        accountId: accountId, // Associate with the current account
                         phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber || 'Unknown',
                         name: form.data.name || clientInfo?.pushName
                     }

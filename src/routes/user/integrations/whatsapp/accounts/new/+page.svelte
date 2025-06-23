@@ -333,7 +333,7 @@
 </script>
 
 <UserPageLayout {title} crumbs={pageCrumbs}>
-    <div class="max-w-3xl mx-auto">
+    <div class="flex flex-col space-y-4">  
         {#if currentStep === 1}
             <!-- Step 1: QR Code Display -->
             <FormCard
