@@ -124,9 +124,124 @@ export const load = async ({ locals, url }) => {
 
 ## 4. Table Component (table.svelte)
 
+### Layout Components
+
+#### Admin Pages
+Use `AdminPageLayout` for admin interfaces:
+
+```svelte
+<script lang="ts">
+  import AdminPageLayout from '$lib/layouts/AdminPageLayout.svelte';
+  import Table from './table.svelte';
+  export let data;
+</script>
+
+<AdminPageLayout title="Admin Title" description="Manage entities">
+  <Table {data} />
+</AdminPageLayout>
+```
+
+#### User Pages
+Use `UserPageLayout` for user-facing interfaces:
+
+```svelte
+<script lang="ts">
+  import UserPageLayout from '$lib/layouts/UserPageLayout.svelte';
+  import Table from './table.svelte';
+  export let data;
+</script>
+
+<UserPageLayout>
+  <Table {data} />
+</UserPageLayout>
+```
+
+### Filter Components
+
+#### DebouncedTextFilter
+Use for text search inputs with debouncing:
+
+```svelte
+<DebouncedTextFilter
+  label="Search"
+  placeholder="Search by name..."
+  paramName="search"
+  debounceMs={300}
+/>
+```
+
+#### EnhancedPopoverFilter
+Enhanced version of PopoverFilter with URL parameter handling built-in:
+
+```svelte
+<EnhancedPopoverFilter
+  label="Status"
+  paramName="status"
+  options={[
+    { value: 'ACTIVE', label: 'Active' },
+    { value: 'INACTIVE', label: 'Inactive' }
+  ]}
+/>
+```
+
+Key features:
+- Automatically syncs with URL parameters
+- Handles multiple selections
+- Resets pagination when filters change
+- Preserves filter state on page reload
+
+### Complete Table Example
+
+```svelte
+<script lang="ts">
+  import { page } from '$app/stores';
+  import { DataTable } from '$lib/components/ui_components_sveltekit/table';
+  import DebouncedTextFilter from '$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte';
+  import EnhancedPopoverFilter from '$lib/components/ui_components_sveltekit/table/filter/EnhancedPopoverFilter.svelte';
+  import { onMount } from 'svelte';
+
+  export let data;
+
+  // Handle URL parameter changes
+  $: {
+    // React to URL changes
+    $page.url.searchParams;
+  }
+</script>
+
+
+<div class="space-y-4">
+  <div class="flex flex-wrap gap-2 mb-4">
+    <DebouncedTextFilter
+      label="Search"
+      placeholder="Search..."
+      paramName="search"
+      debounceMs={300}
+    />
+    
+    <EnhancedPopoverFilter
+      label="Status"
+      paramName="status"
+      options={[
+        { value: 'ACTIVE', label: 'Active' },
+        { value: 'INACTIVE', label: 'Inactive' }
+      ]}
+    />
+  </div>
+
+  <DataTable
+    {data}
+    on:sort
+    on:pageChange
+  >
+    <!-- Table content -->
+  </DataTable>
+</div>
+```
+
 Key features to include:
 - Loading states with LoadingSkeleton
-- Filter components (DebouncedTextFilter, PopoverFilter)
+- Filter components (DebouncedTextFilter, EnhancedPopoverFilter)
 - Action handlers (delete, toggle status)
 - Confirmation dialogs
 - Error handling with toast notifications
@@ -139,11 +254,170 @@ Key features to include:
 - Use `width` to control column sizing
 - Use `render` for custom cell rendering
 
+### Common Column Renderers
+
+#### 1. Name with ID Link
+Creates a clickable name that links to the detail page, optionally showing the ID.
+
+```typescript
+{
+  id: 'name',
+  label: 'Name',
+  render: (record) => ({
+    component: 'NameWithIdLink',
+    props: {
+      record: { id: record.id, name: record.name },
+      baseUrl: '/path/to/detail',
+      showId: true
+    }
+  })
+}
+```
+
+#### 2. Status Badge
+Displays a colored badge based on status value.
+
+```typescript
+{
+  id: 'status',
+  label: 'Status',
+  render: (record) => ({
+    component: 'StatusBadge',
+    props: { 
+      status: record.isActive ? 'active' : 'inactive',
+      // Optional: Customize colors
+      variant: record.isActive ? 'success' : 'destructive'
+    }
+  })
+}
+```
+
+#### 3. Date Display
+Formats dates in a user-friendly relative format with tooltip for exact time.
+
+```typescript
+{
+  id: 'createdAt',
+  label: 'Created',
+  render: (record) => ({
+    component: 'RelativeDate',
+    props: { date: record.createdAt }
+  })
+}
+```
+
+#### 4. Boolean Toggle
+Shows a toggle switch for boolean values.
+
+```typescript
+{
+  id: 'isActive',
+  label: 'Active',
+  render: (record) => ({
+    component: 'BooleanToggle',
+    props: {
+      value: record.isActive,
+      onToggle: () => handleToggle(record.id, !record.isActive)
+    }
+  })
+}
+```
+
+#### 5. Avatar with Text
+Displays an avatar image with text next to it.
+
+```typescript
+{
+  id: 'user',
+  label: 'User',
+  render: (record) => ({
+    component: 'AvatarWithText',
+    props: {
+      image: record.avatarUrl,
+      text: record.userName,
+      subtext: record.email
+    }
+  })
+}
+```
+
+#### 6. Record Actions
+Shows action buttons (edit, delete, etc.) in a dropdown.
+
+```typescript
+{
+  id: 'actions',
+  label: 'Actions',
+  render: (record) => ({
+    component: 'RecordActions',
+    props: {
+      items: [
+        {
+          label: 'Edit',
+          icon: 'Pencil',
+          onClick: () => handleEdit(record.id)
+        },
+        {
+          label: 'Delete',
+          icon: 'Trash',
+          variant: 'destructive',
+          onClick: () => handleDelete(record.id)
+        }
+      ]
+    }
+  })
+}
+```
+
+#### 7. Tags List
+Displays an array of tags as chips.
+
+```typescript
+{
+  id: 'tags',
+  label: 'Tags',
+  render: (record) => ({
+    component: 'TagsList',
+    props: {
+      tags: record.tags,
+      maxVisible: 2,
+      // Optional: Make tags clickable
+      onTagClick: (tag) => filterByTag(tag)
+    }
+  })
+}
+```
+
+#### 8. Progress Indicator
+Shows a progress bar or circle.
+
+```typescript
+{
+  id: 'progress',
+  label: 'Progress',
+  render: (record) => ({
+    component: 'ProgressIndicator',
+    props: {
+      value: record.progress,
+      max: 100,
+      showPercentage: true
+    }
+  })
+}
+```
+
 ### Common Patterns
 1. **Status Badges**: Use StatusBadge with appropriate status values
 2. **Date Display**: Use RelativeDate for user-friendly dates
 3. **Actions**: Use RecordActions with icon buttons
-4. **Filters**: Use DebouncedTextFilter for search, PopoverFilter for multi-select
+4. **Filters**: 
+   - Use `DebouncedTextFilter` for search inputs
+   - Use `EnhancedPopoverFilter` for multi-select filters with URL sync
+   - For simple filters, use the basic `PopoverFilter`
+5. **URL Parameters**:
+   - Filters automatically sync with URL parameters
+   - Use `paramName` to specify the URL parameter name
+   - Multiple values are comma-separated in the URL
 
 ### Performance Tips
 - Implement server-side pagination

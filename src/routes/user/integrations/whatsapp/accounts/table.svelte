@@ -6,6 +6,8 @@
     import EnhancedPopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/EnhancedPopoverFilter.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
+    import StatusBadge from "$lib/components/ui_components_sveltekit/table/column/StatusBadge.svelte";
     import type { WhatsAppAccount } from "@prisma/client";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import type { TableProps, TableState } from "$lib/components/ui_components_sveltekit/table/types";
@@ -34,13 +36,21 @@
             id: "name",
             label: "Name",
             sortable: true,
-            width: "30%"
+            width: "30%",
+            render: (record: WhatsAppAccount) => ({
+                component: NameWithIdLink,
+                props: {
+                    record,
+                    baseUrl: "/user/integrations/whatsapp/accounts",
+                    showId: true
+                }
+            })
         },
         {
             id: "phoneNumber",
             label: "Phone Number",
             sortable: true,
-            width: "30%"
+            width: "20%"
         },
         {
             id: "description",
@@ -49,6 +59,20 @@
             width: "40%",
             render: (record: WhatsAppAccount) => record.description || "N/A"
         },
+        {
+            id: "status",
+            label: "Status",
+            sortable: true,
+            width: "20%",
+            render: (record: WhatsAppAccount) => ({
+                component: StatusBadge,
+                props: {
+                    status: record.status,
+                    value: record.status || "N/A"
+                }
+            })
+        },
+        
         {
             id: "createdAt",
             label: "Created At",
