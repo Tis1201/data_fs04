@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 
 // Define table options for WhatsApp accounts
 const table_options = {
-    modelName: 'whatsAppAccount',
+    modelName: 'whatsAppAccount', // This should match the exact model name in Prisma schema
     searchableFields: ['phoneNumber', 'description', 'name'],
     allowedFilters: ['statuses'],
     defaultSortField: 'phoneNumber',
@@ -26,44 +26,45 @@ const table_options = {
 export const load = restrict(
     async ({ url, locals, auth }) => {
         try {
-            // Get the current user's account ID
-            const accountId = auth.user?.currentAccountId;
+            // Get the current user's account ID from auth.currentAccount
+            // The middleware should have already resolved this
+            const accountId = auth.currentAccount?.account?.id;
             
             if (!accountId) {
-                logger.warn('User has no current account ID');
-                
-                return {
-                    accounts: [],
-                    meta: {
-                        pagination: {
-                            page: 1,
-                            per_page: 10,
-                            total_records: 0,
-                            total_pages: 0
-                        },
-                        sort: {
-                            field: 'createdAt',
-                            order: 'desc'
-                        }
-                    }
-                };
+                // If no account ID is found, this is an error condition
+                logger.error('User has no current account ID. Middleware should have resolved this.');
+                throw error(403, 'No account selected. Please select an account first.');
             }
             
-            // Use the reusable fetchTableData function with our table options
-            // Add a filter for the current account
+            logger.debug(`Using account ID: ${accountId}`);
+            
+            // Let Zenstack's row-level security handle access control
+            logger.debug('Fetching WhatsApp accounts with Zenstack row-level security');
+            
+            // Use fetchTableData function with our table options
+            // Zenstack will automatically filter based on the current user's permissions
             const result = await fetchTableData(locals, url, {
-                ...table_options,
-                additionalWhere: {
-                    accountId
-                }
+                ...table_options
             });
+            
+            logger.debug(`Found ${result.records.length} WhatsApp accounts`);
             
             return {
                 accounts: result.records,
                 table_state: result.table_state
             };
-        } catch (error) {
-            logger.error(`Error loading WhatsApp accounts: ${JSON.stringify(error)}`);
+        } catch (err) {
+            logger.error(`Error loading WhatsApp accounts: ${JSON.stringify(err)}`);
+            
+            // Check if there's a specific database error
+            if (err.code && err.code.startsWith('P')) {
+                logger.error(`Prisma error code: ${err.code}, message: ${err.message}`);
+                
+                // Check if the model doesn't exist
+                if (err.code === 'P2021') {
+                    logger.error('The WhatsAppAccount model might not exist in the database schema');
+                }
+            }
             
             return {
                 accounts: [],

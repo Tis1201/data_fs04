@@ -8,9 +8,9 @@
     
     export let data: PageData;
     
-    $: ({ accounts: records, meta } = data);
-    $: pagination = getDefaultPagination(meta, 10);
-    $: sort = getDefaultSort(meta, "createdAt", "desc");
+    $: ({ accounts: records, table_state } = data);
+    $: pagination = getDefaultPagination(table_state, 10);
+    $: sort = getDefaultSort(table_state, "createdAt", "desc");
     
     let loading = false;
     
