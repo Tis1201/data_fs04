@@ -282,6 +282,58 @@ For client-side sorting, use the `sortedRecords` store:
 
 ## 5. Best Practices
 
+### Refreshing Table Data After Operations
+
+When performing operations that modify table data (like create, update, or delete), follow this pattern to refresh the table data without a full page reload:
+
+```typescript
+async function handleDelete(id: string) {
+    try {
+        const response = await fetch(`/api/entity/${id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Show success message
+            toast.success(result.text || 'Item deleted successfully');
+            
+            // Invalidate the specific data dependency
+            await invalidate('app:entity-data');
+            
+            // Reload the current page data without a full page refresh
+            await goto($page.url.pathname + $page.url.search, {
+                replaceState: true,  // Don't add to browser history
+                noScroll: true,     // Maintain scroll position
+                keepFocus: true,    // Maintain focus for accessibility
+                invalidateAll: true // Force reload all data
+            });
+        } else {
+            throw new Error(result.error || 'Failed to delete item');
+        }
+    } catch (error) {
+        toast.error(`Error: ${error.message}`);
+    }
+}
+```
+
+### Key Benefits:
+- **Smooth UX**: No full page reload means no flickering
+- **Preserves State**: Maintains current filters, sorting, and pagination
+- **Accessibility**: Keeps focus and scroll position
+- **Reliable**: Ensures all data is fresh
+
+### When to Use:
+- After successful create/update/delete operations
+- When you need to reflect server-side changes
+- When you want to maintain the current view state
+
+### Alternatives:
+- For simpler cases, you can use just `invalidate('app:entity-data')`
+- For complex state management, consider using Svelte stores
+
 1. **Consistent Parameter Naming**
    - Use `sort` for sort field
    - Use `order` for sort direction ('asc' or 'desc')

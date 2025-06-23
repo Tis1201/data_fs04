@@ -161,16 +161,28 @@
                 }
             });
             
+            const result = await response.json();
+            
             if (response.ok) {
-                toast.success("WhatsApp account deleted successfully");
-                // Refresh the data
+                // Use the standardized response format text field
+                toast.success(result.text || "WhatsApp account deleted successfully");
+                
+                // Use a combination of approaches to ensure the table data is refreshed
+                // 1. Invalidate the data dependency
                 await invalidate('app:whatsapp-accounts');
+                // 2. Force SvelteKit to reload the current page data without a full page refresh
+                await goto($page.url.pathname + $page.url.search, {
+                    replaceState: true,
+                    noScroll: true,
+                    keepFocus: true,
+                    invalidateAll: true
+                });
             } else {
-                const error = await response.json();
-                toast.error(`Error deleting WhatsApp account: ${error.message || 'Unknown error'}`);
+                // Handle error from standardized error response
+                toast.error(result.error || `Error deleting WhatsApp account: ${result.message || 'Unknown error'}`);
             }
         } catch (error) {
-            toast.error(`Error deleting WhatsApp account: ${error.message || 'Unknown error'}`);
+            toast.error(`Error deleting WhatsApp account: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             state.confirmationOpen = false;
             state.selectedRecord = null;
