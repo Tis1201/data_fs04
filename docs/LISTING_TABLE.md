@@ -881,6 +881,121 @@ Shows a progress bar or circle.
 - Implement proper error handling
 - Use CSRF protection for forms
 
+## Row Actions
+
+For actions that affect individual rows (like edit, delete, etc.), use the following pattern:
+
+1. **Create API Endpoints** in `+server.ts` for each action
+2. **Use the `restrict` wrapper** for authentication and authorization
+3. **Leverage error handling utilities** for consistent error responses
+4. **Use standardized response formats**
+
+Example for a delete action:
+
+```typescript
+// src/routes/api/items/[id]/+server.ts
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { restrict } from '$lib/server/security/guards';
+import { handleApiError } from '$lib/server/errors/errorHandlers';
+import { createSuccessResponse } from '$lib/types/api';
+
+export const DELETE = restrict(
+    async ({ request, locals, params, auth }) => {
+        try {
+            const { id } = params;
+            
+            if (!id) {
+                throw error(400, 'Item ID is required');
+            }
+
+            // Get the current user's account ID
+            const accountId = auth.currentAccount?.account?.id;
+            
+            if (!accountId) {
+                throw error(403, 'No account selected');
+            }
+
+            // Delete the item with proper access checks
+            await locals.prisma.item.delete({
+                where: { 
+                    id,
+                    accountId // Ensures the item belongs to the user's account
+                }
+            });
+
+            // Return standardized success response
+            return json(createSuccessResponse('Item deleted successfully'));
+        } catch (err) {
+            // Handle errors consistently
+            return handleApiError({
+                error: err,
+                prisma: locals.prisma,
+                accountId: auth.currentAccount?.account?.id,
+                defaultMessage: 'Failed to delete item',
+                action: 'delete_item'
+            });
+        }
+    },
+    ['USER', 'ADMIN'] // Specify allowed roles
+) satisfies RequestHandler;
+```
+
+### Client-Side Implementation
+
+In your table component, implement the delete handler like this:
+
+```typescript
+async function handleDelete(id: string) {
+    try {
+        const response = await fetch(`/api/items/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.error || 'Failed to delete item');
+        }
+
+        // Show success message
+        toast.success(result.text || 'Item deleted successfully');
+        
+        // Refresh the table data
+        await invalidate('table:data');
+        
+    } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'An error occurred');
+    }
+}
+```
+
+### Best Practices
+
+1. **Use HTTP Methods Properly**:
+   - `GET` for fetching data
+   - `POST` for creating new resources
+   - `PUT`/`PATCH` for updates
+   - `DELETE` for deletions
+
+2. **Error Handling**:
+   - Use `handleApiError` for consistent error responses
+   - Include meaningful error messages
+   - Log detailed errors server-side
+
+3. **Security**:
+   - Always use the `restrict` wrapper
+   - Verify ownership of resources
+   - Implement proper validation
+
+4. **Performance**:
+   - Use proper error boundaries
+   - Implement loading states
+   - Consider optimistic UI updates
+
 ## 5. User Context and Authentication
 
 ### Authentication Middleware
