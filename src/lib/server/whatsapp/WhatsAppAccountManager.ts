@@ -217,6 +217,43 @@ export class WhatsAppAccountManager extends EventEmitter {
   }
 
   /**
+   * Cleans up a client that was created but not associated with an account
+   * @param clientId - The client ID to clean up
+   * @returns Promise that resolves when cleanup is complete
+   */
+  public async cleanupClient(clientId: string): Promise<void> {
+    const client = this.getClient(clientId);
+    if (!client) {
+      logger.warn(`[WhatsAppManager] Client ${clientId} not found for cleanup`);
+      return;
+    }
+
+    try {
+      logger.info(`[WhatsAppManager] Cleaning up client ${clientId}`);
+      
+      // Disconnect the client if it's still connected
+      if (client.getState() !== 'disconnected') {
+        await client.disconnect();
+      }
+      
+      // Remove the client from the map
+      this.clients.delete(clientId);
+      
+      // Clean up any session files
+      const authDir = path.join(DEFAULT_AUTH_DIR, clientId);
+      if (fs.existsSync(authDir)) {
+        logger.debug(`[WhatsAppManager] Removing auth directory: ${authDir}`);
+        fs.rmSync(authDir, { recursive: true, force: true });
+      }
+      
+      logger.info(`[WhatsAppManager] Successfully cleaned up client ${clientId}`);
+    } catch (error) {
+      logger.error(`[WhatsAppManager] Error cleaning up client ${clientId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Checks if a session exists on disk
    */
   public sessionExists(sessionId: string): boolean {

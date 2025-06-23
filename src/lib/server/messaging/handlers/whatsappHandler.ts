@@ -23,6 +23,9 @@ export class WhatsAppHandler implements Handler {
             case 'message':
                 await this.handleMessage(message);
                 break;
+            case 'cleanup_client':
+                await this.handleCleanupClient(message);
+                break;
             default:
                 logger.warn(`[WhatsAppHandler] Unhandled action: ${action}`);
                 break;
@@ -183,6 +186,54 @@ export class WhatsAppHandler implements Handler {
             });
             
             publisher.publish(errorRoutingMessage);
+        }
+    }
+
+    /**
+     * Handles cleanup of a WhatsApp client that was created but not associated with an account
+     * @param message - The incoming message containing cleanup details
+     */
+    private async handleCleanupClient(message: InMessage): Promise<void> {
+        const { payload, requestId } = message;
+        const { clientId } = payload as { clientId: string };
+
+        if (!clientId) {
+            logger.warn('[WhatsAppHandler] cleanup_client action requires clientId');
+            return;
+        }
+
+        logger.info(`[WhatsAppHandler] Cleaning up client: ${clientId}`);
+
+        try {
+            // Clean up the client
+            await whatsAppAccountManager.cleanupClient(clientId);
+            
+            // Send success response
+            const response = MessageFactory.createResponse(
+                'whatsapp',
+                { success: true },
+                message,
+                requestId
+            );
+            
+            await publisher.publish(response);
+            logger.info(`[WhatsAppHandler] Successfully cleaned up client: ${clientId}`);
+        } catch (error) {
+            logger.error(`[WhatsAppHandler] Error cleaning up client ${clientId}:`, error);
+            
+            // Send error response
+            const errorResponse = MessageFactory.createResponse(
+                'whatsapp',
+                { 
+                    success: false,
+                    error: 'Failed to clean up client',
+                    details: error.message
+                },
+                message,
+                requestId
+            );
+            
+            await publisher.publish(errorResponse);
         }
     }
 }

@@ -2,17 +2,23 @@
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
-    import { goto } from '$app/navigation';
-    import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
+    import { goto, invalidate } from '$app/navigation';
+    import { toast } from "svelte-sonner";
+    import { Pencil, Trash } from "lucide-svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import EnhancedPopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/EnhancedPopoverFilter.svelte";
+    import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import type { TableColumn, TableProps, TableState } from "$lib/components/ui_components_sveltekit/table/types";
+    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import type { ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
+    import type { WhatsAppAccount } from "$lib/types/whatsapp";
+    import { formatDate } from "$lib/utils/format";
+    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import StatusBadge from "$lib/components/ui_components_sveltekit/table/column/StatusBadge.svelte";
-    import type { WhatsAppAccount } from "@prisma/client";
-    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-    import type { TableProps, TableState } from "$lib/components/ui_components_sveltekit/table/types";
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     
     // Get initial sort from URL or use defaults
     let initialSort = {
@@ -101,9 +107,75 @@
                     iconSize: 12
                 }
             })
+        },
+        {
+            id: "actions",
+            label: "Actions",
+            sortable: false,
+            width: "100px",
+            render: (record: WhatsAppAccount) => {
+                // Define action items here instead of in the RecordActions component
+                const actionItems: ActionItem[] = [
+                    {
+                        label: "Edit",
+                        icon: Pencil,
+                        onClick: () => goto(`/user/integrations/whatsapp/accounts/${record.id}`)
+                    },
+                    {
+                        label: "Delete",
+                        icon: Trash,
+                        onClick: () => confirmDelete(record)
+                    }
+                ];
+                
+                return {
+                    component: RecordActions,
+                    props: {
+                        items: actionItems
+                    }
+                };
+            }
         }
-        // Removed actions column as requested
     ];
+    
+    // Table state for delete confirmation dialog
+    let state: TableState<WhatsAppAccount> = {
+        confirmationOpen: false,
+        selectedRecord: null,
+        loading: false
+    };
+    
+    function confirmDelete(record: WhatsAppAccount) {
+        state.selectedRecord = record;
+        state.confirmationOpen = true;
+    }
+    
+    async function handleDelete() {
+        if (!state.selectedRecord) return;
+        
+        try {
+            const response = await fetch(`/api/whatsapp/accounts/${state.selectedRecord.id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                toast.success("WhatsApp account deleted successfully");
+                // Refresh the data
+                await invalidate('app:whatsapp-accounts');
+            } else {
+                const error = await response.json();
+                toast.error(`Error deleting WhatsApp account: ${error.message || 'Unknown error'}`);
+            }
+        } catch (error) {
+            toast.error(`Error deleting WhatsApp account: ${error.message || 'Unknown error'}`);
+        } finally {
+            state.confirmationOpen = false;
+            state.selectedRecord = null;
+        }
+    }
 </script>
 
 <div class="space-y-4">
@@ -152,3 +224,17 @@
         />
     {/if}
 </div>
+
+<!-- Delete confirmation dialog -->
+<RecordDeleteDialog
+    state={{
+        selectedRecord: state.selectedRecord,
+        confirmationOpen: state.confirmationOpen,
+        title: 'Delete WhatsApp Account',
+        message: state.selectedRecord ? `Are you sure you want to delete WhatsApp account ${state.selectedRecord.name || state.selectedRecord.phoneNumber || state.selectedRecord.id}?` : '',
+        confirmButtonText: 'Delete',
+        cancelButtonText: 'Cancel'
+    }}
+    useFormSubmission={false}
+    onConfirm={handleDelete}
+/>
