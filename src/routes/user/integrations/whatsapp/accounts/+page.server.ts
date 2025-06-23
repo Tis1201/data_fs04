@@ -10,10 +10,20 @@ import { handleApiError } from '$lib/server/errors/errorHandlers';
 const table_options = {
     modelName: 'whatsAppAccount', // This should match the exact model name in Prisma schema
     searchableFields: ['phoneNumber', 'description', 'name'],
-    allowedFilters: ['statuses'],
+    allowedFilters: ['client_status', 'connectionStatuses', 'status'],
     defaultSortField: 'phoneNumber',
     defaultSortOrder: 'asc' as const,
-    defaultPerPage: 10
+    defaultPerPage: 10,
+    filterMappings: {
+        'connectionStatuses': {
+            field: 'client_status',
+            operator: 'in'
+        },
+        'status': {
+            field: 'status',
+            operator: 'in'
+        }
+    }
 };
 
 // WhatsApp message form removed as requested
@@ -27,12 +37,10 @@ export const load = restrict(
     async ({ url, locals, auth }: any) => {
         try {
             // Get the current user's account ID from auth.currentAccount
-            // The middleware should have already resolved this
             const accountId = auth.currentAccount?.account?.id;
             
             if (!accountId) {
                 // If no account ID is found, this is an error condition
-                logger.error('User has no current account ID. Middleware should have resolved this.');
                 throw error(403, 'No account selected. Please select an account first.');
             }
             
@@ -55,10 +63,12 @@ export const load = restrict(
             };
         } catch (err) {
             // Use the standardized API error handler
+            // If getCurrentAccountId failed, we'll just pass the error as is
             return handleApiError({
                 error: err,
                 prisma: locals.prisma,
-                accountId: auth.currentAccount?.account?.id,
+                // Don't try to get account ID if that's what caused the error
+                accountId: err.message?.includes('account') ? undefined : auth.currentAccount?.account?.id,
                 defaultMessage: 'Failed to load WhatsApp accounts',
                 action: 'loading WhatsApp accounts'
             });
@@ -67,79 +77,3 @@ export const load = restrict(
     ['USER', 'ADMIN'] // Allow both user and admin roles to access this route
 ) satisfies PageServerLoad;
 
-/*******************************************************************************************
- * 
- *  Actions Block
- * 
- *******************************************************************************************/
-export const actions = {
-    /*******************************************************************************************
-     * Request QR Code
-     ******************************************************************************************/
-    requestQRCode: restrict(
-        async ({ request, locals, auth }) => {
-            try {
-                const formData = await request.formData();
-                const phoneNumber = formData.get('phoneNumber')?.toString();
-                const accountId = formData.get('accountId')?.toString();
-
-                if (!phoneNumber || !accountId) {
-                    return fail(400, { error: 'Phone number and account ID are required' });
-                }
-
-                // Verify user has access to this account
-                const account = await locals.prisma.whatsAppAccount.findUnique({
-                    where: {
-                        id: accountId,
-                        accountId: auth.user?.currentAccountId
-                    }
-                });
-
-                if (!account) {
-                    logger.warn(`User attempted to access unauthorized WhatsApp account: ${accountId}`);
-                    return fail(403, { error: 'You do not have access to this WhatsApp account' });
-                }
-
-                // Get the WebSocket connection for this client
-                if (!locals.wss) {
-                    return fail(500, { error: 'WebSocket server not available' });
-                }
-                
-                // Find the WebSocket connection for this client
-                const socket = Array.from(locals.wss.clients).find(client => {
-                    // In a real implementation, you'd match the client by session ID or user ID
-                    // For now, we'll just use the first available socket
-                    return client.readyState === 1; // OPEN
-                });
-                
-                if (!socket) {
-                    return fail(400, { error: 'No active WebSocket connection found' });
-                }
-                
-                try {
-                    // Use the WhatsAppAccountManager to create a client
-                    const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient(phoneNumber, accountId);
-                    
-                    // Set up event forwarding to WebSocket
-                    const client = whatsAppAccountManager.getClient(clientId);
-                    if (!client) {
-                        return fail(500, { error: 'Failed to get WhatsApp client after creation' });
-                    }
-                    
-                    // The QR code will be sent via WebSocket
-                    logger.info(`WhatsApp client created with ID ${clientId}`);
-                    
-                    // Return success with the client ID
-                    return { success: true, clientId };
-                } catch (error) {
-                    logger.error(`Failed to initialize WhatsApp client: ${JSON.stringify(error)}`);
-                    return fail(500, { error: 'Failed to initialize WhatsApp client' });
-                }
-            } catch (error) {
-                logger.error(`Error in requestQRCode action: ${JSON.stringify(error)}`);
-                return fail(500, { error: 'An unexpected error occurred' });
-            }
-        },
-        ['USER', 'ADMIN'] // Allow both user and admin roles
-    )
-};

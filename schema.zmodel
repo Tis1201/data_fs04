@@ -363,7 +363,7 @@ model ListenerWhatsAppAccount {
 model WhatsAppAccount {
   id            String   @id @default(cuid())
   client_id     String @unique
-  client_status String @default("disconnected")
+  client_status String @default("DISCONNECTED")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   phoneNumber   String
@@ -372,6 +372,7 @@ model WhatsAppAccount {
   createdBy     String
   user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   listeners     ListenerWhatsAppAccount[]
+  status        String? @default("ACTIVE")
   
   // Account relationship
   accountId     String?

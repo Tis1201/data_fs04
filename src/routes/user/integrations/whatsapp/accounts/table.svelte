@@ -28,9 +28,9 @@
         loading: false
     };
     
-    // Filter values
-    $: statusFilterValues = $page.url.searchParams.getAll('statuses') || [];
-    $: connectionStatusFilterValues = $page.url.searchParams.getAll('connectionStatuses') || [];
+    // Get initial filter values from URL
+    $: statusFilterValues = $page.url.searchParams.get('status')?.split(',').filter(Boolean) || [];
+    $: connectionStatusFilterValues = $page.url.searchParams.get('connectionStatuses')?.split(',').filter(Boolean) || [];
 
     // Column definitions
     const columns = [
@@ -95,7 +95,15 @@
                         { value: 'INACTIVE', label: 'Inactive' }
                     ]}
                     selectedValues={statusFilterValues}
-                    key="statuses"
+                    key="status"
+                    onChange={(values) => {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('status', values.join(','));
+                        if (!values.length) url.searchParams.delete('status');
+                        url.searchParams.set('page', '1');
+                        window.history.pushState({}, '', url);
+                        window.dispatchEvent(new Event('popstate'));
+                    }}
                 />
                 
                 <!-- Connection Status filter -->
@@ -108,6 +116,14 @@
                     ]}
                     selectedValues={connectionStatusFilterValues}
                     key="connectionStatuses"
+                    onChange={(values) => {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('connectionStatuses', values.join(','));
+                        if (!values.length) url.searchParams.delete('connectionStatuses');
+                        url.searchParams.set('page', '1');
+                        window.history.pushState({}, '', url);
+                        window.dispatchEvent(new Event('popstate'));
+                    }}
                 />
             </div>
         </div>
