@@ -1,11 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from "$app/stores";
-    
-    // Import components and dependencies
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
-    import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
+    import EnhancedPopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/EnhancedPopoverFilter.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import type { WhatsAppAccount } from "@prisma/client";
@@ -28,9 +26,7 @@
         loading: false
     };
     
-    // Get initial filter values from URL
-    $: statusFilterValues = $page.url.searchParams.get('status')?.split(',').filter(Boolean) || [];
-    $: connectionStatusFilterValues = $page.url.searchParams.get('connectionStatuses')?.split(',').filter(Boolean) || [];
+    // Filter values are now handled by the UrlFilter component
 
     // Column definitions
     const columns = [
@@ -88,42 +84,24 @@
                 />
                 
                 <!-- Status filter -->
-                <PopoverFilter
+                <EnhancedPopoverFilter
                     label="Status"
+                    paramName="status"
                     options={[
                         { value: 'ACTIVE', label: 'Active' },
                         { value: 'INACTIVE', label: 'Inactive' }
                     ]}
-                    selectedValues={statusFilterValues}
-                    key="status"
-                    onChange={(values) => {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('status', values.join(','));
-                        if (!values.length) url.searchParams.delete('status');
-                        url.searchParams.set('page', '1');
-                        window.history.pushState({}, '', url);
-                        window.dispatchEvent(new Event('popstate'));
-                    }}
                 />
                 
                 <!-- Connection Status filter -->
-                <PopoverFilter
+                <EnhancedPopoverFilter
                     label="Connection"
+                    paramName="connectionStatuses"
                     options={[
                         { value: 'CONNECTED', label: 'Connected' },
                         { value: 'DISCONNECTED', label: 'Disconnected' },
                         { value: 'PENDING', label: 'Pending' }
                     ]}
-                    selectedValues={connectionStatusFilterValues}
-                    key="connectionStatuses"
-                    onChange={(values) => {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set('connectionStatuses', values.join(','));
-                        if (!values.length) url.searchParams.delete('connectionStatuses');
-                        url.searchParams.set('page', '1');
-                        window.history.pushState({}, '', url);
-                        window.dispatchEvent(new Event('popstate'));
-                    }}
                 />
             </div>
         </div>
