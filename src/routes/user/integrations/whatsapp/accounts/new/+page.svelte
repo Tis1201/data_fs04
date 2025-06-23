@@ -13,6 +13,7 @@
     import AccountForm from "./form.svelte";
     import QRCode from "qrcode";
     import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
+    import UserPageContent from "$lib/components/user/layout/UserPageContent.svelte";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import { sseStore, onSSEEvent } from "$lib/stores/sse-store";
@@ -28,8 +29,19 @@
     const pageCrumbs = [
         ["User", "/user"],
         ["Integrations", "/user/integrations"],
-        ["WhatsApp", "/user/integrations/whatsapp/accounts"],
-        "New Account",
+        ["WhatsApp", "/user/integrations/whatsapp"],
+        ["Accounts", "/user/integrations/whatsapp/accounts"],
+        ["New", ""]
+    ];
+
+    // Back button configuration
+    const actionButtons = [
+        {
+            label: "Back",
+            icon: ArrowLeft,
+            href: "/user/integrations/whatsapp/accounts",
+            variant: "default"
+        }
     ];
 
     // Track the current step: 1 = Connect, 2 = Account Details, 3 = Success
@@ -332,8 +344,8 @@
     onDestroy(() => {});
 </script>
 
-<UserPageLayout {title} crumbs={pageCrumbs}>
-    <div class="flex flex-col space-y-4">  
+<UserPageLayout {title} crumbs={pageCrumbs} {actionButtons}>
+    <UserPageContent>  
         {#if currentStep === 1}
             <!-- Step 1: QR Code Display -->
             <FormCard
@@ -551,5 +563,5 @@
                 </div>
             </FormCard>
         {/if}
-    </div>
+    </UserPageContent>
 </UserPageLayout>
