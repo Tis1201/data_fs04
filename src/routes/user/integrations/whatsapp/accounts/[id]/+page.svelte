@@ -1,9 +1,8 @@
 <script lang="ts">
     import { page } from "$app/stores";
     import { goto } from "$app/navigation";
-    import { superForm } from "sveltekit-superforms/client";
-    import { toast } from "svelte-sonner";
     import { ArrowLeft, Save } from "lucide-svelte";
+    import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     
     // Layout Components
     import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
@@ -24,7 +23,9 @@
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
+    import ReadOnlyField from "$lib/components/ui_components_sveltekit/form/ReadOnlyField.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     
     import type { PageData } from "./$types";
 
@@ -42,30 +43,16 @@
         isNew ? "New Account" : account?.name || "Edit Account"
     ];
 
-    const { form, errors, enhance, submitting, message } = superForm(data.form, {
-        onResult: async ({ result }) => {
-            if (result.type === "success") {
-                if (result.data?.message) {
-                    toast.success(result.data.message);
-                } else {
-                    toast.success(
-                        isNew
-                            ? "WhatsApp account created"
-                            : "WhatsApp account updated"
-                    );
-                }
-                
-                try {
-                    await goto("/user/integrations/whatsapp/accounts");
-                } catch (error) {
-                    console.error("Navigation error:", error);
-                    toast.error("Failed to redirect. Please try again.");
-                }
-            }
-        },
-        onError: (err) => {
-            toast.error(err.message);
-        },
+    // Create form handler using the project's standardized utility
+    const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
+        successRedirect: "/user/integrations/whatsapp/accounts",
+        validateOnInput: true,
+        onSuccess: (result) => {
+            return {
+                type: 'success',
+                text: result.data?.message || (isNew ? "WhatsApp account created" : "WhatsApp account updated")
+            };
+        }
     });
 </script>
 
@@ -99,22 +86,20 @@
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <FormContainer {enhance} action="?/save" errorMessage={$message}>
+                <FormContainer {enhance} action="?/save" errorMessage={$errorMessage}>
                     <!-- Two-column layout for shorter fields -->
                     <FormRow columns={2}>
-                        <!-- Phone Number -->
+                        <!-- Phone Number (Read-only) -->
                         <FormField
                             id="phoneNumber"
                             label="Phone Number"
-                            error={$errors.phoneNumber}
                             required={true}
                         >
-                            <Input
+                            <ReadOnlyField
                                 id="phoneNumber"
                                 name="phoneNumber"
-                                bind:value={$form.phoneNumber}
+                                value={$form.phoneNumber}
                                 placeholder="e.g. +65 9123 4567"
-                                disabled={$submitting}
                             />
                         </FormField>
 
@@ -153,26 +138,18 @@
 
                     <!-- Two-column layout for status and buttons -->
                     <FormRow columns={2} alignItems="end">
-                        <!-- Status -->
+                        <!-- Status (Read-only) -->
                         <FormField
                             id="status"
                             label="Status"
-                            error={$errors.status}
                             required={true}
                         >
-                            <EnhancedSelect
-                                value={$form.status}
+                            <ReadOnlyField
+                                id="status"
                                 name="status"
-                                placeholder="Select status"
-                                labelText="Status"
-                                portal={null}
-                                on:change={(e) => ($form.status = e.detail)}
-                                disabled={$submitting}
-                            >
-                                <Select.Item value="active">Active</Select.Item>
-                                <Select.Item value="inactive">Inactive</Select.Item>
-                                <Select.Item value="pending">Pending</Select.Item>
-                            </EnhancedSelect>
+                                value={$form.status === 'active' ? 'Active' : $form.status === 'inactive' ? 'Inactive' : 'Pending'}
+                                placeholder="Status"
+                            />
                         </FormField>
                     </FormRow>
                     
@@ -182,13 +159,14 @@
             
             {#if !isNew && account}
                 <CardFooter>
-                    <MetadataFooter
-                        items={[
-                            { label: "Created", date: account.createdAt, icon: 'calendar' },
-                            { label: "Last Updated", date: account.updatedAt, icon: 'clock' },
-                            { label: "ID", value: account.id.substring(0, 8) + '...', icon: 'tag' }
-                        ]}
-                    />
+                        <MetadataFooter
+                            items={[
+                                { label: "Created", date: account.createdAt, icon: 'calendar' },
+                                { label: "Last Updated", date: account.updatedAt, icon: 'clock' },
+                                { label: "Created By", value: account.user?.name || 'Unknown', icon: 'user' },
+                                // { label: "ID", value: account.id.substring(0, 8) + '...', icon: 'tag' }
+                            ]}
+                        />
                 </CardFooter>
             {/if}
         </Card>

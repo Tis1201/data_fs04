@@ -30,7 +30,7 @@ export const load = restrict(
         }
         
         try {
-            // Get account data from database with user-level security
+            // Get account data from database with user-level security and include creator info
             const account = await locals.prisma.whatsAppAccount.findUnique({
                 where: { 
                     id,
@@ -42,8 +42,14 @@ export const load = restrict(
                             }
                         }
                     }
+                },
+                include: {
+                    user: true
                 }
             });
+            
+            // Add creator information to the account object for easier access in the template
+            const accountWithCreator = account ? account : null;
             
             if (!account) {
                 throw error(404, {
@@ -57,7 +63,7 @@ export const load = restrict(
             
             return {
                 form,
-                account,
+                account: accountWithCreator,
                 meta: {
                     title: `Edit: ${account.name}`,
                     description: `Edit WhatsApp account ${account.name}`
