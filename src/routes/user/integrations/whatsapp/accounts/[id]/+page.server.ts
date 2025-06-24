@@ -1,12 +1,13 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { whatsappAccountSchema, createForm } from './schema';
+import { whatsappAccountSchema, whatsappAccountUpdateSchema, createForm } from './schema';
 import { superValidate } from 'sveltekit-superforms/server';
 import { restrict } from '$lib/server/security/guards';
 import { zod } from 'sveltekit-superforms/adapters';
 import { message } from 'sveltekit-superforms/server';
 import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
+import { SystemRole } from '$lib/types/roles';
 
 /**
  * Load WhatsApp account data for viewing/editing
@@ -18,7 +19,7 @@ export const load = restrict(
         
         // Handle "new" case
         if (id === 'new') {
-            const form = await createForm(null);
+            const form = await createForm(null, false); // Use create schema
             return {
                 form,
                 account: null,
@@ -58,8 +59,21 @@ export const load = restrict(
                 });
             }
             
-            // Create form with account data
-            const form = await superValidate(account, zod(whatsappAccountSchema));
+            // Create form for validation - use update schema for existing accounts
+            // Use direct superValidate to avoid any issues with null values
+            const form = await superValidate(
+                {
+                    id: account.id,
+                    name: account.name,
+                    description: account.description,
+                    phoneNumber: account.phoneNumber,
+                    status: account.status,
+                    roles: account.roles || [],
+                    createdAt: account.createdAt,
+                    updatedAt: account.updatedAt
+                }, 
+                zod(whatsappAccountUpdateSchema)
+            );
             
             return {
                 form,
@@ -88,10 +102,14 @@ export const actions = {
      * Save WhatsApp account data
      */
     save: restrict(
-        async ({ request, params, locals, auth }) => {
+        async ({ request, params, locals, auth }:any) => {
             const id = params.id;
             const userInfo = auth.user;
-            const form = await superValidate(request, zod(whatsappAccountSchema));
+            // Validate the form data using the appropriate schema based on whether it's a new or existing account
+            const form = await superValidate(
+                request, 
+                zod(id === 'new' ? whatsappAccountSchema : whatsappAccountUpdateSchema)
+            );
             
             if (!form.valid) {
                 return fail(400, { form });
@@ -152,15 +170,14 @@ export const actions = {
                         });
                     }
                     
-                    // Update existing account
+                    // Update existing account - only update editable fields (name and description)
                     const account = await locals.prisma.whatsAppAccount.update({
                         where: { id },
                         data: {
-                            phoneNumber: data.phoneNumber,
                             name: data.name,
                             description: data.description || '',
-                            status: data.status,
-                            updatedBy: userInfo.id
+                            // updatedBy: userInfo.id
+                            // phoneNumber and status are read-only and not updated
                         }
                     });
                     
@@ -184,6 +201,8 @@ export const actions = {
                     action: 'whatsapp account save'
                 });
             }
-        }
-    )
+        },
+        [SystemRole.USER, SystemRole.ADMIN]
+    ),
+   
 };

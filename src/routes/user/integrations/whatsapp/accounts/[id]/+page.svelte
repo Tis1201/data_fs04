@@ -91,16 +91,13 @@
                     <FormRow columns={2}>
                         <!-- Phone Number (Read-only) -->
                         <FormField
-                            id="phoneNumber"
                             label="Phone Number"
+                            description="The phone number for this WhatsApp account"
                             required={true}
                         >
-                            <ReadOnlyField
-                                id="phoneNumber"
-                                name="phoneNumber"
-                                value={$form.phoneNumber}
-                                placeholder="e.g. +65 9123 4567"
-                            />
+                            <div class="bg-muted/40 border border-muted rounded-md px-3 py-2 text-sm">
+                                {$form.phoneNumber || 'Not specified'}
+                            </div>
                         </FormField>
 
                         <!-- Name -->
@@ -140,16 +137,13 @@
                     <FormRow columns={2} alignItems="end">
                         <!-- Status (Read-only) -->
                         <FormField
-                            id="status"
                             label="Status"
+                            description="Current status of the WhatsApp account"
                             required={true}
                         >
-                            <ReadOnlyField
-                                id="status"
-                                name="status"
-                                value={$form.status === 'active' ? 'Active' : $form.status === 'inactive' ? 'Inactive' : 'Pending'}
-                                placeholder="Status"
-                            />
+                            <div class="bg-muted/40 border border-muted rounded-md px-3 py-2 text-sm">
+                                {$form.status === 'active' ? 'Active' : $form.status === 'inactive' ? 'Inactive' : 'Pending'}
+                            </div>
                         </FormField>
                     </FormRow>
                     
