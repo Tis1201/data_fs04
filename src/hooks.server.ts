@@ -14,20 +14,20 @@ if (!building) {
     
     // Use a non-blocking approach with Promise
     (async () => {
-        // try {
-        //     // Delay initialization without blocking
-        //     await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+            // Delay initialization without blocking
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
-        //     logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
+            logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
             
-        //     // Initialize WhatsApp clients from database
-        //     logger.info('Loading WhatsApp clients from database...');
-        //     await whatsAppAccountManager.initializeClientsFromDatabase();
+            // Initialize WhatsApp clients from database
+            logger.info('Loading WhatsApp clients from database...');
+            await whatsAppAccountManager.initializeClientsFromDatabase();
             
-        //     logger.info('WhatsAppAccountManager is ready');
-        // } catch (error) {
-        //     logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
-        // }
+            logger.info('WhatsAppAccountManager is ready');
+        } catch (error) {
+            logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
+        }
     })();
 } 
 

@@ -92,7 +92,6 @@
                         <!-- Phone Number (Read-only) -->
                         <FormField
                             label="Phone Number"
-                            description="The phone number for this WhatsApp account"
                             required={true}
                         >
                             <div class="bg-muted/40 border border-muted rounded-md px-3 py-2 text-sm">

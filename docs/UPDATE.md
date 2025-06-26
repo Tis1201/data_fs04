@@ -2,6 +2,50 @@
 
 This guide covers the implementation of update forms using SvelteKit, Superforms, and Zenstack, following the project's standardized patterns.
 
+## WhatsApp Account Form Implementation
+
+### Form Handler Setup
+
+The WhatsApp account form uses the project's standardized `createFormHandler` utility for consistent form handling and toast notifications:
+
+```typescript
+const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
+    successRedirect: "/user/integrations/whatsapp/accounts",
+    validateOnInput: true,
+    onSuccess: (result) => {
+        return {
+            type: 'success',
+            text: result.data?.message || (isNew ? "WhatsApp account created" : "WhatsApp account updated")
+        };
+    }
+});
+```
+
+### Form Container Usage
+
+The form uses the `FormContainer` component to handle form submission and error display:
+
+```svelte
+<FormContainer 
+    {enhance} 
+    action="?/save" 
+    errorMessage={$errorMessage}
+>
+    <!-- Form fields go here -->
+    <FormRow columns={2}>
+        <!-- Form fields in a 2-column layout -->
+    </FormRow>
+</FormContainer>
+```
+
+### Key Features
+
+1. **Automatic Redirect**: After successful form submission, users are redirected to the accounts list page
+2. **Real-time Validation**: Form fields are validated as the user types
+3. **Consistent Toast Notifications**: Success/error messages are displayed using the project's standard toast system
+4. **Loading States**: The form automatically handles loading states during submission
+5. **Error Handling**: Form-level errors are displayed above the form, while field-level errors appear below each field
+
 ## File Structure
 
 ```

@@ -6,8 +6,10 @@ import P from 'pino';
 import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
 import { usePrismaAuthState } from './usePrismaAuthState';
+import { PrismaClient } from '@prisma/client';
 
 export class WhatsAppSession {
+  private prisma: PrismaClient;
   private session_id: string;
   private sock: WASocket | null = null;
   private logger = P({ level: 'warn', prettyPrint: false });
@@ -15,7 +17,8 @@ export class WhatsAppSession {
   private state!: AuthenticationState;
   private transcient: boolean = false;
 
-  constructor(private name: string = 'auth', session_id?: string) {
+  constructor(prisma: PrismaClient, session_id?: string) {
+    this.prisma = prisma;
     this.session_id = session_id ?? uuidv4();
     this.logger.info(`Session ${this.session_id} initialized`);
   }
@@ -25,7 +28,7 @@ export class WhatsAppSession {
   }
 
   public async init() {
-    const { state, saveCreds } = await usePrismaAuthState(`${this.name}/${this.session_id}`);
+    const { state, saveCreds } = await usePrismaAuthState(this.session_id, this.prisma, `auth/${this.session_id}`);
     this.state = state;
     this.saveCreds = saveCreds;
     this.createSocket();

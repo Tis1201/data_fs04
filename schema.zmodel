@@ -390,14 +390,15 @@ model WhatsAppAccount {
 model WhatsAppAuthData {
   id        String   @id @default(cuid())
   clientId  String               // Same as WhatsAppAccount.client_id
-  keyId     String               // e.g. "creds.json", "pre-key-123.json"
-  type      String               // Optional: e.g. "creds", "session", "pre-key"
+  file      String
+  keyId     String?              // e.g. "creds.json", "pre-key-123.json"
+  type      String?               // Optional: e.g. "creds", "session", "pre-key"
   data      String               // Actual key/credential content
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
 
-  @@unique([clientId, keyId])    // Ensure uniqueness per WhatsApp client
+  @@unique([clientId, file])    // Ensure uniqueness per WhatsApp client
   @@index([type])
   @@index([clientId])
 
