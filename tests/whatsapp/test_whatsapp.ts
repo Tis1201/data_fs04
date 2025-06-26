@@ -15,7 +15,7 @@ import { getTestPrisma } from './test-prisma';
   console.log(`Total WhatsAppAuthData records: ${count}`);
 
   // Create a session with a specific ID for persistence
-  const session = new WhatsAppSession(prisma, "7bc6e217-9dec-476a-bc77-f6f509f54f03");
+  const session = new WhatsAppSession(prisma, "7bc6e217-9dec-476a-bc77-f6f509f54f04");
   await session.init();
 
   // Optional: Send a message

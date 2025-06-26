@@ -42,6 +42,9 @@ export class WhatsAppSession {
       logger: this.logger,
       printQRInTerminal: false,
       syncFullHistory: false,
+      browser: ['WhatsApp Web', 'Chrome', '1.0.0'],
+      generateHighQualityLinkPreview: false,
+      markOnlineOnConnect: true,
     });
 
     this.setupListeners();
