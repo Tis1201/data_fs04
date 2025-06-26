@@ -27,7 +27,7 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 	//Read
 	const readData = async(file: string) => {
 		try {
-            console.log("[usePrismaAuthState] <== reading data from file: ", file);
+            // console.log("[usePrismaAuthState] <== reading data from file: ", file);
 			// const data = await readFile(join(folder, fixFileName(file)!), { encoding: 'utf-8' })
 			
 			
@@ -40,7 +40,7 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 			});
 
 			if(authData) {
-				console.log("[usePrismaAuthState] <== reading data from prisma: ", file);
+				// console.log("[usePrismaAuthState] <== reading data from prisma: ", file);
 				return JSON.parse(authData.data, BufferJSON.reviver)
 			}
 				
@@ -56,7 +56,7 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 
 	//Write
 	const writeData = async (data: any, file: string) => {
-        console.log("[usePrismaAuthState] ==> write data from file: ", file);
+        // console.log("[usePrismaAuthState] ==> write data from file: ", file);
 		try{
 			//Use Prisma to write the data, using, clientId and file
 			const result = await prisma.whatsAppAuthData.upsert({
@@ -102,7 +102,7 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 				}
 			})
 
-			await unlink(join(folder, fixFileName(file)!))
+			// await unlink(join(folder, fixFileName(file)!))
 		} catch{
 			logger.error(`[usePrismaAuthState] Error removing data from prisma: ${clientId}:${file}`)
 		}

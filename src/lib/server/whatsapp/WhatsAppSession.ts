@@ -1,6 +1,7 @@
+import { EventEmitter } from 'events';
 import pkg from '@whiskeysockets/baileys';
 const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore } = pkg;
-import type { WASocket, AuthenticationState, AnyMessageContent } from '@whiskeysockets/baileys';
+import type { WASocket, AuthenticationState, AnyMessageContent, proto } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import P from 'pino';
 import QRCode from 'qrcode';
@@ -9,20 +10,42 @@ import { usePrismaAuthState } from './usePrismaAuthState';
 import { PrismaClient } from '@prisma/client';
 import NodeCache from 'node-cache';
 
-export class WhatsAppSession {
+export interface WhatsAppSessionEvents {
+  'qrcode': (qr: string) => void;
+  'authenticated': () => void;
+  'auth_failure': (msg: string) => void;
+  'ready': () => void;
+  'disconnected': (reason: string) => void;
+  'message': (message: proto.IWebMessageInfo) => void;
+  'error': (error: Error) => void;
+}
+
+declare interface WhatsAppSession {
+  on<U extends keyof WhatsAppSessionEvents>(
+    event: U,
+    listener: WhatsAppSessionEvents[U]
+  ): this;
+
+  emit<U extends keyof WhatsAppSessionEvents>(
+    event: U,
+    ...args: Parameters<WhatsAppSessionEvents[U]>
+  ): boolean;
+}
+
+export class WhatsAppSession extends EventEmitter {
   private prisma: PrismaClient;
   private session_id: string;
   private sock: WASocket | null = null;
   private logger = P({ level: 'warn', prettyPrint: false });
   private saveCreds!: () => Promise<void>;
   private state!: AuthenticationState;
-  private transcient: boolean = false;
   
   // Caches
   private groupCache = new NodeCache({ stdTTL: 5 * 60, useClones: false }); // 5 minute TTL for group metadata
   private msgRetryCounterCache = new NodeCache(); // For tracking message retries
 
   constructor(prisma: PrismaClient, session_id?: string) {
+    super();
     this.prisma = prisma;
     this.session_id = session_id ?? uuidv4();
     this.logger.info(`Session ${this.session_id} initialized`);
@@ -100,46 +123,62 @@ export class WhatsAppSession {
   }
 
   private handleConnectionUpdate = async (update: any) => {
-    const { connection, lastDisconnect, qr } = update;
+    const { connection, lastDisconnect, qr, isNewLogin } = update;
 
-    if (qr) {
-      console.log(`[${this.session_id}] QR Code:\n`);
-      console.log(await QRCode.toString(qr, { type: 'terminal', small: true }));
-    }
-
-    if (connection === 'close') {
-      const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      console.warn(`[${this.session_id}] Connection closed with code ${statusCode}`);
-
-      if (statusCode === DisconnectReason.restartRequired) {
-        console.log(`[${this.session_id}] Restarting connection...`);
-        this.transcient = true;
-        this.createSocket();
+    try {
+      if (qr) {
+        const qrCode = await QRCode.toString(qr, { type: 'terminal', small: true });
+        console.log(`[${this.session_id}] QR Code:\n`);
+        console.log(qrCode);
+        this.emit('qrcode', qrCode);
       }
-    }
 
-    if (connection === 'open') {
-      console.log(`[${this.session_id}] Connection established.`);
-      const user = this.sock?.user;
+      if (connection === 'close') {
+        const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+        const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
+        
+        console.warn(`[${this.session_id}] Connection closed with code ${statusCode}: ${errorMessage}`);
+        this.emit('disconnected', `Connection closed: ${errorMessage}`);
 
-      if(this.transcient){
-        if (user) {
-          const phoneNumber = user.id?.split(':')[0]; // e.g. "658123456789"
-          const pushName = user.name || user.verifiedName;
-          console.log(`[${this.session_id}] Logged in as ${pushName} (${phoneNumber})`);
-        } else {
-          console.warn(`[${this.session_id}] User info not found.`);
+        if (statusCode === DisconnectReason.restartRequired) {
+          console.log(`[${this.session_id}] Restarting connection...`);
+          this.createSocket();
         }
-        this.transcient = false;
       }
 
+      if (connection === 'open') {
+        const user = this.sock?.user;
+        
+        // Emit authenticated if we have a user and either it's a new login or we're not sure
+        if (user) {
+          const phoneNumber = user.id?.split(':')[0];
+          const pushName = user.name || user.verifiedName;
+          
+          if (isNewLogin) {
+            console.log(`[${this.session_id}] New login detected for ${pushName} (${phoneNumber})`);
+          }
+          
+          console.log(`[${this.session_id}] Logged in as ${pushName} (${phoneNumber})`);
+          this.emit('authenticated');
+        } else {
+          console.warn(`[${this.session_id}] Connected but no user information available`);
+        }
+
+        console.log(`[${this.session_id}] Connection established.`);
+        this.emit('ready');
+      }
+    } catch (error) {
+      console.error(`[${this.session_id}] Error in connection update:`, error);
+      this.emit('error', error as Error);
     }
   };
 
-  private handleMessageUpsert = ({ messages }: any) => {
+  private handleMessageUpsert = ({ messages }: { messages: proto.IWebMessageInfo[] }) => {
     const msg = messages[0];
     if (!msg.message) return;
-    console.log(`[${this.session_id}] New message from ${msg.key.remoteJid}:`, msg.message);
+    
+    console.log(`[${this.session_id}] New message from ${msg.key.remoteJid}`);
+    this.emit('message', msg);
   };
 
   public async sendMessage(jid: string, content: AnyMessageContent) {
@@ -157,7 +196,13 @@ export class WhatsAppSession {
   public getInfo() {
     return {
       session_id: this.session_id,
-      isConnected: !!this.sock?.user,
+      isConnected: this.sock?.ws.readyState === 'OPEN',
+      user: this.sock?.user,
+      connectionStatus: this.sock?.ws.readyState
     };
+  }
+  
+  public isConnected(): boolean {
+    return this.sock?.ws.readyState === 'OPEN';
   }
 }
