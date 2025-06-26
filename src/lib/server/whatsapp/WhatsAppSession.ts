@@ -1,5 +1,5 @@
 import pkg from '@whiskeysockets/baileys';
-const { default: makeWASocket, DisconnectReason } = pkg;
+const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore } = pkg;
 import type { WASocket, AuthenticationState, AnyMessageContent } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import P from 'pino';
@@ -7,6 +7,7 @@ import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
 import { usePrismaAuthState } from './usePrismaAuthState';
 import { PrismaClient } from '@prisma/client';
+import NodeCache from 'node-cache';
 
 export class WhatsAppSession {
   private prisma: PrismaClient;
@@ -16,6 +17,10 @@ export class WhatsAppSession {
   private saveCreds!: () => Promise<void>;
   private state!: AuthenticationState;
   private transcient: boolean = false;
+  
+  // Caches
+  private groupCache = new NodeCache({ stdTTL: 5 * 60, useClones: false }); // 5 minute TTL for group metadata
+  private msgRetryCounterCache = new NodeCache(); // For tracking message retries
 
   constructor(prisma: PrismaClient, session_id?: string) {
     this.prisma = prisma;
@@ -38,16 +43,44 @@ export class WhatsAppSession {
     if (this.sock) this.teardownListeners();
 
     this.sock = makeWASocket({
-      auth: this.state,
+      auth: {
+        creds: this.state.creds,
+        keys: makeCacheableSignalKeyStore(this.state.keys, this.logger),
+      },
       logger: this.logger,
       printQRInTerminal: false,
       syncFullHistory: false,
       browser: ['WhatsApp Web', 'Chrome', '1.0.0'],
       generateHighQualityLinkPreview: false,
       markOnlineOnConnect: true,
+      // Caching
+      cachedGroupMetadata: async (jid) => this.groupCache.get(jid),
+      msgRetryCounterCache: this.msgRetryCounterCache,
     });
 
+    // Setup cache updates
+    this.setupCacheUpdates();
     this.setupListeners();
+  }
+
+  private setupCacheUpdates() {
+    if (!this.sock) return;
+
+    // Update cache when group metadata changes
+    this.sock.ev.on('groups.update', async (updates) => {
+      for (const update of updates) {
+        if (update.id) {
+          try {
+            const metadata = await this.sock?.groupMetadata(update.id);
+            if (metadata) {
+              this.groupCache.set(update.id, metadata);
+            }
+          } catch (error) {
+            this.logger.error(`Error updating group cache for ${update.id}:`, error);
+          }
+        }
+      }
+    });
   }
 
   private setupListeners() {
