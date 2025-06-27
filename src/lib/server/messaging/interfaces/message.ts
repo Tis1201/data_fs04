@@ -53,6 +53,14 @@ export interface MessageTypes {
   // Add other message types as needed
 }
 
+export const SystemUser: UserInfo = {
+  id: 'system',
+  email: 'system@internal',
+  name: 'System',
+  systemRole: 'ADMIN',
+  source: 'apiKey' as const
+} as const;
+
 export const MessageFactory = {
   toRoutingMessage(
     inMessage: InMessage,

@@ -48,7 +48,7 @@ export class WhatsAppHandler implements Handler {
             // const qrCode = await qrCodePromise;
             // logger.debug(`Generated QR code for client ${clientId} for user ${message.userInfo.id}`);
             // Add subscription for this client
-            // subscriptionRegistry.addSubscription(`subscription:whatsapp:${clientId}`, `subscriber:connection:${message.connectionId}`);
+            subscriptionRegistry.addSubscription(`subscription:whatsapp:${client.getId()}`, `subscriber:connection:${message.connectionId}`);
 
             // Create response message with the same requestId
             // const qrMessage: InMessage = {

@@ -15,6 +15,7 @@ export class WhatsAppAccountManager extends EventEmitter {
   private readonly MAX_AWAITING_SCAN_MS = 300000; // 5 minutes
   private prisma: any;
 
+
   /****************************************************************************************
    * 
    *  Constructor

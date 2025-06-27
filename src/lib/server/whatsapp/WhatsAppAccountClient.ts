@@ -4,6 +4,9 @@ import { MessageFactory, type InMessage, type RoutingMessage } from '../messagin
 import type { UserInfo } from '../types/user';
 import { userInfoByUserId } from '../security/auth-utils';
 import { publisher } from '../messaging/core/publisher';
+import { WhatsAppSession } from './WhatsAppSession';
+import { getEnhancedPrisma } from '$lib/server/prisma';
+import { SystemUser } from '../messaging/interfaces/message';
 
 /****************************************************
  * WhatsAppAccountClient Class
@@ -16,20 +19,12 @@ export class WhatsAppAccountClient{
     private id: string;
     private createdBy?: string;
     private userInfo: UserInfo | null = null;
-    private socket: any;
-    private qrCode: string | null = null;
-    private qrCodeTimestamp: number = 0;
-    private qrCodeRefreshTimer?: NodeJS.Timeout;
-    private phoneNumber?: string;
-    private accountId?: string;
-    private pushName?: string;
-    private autoReconnect: boolean = true;
-    private reconnectCount: number = 0;
-    private maxReconnectAttempts: number = 5;
-    private reconnectDelay: number = 3000; // in milliseconds
-    private createdAt: number = Date.now();
-    private baileysLogger: any;
+    private prisma: any;
+    private session: WhatsAppSession;
 
+    public getId(): string {
+        return this.id;
+    }
     /********************************************************************************
      * Constructor
      *
@@ -45,10 +40,45 @@ export class WhatsAppAccountClient{
     constructor(id: string) {
         this.id = id;
         logger.info(`Created WhatsApp client instance with ID: ${this.id}`);
+        this.prisma = getEnhancedPrisma({ id: '', systemRole: 'ADMIN' });
+        this.session = new WhatsAppSession(this.prisma, this.id);
+        
+        // Bind the event handler to ensure 'this' context is preserved
+        this.session.on('qrcode', this.handle_qr.bind(this));
+        this.session.init();
+    }
+
+    private handle_qr(qr: string) {
+        logger.debug(`QR code received for client ${this.id}`); 
+        
+       
+        
+        
+        const routingMessage = MessageFactory.createSystemMessage(
+            'whatsapp',
+            `subscription:whatsapp:${this.id}`,
+            {
+                action: 'qrCode',
+                content: {
+                    qrCode: qr,
+                    clientId: this.id,
+                }
+            },
+            SystemUser,
+            {
+                targetConnectionId: this.id,
+                targetProtocol: 'whatsapp',
+                echoToSender: true,
+                sudo: true
+            }
+        );
+
+        publisher.publish(routingMessage);
     }
 
     async init(): Promise<void> {
-       
+        
+    
     }
 
     

@@ -127,10 +127,10 @@ export class WhatsAppSession extends EventEmitter {
 
     try {
       if (qr) {
-        const qrCode = await QRCode.toString(qr, { type: 'terminal', small: true });
-        console.log(`[${this.session_id}] QR Code:\n`);
-        console.log(qrCode);
-        this.emit('qrcode', qrCode);
+        // const qrCode = await QRCode.toString(qr, { type: 'terminal', small: true });
+        // console.log(`[${this.session_id}] QR Code:\n`);
+        // console.log(qrCode);
+        this.emit('qrcode', qr);
       }
 
       if (connection === 'close') {
