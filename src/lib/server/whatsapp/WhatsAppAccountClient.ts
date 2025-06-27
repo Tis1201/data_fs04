@@ -43,16 +43,90 @@ export class WhatsAppAccountClient{
         this.prisma = getEnhancedPrisma({ id: '', systemRole: 'ADMIN' });
         this.session = new WhatsAppSession(this.prisma, this.id);
         
-        // Bind the event handler to ensure 'this' context is preserved
+        // Bind the event handlers to ensure 'this' context is preserved
         this.session.on('qrcode', this.handle_qr.bind(this));
+        this.session.on('authenticated', this.handle_authenticated.bind(this));
+        this.session.on('error', this.handle_error.bind(this));
         this.session.init();
+    }
+
+    private handle_authenticated({ pushName, phoneNumber }: { pushName?: string | null; phoneNumber?: string | null }) {
+        logger.info(`[${this.id}] Session authenticated - User: ${pushName} (${phoneNumber})`);
+        
+        try {
+            const routingMessage = MessageFactory.createSystemMessage(
+                'whatsapp',
+                `subscription:whatsapp:${this.id}`,
+                {
+                    action: 'authenticated',
+                    content: {
+                        clientId: this.id,
+                        pushName: pushName || 'Unknown',
+                        phoneNumber: phoneNumber || 'Unknown',
+                        timestamp: new Date().toISOString()
+                    }
+                },
+                SystemUser,
+                {
+                    targetConnectionId: this.id,
+                    targetProtocol: 'whatsapp',
+                    echoToSender: true,
+                    sudo: true
+                }
+            );
+
+            logger.debug(`[${this.id}] Publishing authenticated message`, {
+                targetConnectionId: this.id,
+                messageId: routingMessage.id
+            });
+            
+            publisher.publish(routingMessage);
+            logger.info(`[${this.id}] Authenticated message published successfully`);
+            
+        } catch (error) {
+            logger.error(`${logContext} Error in handle_authenticated`, {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                pushName,
+                phoneNumber
+            });
+            
+            // Emit error to ensure it's not silently swallowed
+            this.emit('error', { 
+                type: 'authentication_message', 
+                error: error instanceof Error ? error.message : 'Unknown error in handle_authenticated'
+            });
+        }
+    }
+
+    private handle_error(error: { type: string; error: string }) {
+        logger.error(`Error in WhatsApp session ${this.id}: ${error.type} - ${error.error}`);
+        
+        const routingMessage = MessageFactory.createSystemMessage(
+            'whatsapp',
+            `subscription:whatsapp:${this.id}`,
+            {
+                action: 'error',
+                content: {
+                    clientId: this.id,
+                    type: error.type,
+                    message: error.error
+                }
+            },
+            SystemUser,
+            {
+                targetConnectionId: this.id,
+                targetProtocol: 'whatsapp',
+                echoToSender: true,
+                sudo: true
+            }
+        );
+
+        publisher.publish(routingMessage);
     }
 
     private handle_qr(qr: string) {
         logger.debug(`QR code received for client ${this.id}`); 
-        
-       
-        
         
         const routingMessage = MessageFactory.createSystemMessage(
             'whatsapp',

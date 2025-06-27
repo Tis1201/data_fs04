@@ -147,25 +147,33 @@ export class WhatsAppSession extends EventEmitter {
       }
 
       if (connection === 'open') {
-        const user = this.sock?.user;
-        
-        // Emit authenticated if we have a user and either it's a new login or we're not sure
-        if (user) {
-          const phoneNumber = user.id?.split(':')[0];
-          const pushName = user.name || user.verifiedName;
+        try {
+          const user = this.sock?.user;
           
-          if (isNewLogin) {
-            console.log(`[${this.session_id}] New login detected for ${pushName} (${phoneNumber})`);
+          // Emit authenticated if we have a user and either it's a new login or we're not sure
+          if (user) {
+            const phoneNumber = user.id?.split(':')[0];
+            const pushName = user.name || user.verifiedName;
+            
+            if (isNewLogin) {
+              console.log(`[${this.session_id}] New login detected for ${pushName} (${phoneNumber})`);
+            }
+            
+            console.log(`[${this.session_id}] Logged in as ${pushName} (${phoneNumber})`);
+            this.emit('authenticated', { pushName, phoneNumber });
+          } else {
+            console.warn(`[${this.session_id}] Connected but no user information available`);
           }
-          
-          console.log(`[${this.session_id}] Logged in as ${pushName} (${phoneNumber})`);
-          this.emit('authenticated');
-        } else {
-          console.warn(`[${this.session_id}] Connected but no user information available`);
-        }
 
-        console.log(`[${this.session_id}] Connection established.`);
-        this.emit('ready');
+          console.log(`[${this.session_id}] Connection established.`);
+          this.emit('ready');
+        } catch (error) {
+          console.error(`[${this.session_id}] Error during connection setup:`, error);
+          this.emit('error', { 
+            type: 'connection_setup', 
+            error: error instanceof Error ? error.message : 'Unknown error during connection setup'
+          });
+        }
       }
     } catch (error) {
       console.error(`[${this.session_id}] Error in connection update:`, error);

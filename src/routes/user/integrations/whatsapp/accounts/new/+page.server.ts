@@ -77,7 +77,7 @@ export const actions: Actions = {
                     return fail(400, message(form, 'WhatsApp connection not found. Please reconnect and try again.', { status: 'error' }));
                 }
                 
-                const clientInfo = client ? client.getInfo() : null;
+                // const clientInfo = client ? client.getInfo() : null;
                 
                 // Get the current account ID
                 const accountId = auth.currentAccount?.account?.id;
@@ -92,15 +92,15 @@ export const actions: Actions = {
                         client_id: form.data.client_id,
                         createdBy: userInfo.id,
                         accountId: accountId, // Associate with the current account
-                        phoneNumber: form.data.phoneNumber || clientInfo?.phoneNumber || 'Unknown',
-                        name: form.data.name || clientInfo?.pushName
+                        phoneNumber: form.data.phoneNumber || 'Unknown',
+                        name: form.data.name 
                     }
                 });
                 
-                // Update the client's account ID
-                if (client) {
-                    await client.setAccountId(account.id);
-                }
+                // // Update the client's account ID
+                // if (client) {
+                //     await client.setAccountId(account.id);
+                // }
 
                 // Create a success message with the form data
                 const successForm = message(form, 'WhatsApp account created successfully!', { status: 'success' });
@@ -130,23 +130,23 @@ export const actions: Actions = {
         [SystemRole.USER, SystemRole.ADMIN] // Allow both user and admin roles to access this action
     ),
     
-    // Action to request a new QR code via SSE
-    requestQRCode: restrict(
-        async ({ locals, auth }) => {
-            try {
-                // Get the authenticated user ID
-                const userInfo = auth.user;
+    // // Action to request a new QR code via SSE
+    // requestQRCode: restrict(
+    //     async ({ locals, auth }) => {
+    //         try {
+    //             // Get the authenticated user ID
+    //             const userInfo = auth.user;
                 
-                // Create a new WhatsApp client
-                const { clientId } = await whatsAppAccountManager.createNewClient(userInfo.id);
+    //             // Create a new WhatsApp client
+    //             const { clientId } = await whatsAppAccountManager.createNewClient(userInfo.id);
                 
-                logger.debug(`Created new WhatsApp client with ID ${clientId} for user ${userInfo.id}`);
-                return { success: true, clientId };
-            } catch (err) {
-                logger.error(`Error requesting QR code: ${JSON.stringify(err)}`);
-                return fail(500, { error: 'Failed to request QR code' });
-            }
-        },
-        [SystemRole.USER, SystemRole.ADMIN] // Allow both user and admin roles to access this action
-    )
+    //             logger.debug(`Created new WhatsApp client with ID ${clientId} for user ${userInfo.id}`);
+    //             return { success: true, clientId };
+    //         } catch (err) {
+    //             logger.error(`Error requesting QR code: ${JSON.stringify(err)}`);
+    //             return fail(500, { error: 'Failed to request QR code' });
+    //         }
+    //     },
+    //     [SystemRole.USER, SystemRole.ADMIN] // Allow both user and admin roles to access this action
+    // )
 } satisfies Actions;

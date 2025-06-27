@@ -51,29 +51,29 @@ export class WhatsAppHandler implements Handler {
             subscriptionRegistry.addSubscription(`subscription:whatsapp:${client.getId()}`, `subscriber:connection:${message.connectionId}`);
 
             // Create response message with the same requestId
-            // const qrMessage: InMessage = {
-            //     id: message.id, // Preserve original message ID if available
-            //     type: 'whatsapp',
-            //     scope: message.scope,
-            //     protocol: message.protocol,
-            //     connectionId: message.connectionId,
-            //     userInfo: message.userInfo,
-            //     requestId: requestId, // IMPORTANT: Preserve the requestId
-            //     payload: {
-            //         action: 'qrCode',
-            //         content: {
-            //             qrCode: null, // Initial response has null QR code
-            //             clientId: clientId
-            //         }
-            //     }
-            // };
+            const qrMessage: InMessage = {
+                id: message.id, // Preserve original message ID if available
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId, // IMPORTANT: Preserve the requestId
+                payload: {
+                    action: 'qrCode',
+                    content: {
+                        qrCode: null, // Initial response has null QR code
+                        clientId: clientId
+                    }
+                }
+            };
 
             // // Send initial response to unblock the client
-            // const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
-            //     systemGenerated: true,
-            //     echoToSender: true
-            // });
-            // publisher.publish(initialResponse);
+            const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
+            publisher.publish(initialResponse);
             
             // // The actual QR code will be sent via subscription
             // // This ensures the client gets both an immediate response and the QR code when ready

@@ -298,30 +298,37 @@
                         }));
                     }
                 }
-                if (msg_payload_action === "connected") {
+                if ( msg_payload_action === "authenticated") {
                     const clientId = msg_payload.content?.clientId;
-                    const pushName = msg_payload.content?.pushName;
-                    const displayName = msg_payload.content?.displayName;
+                    const pushName = msg_payload.content?.pushName || msg_payload.content?.displayName;
                     const phoneNumber = msg_payload.content?.phoneNumber;
                     
-                    console.log("[WHATSAPP_FORM] Received connected event:", {
+                    console.log(`[WHATSAPP_FORM] Received ${msg_payload_action} event:`, {
                         clientId,
                         pushName,
-                        displayName,
-                        phoneNumber
+                        phoneNumber,
+                        content: msg_payload.content
                     });
                     
                     // Update the WhatsApp state with connection info
-                    whatsAppState.update((state) => ({
-                        ...state,
-                        connectionStatus: "connected",
-                        clientId: clientId || state.clientId,
-                        displayName: displayName || pushName || state.displayName,
-                        phoneNumber: phoneNumber || state.phoneNumber
-                    }));
+                    whatsAppState.update((state) => {
+                        const newState = {
+                            ...state,
+                            connectionStatus: msg_payload_action === "authenticated" ? "authenticated" : "connected",
+                            clientId: clientId || state.clientId,
+                            displayName: pushName || state.displayName,
+                            phoneNumber: phoneNumber || state.phoneNumber
+                        };
+                        
+                        console.log("[WHATSAPP_FORM] Updated state:", newState);
+                        return newState;
+                    });
                     
-                    // Advance to page 2 (Account Details)
-                    currentStep = 2;
+                    // Only advance to step 2 if we're not already there
+                    if (currentStep === 1) {
+                        console.log("[WHATSAPP_FORM] Advancing to step 2 (Account Details)");
+                        currentStep = 2;
+                    }
                     
                     // Update the form with the new connection details
                     whatsAppState.subscribe(updateFormFromState)();

@@ -24,8 +24,8 @@ import { getTestPrisma } from './test-prisma';
     console.log('========================\n');
   });
 
-  session.on('authenticated', () => {
-    console.log('✅ Session authenticated successfully');
+  session.on('authenticated', ({ pushName, phoneNumber }) => {
+    console.log(`✅ Session authenticated successfully as ${pushName} (${phoneNumber})`);
   });
 
   session.on('auth_failure', (msg) => {
