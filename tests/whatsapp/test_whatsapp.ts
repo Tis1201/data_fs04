@@ -7,8 +7,8 @@ import { getTestPrisma } from './test-prisma';
 
   const prisma = getTestPrisma();
 
-  //delete all from whatsAppAuthData
-  //   await prisma.whatsAppAuthData.deleteMany({});
+  // delete all from whatsAppAuthData
+    await prisma.whatsAppAuthData.deleteMany({});
 
   //count * from whatsAppAuthData
   const count = await prisma.whatsAppAuthData.count();

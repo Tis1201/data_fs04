@@ -4,6 +4,7 @@ import { publisher } from '../core/publisher';
 import { logger } from '$lib/server/logger';
 import { whatsAppAccountManager, WhatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { subscriptionRegistry } from '../core/subscriptionRegistry';
+import { v4 as uuidv4 } from 'uuid';
 
 export class WhatsAppHandler implements Handler {
     supports(type: string): boolean {
@@ -40,66 +41,65 @@ export class WhatsAppHandler implements Handler {
 
         try {
             // Create a new WhatsApp client instance and get the QR code
-            const { clientId, qrCodePromise } = await whatsAppAccountManager.createNewClient(message.userInfo.id);
+            const clientId = uuidv4();
+            const { client } = await whatsAppAccountManager.create(clientId, message.userInfo.id);
             
             // Wait for the QR code to be generated
-            const qrCode = await qrCodePromise;
-            
-            logger.debug(`Generated QR code for client ${clientId} for user ${message.userInfo.id}`);
-
+            // const qrCode = await qrCodePromise;
+            // logger.debug(`Generated QR code for client ${clientId} for user ${message.userInfo.id}`);
             // Add subscription for this client
-            subscriptionRegistry.addSubscription(`subscription:whatsapp:${clientId}`, `subscriber:connection:${message.connectionId}`);
+            // subscriptionRegistry.addSubscription(`subscription:whatsapp:${clientId}`, `subscriber:connection:${message.connectionId}`);
 
             // Create response message with the same requestId
-            const qrMessage: InMessage = {
-                id: message.id, // Preserve original message ID if available
-                type: 'whatsapp',
-                scope: message.scope,
-                protocol: message.protocol,
-                connectionId: message.connectionId,
-                userInfo: message.userInfo,
-                requestId: requestId, // IMPORTANT: Preserve the requestId
-                payload: {
-                    action: 'qrCode',
-                    content: {
-                        qrCode: null, // Initial response has null QR code
-                        clientId: clientId
-                    }
-                }
-            };
+            // const qrMessage: InMessage = {
+            //     id: message.id, // Preserve original message ID if available
+            //     type: 'whatsapp',
+            //     scope: message.scope,
+            //     protocol: message.protocol,
+            //     connectionId: message.connectionId,
+            //     userInfo: message.userInfo,
+            //     requestId: requestId, // IMPORTANT: Preserve the requestId
+            //     payload: {
+            //         action: 'qrCode',
+            //         content: {
+            //             qrCode: null, // Initial response has null QR code
+            //             clientId: clientId
+            //         }
+            //     }
+            // };
 
-            // Send initial response to unblock the client
-            const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
-                systemGenerated: true,
-                echoToSender: true
-            });
-            publisher.publish(initialResponse);
+            // // Send initial response to unblock the client
+            // const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
+            //     systemGenerated: true,
+            //     echoToSender: true
+            // });
+            // publisher.publish(initialResponse);
             
-            // The actual QR code will be sent via subscription
-            // This ensures the client gets both an immediate response and the QR code when ready
-            if (qrCode) {
-                // Create a separate message for the subscription with the actual QR code
-                const subscriptionMessage: InMessage = {
-                    type: 'whatsapp',
-                    scope: `subscription:whatsapp:${clientId}`,
-                    protocol: message.protocol,
-                    connectionId: clientId, // Use clientId as the connection ID for the subscription message
-                    userInfo: message.userInfo,
-                    payload: {
-                        action: 'qrCode',
-                        content: {
-                            qrCode: qrCode,
-                            clientId: clientId
-                        }
-                    }
-                };
+            // // The actual QR code will be sent via subscription
+            // // This ensures the client gets both an immediate response and the QR code when ready
+            // if (qrCode) {
+            //     // Create a separate message for the subscription with the actual QR code
+            //     const subscriptionMessage: InMessage = {
+            //         type: 'whatsapp',
+            //         scope: `subscription:whatsapp:${clientId}`,
+            //         protocol: message.protocol,
+            //         connectionId: clientId, // Use clientId as the connection ID for the subscription message
+            //         userInfo: message.userInfo,
+            //         payload: {
+            //             action: 'qrCode',
+            //             content: {
+            //                 qrCode: qrCode,
+            //                 clientId: clientId
+            //             }
+            //         }
+            //     };
                 
-                const subscriptionRoutingMessage: RoutingMessage = MessageFactory.toRoutingMessage(subscriptionMessage, {
-                    systemGenerated: true
-                });
+            //     const subscriptionRoutingMessage: RoutingMessage = MessageFactory.toRoutingMessage(subscriptionMessage, {
+            //         systemGenerated: true
+            //     });
                 
-                publisher.publish(subscriptionRoutingMessage);
-            }
+            //     publisher.publish(subscriptionRoutingMessage);
+            // }
         } catch (error) {
             logger.error(`[WhatsAppHandler] Error handling QR request: ${error.message}`, error);
             
