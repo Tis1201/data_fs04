@@ -112,6 +112,8 @@ export const actions: Actions = {
                 };
                 
                 logger.info(`Successfully created WhatsApp account: ${account.id}`);
+
+                
                 
                 // Return the form object with success and account data
                 return formWithAccount;

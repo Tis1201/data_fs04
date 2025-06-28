@@ -24,6 +24,9 @@ export class WhatsAppHandler implements Handler {
             case 'message':
                 await this.handleMessage(message);
                 break;
+            case 'cleanup':
+                await this.handleCleanup(message);
+                break;
             case 'cleanup_client':
                 await this.handleCleanupClient(message);
                 break;
@@ -31,6 +34,103 @@ export class WhatsAppHandler implements Handler {
                 logger.warn(`[WhatsAppHandler] Unhandled action: ${action}`);
                 break;
         }
+    }
+
+    private async handleCleanup(message: InMessage): Promise<void> {
+        
+        logger.debug(`[WhatsAppHandler] Handling cleanup: ${JSON.stringify(message)}`);
+        
+        const { payload, requestId } = message;
+        const content: any = payload.content;
+
+        const subscriptionKey = `subscription:whatsapp:${content.clientId}`;
+        const connectionScope = `subscriber:connection:${message.connectionId}`;
+            
+        logger.info(`[WhatsAppHandler] Removing subscription for connection ${message.connectionId} from ${subscriptionKey}`);
+         await subscriptionRegistry.removeSubscription(subscriptionKey, connectionScope);
+            
+
+        const outMessage: InMessage = {
+            id: message.id, // Preserve original message ID if available
+            type: 'whatsapp',
+            scope: message.scope,
+            protocol: message.protocol,
+            connectionId: message.connectionId,
+            userInfo: message.userInfo,
+            requestId: requestId, // IMPORTANT: Preserve the requestId
+            payload: {
+                action: 'cleanup_complete',
+                content: {
+                }
+            }
+        };
+
+        // // Send initial response to unblock the client
+        const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(outMessage, {
+            systemGenerated: true,
+            echoToSender: true
+        });
+
+        publisher.publish(initialResponse);
+        
+        
+
+        // logger.info(`[WhatsAppHandler] Handling cleanup for client: ${clientId}`);
+
+        // try {
+        //     // Remove this specific connection's subscription
+        //     const subscriptionKey = `subscription:whatsapp:${clientId}`;
+        //     const connectionScope = `subscriber:connection:${message.connectionId}`;
+            
+        //     logger.info(`[WhatsAppHandler] Removing subscription for connection ${message.connectionId} from ${subscriptionKey}`);
+        //     await subscriptionRegistry.removeSubscription(subscriptionKey, connectionScope);
+            
+        //     // Send response back to the client
+        //     const response = MessageFactory.createSystemMessage(
+        //         'whatsapp',
+        //         message.scope,
+        //         {
+        //             action: 'cleanup_complete',
+        //             content: {
+        //                 clientId,
+        //                 success: true,
+        //                 timestamp: new Date().toISOString()
+        //             }
+        //         },
+        //         message.userInfo,
+        //         {
+        //             targetConnectionId: message.connectionId,
+        //             targetProtocol: message.protocol,
+        //             echoToSender: true
+        //         }
+        //     );
+
+        //     publisher.publish(response);
+        // } catch (error) {
+        //     logger.error(`[WhatsAppHandler] Error during cleanup for client ${clientId}:`, error);
+            
+        //     // Send error response
+        //     const errorResponse = MessageFactory.createSystemMessage(
+        //         'whatsapp',
+        //         message.scope,
+        //         {
+        //             action: 'cleanup_failed',
+        //             content: {
+        //                 clientId,
+        //                 error: error instanceof Error ? error.message : 'Unknown error',
+        //                 timestamp: new Date().toISOString()
+        //             }
+        //         },
+        //         message.userInfo,
+        //         {
+        //             targetConnectionId: message.connectionId,
+        //             targetProtocol: message.protocol,
+        //             echoToSender: true
+        //         }
+        //     );
+
+        //     publisher.publish(errorResponse);
+        // }
     }
 
     private async handleQRRequest(message: InMessage): Promise<void> {

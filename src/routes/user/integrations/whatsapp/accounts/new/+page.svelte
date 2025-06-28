@@ -20,7 +20,7 @@
     import type { PageData } from "./$types";
     import { onDestroy, onMount } from "svelte";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
-    import { writable } from "svelte/store";
+    import { writable, get } from "svelte/store";
 
     export let data: PageData;
     const title = "Create WhatsApp Account";
@@ -262,7 +262,11 @@
 
     // Initialize event handlers
     let cleanupEventListeners: (() => void) | null = null;
-    let qrInterval: ReturnType<typeof setInterval> | null = null;
+    
+    // Get current state helper function
+    function getCurrentState() {
+        return get(whatsAppState);
+    }
 
     onMount(() => {
         console.log("[WHATSAPP_FORM] onMount - Start");
@@ -348,7 +352,41 @@
         };
     });
 
-    onDestroy(() => {});
+    async function cleanup(){
+        
+        if (cleanupEventListeners) {
+            cleanupEventListeners();
+            cleanupEventListeners = null;
+        }
+
+        const currentState = getCurrentState();
+
+
+        const responsePayload = await sseStore.sendRequest(
+            {
+                type: "whatsapp",
+                scope: "user:self",
+                payload: { 
+                    action: "cleanup",
+                    content: {
+                        clientId: currentState.clientId
+                    }
+                },
+            },
+            5000, // 15 second timeout
+             "whatsapp_cleanup",
+        );
+
+        
+        console.log(
+            "[WHATSAPP_FORM] Cleanup request sent successfully:",
+            responsePayload,
+        );
+    }
+
+    onDestroy(async () => {
+        cleanup();
+    });
 </script>
 
 <UserPageLayout {title} crumbs={pageCrumbs} {actionButtons}>
@@ -472,6 +510,11 @@
                                         class="w-full mt-2"
                                         on:click={requestNewQRCode}
                                     >
+                                    <!-- <Button
+                                        variant="default"
+                                        class="w-full mt-2"
+                                        on:click={cleanup}
+                                    > -->
                                         <QrCode class="h-4 w-4 mr-2" />
                                         Generate QR Code
                                     </Button>
