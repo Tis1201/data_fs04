@@ -1,14 +1,16 @@
 // main.ts
 import { WhatsAppSession } from '../../src/lib/server/whatsapp/WhatsAppSession';
 import { getTestPrisma } from './test-prisma';
+import qrcode from 'qrcode-terminal';
 
 // Use the simple file-based auth state instead of Prisma for this test
 (async () => {
 
   const prisma = getTestPrisma();
 
+  
   // delete all from whatsAppAuthData
-    await prisma.whatsAppAuthData.deleteMany({});
+  // await prisma.whatsAppAuthData.deleteMany({});
 
   //count * from whatsAppAuthData
   const count = await prisma.whatsAppAuthData.count();
@@ -20,7 +22,8 @@ import { getTestPrisma } from './test-prisma';
   // Set up event listeners
   session.on('qrcode', (qr) => {
     console.log('\n=== QR Code Received ===');
-    console.log(qr);
+    qrcode.generate(qr, { small: true });
+    console.log('\nScan the QR code above to authenticate');
     console.log('========================\n');
   });
 
@@ -35,6 +38,7 @@ import { getTestPrisma } from './test-prisma';
   session.on('ready', () => {
     console.log('🚀 WhatsApp client is ready!');
     console.log('Session info:', session.getInfo());
+    // session.sendMessage('852XXXXXXXX@s.whatsapp.net', { text: 'Hello from class!' });
   });
 
   session.on('disconnected', (reason) => {

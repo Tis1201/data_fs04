@@ -125,6 +125,8 @@ export class WhatsAppSession extends EventEmitter {
   private handleConnectionUpdate = async (update: any) => {
     const { connection, lastDisconnect, qr, isNewLogin } = update;
 
+    console.log(`[${this.session_id}] Connection update:`, update)
+
     try {
       if (qr) {
         // const qrCode = await QRCode.toString(qr, { type: 'terminal', small: true });
@@ -147,6 +149,8 @@ export class WhatsAppSession extends EventEmitter {
       }
 
       if (connection === 'open') {
+
+        
         try {
           const user = this.sock?.user;
           
@@ -165,8 +169,9 @@ export class WhatsAppSession extends EventEmitter {
             console.warn(`[${this.session_id}] Connected but no user information available`);
           }
 
-          console.log(`[${this.session_id}] Connection established.`);
+          console.log(`[${this.session_id}] Connection ready!`);
           this.emit('ready');
+
         } catch (error) {
           console.error(`[${this.session_id}] Error during connection setup:`, error);
           this.emit('error', { 

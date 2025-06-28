@@ -276,14 +276,11 @@ model WhatsAppAuthData {
   id        String   @id() @default(cuid())
   clientId  String
   file      String
-  keyId     String?
-  type      String?
   data      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt()
 
   @@unique([clientId, file])
-  @@index([type])
   @@index([clientId])
 }
 
