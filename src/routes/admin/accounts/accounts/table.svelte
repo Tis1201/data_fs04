@@ -21,9 +21,18 @@
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
 
+    // Define Account type with _count field
+    type AccountWithCount = Account & {
+        _count?: {
+            companies: number;
+            members: number;
+            devices: number;
+        };
+    };
+
     // Props for DataTable component
     export let props = {
-        records: [] as Account[],
+        records: [] as AccountWithCount[],
         pagination: {
             page: 1,
             per_page: 10,
@@ -39,23 +48,23 @@
     
     // State for confirmation dialog
     let state = {
-        selectedRecord: null as Account | null,
+        selectedRecord: null as AccountWithCount | null,
         confirmationOpen: false
     };
 
     // Function to open delete confirmation dialog
-    function confirmDelete(account: Account) {
+    function confirmDelete(account: AccountWithCount) {
         state.selectedRecord = account;
         state.confirmationOpen = true;
     }
     
     // Account to be toggled (for status change)
-    let accountToToggle: Account | null = null;
+    let accountToToggle: AccountWithCount | null = null;
     let isTogglingStatus = false;
     let statusToggleDialogOpen = false;
     
     // Function to prepare for status toggle
-    function prepareToggleStatus(account: Account) {
+    function prepareToggleStatus(account: AccountWithCount) {
         accountToToggle = account;
         statusToggleDialogOpen = true;
     }
@@ -89,29 +98,22 @@
     function getStatusBadge(status: string) {
         const statusText = status || "UNKNOWN";
         let variant = "default";
-        
+
         switch (statusText) {
             case "ACTIVE":
-                variant = "success";
+                variant = "Active";
                 break;
             case "INACTIVE":
-                variant = "secondary";
+                variant = "Inactive";
                 break;
             case "PENDING":
-                variant = "warning";
+                variant = "Pending";
                 break;
             default:
                 variant = "default";
         }
-        
-        return {
-            component: Badge,
-            props: {
-                variant,
-                class: "capitalize",
-                children: statusText.toLowerCase()
-            }
-        };
+
+        return variant;
     }
 
     // Column definitions
@@ -121,7 +123,7 @@
             label: "Name",
             sortable: true,
             width: "20%",
-            render: (record: Account) => ({
+            render: (record: AccountWithCount) => ({
                 component: NameWithIdLink,
                 props: {
                     record: {
@@ -138,33 +140,33 @@
             label: "Slug",
             sortable: true,
             width: "15%",
-            render: (record: Account) => record.slug || "N/A"
+            render: (record: AccountWithCount) => record.slug || "N/A"
         },
         {
             id: "status",
             label: "Status",
             sortable: true,
             width: "10%",
-            render: (record: Account) => getStatusBadge(record.status)
+            render: (record: AccountWithCount) => getStatusBadge(record.status)
         },
         {
             id: "companies",
             label: "Companies",
             width: "10%",
-            render: (record: Account) => record._count?.companies || 0
+            render: (record: AccountWithCount) => String(record._count?.companies || 0)
         },
         {
             id: "members",
             label: "Members",
             width: "10%",
-            render: (record: Account) => record._count?.members || 0
+            render: (record: AccountWithCount) => String(record._count?.members || 0)
         },
         {
             id: "createdAt",
             label: "Created",
             sortable: true,
             width: "15%",
-            render: (record: Account) => ({
+            render: (record: AccountWithCount) => ({
                 component: RelativeDate,
                 props: {
                     date: record.createdAt,
@@ -179,7 +181,7 @@
             id: "actions",
             label: "Actions",
             width: "10%",
-            render: (record: Account) => {
+            render: (record: AccountWithCount) => {
                 // Define action items here instead of in the RecordActions component
                 const actionItems: ActionItem[] = [
                     {
@@ -216,10 +218,7 @@
         {state}
         action="?/deleteAccount"
         actionName="deleteAccount"
-        onConfirm={() => {
-            // Refresh the page to update the account list
-            window.location.reload();
-        }}
+        onConfirm={() => {}}
     />
     
     <!-- Status Toggle Dialog -->
@@ -228,13 +227,17 @@
         action="?/toggleStatus"
         bind:record={accountToToggle}
         bind:isProcessing={isTogglingStatus}
+        title={accountToToggle ? (accountToToggle.status === 'ACTIVE' ? 'Deactivate Account' : 'Activate Account') : null}
+        description={accountToToggle ? `Are you sure you want to ${accountToToggle.status === 'ACTIVE' ? 'deactivate' : 'activate'} the account "${accountToToggle.name}"?` : null}
+        confirmText={accountToToggle ? (accountToToggle.status === 'ACTIVE' ? 'Deactivate' : 'Activate') : null}
+        cancelText="Cancel"
         onSuccess={(result) => {
             // Update the account status in the local data without page refresh
             if (accountToToggle) {
                 const newStatus = accountToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
                 
                 // Find and update the account in the records array
-                const index = props.records.findIndex(r => r.id === accountToToggle.id);
+                const index = props.records.findIndex(r => r.id === accountToToggle?.id);
                 if (index !== -1) {
                     props.records[index].status = newStatus;
                     // Force a UI update
@@ -256,7 +259,6 @@
     >
         <input type="hidden" name="id" value={accountToToggle?.id || ''} />
         <input type="hidden" name="status" value={accountToToggle?.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'} />
-        <button type="submit" class="hidden">Submit</button>
     </RecordUpdateDialog>
     
     {#if props.loading}

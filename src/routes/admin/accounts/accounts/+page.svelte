@@ -9,17 +9,17 @@
     import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "$lib/components/ui/card";
     import { page } from "$app/stores";
     import { onMount } from "svelte";
+    import { createTableProps } from "$lib/utils/table-props-utils";
+    import type {PageData} from "../../../../../.svelte-kit/types/src/routes/admin/accounts/companies/$types";
     
     // Get data from page data
-    export let data;
+    export let data: PageData;
     
-    // Set up table props
-    let tableProps = {
-        records: data.accounts,
-        pagination: data.pagination,
-        sort: data.sort,
-        loading: false
-    };
+    // Set up table props using the utility
+    $: tableProps = createTableProps(data, {
+        recordsKey: 'accounts',
+        defaultSort: { field: 'createdAt', order: 'desc' }
+    });
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -46,10 +46,7 @@
     </PageHeader>
     
     <PageContent>
-        
-            
-                <AccountsTable props={tableProps} />
-            
-        
+   <AccountsTable props={tableProps} />
+
     </PageContent>
 </PageContainer>

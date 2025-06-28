@@ -1,5 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { superForm } from 'sveltekit-superforms/client';
+  import { zod } from 'sveltekit-superforms/adapters';
   import { toast } from "svelte-sonner";
   import { Save, FileText, ArrowLeft } from "lucide-svelte";
   import { Button } from "$lib/components/ui/button";
@@ -10,11 +12,12 @@
   // Import custom form components
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
   import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
+  import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
   import type { PageData } from "./$types";
-  
+
   // Import page data
   export let data: PageData;
   
@@ -26,28 +29,27 @@
     "Add Account",
   ];
   
-  // Import the reusable form handler
-  import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+  // Import form utilities and schema
+  import { getDetailPageFormConfig, getFieldProps, processFormMessages, getSelectProps } from '$lib/utils/formHelpers';
+  import { accountEditSchema, ACCOUNT_STATUS_OPTIONS } from '../schema';
   
-  // Create a form handler with standardized error handling
-  const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-    validateOnInput: true,
-    debugMode: false,
-    successRedirect: '/admin/accounts/accounts',  // Redirect to accounts list
-    onSuccess: (result) => {
-      toast.success("Account created successfully!");
-      // The successRedirect will handle navigation
-    },
-    onError: (error) => {
-      toast.error(error?.text || "Failed to create account");
-    }
-  });
+  // Enhanced SuperForms setup - best practice approach
+  const { form, errors, enhance, submitting, message, delayed, timeout, tainted } = 
+    superForm(data.form, {
+      validators: zod(accountEditSchema),
+      ...getDetailPageFormConfig("Account"),
+      onResult: async ({ result }) => {
+        if (result.type === "success") {
+          await goto('/admin/accounts/accounts');
+        }
+      }
+    });
   
-  // Status options for the select dropdown
-  const statusOptions = [
-    { value: "ACTIVE", label: "Active" },
-    { value: "INACTIVE", label: "Inactive" }
-  ];
+  // Reactive states - using formHelpers pattern
+  $: isLoading = $submitting || $delayed;
+  $: hasTimeout = $timeout;
+  $: ({ errorMessage } = processFormMessages($message));
+  $: hasChanges = $tainted;
   
   // Generate slug from name
   function generateSlug(name: string): string {
@@ -87,12 +89,23 @@
         }
       }
     ]}
-    loading={$submitting}
+    loading={isLoading}
     showCreateButton={false}
     compact={true}
     contentSpacing="space-y-4"
 >
-  <form method="POST" action="?/createAccount" use:enhance>
+  <FormContainer
+    method="POST"
+    action="?/createAccount"
+    {enhance}
+    novalidate
+    {errorMessage}
+    showAlerts={true}
+    disabled={isLoading}
+    {hasTimeout}
+    {isLoading}
+    delayed={$delayed}
+  >
     <AdminCard
       title="Account Information"
       description="Create a new account in the system"
@@ -105,6 +118,8 @@
             id="name" 
             label="Account Name" 
             error={$errors.name}
+            required={true}
+            helpText="Enter the official account name"
           >
             <Input 
               id="name" 
@@ -112,8 +127,7 @@
               type="text" 
               bind:value={$form.name} 
               placeholder="Enter account name" 
-              aria-invalid={$errors.name ? 'true' : undefined}
-              {...$constraints.name}
+              {...getFieldProps($errors, 'name', isLoading)}
             />
           </FormField>
           
@@ -121,6 +135,8 @@
             id="slug" 
             label="Slug" 
             error={$errors.slug}
+            required={true}
+            helpText="The slug is used in URLs and API endpoints. Only lowercase letters, numbers, and hyphens are allowed."
           >
             <Input 
               id="slug" 
@@ -128,12 +144,8 @@
               type="text" 
               bind:value={$form.slug} 
               placeholder="account-slug" 
-              aria-invalid={$errors.slug ? 'true' : undefined}
-              {...$constraints.slug}
+              {...getFieldProps($errors, 'slug', isLoading)}
             />
-            <p class="text-xs text-muted-foreground mt-1">
-              The slug is used in URLs and API endpoints. Only lowercase letters, numbers, and hyphens are allowed.
-            </p>
           </FormField>
         </FormRow>
         
@@ -142,13 +154,15 @@
             id="status" 
             label="Status" 
             error={$errors.status}
+            required={true}
+            helpText="Current operational status of the account"
           >
             <EnhancedSelect
               name="status"
-              options={statusOptions}
+              options={ACCOUNT_STATUS_OPTIONS}
               bind:value={$form.status}
-              aria-invalid={$errors.status ? 'true' : undefined}
-              {...$constraints.status}
+              placeholder="Select status"
+              {...getSelectProps($errors, 'status', isLoading)}
             />
           </FormField>
         </FormRow>
@@ -157,20 +171,19 @@
           id="description" 
           label="Description" 
           error={$errors.description}
+          helpText="Optional description of the account's purpose"
         >
           <Textarea 
             id="description" 
             name="description" 
             bind:value={$form.description} 
             placeholder="Enter account description" 
-            class="w-full h-24"
-            aria-invalid={$errors.description ? 'true' : undefined}
-            {...$constraints.description}
+            class="w-full h-24 {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
+            disabled={isLoading}
+            aria-invalid={$errors.description ? true : undefined}
           />
         </FormField>
-        
-
       </div>
     </AdminCard>
-  </form>
+  </FormContainer>
 </AdminPageLayout>

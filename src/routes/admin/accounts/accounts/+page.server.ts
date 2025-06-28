@@ -1,14 +1,16 @@
-import { error } from '@sveltejs/kit';
+import { error, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
+import {restrict} from "$lib/server/security/guards";
+import {SystemRole} from "$lib/types/roles";
 
-export const load: PageServerLoad = async ({ url, locals }) => {
+export const load: PageServerLoad = async ({ url, locals }: RequestEvent) => {
     try {
         // Get query parameters for filtering, sorting, and pagination
         const search = url.searchParams.get('search') || '';
         const page = parseInt(url.searchParams.get('page') || '1');
         const perPage = parseInt(url.searchParams.get('per_page') || '10');
-        const sortField = url.searchParams.get('sort_field') || 'createdAt';
-        const sortOrder = url.searchParams.get('sort_order') || 'desc';
+        const sortField = url.searchParams.get('sort') || 'createdAt';
+        const sortOrder = url.searchParams.get('order') || 'desc';
         const statuses = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
 
         // Calculate pagination values
@@ -67,11 +69,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
         return {
             accounts,
-            pagination: {
-                page,
-                per_page: perPage,
-                total_records: totalAccounts,
-                total_pages: totalPages
+            meta: {
+                totalItems: totalAccounts,
+                itemsPerPage: perPage,
+                totalPages,
+                currentPage: page
             },
             sort: {
                 field: sortField,
@@ -85,7 +87,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 };
 
 export const actions: Actions = {
-    deleteAccount: async ({ request, locals }) => {
+    deleteAccount: restrict(
+        async ({ request, locals }: RequestEvent) => {
         const formData = await request.formData();
         const id = formData.get('id')?.toString();
 
@@ -103,9 +106,9 @@ export const actions: Actions = {
             console.error('Error deleting account:', err);
             return { success: false, error: 'Failed to delete account' };
         }
-    },
+    },[SystemRole.ADMIN]),
     
-    toggleStatus: async ({ request, locals }) => {
+    toggleStatus: async ({ request, locals }: RequestEvent) => {
         const formData = await request.formData();
         const id = formData.get('id')?.toString();
         const status = formData.get('status')?.toString();
