@@ -9,6 +9,8 @@ pnpm-lock.yaml
 
 workings/
 
+auth/
+
 # Database
 *.db
 *.sqlite

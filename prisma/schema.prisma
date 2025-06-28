@@ -13,24 +13,25 @@ generator client {
 }
 
 model Account {
-  id             String              @id() @default(cuid())
-  name           String
-  slug           String              @unique()
-  status         String              @default("ACTIVE")
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt()
-  description    String?
-  logoUrl        String?
-  settings       String?
-  companies      Company[]
-  members        AccountMembership[]
-  groups         Group[]
-  devices        Device[]
-  apiKeys        ApiKey[]
-  primaryUsers   User[]              @relation("UserPrimaryAccount")
-  resources      Resource[]
-  refreshTokens  RefreshToken[]
-  tokenUsageLogs TokenUsageLog[]
+  id               String              @id() @default(cuid())
+  name             String
+  slug             String              @unique()
+  status           String              @default("ACTIVE")
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt()
+  description      String?
+  logoUrl          String?
+  settings         String?
+  companies        Company[]
+  members          AccountMembership[]
+  groups           Group[]
+  devices          Device[]
+  apiKeys          ApiKey[]
+  primaryUsers     User[]              @relation("UserPrimaryAccount")
+  resources        Resource[]
+  refreshTokens    RefreshToken[]
+  tokenUsageLogs   TokenUsageLog[]
+  whatsappAccounts WhatsAppAccount[]
 
   @@index([slug])
 }
@@ -254,7 +255,7 @@ model ListenerWhatsAppAccount {
 model WhatsAppAccount {
   id            String                    @id() @default(cuid())
   client_id     String                    @unique()
-  client_status String                    @default("disconnected")
+  client_status String                    @default("DISCONNECTED")
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt()
   phoneNumber   String
@@ -263,21 +264,23 @@ model WhatsAppAccount {
   createdBy     String
   user          User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   listeners     ListenerWhatsAppAccount[]
+  status        String?                   @default("ACTIVE")
+  accountId     String?
+  account       Account?                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([createdBy])
+  @@index([accountId])
 }
 
 model WhatsAppAuthData {
   id        String   @id() @default(cuid())
   clientId  String
-  keyId     String
-  type      String
+  file      String
   data      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt()
 
-  @@unique([clientId, keyId])
-  @@index([type])
+  @@unique([clientId, file])
   @@index([clientId])
 }
 

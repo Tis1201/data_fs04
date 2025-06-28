@@ -277,3 +277,19 @@ export async function validateAuth(locals: RequestEvent['locals']): Promise<Auth
 
   return auth;
 }
+
+/**
+ * Gets the current account ID from the auth object or throws a 403 error if not available
+ * @param auth The auth object from locals.auth.validate()
+ * @returns The current account ID (always returns a string)
+ * @throws 403 error if current account ID is not available
+ */
+export function getCurrentAccountId(auth: Auth | null): string {
+  const accountId = auth?.currentAccount?.account?.id;
+  
+  if (!accountId) {
+    throw error(403, 'No account selected. Please select an account first.');
+  }
+  
+  return accountId;
+}

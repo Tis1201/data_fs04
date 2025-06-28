@@ -10,7 +10,6 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { socketStore } from "$lib/stores/websocket-store";
   import { createClientMessage } from "$lib/types/messages";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";

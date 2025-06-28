@@ -1,0 +1,117 @@
+2025-06-21 18:06:46 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"me":{"id":"6597350605:70@s.whatsapp.net","name":"Bernard Tan"},"platform":"smbi"}
+2025-06-21 18:06:46 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:46 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:231] Connection update for client f4d3ebce-885b-4242-931a-102edbb262c4: {"isNewLogin":true}
+2025-06-21 18:06:46 [ERROR] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:53] [Baileys] {"node":{"tag":"stream:error","attrs":{"code":"515"}}}
+2025-06-21 18:06:46 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"trace":"Error: Stream Errored (restart required)\n    at WebSocketClient.<anonymous> (/Users/bernard/CascadeProjects/fs04/fs04_web/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:519:13)\n    at WebSocketClient.emit (node:events:518:28)\n    at /Users/bernard/CascadeProjects/fs04/fs04_web/node_modules/@whiskeysockets/baileys/lib/Socket/socket.js:236:35\n    at Object.decodeFrame (/Users/bernard/CascadeProjects/fs04/fs04_web/node_modules/@whiskeysockets/baileys/lib/Utils/noise-handler.js:144:17)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)"}
+2025-06-21 18:06:46 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:231] Connection update for client f4d3ebce-885b-4242-931a-102edbb262c4: {"connection":"close","lastDisconnect":{"error":{"data":{"tag":"stream:error","attrs":{"code":"515"}},"isBoom":true,"isServer":true,"output":{"statusCode":515,"payload":{"statusCode":515,"error":"Unknown","message":"Stream Errored (restart required)"},"headers":{}}},"date":"2025-06-21T10:06:46.716Z"}}
+2025-06-21 18:06:46 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:662] Client f4d3ebce-885b-4242-931a-102edbb262c4 needs restart (code: 515), reconnecting immediately...
+2025-06-21 18:06:46 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:603] Client f4d3ebce-885b-4242-931a-102edbb262c4 state changed from awaiting_scan to connecting
+2025-06-21 18:06:47 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:603] Client f4d3ebce-885b-4242-931a-102edbb262c4 state changed from connecting to waiting
+2025-06-21 18:06:47 [INFO] [src/lib/server/whatsapp/useZenstackAuthState.ts:101] Loaded auth state for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:47 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:205] Client f4d3ebce-885b-4242-931a-102edbb262c4 initialized and connecting...
+2025-06-21 18:06:47 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:231] Connection update for client f4d3ebce-885b-4242-931a-102edbb262c4: {"connection":"connecting","receivedPendingNotifications":false}
+2025-06-21 18:06:47 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:603] Client f4d3ebce-885b-4242-931a-102edbb262c4 state changed from waiting to connecting
+2025-06-21 18:06:48 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"browser":["FS04 WhatsApp","Chrome","1.0.0"],"helloMsg":{"clientHello":{"ephemeral":"MP6ZnsUfXTsQt3UTOwhr1CJBs5ROakH0KIJfxp5s7SI="}}}
+2025-06-21 18:06:48 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"node":{"username":"6597350605","passive":false,"userAgent":{"platform":"WEB","appVersion":{"primary":2,"secondary":3000,"tertiary":1023223821},"mcc":"000","mnc":"000","osVersion":"0.1","device":"Desktop","osBuildNumber":"0.1","releaseChannel":"RELEASE","localeLanguageIso6391":"en","localeCountryIso31661Alpha2":"US"},"webInfo":{"webSubPlatform":"WEB_BROWSER"},"connectType":"WIFI_UNKNOWN","connectReason":"USER_ACTIVATED","device":70,"pull":true}}
+2025-06-21 18:06:49 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:49 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:49 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "handled 0 offline messages/notifications"
+2025-06-21 18:06:49 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:231] Connection update for client f4d3ebce-885b-4242-931a-102edbb262c4: {"receivedPendingNotifications":true}
+2025-06-21 18:06:49 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "0 pre-keys found on server"
+2025-06-21 18:06:49 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"count":30}
+2025-06-21 18:06:49 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"count":30}
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"count":30}
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "opened connection to WA"
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:231] Connection update for client f4d3ebce-885b-4242-931a-102edbb262c4: {"isOnline":true}
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:231] Connection update for client f4d3ebce-885b-4242-931a-102edbb262c4: {"connection":"open"}
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:618] Extracted phone number: 6597350605
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:621] Connected as Bernard Tan (6597350605:70@s.whatsapp.net)
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/core/publisher.ts:16] [Publisher] Message sudo property: false, type: boolean
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/core/router.ts:22] [Router] Resolving scope: subscription:whatsapp:f4d3ebce-885b-4242-931a-102edbb262c4 (kind: subscription)
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:603] Client f4d3ebce-885b-4242-931a-102edbb262c4 state changed from connecting to connected
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/routers/subscriptionRouter.ts:16] [SubscriptionRouter] Found 1 subscribers for scope: subscription:whatsapp:f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/routers/subscriptionRouter.ts:18] [SubscriptionRouter] Subscriber scopes: ["subscriber:connection:55c3aed4-4010-407e-a20f-2f0ac0713663"]
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/core/router.ts:22] [Router] Resolving scope: connection:55c3aed4-4010-407e-a20f-2f0ac0713663 (kind: connection)
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/routers/connectionRouter.ts:9] [ConnectionRouter] Resolving connection scope: connection:55c3aed4-4010-407e-a20f-2f0ac0713663
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/routers/connectionRouter.ts:20] [ConnectionRouter] Found connection: 55c3aed4-4010-407e-a20f-2f0ac0713663 for user: cmc4msp7r000810g1ya5u3od2
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/routers/subscriptionRouter.ts:26] [SubscriptionRouter] Found 1 connections for scope: subscription:whatsapp:f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/core/scopeAuthorizer.ts:13] [ScopeAuthorizer] Sudo property: false, type: boolean
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/core/scopeAuthorizer.ts:17] [ScopeAuthorizer] Checking scope: subscription:whatsapp:f4d3ebce-885b-4242-931a-102edbb262c4 (kind: subscription, rest: whatsapp)
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/authorizers/subscriptionAuthorizer.ts:10] [SubscriptionAuthorizer] Checking if cmc4msp7r000810g1ya5u3od2 is allowed to publish to subscription:whatsapp:f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/messaging/core/publisher.ts:23] [Publisher] Allowed: (subscription:whatsapp:f4d3ebce-885b-4242-931a-102edbb262c4)
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"count":30}
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:109] Fetching 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:65] No session found for 6597350605.0.json
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:131] Storing 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:132] Session IDs: 6597350605.0
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:25] Writing session data for 6597350605.0.json
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"newAppStateSyncKeyId":"AAAAAB/P","newKeys":["AAAAACAJ","AAAAACAV","AAAAAB/r","AAAAAB/Y","AAAAAB/V","AAAAAB/W","AAAAAB/G","AAAAAB/u","AAAAACAF","AAAAAB/B","AAAAACAa","AAAAAB/D","AAAAACAD","AAAAAB/9","AAAAAB/3","AAAAACAP","AAAAAB//","AAAAAB/8","AAAAAB+2","AAAAACAM","AAAAAB+6","AAAAACAZ","AAAAAB+3","AAAAAB/H","AAAAAB+5","AAAAAB/6","AAAAAB/x","AAAAAB+/","AAAAACAG","AAAAAB/N","AAAAAB/K","AAAAAB/n","AAAAAB/h","AAAAACAW","AAAAAB/e","AAAAAB/E","AAAAAB/c","AAAAAB/5","AAAAACAA","AAAAACAO","AAAAACAU","AAAAAB/M","AAAAAB/t","AAAAAB/0","AAAAAB+0","AAAAACAC","AAAAAB+9","AAAAACAQ","AAAAAB/S","AAAAAB/Q","AAAAACAI","AAAAAB/2","AAAAACAR","AAAAAB/q","AAAAAB/w","AAAAAB+8","AAAAACAX","AAAAAB/J","AAAAAB/o","AAAAAB/A","AAAAAB/i","AAAAAB+z","AAAAAB/k","AAAAAB/T","AAAAACAS","AAAAAB/Z","AAAAAB/b","AAAAAB/z","AAAAAB/f","AAAAAB/l","AAAAACAL","AAAAAB/P"]}
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:109] Fetching 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:67] Found session data for 6597350605.0.json
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:131] Storing 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:132] Session IDs: 6597350605.0
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:25] Writing session data for 6597350605.0.json
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:109] Fetching 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:67] Found session data for 6597350605.0.json
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:131] Storing 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:132] Session IDs: 6597350605.0
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:25] Writing session data for 6597350605.0.json
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "doing initial app state sync"
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"histNotification":{"fileSha256":"F5bGyQbP4mACLFEE+5WVbZyKtmbBFO3ODENZaflhQzQ=","fileLength":"888","mediaKey":"hRGJmTY2y791Ky5jscu+WYnJVpKgzfejsaCs7GtKSYA=","fileEncSha256":"OhiSHbQE6gP1CAKRBWCCMmiXvHU5mj6ZcdMxQ+9fqEg=","directPath":"/v/t62.31111-24/35334143_1255763932619732_9031179673194522544_n.enc?ccb=11-4&oh=01_Q5Aa1wFPRfpgO6SicQuzpc3XKzBibr-Mh9ibbR3D8mYUqwRS2w&oe=687DF1F1&_nc_sid=5e03e0","syncType":"NON_BLOCKING_DATA"},"process":false,"id":"3AEB632DC99CA182162A","isLatest":true}
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "resyncing critical_block from v0"
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "resyncing critical_unblock_low from v0"
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "resyncing regular_high from v0"
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "resyncing regular_low from v0"
+2025-06-21 18:06:50 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "resyncing regular from v0"
+2025-06-21 18:06:50 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "restored state of regular_high from snapshot to v33 with mutations"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "synced regular_high to v34"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "restored state of critical_block from snapshot to v33 with mutations"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "synced critical_block to v34"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "restored state of regular_low from snapshot to v69 with mutations"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "synced regular_low to v70"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "restored state of critical_unblock_low from snapshot to v84 with mutations"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "synced critical_unblock_low to v85"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "restored state of regular from snapshot to v140 with mutations"
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "synced regular to v143"
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:51 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "archive setting updated => 'false'"
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:293] Received 3 messages for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:299] Processing message 1 of 3:
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:318] Skipping emission of system message type: protocolMessage
+2025-06-21 18:06:51 [WARN] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:391] Cannot send message via RoutingMessage: userInfo not available for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:299] Processing message 2 of 3:
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:318] Skipping emission of system message type: protocolMessage
+2025-06-21 18:06:51 [WARN] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:391] Cannot send message via RoutingMessage: userInfo not available for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:299] Processing message 3 of 3:
+2025-06-21 18:06:51 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:318] Skipping emission of system message type: protocolMessage
+2025-06-21 18:06:51 [WARN] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:391] Cannot send message via RoutingMessage: userInfo not available for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:53 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:109] Fetching 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:53 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:67] Found session data for 6597350605.0.json
+2025-06-21 18:06:53 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:131] Storing 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:53 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:132] Session IDs: 6597350605.0
+2025-06-21 18:06:53 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:25] Writing session data for 6597350605.0.json
+2025-06-21 18:06:53 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"histNotification":{"fileSha256":"Ch3Ict5aLfkYXFRfp/xDdrvYxZP2hGLnjk6Yi6XoPYU=","fileLength":"463162","mediaKey":"tF+XRhFQpMGS3DvFeNoFD+xQ/LSVi001twSBSxLziDY=","fileEncSha256":"B4GpmitUkw6n7H+IShxUZ4b9E5xF33SxB+re7JN2bOE=","directPath":"/v/t62.31111-24/11871073_2486805041680876_8367994539588408899_n.enc?ccb=11-4&oh=01_Q5Aa1wHVCc-zwpOpV_LUSA4k2RfZmchlaWtA1CJv1W86-WQGxA&oe=687E0436&_nc_sid=5e03e0","syncType":"INITIAL_BOOTSTRAP","chunkOrder":1,"progress":100},"process":true,"id":"3A6039F78D90616D92EF","isLatest":true}
+2025-06-21 18:06:53 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:293] Received 1 messages for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:299] Processing message 1 of 1:
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:318] Skipping emission of system message type: protocolMessage
+2025-06-21 18:06:54 [WARN] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:391] Cannot send message via RoutingMessage: userInfo not available for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:54 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] "resyncing regular from vundefined"
+2025-06-21 18:06:54 [ERROR] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:53] [Baileys] {"err":{}}
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:109] Fetching 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:67] Found session data for 6597350605.0.json
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:131] Storing 1 sessions for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:132] Session IDs: 6597350605.0
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:25] Writing session data for 6597350605.0.json
+2025-06-21 18:06:54 [INFO] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:54] [Baileys] {"histNotification":{"fileSha256":"sskA7WWqJWhS+VHXxh5pS+7PMKsJdhV6HOprYZ7zqY4=","fileLength":"8482","mediaKey":"BykrMTxTM92AF5jel1kVJg75auA2/74cv0jSkf2+UOs=","fileEncSha256":"H13jrlMc+F2hCPks/Nl3yfBcodwBrRrM44X96NyzN9I=","directPath":"/v/t62.31111-24/18867203_690714890447791_7695402239868750121_n.enc?ccb=11-4&oh=01_Q5Aa1wH0a88owdPYErBqi3NmrLRnQrc6euZ_JtxjScoeJC8rBg&oe=687DE8E1&_nc_sid=5e03e0","syncType":"PUSH_NAME","chunkOrder":1,"progress":100},"process":true,"id":"3A1BED0E4BFCCEB8E4C5","isLatest":false}
+2025-06-21 18:06:54 [DEBUG] [src/lib/server/whatsapp/useZenstackAuthState.ts:151] Saving credentials for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:55 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:293] Received 1 messages for client f4d3ebce-885b-4242-931a-102edbb262c4
+2025-06-21 18:06:55 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:299] Processing message 1 of 1:
+2025-06-21 18:06:55 [DEBUG] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:318] Skipping emission of system message type: protocolMessage
+2025-06-21 18:06:55 [WARN] [src/lib/server/whatsapp/WhatsAppAccountClient.ts:391] Cannot send message via RoutingMessage: userInfo not available for client f4d3ebce-885b-4242-931a-102edbb262c4
