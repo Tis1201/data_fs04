@@ -13,6 +13,7 @@
     import { toast } from "svelte-sonner";
     import { formatDistanceToNow } from "date-fns";
     import type { PageData } from "./$types";
+    import { enhance as formEnhance } from '$app/forms';
     
     export let data: PageData;
     
@@ -38,21 +39,25 @@
     let newKeyData: { id: string; key: string; name: string } | null = null;
     let apiKeys = data.apiKeys || [];
     
-    // Setup form for API key creation
-    const { form, enhance, message } = superForm(data.form, {
-        onResult: ({ result }) => {
-            if (result.type === 'success') {
-                if (result.data?.data) {
-                    // Store the new key data for display
-                    newKeyData = result.data.data;
-                    showNewKeyDialog = true;
-                    // Refresh the keys list
-                    apiKeys = [...apiKeys, result.data.data];
-                }
-                toast.success(result.data?.message || 'API key created successfully');
-            } else if (result.type === 'error') {
-                toast.error(result.error?.message || 'Failed to create API key');
+    // Handle API key creation result
+    function handleApiKeyResult(result) {
+        if (result.type === 'success') {
+            if (result.data?.data) {
+                newKeyData = result.data.data;
+                showNewKeyDialog = true;
+                toast.success('API key created successfully');
+                // Refresh the keys list
+                apiKeys = [...apiKeys, result.data.data];
             }
+        } else if (result.type === 'error') {
+            toast.error(result.error?.message || 'Failed to create API key');
+        }
+    }
+    
+    // Setup form for API key creation
+    const { form, enhance } = superForm(data.form, {
+        onResult: (result) => {
+            handleApiKeyResult(result);
         },
         resetForm: true
     });
@@ -197,10 +202,13 @@
                     </CardTitle>
                     <CardDescription>Manage your API keys for accessing the API</CardDescription>
                 </div>
-                <Button on:click={() => showNewKeyDialog = true}>
-                    <Plus class="w-4 h-4 mr-2" />
-                    Create API Key
-                </Button>
+                <form method="POST" action="?/createApiKey" use:formEnhance>
+                    <input type="hidden" name="name" value="API Key" />
+                    <Button type="submit">
+                        <Plus class="w-4 h-4 mr-2" />
+                        Create API Key
+                    </Button>
+                </form>
             </div>
         </CardHeader>
         <CardContent>
@@ -271,88 +279,34 @@
             <DialogHeader>
                 <DialogTitle>New API Key</DialogTitle>
                 <DialogDescription>
-                    Create a new API key to authenticate with our API
+                    Your API key has been created successfully
                 </DialogDescription>
             </DialogHeader>
             
-            {#if newKeyData}
-                <div class="space-y-4">
-                    <div class="bg-muted/50 p-4 rounded-lg">
-                        <p class="text-sm font-medium mb-2">Your new API key</p>
-                        <div class="flex items-center gap-2">
-                            <code class="flex-1 bg-background p-2 rounded text-sm break-all">
-                                {newKeyData.key}
-                            </code>
-                            <Button variant="outline" size="icon" on:click={() => copyToClipboard(newKeyData.key)}>
-                                <Copy class="w-4 h-4" />
-                            </Button>
-                        </div>
-                        <p class="text-xs text-muted-foreground mt-2">
-                            Make sure to copy your API key now. You won't be able to see it again!
-                        </p>
-                    </div>
-                    <DialogFooter>
-                        <Button on:click={() => {
-                            showNewKeyDialog = false;
-                            newKeyData = null;
-                        }}>
-                            Done
+            <div class="space-y-4">
+                <div class="bg-muted/50 p-4 rounded-lg">
+                    <p class="text-sm font-medium mb-2">Your new API key</p>
+                    <div class="flex items-center gap-2">
+                        <code class="flex-1 bg-background p-2 rounded text-sm break-all">
+                            {newKeyData?.key || 'Key will appear here'}
+                        </code>
+                        <Button variant="outline" size="icon" on:click={() => copyToClipboard(newKeyData?.key || '')} disabled={!newKeyData}>
+                            <Copy class="w-4 h-4" />
                         </Button>
-                    </DialogFooter>
+                    </div>
+                    <p class="text-xs text-muted-foreground mt-2">
+                        Make sure to copy your API key now. You won't be able to see it again!
+                    </p>
                 </div>
-            {:else}
-                <form method="POST" use:enhance class="space-y-4">
-                    <div class="space-y-2">
-                        <Label for="name">Name</Label>
-                        <Input 
-                            id="name" 
-                            name="name" 
-                            placeholder="e.g., Production Server"
-                            required
-                            bind:value={$form.name}
-                        />
-                        <p class="text-xs text-muted-foreground">
-                            A descriptive name for this API key
-                        </p>
-                    </div>
-                    
-                    <div class="space-y-2">
-                        <Label for="description">Description (Optional)</Label>
-                        <Textarea 
-                            id="description" 
-                            name="description" 
-                            placeholder="What's this key for?"
-                            rows={3}
-                            bind:value={$form.description}
-                        />
-                    </div>
-                    
-                    <div class="space-y-2">
-                        <Label for="expiresAt">Expiration (Optional)</Label>
-                        <Input 
-                            type="datetime-local" 
-                            id="expiresAt" 
-                            name="expiresAt"
-                            bind:value={$form.expiresAt}
-                        />
-                        <p class="text-xs text-muted-foreground">
-                            Leave empty for no expiration
-                        </p>
-                    </div>
-                    
-                    <DialogFooter class="mt-6">
-                        <Button variant="outline" on:click={(e) => {
-                            e.preventDefault();
-                            showNewKeyDialog = false;
-                        }}>
-                            Cancel
-                        </Button>
-                        <Button type="submit">
-                            Create API Key
-                        </Button>
-                    </DialogFooter>
-                </form>
-            {/if}
+                <DialogFooter>
+                    <Button on:click={() => {
+                        showNewKeyDialog = false;
+                        newKeyData = null;
+                    }}>
+                        Done
+                    </Button>
+                </DialogFooter>
+            </div>
         </DialogContent>
     </Dialog>
 </UserPageLayout>
