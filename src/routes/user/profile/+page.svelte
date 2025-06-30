@@ -9,6 +9,7 @@
     import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "$lib/components/ui/dialog";
     import { Textarea } from "$lib/components/ui/textarea";
     import { Pencil, User, Key, Plus, Copy, ToggleLeft, ToggleRight, Trash2, AlertCircle } from "lucide-svelte";
+import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { formatDistanceToNow } from 'date-fns';
@@ -270,13 +271,16 @@
                                 {#if key.description}
                                     <p class="text-sm text-muted-foreground">{key.description}</p>
                                 {/if}
-                                <div class="flex items-center gap-2 mt-1">
-                                    <code class="text-xs bg-muted px-2 py-1 rounded">
-                                        {key.key}
-                                    </code>
-                                    <Button variant="ghost" size="icon" on:click={() => copyToClipboard(key.key)} title="Copy to clipboard">
-                                        <Copy class="w-4 h-4" />
-                                    </Button>
+                               
+                                <div class="mt-1 w-full">
+                                    <SecureKeyDisplay 
+                                        apiKey={key.key} 
+                                        createdAt={key.createdAt} 
+                                        showVisibilityToggle={true} 
+                                        showCopyButton={true} 
+                                        className="py-1 w-full max-w-none"
+                                        buttonClass="h-8 w-8 p-1 hover:bg-muted rounded"
+                                    />
                                 </div>
                             </div>
                             <div class="flex items-center gap-2">
@@ -308,42 +312,6 @@
         </CardContent>
     </Card>
 
-    <!-- New API Key Dialog -->
-    <Dialog bind:open={showNewKeyDialog} on:close={() => showNewKeyDialog = false}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>New API Key</DialogTitle>
-                <DialogDescription>
-                    Your API key has been created successfully
-                </DialogDescription>
-            </DialogHeader>
-            
-            <div class="space-y-4">
-                <div class="bg-muted/50 p-4 rounded-lg">
-                    <p class="text-sm font-medium mb-2">Your new API key</p>
-                    <div class="flex items-center gap-2">
-                        <code class="flex-1 bg-background p-2 rounded text-sm break-all">
-                            {newKeyData?.key || 'Key will appear here'}
-                        </code>
-                        <Button variant="outline" size="icon" on:click={() => copyToClipboard(newKeyData?.key || '')} disabled={!newKeyData}>
-                            <Copy class="w-4 h-4" />
-                        </Button>
-                    </div>
-                    <p class="text-xs text-muted-foreground mt-2">
-                        Make sure to copy your API key now. You won't be able to see it again!
-                    </p>
-                </div>
-                <DialogFooter>
-                    <Button on:click={() => {
-                        showNewKeyDialog = false;
-                        newKeyData = null;
-                    }}>
-                        Done
-                    </Button>
-                </DialogFooter>
-            </div>
-        </DialogContent>
-    </Dialog>
 </UserPageLayout>
 
 <!-- Delete API Key Confirmation Dialog -->

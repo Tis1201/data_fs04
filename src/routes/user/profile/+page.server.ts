@@ -10,6 +10,8 @@ import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { generateId } from 'lucia';
+
 
 // Schema for API key creation
 const apiKeySchema = z.object({
@@ -41,17 +43,12 @@ export const load = restrict(
         }
       });
       
-      // Mask the API keys for security
-      const maskedApiKeys = apiKeys.map(key => ({
-        ...key,
-        key: `${key.key.substring(0, 8)}...${key.key.substring(key.key.length - 4)}`
-      }));
       
       // Create an empty form for API key creation
       const form = await superValidate(zod(apiKeySchema));
       
             return {
-        apiKeys: maskedApiKeys,
+        apiKeys: apiKeys,
         form,
         meta: {
           title: 'User Profile',
@@ -71,7 +68,7 @@ export const load = restrict(
 
 export const actions: Actions = {
   createApiKey: restrict(
-    async ({ request, locals, auth }) => {
+    async ({ request, locals, auth }: any) => {
       // Validate the form data
       const form = await superValidate(request, zod(apiKeySchema));
       
@@ -80,17 +77,10 @@ export const actions: Actions = {
       }
       
       try {
-        // Validate authentication
-        if (!auth?.user) {
-          throw new FormValidationError(
-            'You must be logged in to create an API key',
-            'AUTH_REQUIRED',
-            401
-          );
-        }
+        
         
         // Generate a random API key
-        const key = randomBytes(32).toString('hex');
+        const key = generateId(32);
         
         // Create the API key
         const apiKey = await locals.prisma.apiKey.create({
@@ -255,3 +245,5 @@ export const actions: Actions = {
     }, [SystemRole.USER]
   )
 };
+
+
