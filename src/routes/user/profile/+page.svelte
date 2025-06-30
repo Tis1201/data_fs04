@@ -11,9 +11,10 @@
     import { Pencil, User, Key, Plus, Copy, ToggleLeft, ToggleRight, Trash2, AlertCircle } from "lucide-svelte";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
-    import { formatDistanceToNow } from "date-fns";
+    import { formatDistanceToNow } from 'date-fns';
     import type { PageData } from "./$types";
     import { enhance as formEnhance } from '$app/forms';
+    import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
     
     export let data: PageData;
     
@@ -34,20 +35,32 @@
     
     let editMode = false;
     
-    // API key management state
+    // API key state
     let showNewKeyDialog = false;
     let newKeyData: { id: string; key: string; name: string } | null = null;
     let apiKeys = data.apiKeys || [];
     
+    // Delete dialog state
+    let keyToDelete: string | null = null;
+    let showDeleteDialog = false;
+    
     // Handle API key creation result
     function handleApiKeyResult(result) {
+        console.log('API key creation result:', result);
         if (result.type === 'success') {
+            // Check different possible response structures
             if (result.data?.data) {
                 newKeyData = result.data.data;
                 showNewKeyDialog = true;
                 toast.success('API key created successfully');
                 // Refresh the keys list
                 apiKeys = [...apiKeys, result.data.data];
+            } else if (result.data?.key) {
+                newKeyData = result.data;
+                showNewKeyDialog = true;
+                toast.success('API key created successfully');
+                // Refresh the keys list with the new structure
+                apiKeys = [...apiKeys, result.data];
             }
         } else if (result.type === 'error') {
             toast.error(result.error?.message || 'Failed to create API key');
@@ -96,16 +109,20 @@
         }
     }
     
+    // Show delete confirmation dialog
+    function confirmDeleteApiKey(id: string) {
+        keyToDelete = id;
+        showDeleteDialog = true;
+    }
+    
     // Delete API key
-    async function deleteApiKey(id: string) {
-        if (!confirm('Are you sure you want to delete this API key? This action cannot be undone.')) {
-            return;
-        }
-        
-        const formData = new FormData();
-        formData.append('id', id);
+    async function deleteApiKey() {
+        if (!keyToDelete) return;
         
         try {
+            const formData = new FormData();
+            formData.append('id', keyToDelete);
+            
             const response = await fetch('?/deleteApiKey', {
                 method: 'POST',
                 body: formData
@@ -113,16 +130,19 @@
             
             const result = await response.json();
             
-            if (response.ok) {
-                // Remove the key from the local state
-                apiKeys = apiKeys.filter(key => key.id !== id);
+            if (result.type === 'success') {
+                apiKeys = apiKeys.filter(key => key.id !== keyToDelete);
                 toast.success('API key deleted successfully');
             } else {
-                toast.error(result.error || 'Failed to delete API key');
+                toast.error(result.error?.message || 'Failed to delete API key');
             }
+            
+            // Close the dialog
+            showDeleteDialog = false;
         } catch (error) {
-            toast.error('An error occurred while deleting the API key');
+            toast.error('Failed to delete API key');
             console.error('Error deleting API key:', error);
+            showDeleteDialog = false;
         }
     }
     
@@ -202,7 +222,23 @@
                     </CardTitle>
                     <CardDescription>Manage your API keys for accessing the API</CardDescription>
                 </div>
-                <form method="POST" action="?/createApiKey" use:formEnhance>
+                <form method="POST" action="?/createApiKey" use:formEnhance={({ form }) => {
+                    return async ({ result }) => {
+                        if (result.type === 'success') {
+                            console.log('Form success result:', result);
+                            if (result.data?.data) {
+                                newKeyData = result.data.data;
+                                showNewKeyDialog = true;
+                            } else if (result.data?.key) {
+                                newKeyData = result.data;
+                                showNewKeyDialog = true;
+                            }
+                            toast.success('API key created successfully');
+                        } else {
+                            toast.error('Failed to create API key');
+                        }
+                    };
+                }}>
                     <input type="hidden" name="name" value="API Key" />
                     <Button type="submit">
                         <Plus class="w-4 h-4 mr-2" />
@@ -258,9 +294,8 @@
                                 </Button>
                                 <Button 
                                     variant="ghost" 
-                                    size="sm" 
-                                    class="text-destructive hover:text-destructive"
-                                    on:click={() => deleteApiKey(key.id)}
+                                    size="sm"
+                                    on:click={() => confirmDeleteApiKey(key.id)}
                                 >
                                     <Trash2 class="w-4 h-4 mr-2" />
                                     Delete
@@ -310,3 +345,13 @@
         </DialogContent>
     </Dialog>
 </UserPageLayout>
+
+<!-- Delete API Key Confirmation Dialog -->
+<ConfirmationDialog
+    bind:open={showDeleteDialog}
+    title="Delete API Key"
+    description="Are you sure you want to delete this API key? This action cannot be undone."
+    confirmText="Delete"
+    cancelText="Cancel"
+    onConfirm={deleteApiKey}
+/>

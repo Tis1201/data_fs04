@@ -252,6 +252,6 @@ export const actions: Actions = {
           code: 'API_KEY_DELETE_ERROR'
         });
       }
-    }
+    }, [SystemRole.USER]
   )
 };
