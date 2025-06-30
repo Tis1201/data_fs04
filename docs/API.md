@@ -291,7 +291,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 
 export const GET = restrict(
-  async ({ locals }) => {
+  async ({ locals, auth }: any) => {
     try {
       const data = await getDataFromDatabase();
       return json(createSuccessResponse(data));

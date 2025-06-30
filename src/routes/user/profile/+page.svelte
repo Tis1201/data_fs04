@@ -14,7 +14,8 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
     import { toast } from "svelte-sonner";
     import { formatDistanceToNow } from 'date-fns';
     import type { PageData } from "./$types";
-    import { enhance as formEnhance } from '$app/forms';
+    import { enhance } from '$app/forms';
+    import { onMount } from 'svelte';
     import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
     
     export let data: PageData;
@@ -69,12 +70,7 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
     }
     
     // Setup form for API key creation
-    const { form, enhance } = superForm(data.form, {
-        onResult: (result) => {
-            handleApiKeyResult(result);
-        },
-        resetForm: true
-    });
+    const { form } = superForm(data.form);
     
     // Copy API key to clipboard
     function copyToClipboard(text: string) {
@@ -121,28 +117,29 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
         if (!keyToDelete) return;
         
         try {
-            const formData = new FormData();
-            formData.append('id', keyToDelete);
-            
-            const response = await fetch('?/deleteApiKey', {
-                method: 'POST',
-                body: formData
+            const response = await fetch('/user/profile', {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ id: keyToDelete })
             });
             
             const result = await response.json();
             
-            if (result.type === 'success') {
+            if (response.ok && result.success) {
                 apiKeys = apiKeys.filter(key => key.id !== keyToDelete);
-                toast.success('API key deleted successfully');
+                toast.success(result.message || 'API key deleted successfully');
             } else {
-                toast.error(result.error?.message || 'Failed to delete API key');
+                throw new Error(result.error?.message || 'Failed to delete API key');
             }
-            
-            // Close the dialog
-            showDeleteDialog = false;
         } catch (error) {
-            toast.error('Failed to delete API key');
             console.error('Error deleting API key:', error);
+            toast.error(error.message || 'Failed to delete API key');
+        } finally {
+            // Close the dialog in both success and error cases
             showDeleteDialog = false;
         }
     }
@@ -223,30 +220,52 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
                     </CardTitle>
                     <CardDescription>Manage your API keys for accessing the API</CardDescription>
                 </div>
-                <form method="POST" action="?/createApiKey" use:formEnhance={({ form }) => {
-                    return async ({ result }) => {
-                        if (result.type === 'success') {
-                            console.log('Form success result:', result);
-                            if (result.data?.data) {
-                                newKeyData = result.data.data;
-                                showNewKeyDialog = true;
-                            } else if (result.data?.key) {
-                                newKeyData = result.data;
-                                showNewKeyDialog = true;
+                <div class="flex items-center gap-2">
+                    <Button 
+                        type="button" 
+                        class="whitespace-nowrap"
+                        on:click={async () => {
+                            try {
+                                const response = await fetch('/user/profile', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Accept': 'application/json'
+                                    },
+                                    // Include session cookie for authentication
+                                    credentials: 'same-origin',
+                                    body: JSON.stringify({
+                                        name: `API Key ${new Date().toLocaleString()}`,
+                                        description: ''
+                                    })
+                                });
+
+                                const result = await response.json();
+
+                                if (!response.ok) {
+                                    throw new Error(result.error?.message || 'Failed to create API key');
+                                }
+
+                                if (result.success && result.data) {
+                                    const newKey = result.data;
+                                    // Update the local state with the new key
+                                    apiKeys = [newKey, ...apiKeys];
+                                    newKeyData = newKey;
+                                    showNewKeyDialog = true;
+                                    toast.success(result.message || 'API key created successfully');
+                                } else {
+                                    throw new Error(result.error?.message || 'Failed to create API key');
+                                }
+                            } catch (error) {
+                                console.error('Error creating API key:', error);
+                                toast.error(error.message || 'An unexpected error occurred');
                             }
-                            toast.success('API key created successfully');
-                        } else {
-                            toast.error('Failed to create API key');
-                        }
-                    };
-                }}>
-                    <input type="hidden" name="name" value="API Key" />
-                    <Button type="submit">
+                        }}
+                    >
                         <Plus class="w-4 h-4 mr-2" />
                         Create API Key
                     </Button>
-                </form>
-            </div>
+                </div>
         </CardHeader>
         <CardContent>
             {#if apiKeys.length === 0}
