@@ -3,7 +3,7 @@ import type { RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
-import { userInfoByUserId } from '$lib/server/security/auth-utils';
+import { userInfoByApiKey, userInfoByUserId } from '$lib/server/security/auth-utils';
 
 /**
  * Type for route handlers that can be protected
@@ -33,24 +33,25 @@ export function restrict<T>(
   allowedRoles: string[] = ['ADMIN']
 ): RouteHandler<T> {
   return async (event: RequestEvent) => {
+
     const auth = await event.locals.auth.validate();
-    
+
     if (!auth?.user) {
       throw error(401, 'Unauthorized');
     }
-    
+
     if (!auth.user.systemRole || !allowedRoles.includes(auth.user.systemRole)) {
-      console.log('systemRole', auth.user.systemRole, !auth.user.systemRole , !allowedRoles.includes(auth.user.systemRole));
-      console.log('Unauthorized access attempt: ', auth.user.systemRole, allowedRoles); 
+      console.log('systemRole', auth.user.systemRole, !auth.user.systemRole, !allowedRoles.includes(auth.user.systemRole));
+      console.log('Unauthorized access attempt: ', auth.user.systemRole, allowedRoles);
       throw error(403, 'Forbidden');
     }
-    
+
     // Create an enhanced event with auth information
     const authenticatedEvent = {
       ...event,
       auth
     } as AuthenticatedEvent;
-    
+
     // Pass the enhanced event to the handler
     return handler(authenticatedEvent as any);
   };
@@ -72,6 +73,11 @@ export type DeviceAuthResult = {
  * Type for the event object passed to the restrict_device function
  */
 export type DeviceAuthEvent = {
+  locals: RequestEvent['locals'];
+  request: Request;
+};
+
+export type ApiAuthEvent = {
   locals: RequestEvent['locals'];
   request: Request;
 };
@@ -131,7 +137,7 @@ export async function restrict_device(
   });
 
   const userInfo: UserInfo = await userInfoByUserId(device.user.id);
-  
+
   return { device, userInfo };
 }
 
@@ -145,14 +151,66 @@ export function restrictAuth<T>(
 ): RouteHandler<T> {
   return async (event: RequestEvent) => {
     const auth = await event.locals.auth.validate();
-    
+
     if (!auth?.user) {
       throw error(401, 'Unauthorized');
     }
-    
+
     return handler(event);
   };
 }
+
+/*************************************************************************************
+ * 
+ *  A restriction for api
+ *  - validate the x-api-key
+ *  - get the userInfo by querying db to get the creator of this x-api-key
+ *  - same check if 'ADMIN' or 'USER'
+ * 
+ *************************************************************************************/
+/**
+ * Restricts access to a route using API key authentication
+ * Similar to restrict but uses API key instead of session
+ * @param handler The route handler function to protect
+ * @returns A protected route handler that validates API key
+ */
+export function restrict_api<T>(
+  handler: (event: RequestEvent & { auth: { user: UserInfo } }) => Promise<T>,
+  allowedRoles: string[] = ['ADMIN']
+): (event: RequestEvent) => Promise<T | Response> {
+  return async (event: RequestEvent) => {
+      const { request } = event;
+      // Try both header variations to handle case sensitivity issues
+      const apiKey = request.headers.get('x-api-key') || request.headers.get('x-api-Key');
+
+      if (!apiKey) {
+        logger.warn('No API Key provided');
+        return json({ error: 'No API Key provided' }, { status: 400 });
+      }
+
+      const userInfo = await userInfoByApiKey(apiKey);
+      
+      if (!userInfo) {
+        throw error(401, 'Unauthorized');
+      }
+  
+      if (!userInfo.systemRole || !allowedRoles.includes(userInfo.systemRole)) {
+        console.log('systemRole', userInfo.systemRole, !userInfo.systemRole, !allowedRoles.includes(userInfo.systemRole));
+        console.log('Unauthorized access attempt: ', userInfo.systemRole, allowedRoles);
+        throw error(403, 'Forbidden');
+      }
+  
+      // Create an enhanced event with auth information
+      const authenticatedEvent = {
+        ...event,
+        userInfo,
+      } as unknown as AuthenticatedEvent;
+  
+      // Pass the enhanced event to the handler
+      return handler(authenticatedEvent as any);
+    };
+}
+
 
 /**
  * Allows unrestricted access to a route
@@ -164,3 +222,8 @@ export function restrictAuth<T>(
 export function unrestricted<T>(handler: RouteHandler<T>): RouteHandler<T> {
   return handler;
 }
+
+
+
+
+
