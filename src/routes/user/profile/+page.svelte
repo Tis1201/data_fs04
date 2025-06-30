@@ -8,7 +8,7 @@
     import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
     import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "$lib/components/ui/dialog";
     import { Textarea } from "$lib/components/ui/textarea";
-    import { Pencil, User, Key, Plus, Copy, ToggleLeft, ToggleRight, Trash2, AlertCircle } from "lucide-svelte";
+    import { Pencil, User, Key, Plus, Copy, ToggleLeft, ToggleRight, Trash2, AlertCircle, RefreshCw } from "lucide-svelte";
 import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
@@ -17,8 +17,13 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
     import { enhance } from '$app/forms';
     import { onMount } from 'svelte';
     import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
+    import { z } from 'zod';
     
-    export let data: PageData;
+    // Define the API key schema
+    const apiKeySchema = z.object({
+        name: z.string().min(1, 'Name is required'),
+        description: z.string().optional()
+    });
     
     const pageCrumbs = [
         ["User", "/user"],
@@ -40,7 +45,18 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
     // API key state
     let showNewKeyDialog = false;
     let newKeyData: { id: string; key: string; name: string } | null = null;
-    let apiKeys = data.apiKeys || [];
+    let apiKeys: Array<{
+        id: string;
+        name: string;
+        displayKey: string;
+        createdAt: string;
+        lastUsedAt?: string;
+        expiresAt?: string;
+        active?: boolean;
+        description?: string;
+    }> = [];
+    let isLoading = true;
+    let error: string | null = null;
     
     // Delete dialog state
     let keyToDelete: string | null = null;
@@ -69,8 +85,11 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
         }
     }
     
-    // Setup form for API key creation
-    const { form } = superForm(data.form);
+    // Initialize form with default values
+    const { form } = superForm({
+        name: '',
+        description: ''
+    });
     
     // Copy API key to clipboard
     function copyToClipboard(text: string) {
@@ -144,12 +163,51 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
         }
     }
     
+    // Fetch API keys
+    async function fetchApiKeys() {
+        isLoading = true;
+        error = null;
+        try {
+            const response = await fetch('/user/profile', {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                },
+                credentials: 'same-origin'
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok && result.success) {
+                apiKeys = result.data || [];
+            } else {
+                throw new Error(result.error?.message || 'Failed to load API keys');
+            }
+        } catch (err) {
+            console.error('Error fetching API keys:', err);
+            error = err.message || 'Failed to load API keys';
+        } finally {
+            isLoading = false;
+        }
+    }
+
+    // Load API keys when component mounts
+    onMount(() => {
+        fetchApiKeys();
+    });
+
     // Action buttons for the page layout
     const actionButtons = [
         {
             label: editMode ? 'Cancel Edit' : 'Edit Profile',
             icon: Pencil,
             onClick: () => editMode = !editMode,
+            variant: "outline"
+        },
+        {
+            label: 'Refresh',
+            icon: RefreshCw,
+            onClick: fetchApiKeys,
             variant: "outline"
         }
     ];
@@ -268,7 +326,19 @@ import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/Se
                 </div>
         </CardHeader>
         <CardContent>
-            {#if apiKeys.length === 0}
+            {#if isLoading}
+                <div class="flex justify-center py-8">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+            {:else if error}
+                <div class="text-center py-8 text-destructive">
+                    <p>{error}</p>
+                    <Button variant="ghost" on:click={fetchApiKeys} class="mt-2">
+                        <RefreshCw class="w-4 h-4 mr-2" />
+                        Try Again
+                    </Button>
+                </div>
+            {:else if apiKeys.length === 0}
                 <div class="text-center py-8 text-muted-foreground">
                     <p>No API keys found. Create your first API key to get started.</p>
                 </div>

@@ -18,14 +18,21 @@ const apiKeySchema = z.object({
 export const GET = restrict(
     async ({ locals, auth }: any) => {
         try {
+            if (!auth?.user?.id) {
+                throw new Error('User not authenticated');
+            }
+            
             const userId = auth.user.id;
+            
+            // Log the user ID for debugging
+            console.log(`Fetching API keys for user: ${userId}`);
             
             const apiKeys = await locals.prisma.apiKey.findMany({
                 where: { userId },
                 select: {
                     id: true,
                     name: true,
-                    displayKey: true,
+                    // displayKey: true,
                     createdAt: true,
                     lastUsedAt: true,
                     expiresAt: true
@@ -33,12 +40,16 @@ export const GET = restrict(
                 orderBy: { createdAt: 'desc' }
             });
 
+            console.log(`Found ${apiKeys.length} API keys for user ${userId}`);
+
             return json(createSuccessResponse(apiKeys, {
                 message: 'API keys retrieved successfully'
             }));
         } catch (error) {
-            return json(createErrorResponse(new Error('Failed to retrieve API keys'), {
-                code: 'API_KEYS_FETCH_ERROR'
+            console.error('Error fetching API keys:', error);
+            return json(createErrorResponse(error instanceof Error ? error : new Error('Failed to retrieve API keys'), {
+                code: 'API_KEYS_FETCH_ERROR',
+                details: error instanceof Error ? error.message : 'Unknown error occurred'
             }), { status: 500 });
         }
     },
@@ -47,7 +58,7 @@ export const GET = restrict(
 
 // Create new API key
 export const POST = restrict(
-    async ({ request, locals, auth }) => {
+    async ({ request, locals, auth }: any) => {
         try {
             // Parse the request body directly
             const data = await request.json();
@@ -86,11 +97,14 @@ export const POST = restrict(
             return json(createSuccessResponse(newKey, {
                 message: 'API key created successfully'
             }));
-        } catch (error) {
-            return json(createErrorResponse(error, {
-                code: 'API_KEY_CREATION_ERROR',
-                defaultMessage: 'Failed to create API key'
-            }), { status: 500 });
+        } catch (error:any) {
+            return handleApiError({
+                error,
+                prisma: locals.prisma,
+                defaultMessage: 'Failed to process request',
+                action: 'processing data',
+                status: 500 // Optional HTTP status code
+              });
         }
     },
     [SystemRole.USER, SystemRole.ADMIN, SystemRole.SUPER_ADMIN]
