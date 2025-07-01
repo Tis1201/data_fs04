@@ -194,9 +194,47 @@ export class WhatsAppSession extends EventEmitter {
     this.emit('message', msg);
   };
 
-  public async sendMessage(jid: string, content: AnyMessageContent) {
-    if (!this.sock) throw new Error("Socket not initialized");
-    await this.sock.sendMessage(jid, content);
+  /**
+   * Sends a message to the specified JID
+   * @param jid The JID to send the message to
+   * @param content The message content
+   * @returns The message info including ID and timestamp
+   */
+  public async sendMessage(jid: string, content: AnyMessageContent): Promise<proto.WebMessageInfo> {
+    try {
+      if (!this.sock) {
+        throw new Error("WhatsApp socket is not initialized");
+      }
+
+      if (!jid) {
+        throw new Error("Recipient JID is required");
+      }
+
+      if (!content) {
+        throw new Error("Message content is required");
+      }
+
+      this.logger.info(`[${this.session_id}] Sending message to ${jid}`);
+      
+      // Add message ID for tracking
+      const messageInfo = await this.sock.sendMessage(jid, content);
+      
+      if (!messageInfo?.key?.id) {
+        throw new Error("Failed to send message: No message ID returned");
+      }
+
+      this.logger.info(`[${this.session_id}] Message sent successfully with ID: ${messageInfo.key.id}`);
+      
+      return messageInfo;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`[${this.session_id}] Failed to send message to ${jid}: ${errorMessage}`);
+      
+      // Emit error event
+      this.emit('error', error instanceof Error ? error : new Error(errorMessage));
+      
+      throw new Error(`Failed to send message: ${errorMessage}`);
+    }
   }
 
   public async shutdown() {

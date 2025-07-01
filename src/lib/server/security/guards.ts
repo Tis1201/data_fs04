@@ -168,13 +168,51 @@ export function restrictAuth<T>(
  *  - same check if 'ADMIN' or 'USER'
  * 
  *************************************************************************************/
+export function restrict_api<T>(
+  handler: (event: RequestEvent & { userInfo: UserInfo }) => Promise<Response>,
+  allowedRoles: string[] = ['ADMIN']
+) {
+  return async (event: RequestEvent): Promise<Response> => {
+    const { request } = event;
+    
+    // Try both header variations to handle case sensitivity issues
+    const apiKey = request.headers.get('x-api-key') || request.headers.get('x-api-Key');
+
+    if (!apiKey) {
+      logger.warn('No API Key provided');
+      return json({ error: 'No API Key provided' }, { status: 400 });
+    }
+
+    const userInfo = await userInfoByApiKey(apiKey);
+    
+    if (!userInfo) {
+      return json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (!userInfo.systemRole || !allowedRoles.includes(userInfo.systemRole)) {
+      logger.warn(`Unauthorized access attempt by ${userInfo.email} with role ${userInfo.systemRole}`);
+      return json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Create enhanced event with userInfo
+    const enhancedEvent = {
+      ...event,
+      userInfo
+    } as RequestEvent & { userInfo: UserInfo };
+
+    return handler(enhancedEvent);
+  };
+}
+
+
+
 /**
  * Restricts access to a route using API key authentication
  * Similar to restrict but uses API key instead of session
  * @param handler The route handler function to protect
  * @returns A protected route handler that validates API key
  */
-export function restrict_api<T>(
+export function restrict_api_2<T>(
   handler: (event: RequestEvent & { auth: { user: UserInfo } }) => Promise<T>,
   allowedRoles: string[] = ['ADMIN']
 ): (event: RequestEvent) => Promise<T | Response> {
