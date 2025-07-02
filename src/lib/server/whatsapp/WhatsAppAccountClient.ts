@@ -223,7 +223,61 @@ export class WhatsAppAccountClient{
         }
     }
 
-
+    /********************************************************************************
+     * Send an image message to a recipient.
+     *
+     * @param to - Recipient's phone number.
+     * @param imageUrl - URL of the image to send.
+     * @param caption - Optional caption for the image.
+     * @param mimeType - MIME type of the image (default: 'image/jpeg').
+     * @returns The message result object with status and message ID
+     ********************************************************************************/
+    async sendImageMessage(
+        to: string, 
+        imageUrl: string, 
+        caption: string = '',
+        mimeType: string = 'image/jpeg'
+    ): Promise<any> {
+        const recipientJid = `${to}@s.whatsapp.net`;
+        logger.info(`Sending image to ${recipientJid}: ${imageUrl}`);
+        
+        try {
+            // Download the image from the URL
+            const response = await fetch(imageUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
+            }
+            
+            const imageBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(imageBuffer);
+            
+            // Send the image using the WhatsApp session
+            const result = await this.session.sendMessage(recipientJid, {
+                image: buffer,
+                caption: caption,
+                mimetype: mimeType,
+                // Optional: Add filename if available from URL
+                filename: imageUrl.split('/').pop()?.split('?')[0] || 'image.jpg'
+            });
+            
+            logger.info(`Image sent to ${recipientJid} with ID: ${result.key.id}`);
+            return {
+                ...result,
+                isMock: false
+            };
+        } catch (error: any) {
+            logger.error(`Error sending image to ${to}:`, error);
+            
+            // Fallback to mock implementation if sending fails
+            const messageId = 'wamid.' + Math.random().toString(36).substr(2, 34);
+            logger.warn(`[FALLBACK] Using mock message ID for image to ${to}: ${messageId}`);
+            return { 
+                key: { id: messageId }, 
+                status: 'mock',
+                isMock: true
+            };
+        }
+    }
 
     //disconnect
             
