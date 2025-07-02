@@ -1,7 +1,7 @@
 <script lang="ts">
     import { setContext } from 'svelte';
     import { writable } from 'svelte/store';
-    import { cn } from '$lib/utils';
+    import { cn } from '$lib/utils/ui-utils';
     
     export let value: number = 1;
     export let size: 'sm' | 'default' = 'default';

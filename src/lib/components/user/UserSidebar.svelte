@@ -1,6 +1,6 @@
 <script lang="ts">
     import { page } from "$app/stores";
-    import { cn } from "$lib/utils";
+    import { cn } from "$lib/utils/ui-utils";
     import SimpleSidebar from "$lib/components/ui_components_sveltekit/sidebar/SimpleSidebar.svelte";
     import {
         LayoutDashboard,
