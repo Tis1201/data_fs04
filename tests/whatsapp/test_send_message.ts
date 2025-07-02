@@ -5,7 +5,7 @@
  *************************************************************************************/
 
 import 'dotenv/config';
-import { downloadImageAsBase64, httpPost } from '$lib/utils/http-utils';
+import { downloadFileAsBase64, httpPost } from '$lib/utils/http-utils';
 
 /*************************************************************************************
  * 
@@ -72,15 +72,14 @@ async function sendWhatsAppMessage(options: SendMessageOptions) {
             ...(options.caption && { caption: options.caption }),
             ...(options.filename && { filename: options.filename })
         },
-        throwOnError: true
+        throwOnError: false
     });
+    
+    if (response.status !== 200) {
+        throw new Error(`Failed to send message: ${response.data}`);
+    }
 
-    // Log the full response for debugging
-    console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers);
-    console.log('Response json:', response.data);
-
-    console.log('✅ Message sent successfully:', response.data);
+    console.log('✅ Message sent successfully');
     return response.data;
 
 }
@@ -137,9 +136,9 @@ async function testSendImageFileMessage() {
     const imageUrl = 'https://picsum.photos/800/600';
 
     try {
-        // Download the image and convert to base64 using utility function
-        console.log(`Downloading image from: ${imageUrl}`);
-        const { base64Data, mimeType, arrayBuffer } = await downloadImageAsBase64(imageUrl);
+        // Download the file and convert to base64 using utility function
+        console.log(`Downloading file from: ${imageUrl}`);
+        const { base64Data, mimeType, arrayBuffer } = await downloadFileAsBase64(imageUrl);
 
         // Create data URL
         const dataUrl = `data:${mimeType};base64,${base64Data}`;
@@ -161,6 +160,41 @@ async function testSendImageFileMessage() {
     }
 }
 
+/*************************************************************************************
+ * 
+ * Test sending a PDF file
+ * 
+ * @returns Promise that resolves when the test is complete
+ * 
+ *************************************************************************************/
+async function testSendPdfFileMessage() {
+    console.log('\n📄 Sending PDF file...');
+    const pdfUrl = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+    try {
+        // Download the PDF and convert to base64 using utility function
+        console.log(`Downloading PDF from: ${pdfUrl}`);
+        const { base64Data, mimeType, arrayBuffer } = await downloadFileAsBase64(pdfUrl, 'application/pdf');
+
+        // Create data URL
+        const dataUrl = `data:${mimeType};base64,${base64Data}`;
+
+        // console.log(`Sending PDF (${(arrayBuffer.byteLength / 1024).toFixed(2)} KB) as base64`);
+
+        await sendWhatsAppMessage({
+            to: RECIPIENT_PHONE,
+            message: dataUrl,
+            type: 'document',
+            mimeType: mimeType,
+            filename: 'test_document.pdf',
+            caption: 'This is to share the pdf'
+        });
+
+        console.log('✅ PDF sent successfully as base64!');
+    } catch (error) {
+        console.error('❌ Error sending PDF:', error instanceof Error ? error.message : String(error));
+        throw error;
+    }
+}
 
 /*************************************************************************************
  * 
@@ -171,9 +205,11 @@ async function testSendImageFileMessage() {
  *************************************************************************************/
 async function testSendMessage() {
 
-    //await testSendTextMessage();
-    // await testSendImageUrlMessage();
+    await testSendTextMessage();
+    await testSendImageUrlMessage();
     await testSendImageFileMessage();
+    await testSendPdfFileMessage();
+
 
 
 
@@ -189,6 +225,17 @@ async function testSendMessage() {
 }
 
 // Run the test
-testSendMessage().catch(console.error);
+async function runTests() {
+    try {
+        await testSendMessage();
+        console.log('\n✅ All tests completed successfully!');
+        process.exit(0);
+    } catch (error) {
+        console.error('❌ Test failed:', error);
+        process.exit(1);
+    }
+}
+
+runTests();
 
 export { sendWhatsAppMessage };

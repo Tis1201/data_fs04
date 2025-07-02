@@ -158,6 +158,14 @@ export const POST = restrict_api(async (event) => {
         body.caption || '',
         body.mimeType || 'image/jpeg'
       );
+    } else if (type === 'document') {
+      result = await client.sendDocumentMessage(
+        to,
+        message, // document URL
+        body.filename || 'document.pdf',
+        body.caption || '',
+        body.mimeType || 'application/pdf'
+      );
     } else {
       // Default to text message
       result = await client.sendTextMessage(to, message);

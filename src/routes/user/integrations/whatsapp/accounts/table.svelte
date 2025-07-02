@@ -51,7 +51,6 @@
             label: "Name",
             sortable: true,
             field: "name",
-            width: "10%",
             render: (record: WhatsAppAccount) => ({
                 component: NameWithIdLink,
                 props: {
@@ -66,25 +65,25 @@
             label: "Phone Number",
             sortable: true,
             field: "phoneNumber",
-            width: "10%"
+            width: "20%"
         },
-        {
-            id: "api_key",
-            label: "API Key",
-            sortable: true,
-            field: "api_key",
-            width: "50%",
-            render: (record: WhatsAppAccount) => ({
-                component: SecureKeyDisplay,
-                props: {
-                    apiKey: record.api_key || "",
+        // {
+        //     id: "api_key",
+        //     label: "API Key",
+        //     sortable: true,
+        //     field: "api_key",
+        //     width: "50%",
+        //     render: (record: WhatsAppAccount) => ({
+        //         component: SecureKeyDisplay,
+        //         props: {
+        //             apiKey: record.api_key || "",
                    
-                    showCopyButton: true,
-                    showVisibilityToggle: true,
-                    className: "py-1"
-                }
-            })
-        },
+        //             showCopyButton: true,
+        //             showVisibilityToggle: true,
+        //             className: "py-1"
+        //         }
+        //     })
+        // },
         // {
         //     id: "description",
         //     label: "Description",
@@ -114,7 +113,7 @@
             label: "Created At",
             sortable: true,
             field: "createdAt",
-            width: "5%",
+            width: "20%",
             render: (record: WhatsAppAccount) => ({
                 component: RelativeDate,
                 props: {
