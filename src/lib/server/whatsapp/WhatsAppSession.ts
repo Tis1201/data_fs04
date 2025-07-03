@@ -123,10 +123,15 @@ export class WhatsAppSession extends EventEmitter {
   }
 
   private handleConnectionUpdate = async (update: any) => {
-    const { connection, lastDisconnect, qr, isNewLogin } = update;
+    const { connection, lastDisconnect, qr, isNewLogin, isOnline } = update;
 
     console.log(`[${this.session_id}] Connection update:`, update)
-
+    
+    // Log more detailed connection state information
+    if (isOnline !== undefined) {
+      console.log(`[${this.session_id}] Online status changed to: ${isOnline}`)
+    }
+    
     try {
       if (qr) {
         // const qrCode = await QRCode.toString(qr, { type: 'terminal', small: true });
@@ -138,12 +143,33 @@ export class WhatsAppSession extends EventEmitter {
       if (connection === 'close') {
         const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
         const errorMessage = lastDisconnect?.error?.message || 'Unknown error';
+        const errorStack = lastDisconnect?.error?.stack || '';
         
         console.warn(`[${this.session_id}] Connection closed with code ${statusCode}: ${errorMessage}`);
+        console.warn(`[${this.session_id}] Error stack: ${errorStack}`);
+        
+        // Log additional details about the disconnect reason
+        if (statusCode) {
+          console.warn(`[${this.session_id}] Disconnect reason code: ${statusCode}, mapped reason: ${this.getDisconnectReasonName(statusCode)}`);
+        }
+        
         this.emit('disconnected', `Connection closed: ${errorMessage}`);
 
         if (statusCode === DisconnectReason.restartRequired) {
-          console.log(`[${this.session_id}] Restarting connection...`);
+          console.log(`[${this.session_id}] Restarting connection due to restartRequired...`);
+          this.createSocket();
+        } else if (statusCode === DisconnectReason.connectionClosed) {
+          console.log(`[${this.session_id}] Restarting connection due to connectionClosed...`);
+          this.createSocket();
+        } else if (statusCode === DisconnectReason.connectionLost) {
+          console.log(`[${this.session_id}] Restarting connection due to connectionLost...`);
+          this.createSocket();
+        } else if (statusCode === DisconnectReason.connectionReplaced) {
+          console.log(`[${this.session_id}] Connection replaced - not restarting automatically`);
+        } else if (statusCode === DisconnectReason.loggedOut) {
+          console.log(`[${this.session_id}] Logged out - not restarting automatically`);
+        } else {
+          console.log(`[${this.session_id}] Unknown disconnect reason, attempting to restart connection...`);
           this.createSocket();
         }
       }
@@ -190,8 +216,25 @@ export class WhatsAppSession extends EventEmitter {
     const msg = messages[0];
     if (!msg.message) return;
     
-    console.log(`[${this.session_id}] New message from ${msg.key.remoteJid}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[${this.session_id}] [${timestamp}] New message from ${msg.key.remoteJid}`);
     this.emit('message', msg);
+  };
+  
+  // Helper method to translate disconnect reason codes to readable names
+  private getDisconnectReasonName(code: number): string {
+    const reasonMap: Record<number, string> = {
+      [DisconnectReason.connectionClosed]: 'CONNECTION_CLOSED',
+      [DisconnectReason.connectionLost]: 'CONNECTION_LOST',
+      [DisconnectReason.connectionReplaced]: 'CONNECTION_REPLACED',
+      [DisconnectReason.timedOut]: 'TIMED_OUT',
+      [DisconnectReason.loggedOut]: 'LOGGED_OUT',
+      [DisconnectReason.badSession]: 'BAD_SESSION',
+      [DisconnectReason.restartRequired]: 'RESTART_REQUIRED',
+      [DisconnectReason.multideviceMismatch]: 'MULTIDEVICE_MISMATCH'
+    };
+    
+    return reasonMap[code] || `UNKNOWN_REASON_${code}`;
   };
 
   /**
