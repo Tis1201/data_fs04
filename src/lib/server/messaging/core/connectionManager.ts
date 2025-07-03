@@ -42,7 +42,7 @@ class DefaultConnectionManager {
     connSet.add(id);
 
     logger.info(`[ConnectionManager] Registered connection: ${id}, [${connection.meta.protocol}] for user: ${userInfo.id}`);
-    logger.info(`[ConnectionManager] Total connections: ${this.liveConnections.size}, Users with connections: ${this.userConnections.size}`);
+    // logger.info(`[ConnectionManager] Total connections: ${this.liveConnections.size}, Users with connections: ${this.userConnections.size}`);
 
     this.userConnections.set(userInfo.id, connSet);
 
