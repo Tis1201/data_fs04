@@ -239,7 +239,7 @@ export class WhatsAppAccountClient{
         mimeType: string = 'image/jpeg'
     ): Promise<any> {
         const recipientJid = `${to}@s.whatsapp.net`;
-        logger.info(`Sending image to ${recipientJid}: ${imageUrl}`);
+        logger.info(`Sending image to ${recipientJid}: ${imageUrl.substring(0, 100)}`);
         
         try {
             // Download the image from the URL
