@@ -7,7 +7,7 @@
     import {Checkbox} from '$lib/components/ui/checkbox';
     import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
     import type { PageData } from './$types';
-    import { cn } from '$lib/utils';
+    import { cn } from '$lib/utils/ui-utils';
     import { AlertTriangle } from 'lucide-svelte';
     import { goto } from '$app/navigation';
     import { toast } from 'svelte-sonner';

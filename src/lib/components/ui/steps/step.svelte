@@ -1,6 +1,6 @@
 <script lang="ts">
     import { getContext } from 'svelte';
-    import { cn } from '$lib/utils';
+    import { cn } from '$lib/utils/ui-utils';
     import { CheckCircle } from 'lucide-svelte';
     
     export let value: number;

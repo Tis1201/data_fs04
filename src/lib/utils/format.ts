@@ -22,13 +22,15 @@ export function formatBytes(bytes: number, si = true, dp = 1) {
 }
 
 /**
- * Format a date string to a more readable format
+ * Format a date to a more readable format
+ * @param date - Date object or date string to format
+ * @returns Formatted date string or 'N/A' if date is falsy
  */
-export function formatDate(dateString: string): string {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+export function formatDate(date: Date | string): string {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('en-US', {
         year: 'numeric',
-        month: 'short',
+        month: 'long',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit'

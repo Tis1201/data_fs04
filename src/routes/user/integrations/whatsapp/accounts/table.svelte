@@ -19,6 +19,7 @@
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import StatusBadge from "$lib/components/ui_components_sveltekit/table/column/StatusBadge.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     
     // Get initial sort from URL or use defaults
     let initialSort = {
@@ -50,7 +51,6 @@
             label: "Name",
             sortable: true,
             field: "name",
-            width: "30%",
             render: (record: WhatsAppAccount) => ({
                 component: NameWithIdLink,
                 props: {
@@ -67,21 +67,38 @@
             field: "phoneNumber",
             width: "20%"
         },
-        {
-            id: "description",
-            label: "Description",
-            sortable: true,
-            field: "description",
-            width: "40%",
-            render: (record: WhatsAppAccount) => record.description || "N/A"
-        },
+        // {
+        //     id: "api_key",
+        //     label: "API Key",
+        //     sortable: true,
+        //     field: "api_key",
+        //     width: "50%",
+        //     render: (record: WhatsAppAccount) => ({
+        //         component: SecureKeyDisplay,
+        //         props: {
+        //             apiKey: record.api_key || "",
+                   
+        //             showCopyButton: true,
+        //             showVisibilityToggle: true,
+        //             className: "py-1"
+        //         }
+        //     })
+        // },
+        // {
+        //     id: "description",
+        //     label: "Description",
+        //     sortable: true,
+        //     field: "description",
+        //     width: "40%",
+        //     render: (record: WhatsAppAccount) => record.description || "N/A"
+        // },
         {
             id: "status",
             label: "Status",
             sortable: true,
             field: "client_status", // Using client_status for sorting
             sortKey: "client_status", // Explicit sort key for the DataTable
-            width: "20%",
+            width: "5%",
             render: (record: WhatsAppAccount) => ({
                 component: StatusBadge,
                 props: {
@@ -112,7 +129,7 @@
             id: "actions",
             label: "Actions",
             sortable: false,
-            width: "100px",
+            width: "50px",
             render: (record: WhatsAppAccount) => {
                 // Define action items here instead of in the RecordActions component
                 const actionItems: ActionItem[] = [
@@ -163,11 +180,12 @@
         if (!state.selectedRecord) return;
         
         try {
-            const response = await fetch(`/api/whatsapp/accounts/${state.selectedRecord.id}`, {
+            const response = await fetch('/user/integrations/whatsapp/accounts', {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'
-                }
+                },
+                body: JSON.stringify({ id: state.selectedRecord.id })
             });
             
             const result = await response.json();

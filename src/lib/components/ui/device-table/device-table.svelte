@@ -3,7 +3,7 @@
     import DataTable from "$lib/components/custom/table/DataTable.svelte";
     import { Badge } from "$lib/components/ui/badge";
     import { ExternalLink } from "lucide-svelte";
-    import { formatDate } from "$lib/utils";
+    import { formatDate } from "$lib/utils/format";
 
     export let data: any[] = [];
     export let meta: any = {

@@ -99,6 +99,7 @@ export async function api_delete<T = any>(
  * @param data The data to send in the request body
  * @param errorMessage Optional custom error message
  */
+
 export async function api_patch<T = any>(
     endpoint: string,
     data: object,

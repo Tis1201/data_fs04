@@ -18,14 +18,14 @@ class DefaultConnectionManager {
   private startConnectionLogging(): void {
     if (this.connectionLogInterval) return; // Already running
     
-    this.connectionLogInterval = setInterval(() => {
-      logger.info(`[ConnectionManager] Active connections: ${this.liveConnections.size}, Users: ${this.userConnections.size}`);
+    // this.connectionLogInterval = setInterval(() => {
+    //   logger.info(`[ConnectionManager] Active connections: ${this.liveConnections.size}, Users: ${this.userConnections.size}`);
       
-      // Log detailed connection info
-      if (this.liveConnections.size > 0) {
-        logger.info(`[ConnectionManager] Connection IDs: ${Array.from(this.liveConnections.keys()).join(', ')}`);
-      }
-    }, 60000); // Log every minute
+    //   // Log detailed connection info
+    //   if (this.liveConnections.size > 0) {
+    //     logger.info(`[ConnectionManager] Connection IDs: ${Array.from(this.liveConnections.keys()).join(', ')}`);
+    //   }
+    // }, 60000); // Log every minute
   }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {

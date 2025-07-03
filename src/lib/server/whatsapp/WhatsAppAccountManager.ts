@@ -35,15 +35,14 @@ export class WhatsAppAccountManager extends EventEmitter {
    ***************************************************************************************/
   public async create(clientId: string, createdBy: string): Promise<{ client: WhatsAppAccountClient }> {
     try {
-      // Create a client instance (new or restored)
-      const client: WhatsAppAccountClient = new WhatsAppAccountClient(clientId);
-
-      // Initialize the client (load user info, etc.)
+      let client = this.clients.get(clientId);
+      if (client) {
+        // Optionally re-init or update user info if needed
+        return { client };
+      }
+      client = new WhatsAppAccountClient(clientId);
       await client.init();
-
-      // Register the client
       this.clients.set(clientId, client);
-
       return { client };
     } catch (error) {
       logger.error(`[WhatsappAccountManager] Error creating/restoring WhatsApp client: ${error}`);
@@ -57,6 +56,9 @@ export class WhatsAppAccountManager extends EventEmitter {
    * 
    ***************************************************************************************/
   public getClient(sessionId: string): WhatsAppAccountClient | null {
+
+    // console.log(this.clients);
+    
     return this.clients.get(sessionId) || null;
   }
 
