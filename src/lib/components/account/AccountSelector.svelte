@@ -43,10 +43,6 @@
     }
   }
   
-  // For debugging
-  $: console.log('AccountSelector - currentAccount:', currentAccount);
-  $: console.log('AccountSelector - accountMemberships:', accountMemberships);
-  
   // Make sure we always have the latest data from the page store
   $: currentAccountName = currentAccount?.account?.name || // Nested structure
                           currentAccount?.name || // Flattened structure

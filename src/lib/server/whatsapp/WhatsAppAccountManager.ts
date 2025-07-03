@@ -48,7 +48,7 @@ export class WhatsAppAccountManager extends EventEmitter {
       logger.error(`[WhatsappAccountManager] Error creating/restoring WhatsApp client: ${error}`);
       throw error;
     }
-  }
+  }  
 
   /****************************************************************************************
    * 
