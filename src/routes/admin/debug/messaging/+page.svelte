@@ -9,6 +9,7 @@
         Users,
         MessageSquare,
     } from "lucide-svelte";
+    import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import {
         Tooltip,
         TooltipTrigger,
@@ -727,13 +728,40 @@
                                                         </TooltipContent>
                                                     </Tooltip>
                                                 </td>
-                                                <td class="py-2 px-3 text-sm"
-                                                    >{trace.from ||
-                                                        "system"}</td
-                                                >
-                                                <td class="py-2 px-3 text-sm"
-                                                    >{trace.to || "unknown"}</td
-                                                >
+                                                <td class="py-2 px-3 text-sm min-w-[150px]">
+                                                    {#if trace.from && trace.from !== 'system'}
+                                                        <NameWithIdLink
+                                                            record={{
+                                                                id: trace.from,
+                                                                name: trace.userEmail || trace.from,
+                                                                email: trace.userEmail
+                                                            }}
+                                                            baseUrl="/admin/users"
+                                                            className="text-sm"
+                                                            showId={false}
+                                                        />
+                                                    {:else}
+                                                        <div class="text-muted-foreground">system</div>
+                                                    {/if}
+                                                </td>
+                                                <td class="py-2 px-3 text-sm min-w-[150px]">
+                                                    {#if trace.to && trace.to !== 'unknown' && trace.to !== 'system'}
+                                                        <NameWithIdLink
+                                                            record={{
+                                                                id: trace.to,
+                                                                name: trace.recipientEmail || trace.to,
+                                                                email: trace.recipientEmail
+                                                            }}
+                                                            baseUrl="/admin/users"
+                                                            className="text-sm"
+                                                            showId={false}
+                                                        />
+                                                    {:else}
+                                                        <div class="text-muted-foreground">
+                                                            {trace.to === 'system' ? 'system' : 'unknown'}
+                                                        </div>
+                                                    {/if}
+                                                </td>
                                                 <td class="py-2 px-3 text-sm">
                                                     {#if trace.direction === 'IN'}
                                                         <Badge

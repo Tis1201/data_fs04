@@ -56,8 +56,10 @@ export type MessageDirection = 'IN' | 'OUT';
 export interface MessageTrace {
   id: string;
   timestamp: string;
-  from: string;
-  to: string;
+  from: string;           // User ID
+  to: string;             // Recipient ID or 'system'
+  userEmail?: string;     // User's email (from)
+  recipientEmail?: string; // Recipient's email (to)
   direction: MessageDirection;  // IN for received, OUT for sent
   authorized: boolean;
   status: 'success' | 'error';
@@ -136,6 +138,8 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: recipientId,
+      userEmail: userInfo.email, // Add user email
+      recipientEmail: (message as any).recipientEmail, // Add recipient email if available
       direction: 'OUT', // Outgoing message
       authorized: true,
       status: 'success',
@@ -178,6 +182,8 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: recipientId,
+      userEmail: userInfo.email, // Add user email
+      recipientEmail: (message as any).recipientEmail, // Add recipient email if available
       direction: 'OUT', // Outgoing message (failed authorization)
       authorized: false,
       status: 'error',
@@ -213,15 +219,12 @@ export class AuditLogger {
       payloadPreview = safeStringify(safePayload);
     }
 
-    // Special handling for request_qrcode and other incoming messages
-    const isIncomingRequest = type === 'whatsapp' && 
-      (payload as any)?.action === 'request_qrcode';
-
     this.logTrace({
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: 'system', // Received by the system
+      userEmail: userInfo.email, // Add user email
       direction: 'IN', // Always IN for received messages
       authorized: true, // Assume received messages are authorized at this stage
       status: 'success',
@@ -264,6 +267,8 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: recipientId,
+      userEmail: userInfo.email, // Add user email
+      recipientEmail: (message as any).recipientEmail, // Add recipient email if available
       direction: 'OUT', // Outgoing message (delivery failed)
       authorized: true,
       status: 'error',

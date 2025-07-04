@@ -34,7 +34,17 @@ export const publisher: Publisher = {
       
       // Log authorization failure for each intended recipient
       connectionIds.forEach(connId => {
-        AuditLogger.logAuthFailure(message, connId);
+        // Get recipient connection info for logging
+        const recipientConn = ConnectionManager.getConnection(connId);
+        const recipientEmail = recipientConn?.meta.userInfo?.email;
+        
+        // Add recipient email to message for logging
+        const messageWithRecipient = {
+          ...message,
+          recipientEmail
+        };
+        
+        AuditLogger.logAuthFailure(messageWithRecipient, connId);
       });
       
       return;
@@ -44,18 +54,28 @@ export const publisher: Publisher = {
 
     // Deliver to each connection
     await Promise.all(
-      connectionIds.map((connId) =>
-        ConnectionManager.sendTo(connId, outMessage)
+      connectionIds.map((connId) => {
+        // Get recipient connection info for logging
+        const recipientConn = ConnectionManager.getConnection(connId);
+        const recipientEmail = recipientConn?.meta.userInfo?.email;
+        
+        // Add recipient email to message for logging
+        const messageWithRecipient = {
+          ...message,
+          recipientEmail
+        };
+        
+        return ConnectionManager.sendTo(connId, outMessage)
           .then(() => {
-            // Log successful delivery
-            AuditLogger.logSuccess(message, connId);
+            // Log successful delivery with recipient info
+            AuditLogger.logSuccess(messageWithRecipient, connId);
           })
           .catch(err => {
             logger.warn(`[Publisher] Failed to send to ${connId}:`, err);
-            // Log delivery error
-            AuditLogger.logDeliveryError(message, connId, err);
-          })
-      )
+            // Log delivery error with recipient info
+            AuditLogger.logDeliveryError(messageWithRecipient, connId, err);
+          });
+      })
     );
   }
 };
