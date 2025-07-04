@@ -186,6 +186,65 @@ The message pipeline is built on **three clearly separated message types**:
 
 ---
 
+## Audit Logging
+
+The messaging system includes comprehensive audit logging to track all message flows for debugging and monitoring purposes.
+
+### Message Trace Interface
+
+```typescript
+export interface MessageTrace {
+  id: string;                     // Unique trace ID
+  timestamp: string;              // ISO timestamp
+  from: string;                   // Sender's user ID
+  to: string;                     // Recipient ID or 'system'
+  userEmail?: string;             // Sender's email
+  recipientEmail?: string;        // Recipient's email (when available)
+  direction: 'IN' | 'OUT';        // Message direction (IN for received, OUT for sent)
+  authorized: boolean;            // Whether the message was authorized
+  status: 'success' | 'error';    // Delivery status
+  messageType: string;            // Message type
+  messageScope: string;           // Message scope (e.g., 'user:self')
+  payloadType?: string;           // Type of the payload
+  payloadPreview?: string;        // Redacted preview of the payload
+  payload?: any;                  // Full message payload (redacted)
+  error?: string;                 // Error message (if any)
+  connectionId?: string;          // Connection ID (if applicable)
+  protocol?: string;              // Protocol used (e.g., 'sse', 'websocket')
+  sudo?: boolean;                 // Whether sudo was used
+}
+```
+
+### Key Features
+
+1. **Direction Tracking**
+   - `IN`: Messages received by the system (from clients or external sources)
+   - `OUT`: Messages sent from the system (to clients or external destinations)
+
+2. **User Identification**
+   - Sender and recipient emails are included when available
+   - User IDs are always logged for traceability
+   - System-generated messages are marked with `from: 'system'`
+
+3. **Payload Handling**
+   - Full payloads are stored securely with sensitive fields redacted
+   - Payload previews are generated for quick inspection
+   - Common sensitive fields (passwords, tokens, etc.) are automatically redacted
+
+4. **Status Tracking**
+   - `success`: Message was successfully processed and delivered
+   - `error`: Message processing or delivery failed
+   - Authorization failures are logged with details
+
+### Usage in Debug UI
+
+The message traces are displayed in the admin debug UI with the following features:
+
+- **From/To Columns**: Show user emails alongside user IDs for easy identification
+- **Direction Badges**: Color-coded indicators for IN/OUT messages
+- **Status Badges**: Visual indicators for success/error states
+- **Expandable Details**: View full message details including payload and error information
+
 ## Security & Best Practices
 - **Sensitive data (userInfo, protocol, etc.) is never leaked to clients.**
 - **All message boundaries are strictly typed and enforced.**
