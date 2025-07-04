@@ -6,7 +6,13 @@
         Radio,
         Users,
         MessageSquare,
+        ChevronDown,
     } from "lucide-svelte";
+    import {
+        Tooltip,
+        TooltipTrigger,
+        TooltipContent
+    } from "$lib/components/ui/tooltip";
     import { goto } from "$app/navigation";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
@@ -416,98 +422,80 @@
                                 <p>No active connections</p>
                             </div>
                         {:else}
-                            <div class="space-y-4">
-                                {#each Object.entries($userConnections) as [userId, userConns]}
-                                    <Accordion type="single" collapsible>
-                                        <AccordionItem value={userId}>
-                                            <AccordionTrigger>
-                                                <div
-                                                    class="flex items-center justify-between w-full pr-4"
-                                                >
-                                                    <div
-                                                        class="flex items-center"
-                                                    >
-                                                        <Users
-                                                            class="h-4 w-4 mr-2"
-                                                        />
-                                                        <span
-                                                            >{userConns[0]
-                                                                ?.userInfo
-                                                                ?.name ||
-                                                                userId}</span
+                            <div class="space-y-3">
+                                {#each $connections as conn}
+                                    <div class="border rounded-md p-3 hover:bg-muted/10 transition-colors">
+                                        <div class="flex items-start justify-between mb-2">
+                                            <div class="space-y-1 flex-1 min-w-0">
+                                                <div class="flex items-center">
+                                                    <span class="font-medium truncate">
+                                                        {conn.userInfo?.name || 'Anonymous User'}
+                                                    </span>
+                                                    {#if conn.userInfo?.email}
+                                                        <span class="text-muted-foreground text-sm ml-2 truncate">
+                                                            &lt;{conn.userInfo.email}&gt;
+                                                        </span>
+                                                    {/if}
+                                                </div>
+                                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                                    <div class="flex items-center">
+                                                        <span class="w-20 text-muted-foreground">Type:</span>
+                                                        <Badge 
+                                                            variant={conn.protocol === 'sse' ? 'secondary' : 'outline'}
+                                                            class={getProtocolBadge(conn.protocol) + ' ml-1'}
                                                         >
+                                                            {conn.protocol}
+                                                        </Badge>
                                                     </div>
-                                                    <Badge variant="outline"
-                                                        >{userConns.length} connection{userConns.length !==
-                                                        1
-                                                            ? "s"
-                                                            : ""}</Badge
-                                                    >
+                                                    <div class="flex items-center">
+                                                        <span class="w-20 text-muted-foreground">Node:</span>
+                                                        <span class="font-mono text-xs">{conn.nodeId}</span>
+                                                    </div>
+                                                    <div class="flex items-center">
+                                                        <span class="w-20 text-muted-foreground">Connected:</span>
+                                                        <Tooltip>
+                                                            <TooltipTrigger>
+                                                                <span class="ml-1">{formatDuration(conn.connectedAt)}</span>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p>{new Date(conn.connectedAt).toLocaleString()}</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </div>
                                                 </div>
-                                            </AccordionTrigger>
-                                            <AccordionContent>
-                                                <div class="space-y-2">
-                                                    {#each userConns as conn}
-                                                        <div
-                                                            class="border rounded-md p-3"
-                                                        >
-                                                            <div
-                                                                class="flex items-center justify-between mb-2"
-                                                            >
-                                                                <div
-                                                                    class="font-medium truncate max-w-[70%]"
-                                                                >
-                                                                    {conn.id}
-                                                                </div>
-                                                                <Badge
-                                                                    class={getProtocolBadge(
-                                                                        conn.protocol,
-                                                                    )}
-                                                                    >{conn.protocol}</Badge
-                                                                >
-                                                            </div>
-                                                            <div
-                                                                class="grid grid-cols-2 gap-2 text-sm"
-                                                            >
-                                                                <div>
-                                                                    <span
-                                                                        class="text-muted-foreground"
-                                                                        >Connected:</span
-                                                                    >
-                                                                    {formatDuration(
-                                                                        conn.connectedAt,
-                                                                    )}
-                                                                </div>
-                                                                <div>
-                                                                    <span
-                                                                        class="text-muted-foreground"
-                                                                        >Route:</span
-                                                                    >
-                                                                    {conn.route ||
-                                                                        "N/A"}
-                                                                </div>
-                                                                <div>
-                                                                    <span
-                                                                        class="text-muted-foreground"
-                                                                        >Node:</span
-                                                                    >
-                                                                    {conn.nodeId}
-                                                                </div>
-                                                                <div>
-                                                                    <span
-                                                                        class="text-muted-foreground"
-                                                                        >Session:</span
-                                                                    >
-                                                                    {conn.sessionId ||
-                                                                        "N/A"}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    {/each}
+                                            </div>
+                                            <Button variant="ghost" size="sm" class="ml-2" on:click={() => {
+                                                const connectionId = conn.id;
+                                                const element = document.getElementById(`connection-${connectionId}`);
+                                                if (element) {
+                                                    element.classList.toggle('hidden');
+                                                }
+                                            }}>
+                                                <ChevronDown class="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                        
+                                        <div id={`connection-${conn.id}`} class="hidden mt-3 pt-3 border-t">
+                                            <div class="grid grid-cols-2 gap-2 text-sm">
+                                                <div class="col-span-2">
+                                                    <span class="text-muted-foreground">Connection ID:</span>
+                                                    <code class="ml-1 text-xs bg-muted px-2 py-1 rounded">{conn.id}</code>
                                                 </div>
-                                            </AccordionContent>
-                                        </AccordionItem>
-                                    </Accordion>
+                                                <div>
+                                                    <span class="text-muted-foreground">Route:</span>
+                                                    <span class="ml-1">{conn.route || "N/A"}</span>
+                                                </div>
+                                                <div>
+                                                    <span class="text-muted-foreground">Session:</span>
+                                                    <span class="ml-1">{conn.sessionId || "N/A"}</span>
+                                                </div>
+                                                <div class="col-span-2">
+                                                    <span class="text-muted-foreground">User ID:</span>
+                                                    <code class="ml-1 text-xs bg-muted px-2 py-1 rounded">{conn.userInfo?.id || 'N/A'}</code>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 {/each}
                             </div>
                         {/if}
