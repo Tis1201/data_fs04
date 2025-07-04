@@ -7,7 +7,7 @@ import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountMana
 
 // GET endpoint to fetch messaging debug data
 export const GET = restrict(
-	async () => {
+async () => {
 		try {
 			// Get all active connections
 			const connections = await ConnectionManager.getAllConnectionMetas();
@@ -34,21 +34,21 @@ export const GET = restrict(
 				keySubscriptions[sub.key].push(sub);
 			});
 			
-			// Get active WhatsApp client IDs
+			// Get active WhatsApp client IDs - FIX: Access as a property, not a method
 			const whatsAppClients = whatsAppAccountManager.getAllClientIds;
 			
 			return json({
-				success: true,
-				connections,
-				subscriptions,
-				userConnections,
-				keySubscriptions,
-				connectionCount: connections.length,
-				subscriptionCount: subscriptions.length,
-				userCount: Object.keys(userConnections).length,
-				whatsAppClients,
-				whatsAppClientCount: whatsAppClients.length
-			});
+success: true,
+connections,
+subscriptions,
+userConnections,
+keySubscriptions,
+connectionCount: connections.length,
+subscriptionCount: subscriptions.length,
+userCount: Object.keys(userConnections).length,
+whatsAppClients,
+whatsAppClientCount: whatsAppClients.length
+});
 		} catch (err) {
 			console.error('Error fetching messaging debug data:', err);
 			return json({ success: false, error: err.message }, { status: 500 });
