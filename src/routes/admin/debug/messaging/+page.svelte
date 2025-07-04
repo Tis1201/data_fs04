@@ -3,10 +3,11 @@
         RefreshCw,
         SendHorizonal,
         Server,
+        ChevronDown,
+        ChevronUp,
         Radio,
         Users,
         MessageSquare,
-        ChevronDown,
     } from "lucide-svelte";
     import {
         Tooltip,
@@ -54,6 +55,9 @@
     import { page } from "$app/stores";
     import { onMount, onDestroy } from "svelte";
     import { writable } from "svelte/store";
+    
+    // Track which payloads are expanded
+    let showFullPayload = {};
 
     // Get data from page data
     export let data;
@@ -192,17 +196,40 @@
         return date.toLocaleString();
     }
 
-    // Format duration
+    // Format duration with relative time
     function formatDuration(timestamp) {
         if (!timestamp) return "N/A";
-        const now = Date.now();
-        const diff = now - timestamp;
+        
+        const now = new Date();
+        const date = new Date(timestamp);
+        const diff = now - date;
         const seconds = Math.floor(diff / 1000);
-
-        if (seconds < 60) return `${seconds}s ago`;
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-        return `${Math.floor(seconds / 86400)}d ago`;
+        
+        // Less than 1 minute
+        if (seconds < 60) {
+            return seconds <= 0 ? "just now" : `${seconds}s ago`;
+        }
+        
+        // Less than 1 hour
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) {
+            return `${minutes}m${minutes > 1 ? '' : ''} ago`;
+        }
+        
+        // Less than 24 hours
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) {
+            return `${hours}h${hours > 1 ? '' : ''} ago`;
+        }
+        
+        // Less than 30 days
+        const days = Math.floor(hours / 24);
+        if (days < 30) {
+            return `${days}d${days > 1 ? '' : ''} ago`;
+        }
+        
+        // More than 30 days - show date
+        return date.toLocaleDateString();
     }
 
     // Format protocol badge
@@ -690,11 +717,16 @@
                                             <tr
                                                 class="border-b hover:bg-muted/50"
                                             >
-                                                <td class="py-2 px-3 text-sm"
-                                                    >{formatDate(
-                                                        trace.timestamp,
-                                                    )}</td
-                                                >
+                                                <td class="py-2 px-3 text-sm">
+                                                    <Tooltip>
+                                                        <TooltipTrigger>
+                                                            <span>{formatDuration(trace.timestamp)}</span>
+                                                        </TooltipTrigger>
+                                                        <TooltipContent>
+                                                            <p>{formatDate(trace.timestamp)}</p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </td>
                                                 <td class="py-2 px-3 text-sm"
                                                     >{trace.from ||
                                                         "system"}</td
@@ -752,19 +784,67 @@
                                                     >{trace.messageScope ||
                                                         "unknown"}</td
                                                 >
-                                                <td class="py-2 px-3 text-sm">
-                                                    {#if trace.error}
-                                                        <span
-                                                            class="text-red-600"
-                                                            >{trace.error}</span
-                                                        >
-                                                    {:else}
-                                                        <span
-                                                            class="text-muted-foreground"
-                                                            >{trace.payloadType ||
-                                                                "unknown"}</span
-                                                        >
-                                                    {/if}
+                                                <td class="py-2 px-3 text-sm max-w-xs">
+                                                    <div class="space-y-2">
+                                                        <!-- Error Display -->
+                                                        {#if trace.error}
+                                                            <div class="text-red-600 mb-2">
+                                                                <div class="font-medium text-xs">Error:</div>
+                                                                <div class="text-xs break-all bg-red-50 p-1.5 rounded border border-red-100">
+                                                                    {trace.error}
+                                                                </div>
+                                                            </div>
+                                                        {/if}
+                                                        
+                                                        <!-- Action Badge -->
+                                                        {#if trace.payload?.action}
+                                                            <div class="mb-1">
+                                                                <div class="flex items-center justify-between">
+                                                                    <!-- <span class="text-xs font-medium text-muted-foreground">Action:</span> -->
+                                                                    <Badge variant="secondary" class="text-xs">
+                                                                        {trace.payload.action}
+                                                                    </Badge>
+                                                                </div>
+                                                            </div>
+                                                        {/if}
+                                                        
+                                                        <!-- Connection Info -->
+                                                        <!-- <div class="text-xs space-y-0.5 mt-2 pt-2 border-t">
+                                                            <div class="flex items-baseline justify-between">
+                                                                <div class="flex items-baseline">
+                                                                    <span class="text-muted-foreground mr-1">Type:</span>
+                                                                    <span class="font-mono">{trace.messageType}</span>
+                                                                </div>
+                                                                {#if trace.sudo}
+                                                                    <Badge variant="destructive" size="sm" class="text-xs h-4">SUDO</Badge>
+                                                                {/if}
+                                                            </div>
+                                                            
+                                                            {#if trace.messageScope}
+                                                                <div class="flex items-baseline">
+                                                                    <span class="text-muted-foreground mr-1">Scope:</span>
+                                                                    <span class="font-mono">{trace.messageScope}</span>
+                                                                </div>
+                                                            {/if}
+                                                            
+                                                            {#if trace.connectionId || trace.protocol}
+                                                                <div class="flex items-center space-x-3">
+                                                                    {#if trace.connectionId}
+                                                                        <div class="flex items-baseline">
+                                                                            <span class="text-muted-foreground mr-1">Conn:</span>
+                                                                            <code class="text-xs font-mono">{trace.connectionId.substring(0, 8)}...</code>
+                                                                        </div>
+                                                                    {/if}
+                                                                    {#if trace.protocol}
+                                                                        <div class="flex items-baseline">
+                                                                            <span class="text-muted-foreground mr-1">Proto:</span>
+                                                                            <span class="font-mono text-xs">{trace.protocol}</span>
+                                                                        </div>
+                                                                    {/if}
+                                                                </div>
+                                                            {/if}
+                                                        </div> -->
+                                                    </div>
                                                 </td>
                                             </tr>
                                         {/each}

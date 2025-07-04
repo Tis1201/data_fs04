@@ -2,6 +2,52 @@ import type { RoutingMessage, OutMessage } from '../interfaces/message';
 import type { UserInfo } from '$lib/server/types/user';
 import { logger } from '$lib/server/logger';
 
+// Maximum size of payload to store in traces (in characters)
+const MAX_PAYLOAD_SIZE = 1000;
+
+/**
+ * Safely stringify an object with size limits
+ */
+function safeStringify(obj: any, maxSize: number = MAX_PAYLOAD_SIZE): string {
+  try {
+    // Handle common cases quickly
+    if (obj === undefined) return 'undefined';
+    if (obj === null) return 'null';
+    if (typeof obj === 'string') return obj.length > maxSize ? obj.substring(0, maxSize) + '...' : obj;
+    if (typeof obj === 'number' || typeof obj === 'boolean') return String(obj);
+    
+    // For objects, try to stringify with a replacer to handle circular refs and large objects
+    const seen = new WeakSet();
+    const result = JSON.stringify(
+      obj,
+      (key, value) => {
+        // Handle circular references
+        if (typeof value === 'object' && value !== null) {
+          if (seen.has(value)) return '[Circular]';
+          seen.add(value);
+        }
+        
+        // Handle large strings
+        if (typeof value === 'string' && value.length > 100) {
+          return value.substring(0, 100) + '...';
+        }
+        
+        // Handle binary data
+        if (value instanceof ArrayBuffer) return '[ArrayBuffer]';
+        if (value instanceof Uint8Array) return `[Uint8Array ${value.length} bytes]`;
+        
+        return value;
+      },
+      2 // Indent with 2 spaces for pretty printing
+    );
+    
+    // Truncate if still too large
+    return result.length > maxSize ? result.substring(0, maxSize) + '...' : result;
+  } catch (err) {
+    return `[Error stringifying: ${err.message}]`;
+  }
+}
+
 /**
  * Interface for message trace entries
  */
@@ -15,6 +61,8 @@ export interface MessageTrace {
   messageType: string;
   messageScope: string;
   payloadType?: string;
+  payloadPreview?: string;  // Preview of the payload
+  payload?: any;            // Full message payload
   error?: string;
   connectionId?: string;
   protocol?: string;
@@ -62,6 +110,23 @@ export class AuditLogger {
    */
   static logSuccess(message: RoutingMessage, recipientId: string): void {
     const { userInfo, type, scope, payload, connectionId, protocol, sudo } = message;
+    const payloadType = (payload as any)?.type || typeof payload;
+    
+    // Create a safe payload preview, excluding sensitive data
+    let payloadPreview = '';
+    if (payload) {
+      const safePayload = { ...(payload as any) };
+      
+      // Redact potentially sensitive fields
+      const sensitiveFields = ['password', 'token', 'secret', 'key', 'auth', 'authorization'];
+      Object.keys(safePayload).forEach(key => {
+        if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+          safePayload[key] = '[REDACTED]';
+        }
+      });
+      
+      payloadPreview = safeStringify(safePayload);
+    }
 
     this.logTrace({
       id: crypto.randomUUID(),
@@ -72,7 +137,9 @@ export class AuditLogger {
       status: 'success',
       messageType: type,
       messageScope: scope,
-      payloadType: (payload as any).type,
+      payloadType,
+      payloadPreview,
+      payload,  // Include the full payload
       connectionId,
       protocol,
       sudo
@@ -84,6 +151,23 @@ export class AuditLogger {
    */
   static logAuthFailure(message: RoutingMessage, recipientId: string): void {
     const { userInfo, type, scope, payload } = message;
+    const payloadType = (payload as any)?.type || typeof payload;
+    
+    // Create a safe payload preview, excluding sensitive data
+    let payloadPreview = '';
+    if (payload) {
+      const safePayload = { ...(payload as any) };
+      
+      // Redact potentially sensitive fields
+      const sensitiveFields = ['password', 'token', 'secret', 'key', 'auth', 'authorization'];
+      Object.keys(safePayload).forEach(key => {
+        if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+          safePayload[key] = '[REDACTED]';
+        }
+      });
+      
+      payloadPreview = safeStringify(safePayload);
+    }
 
     this.logTrace({
       id: crypto.randomUUID(),
@@ -94,7 +178,9 @@ export class AuditLogger {
       status: 'error',
       messageType: type,
       messageScope: scope,
-      payloadType: (payload as any).type,
+      payloadType,
+      payloadPreview,
+      payload,  // Include the full payload
       error: 'Not authorized'
     });
   }
@@ -104,6 +190,23 @@ export class AuditLogger {
    */
   static logDeliveryError(message: RoutingMessage, recipientId: string, error: Error): void {
     const { userInfo, type, scope, payload } = message;
+    const payloadType = (payload as any)?.type || typeof payload;
+    
+    // Create a safe payload preview, excluding sensitive data
+    let payloadPreview = '';
+    if (payload) {
+      const safePayload = { ...(payload as any) };
+      
+      // Redact potentially sensitive fields
+      const sensitiveFields = ['password', 'token', 'secret', 'key', 'auth', 'authorization'];
+      Object.keys(safePayload).forEach(key => {
+        if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+          safePayload[key] = '[REDACTED]';
+        }
+      });
+      
+      payloadPreview = safeStringify(safePayload);
+    }
 
     this.logTrace({
       id: crypto.randomUUID(),
@@ -114,7 +217,9 @@ export class AuditLogger {
       status: 'error',
       messageType: type,
       messageScope: scope,
-      payloadType: (payload as any).type,
+      payloadType,
+      payloadPreview,
+      payload,  // Include the full payload
       error: error.message
     });
   }
