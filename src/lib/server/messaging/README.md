@@ -352,6 +352,44 @@ The messaging system supports dynamic, temporary subscriptions—ideal for real-
 
 ## Implementation Notes
 
+---
+
+## Authorization and Routing Architecture
+
+### Modular Directory Structure
+- **authorizers/**: Contains all scope-based authorizers (connection, subscription, user). Each authorizer enforces security rules for publishing to its respective scope. Authorizers share a common interface and log all decisions for traceability.
+- **connections/**: Implements protocol-specific connection logic (e.g., SSE, WebSocket).
+- **core/**: Contains the core messaging logic, including:
+  - `connectionManager.ts`: Manages live connections, user-to-connection mapping, and connection registration/unregistration.
+  - `router.ts`: Resolves message scopes to connection IDs using specialized routers (user, subscription, connection).
+  - `publisher.ts`: Main entry point for publishing messages, enforcing authorization via `ScopeAuthorizer` before delivery.
+  - `scopeAuthorizer.ts`: Delegates authorization checks to the appropriate authorizer based on scope kind.
+- **handlers/**: Message and device handler logic for specific message types.
+- **interfaces/**: TypeScript interfaces for authorizers, connections, messages, publishers, routers, and shared stores.
+- **routers/**: Specialized routers for resolving user, subscription, and connection scopes to connection IDs.
+
+### Authorizer Patterns
+- **connectionAuthorizer**: Admins can publish to any connection; non-admins can only publish to their own connections. Sudo mode (via a flag) bypasses normal checks.
+- **subscriptionAuthorizer**: Allows only if all target connections belong to the sender, unless sudo is set.
+- **userAuthorizer**: Allows messages to `user:self` or if the sender's user ID matches the target; otherwise denies. Sudo bypasses.
+
+All authorizers implement the `Authorizer` interface and log their decisions for security and debugging.
+
+### Security Enforcement
+- All message publishing is routed through `ScopeAuthorizer`, which dispatches to the correct authorizer based on the message's scope kind (`user`, `subscription`, `connection`).
+- Sudo mode allows trusted system components to bypass normal authorization checks. Never set `sudo: true` for user-originated messages.
+- All authorization and routing logic is modular and extensible for future scope kinds (e.g., group, role, room).
+
+### Routing and Delivery
+- The system uses a scope-based routing pattern. Each message's `scope` determines which router and authorizer are used.
+- Routers resolve the scope to a set of connection IDs; authorizers check if the sender is permitted to publish to those connections.
+- Only after passing authorization are messages delivered to recipients via the `ConnectionManager`.
+
+For more details, see the relevant files in each directory and the code comments for each authorizer and router.
+
+---
+
+
 ### Connection ID Handling
 
 1. **Client-Side (SSE Store)**:

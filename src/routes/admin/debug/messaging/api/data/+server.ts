@@ -1,13 +1,13 @@
+import { json } from '@sveltejs/kit';
+import { restrict } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
-import { restrict } from '$lib/server/security/guards';
-import pkg from '@prisma/client';
-import { SystemRole } from '$lib/types/roles';
-import { error } from '@sveltejs/kit';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 
-export const load = restrict(
-	async ({ locals, userInfo }:any) => {
+// GET endpoint to fetch messaging debug data
+export const GET = restrict(
+	async () => {
 		try {
 			// Get all active connections
 			const connections = await ConnectionManager.getAllConnectionMetas();
@@ -37,7 +37,8 @@ export const load = restrict(
 			// Get active WhatsApp client IDs
 			const whatsAppClients = whatsAppAccountManager.getAllClientIds;
 			
-			return {
+			return json({
+				success: true,
 				connections,
 				subscriptions,
 				userConnections,
@@ -47,10 +48,10 @@ export const load = restrict(
 				userCount: Object.keys(userConnections).length,
 				whatsAppClients,
 				whatsAppClientCount: whatsAppClients.length
-			};
+			});
 		} catch (err) {
-			console.error('Error loading messaging debug data:', err);
-			throw error(500, 'Failed to load messaging system data');
+			console.error('Error fetching messaging debug data:', err);
+			return json({ success: false, error: err.message }, { status: 500 });
 		}
 	},
 	[SystemRole.ADMIN]

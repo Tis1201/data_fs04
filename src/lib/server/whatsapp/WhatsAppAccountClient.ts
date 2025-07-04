@@ -159,6 +159,12 @@ export class WhatsAppAccountClient{
         this.connectionState = state;
         this.lastConnectionUpdate = new Date();
 
+        logger.debug(`[${this.id}] Connection state updated: ${previousState} -> ${state}`, {
+            previousState,
+            newState: state,
+            timestamp: this.lastConnectionUpdate.toISOString()
+        });
+
         try {
             await this.prisma.whatsAppAccount.update({
                 where: { client_id: this.id },

@@ -30,15 +30,16 @@
     ];
     
     // Store for real-time data
-    const connections = writable(data.connections || []);
-    const subscriptions = writable(data.subscriptions || []);
-    const userConnections = writable(data.userConnections || {});
-    const keySubscriptions = writable(data.keySubscriptions || {});
-    const whatsAppClients = writable(data.whatsAppClients || []);
-    const connectionCount = writable(data.connectionCount || 0);
-    const subscriptionCount = writable(data.subscriptionCount || 0);
-    const userCount = writable(data.userCount || 0);
-    const whatsAppClientCount = writable(data.whatsAppClientCount || 0);
+    const connections = writable([]);
+    const subscriptions = writable([]);
+    const userConnections = writable({});
+    const keySubscriptions = writable({});
+    const connectionCount = writable(0);
+    const subscriptionCount = writable(0);
+    const userCount = writable(0);
+    const whatsAppClients = writable([]);
+    const whatsAppClientCount = writable(0);
+    const messageTraces = writable([]);
     
     // Message tester state
     let messageType = "message";
@@ -50,16 +51,34 @@
     // Refresh data
     async function refreshData() {
         try {
-            const response = await fetch(`/admin/debug/messaging?_=${Date.now()}`);
-            const json = await response.json();
+            // First clean up any stale connections
+            await fetch('/admin/debug/messaging/api/data/cleanup', {
+                method: 'POST'
+            });
             
-            connections.set(json.connections || []);
-            subscriptions.set(json.subscriptions || []);
-            userConnections.set(json.userConnections || {});
-            keySubscriptions.set(json.keySubscriptions || {});
-            connectionCount.set(json.connectionCount || 0);
-            subscriptionCount.set(json.subscriptionCount || 0);
-            userCount.set(json.userCount || 0);
+            // Then fetch main debug data
+            const debugResponse = await fetch(`/admin/debug/messaging/api/data?_=${Date.now()}`);
+            const debugJson = await debugResponse.json();
+            
+            if (debugJson.success) {
+                connections.set(debugJson.connections || []);
+                subscriptions.set(debugJson.subscriptions || []);
+                userConnections.set(debugJson.userConnections || {});
+                keySubscriptions.set(debugJson.keySubscriptions || {});
+                connectionCount.set(debugJson.connectionCount || 0);
+                subscriptionCount.set(debugJson.subscriptionCount || 0);
+                userCount.set(debugJson.userCount || 0);
+                whatsAppClients.set(debugJson.whatsAppClients || []);
+                whatsAppClientCount.set(debugJson.whatsAppClientCount || 0);
+            }
+            
+            // Fetch message traces from dedicated API endpoint
+            const tracesResponse = await fetch(`/admin/debug/messaging/api/traces?_=${Date.now()}`);
+            const tracesJson = await tracesResponse.json();
+            
+            if (tracesJson.success && tracesJson.messageTraces && tracesJson.messageTraces.length > 0) {
+                messageTraces.set(tracesJson.messageTraces);
+            }
         } catch (err) {
             console.error("Failed to refresh messaging data:", err);
         }
@@ -78,7 +97,7 @@
                 return;
             }
             
-            const response = await fetch(`/admin/debug/messaging/send`, {
+            const response = await fetch(`/admin/debug/messaging/api/send`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -107,7 +126,9 @@
     
     // Handle page load
     onMount(() => {
-        // Refresh data every 5 seconds
+        // Load data immediately
+        refreshData();
+        // Then refresh data every 5 seconds
         refreshInterval = setInterval(refreshData, 5000);
     });
     
@@ -265,11 +286,27 @@
         
         <!-- Main Tabs -->
         <Tabs defaultValue="connections" class="w-full">
-            <TabsList class="grid grid-cols-4 mb-4">
-                <TabsTrigger value="connections">Connections</TabsTrigger>
-                <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
-                <TabsTrigger value="whatsapp">WhatsApp Clients</TabsTrigger>
-                <TabsTrigger value="message-tester">Message Tester</TabsTrigger>
+            <TabsList class="grid grid-cols-5 mb-4">
+                <TabsTrigger value="connections">
+                    <Server class="h-4 w-4 mr-2" />
+                    Connections
+                </TabsTrigger>
+                <TabsTrigger value="subscriptions">
+                    <Radio class="h-4 w-4 mr-2" />
+                    Subscriptions
+                </TabsTrigger>
+                <TabsTrigger value="whatsapp">
+                    <MessageSquare class="h-4 w-4 mr-2" />
+                    WhatsApp
+                </TabsTrigger>
+                <TabsTrigger value="traces">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 mr-2"><path d="M17 22v-8.3a2 2 0 0 0-3.1-1.7l-1.9 1.3"></path><path d="M12 12v4h4.3a2 2 0 0 0 1.7-3.3l-4.3-6.2c-.4-.5-1.1-.5-1.4 0L8 12.7"></path><path d="M7 17v5"></path><path d="M7 17H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-3"></path></svg>
+                    Message Traces
+                </TabsTrigger>
+                <TabsTrigger value="message-tester">
+                    <SendHorizonal class="h-4 w-4 mr-2" />
+                    Message Tester
+                </TabsTrigger>
             </TabsList>
             
             <!-- Connections Tab -->
@@ -408,6 +445,91 @@
                                         <Badge variant="outline" class="text-xs">Connected</Badge>
                                     </div>
                                 {/each}
+                            </div>
+                        {/if}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            
+            <!-- Message Traces Tab -->
+            <TabsContent value="traces" class="space-y-4">
+                <Card class="w-full">
+                    <CardHeader class="flex flex-row items-center justify-between">
+                        <div>
+                            <CardTitle>Message Traces</CardTitle>
+                            <CardDescription>Audit log of message flow through the system</CardDescription>
+                        </div>
+                        <Button variant="outline" size="sm" on:click={() => {
+                            fetch('/admin/debug/messaging/api/traces/clear', {
+                                method: 'POST'
+                            }).then(() => {
+                                // Clear local traces immediately
+                                messageTraces.set([]);
+                                // Then refresh other data
+                                refreshData();
+                            });
+                        }}>
+                            Clear Traces
+                        </Button>
+                    </CardHeader>
+                    <CardContent>
+                        {#if $messageTraces.length === 0}
+                            <div class="text-center py-8 text-muted-foreground">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto h-12 w-12 opacity-20 mb-2"><path d="M17 22v-8.3a2 2 0 0 0-3.1-1.7l-1.9 1.3"></path><path d="M12 12v4h4.3a2 2 0 0 0 1.7-3.3l-4.3-6.2c-.4-.5-1.1-.5-1.4 0L8 12.7"></path><path d="M7 17v5"></path><path d="M7 17H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-3"></path></svg>
+                                <p>No message traces recorded</p>
+                            </div>
+                        {:else}
+                            <div class="overflow-x-auto">
+                                <table class="w-full border-collapse">
+                                    <thead>
+                                        <tr class="border-b">
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Time</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">From</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">To</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Auth</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Status</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Type</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Scope</th>
+                                            <th class="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {#each $messageTraces as trace}
+                                            <tr class="border-b hover:bg-muted/50">
+                                                <td class="py-2 px-3 text-sm">{formatDate(trace.timestamp)}</td>
+                                                <td class="py-2 px-3 text-sm">{trace.from || 'system'}</td>
+                                                <td class="py-2 px-3 text-sm">{trace.to || 'unknown'}</td>
+                                                <td class="py-2 px-3 text-sm">
+                                                    {#if trace.authorized === true}
+                                                        <Badge variant="outline" class="bg-green-100 text-green-800 hover:bg-green-100">Yes</Badge>
+                                                    {:else if trace.authorized === false}
+                                                        <Badge variant="outline" class="bg-red-100 text-red-800 hover:bg-red-100">No</Badge>
+                                                    {:else}
+                                                        <Badge variant="outline" class="bg-gray-100 text-gray-800 hover:bg-gray-100">N/A</Badge>
+                                                    {/if}
+                                                </td>
+                                                <td class="py-2 px-3 text-sm">
+                                                    {#if trace.status === 'success'}
+                                                        <Badge variant="outline" class="bg-green-100 text-green-800 hover:bg-green-100">Success</Badge>
+                                                    {:else if trace.status === 'error'}
+                                                        <Badge variant="outline" class="bg-red-100 text-red-800 hover:bg-red-100">Error</Badge>
+                                                    {:else}
+                                                        <Badge variant="outline" class="bg-gray-100 text-gray-800 hover:bg-gray-100">{trace.status}</Badge>
+                                                    {/if}
+                                                </td>
+                                                <td class="py-2 px-3 text-sm">{trace.messageType || 'unknown'}</td>
+                                                <td class="py-2 px-3 text-sm">{trace.messageScope || 'unknown'}</td>
+                                                <td class="py-2 px-3 text-sm">
+                                                    {#if trace.error}
+                                                        <span class="text-red-600">{trace.error}</span>
+                                                    {:else}
+                                                        <span class="text-muted-foreground">{trace.payloadType || 'unknown'}</span>
+                                                    {/if}
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
                             </div>
                         {/if}
                     </CardContent>
