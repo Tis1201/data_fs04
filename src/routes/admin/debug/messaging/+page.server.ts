@@ -4,6 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import pkg from '@prisma/client';
 import { SystemRole } from '$lib/types/roles';
 import { error } from '@sveltejs/kit';
+import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 
 export const load = restrict(
 	async ({ locals, userInfo }:any) => {
@@ -33,6 +34,9 @@ export const load = restrict(
 				keySubscriptions[sub.key].push(sub);
 			});
 			
+			// Get active WhatsApp client IDs
+			const whatsAppClients = whatsAppAccountManager.getAllClientIds;
+			
 			return {
 				connections,
 				subscriptions,
@@ -40,7 +44,9 @@ export const load = restrict(
 				keySubscriptions,
 				connectionCount: connections.length,
 				subscriptionCount: subscriptions.length,
-				userCount: Object.keys(userConnections).length
+				userCount: Object.keys(userConnections).length,
+				whatsAppClients,
+				whatsAppClientCount: whatsAppClients.length
 			};
 		} catch (err) {
 			console.error('Error loading messaging debug data:', err);

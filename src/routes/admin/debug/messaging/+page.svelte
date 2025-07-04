@@ -34,9 +34,11 @@
     const subscriptions = writable(data.subscriptions || []);
     const userConnections = writable(data.userConnections || {});
     const keySubscriptions = writable(data.keySubscriptions || {});
+    const whatsAppClients = writable(data.whatsAppClients || []);
     const connectionCount = writable(data.connectionCount || 0);
     const subscriptionCount = writable(data.subscriptionCount || 0);
     const userCount = writable(data.userCount || 0);
+    const whatsAppClientCount = writable(data.whatsAppClientCount || 0);
     
     // Message tester state
     let messageType = "message";
@@ -116,6 +118,12 @@
         }
     });
     
+    // Format number with commas
+    function formatNumber(num) {
+        if (num === undefined || num === null) return '0';
+        return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    }
+    
     // Format date
     function formatDate(timestamp) {
         if (!timestamp) return "N/A";
@@ -166,33 +174,90 @@
     
     <PageContent>
         <!-- Stats Cards -->
-        <div class="grid gap-4 md:grid-cols-3 mb-6">
-            <Card>
-                <CardHeader class="pb-2">
-                    <CardTitle class="text-sm font-medium">Active Connections</CardTitle>
+        <div class="grid gap-4 md:grid-cols-4 mb-6">
+            <!-- Active Connections Card -->
+            <Card class="relative overflow-hidden">
+                <div class="absolute top-0 right-0 h-1 w-full bg-gradient-to-r from-blue-400 to-blue-600"></div>
+                <CardHeader class="pb-1 pt-4">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-3xl font-bold">
+                            {formatNumber($connectionCount)}
+                        </CardTitle>
+                        <div class="p-2 rounded-full bg-blue-100 text-blue-600">
+                            <Users class="h-5 w-5" />
+                        </div>
+                    </div>
+                    <p class="text-xs font-medium text-muted-foreground mt-1">Active Connections</p>
                 </CardHeader>
                 <CardContent>
-                    <div class="text-2xl font-bold">{$connectionCount}</div>
-                    <p class="text-xs text-muted-foreground">Across {$userCount} users</p>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader class="pb-2">
-                    <CardTitle class="text-sm font-medium">Active Subscriptions</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div class="text-2xl font-bold">{$subscriptionCount}</div>
-                    <p class="text-xs text-muted-foreground">Across {Object.keys($keySubscriptions).length} topics</p>
-                </CardContent>
-            </Card>
-            <Card>
-                <CardHeader class="pb-2">
-                    <CardTitle class="text-sm font-medium">System Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div class="flex items-center">
+                    <div class="flex items-center text-sm">
                         <div class="h-2 w-2 rounded-full bg-green-500 mr-2"></div>
-                        <div class="font-medium">Operational</div>
+                        <span class="font-medium">{Object.keys($userConnections).length} users connected</span>
+                    </div>
+                </CardContent>
+            </Card>
+            
+            <!-- WhatsApp Clients Card -->
+            <Card class="relative overflow-hidden">
+                <div class="absolute top-0 right-0 h-1 w-full bg-gradient-to-r from-green-400 to-green-600"></div>
+                <CardHeader class="pb-1 pt-4">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-3xl font-bold">
+                            {formatNumber($whatsAppClientCount)}
+                        </CardTitle>
+                        <div class="p-2 rounded-full bg-green-100 text-green-600">
+                            <MessageSquare class="h-5 w-5" />
+                        </div>
+                    </div>
+                    <p class="text-xs font-medium text-muted-foreground mt-1">WhatsApp Clients</p>
+                </CardHeader>
+                <CardContent>
+                    <div class="flex items-center text-sm">
+                        <div class="h-2 w-2 rounded-full {$whatsAppClientCount > 0 ? 'bg-green-500' : 'bg-gray-300'} mr-2"></div>
+                        <span class="font-medium">{$whatsAppClientCount > 0 ? 'Active connections' : 'No active connections'}</span>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- Subscriptions Card -->
+            <Card class="relative overflow-hidden">
+                <div class="absolute top-0 right-0 h-1 w-full bg-gradient-to-r from-purple-400 to-purple-600"></div>
+                <CardHeader class="pb-1 pt-4">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-3xl font-bold">
+                            {formatNumber($subscriptionCount)}
+                        </CardTitle>
+                        <div class="p-2 rounded-full bg-purple-100 text-purple-600">
+                            <Radio class="h-5 w-5" />
+                        </div>
+                    </div>
+                    <p class="text-xs font-medium text-muted-foreground mt-1">Active Subscriptions</p>
+                </CardHeader>
+                <CardContent>
+                    <div class="flex items-center text-sm">
+                        <span class="font-medium">Across {formatNumber(Object.keys($keySubscriptions).length)} topics</span>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- System Status Card -->
+            <Card class="relative overflow-hidden">
+                <div class="absolute top-0 right-0 h-1 w-full bg-gradient-to-r from-emerald-400 to-emerald-600"></div>
+                <CardHeader class="pb-1 pt-4">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-3xl font-bold">
+                            Online
+                        </CardTitle>
+                        <div class="p-2 rounded-full bg-emerald-100 text-emerald-600">
+                            <Server class="h-5 w-5" />
+                        </div>
+                    </div>
+                    <p class="text-xs font-medium text-muted-foreground mt-1">System Status</p>
+                </CardHeader>
+                <CardContent>
+                    <div class="flex items-center text-sm">
+                        <div class="h-2 w-2 rounded-full bg-green-500 mr-2"></div>
+                        <span class="font-medium">All systems operational</span>
                     </div>
                 </CardContent>
             </Card>
@@ -200,9 +265,10 @@
         
         <!-- Main Tabs -->
         <Tabs defaultValue="connections" class="w-full">
-            <TabsList class="grid grid-cols-3 mb-4">
+            <TabsList class="grid grid-cols-4 mb-4">
                 <TabsTrigger value="connections">Connections</TabsTrigger>
                 <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+                <TabsTrigger value="whatsapp">WhatsApp Clients</TabsTrigger>
                 <TabsTrigger value="message-tester">Message Tester</TabsTrigger>
             </TabsList>
             
@@ -314,6 +380,33 @@
                                             </AccordionContent>
                                         </AccordionItem>
                                     </Accordion>
+                                {/each}
+                            </div>
+                        {/if}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+            
+            <!-- WhatsApp Clients Tab -->
+            <TabsContent value="whatsapp" class="space-y-4">
+                <Card class="w-full">
+                    <CardHeader>
+                        <CardTitle>Active WhatsApp Clients</CardTitle>
+                        <CardDescription>Currently connected WhatsApp client sessions</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {#if $whatsAppClientCount === 0}
+                            <p class="text-sm text-muted-foreground">No active WhatsApp clients</p>
+                        {:else}
+                            <div class="space-y-2">
+                                {#each $whatsAppClients as clientId}
+                                    <div class="flex items-center justify-between p-2 border rounded">
+                                        <div class="flex items-center space-x-2">
+                                            <div class="h-2 w-2 rounded-full bg-green-500"></div>
+                                            <code class="text-sm font-mono">{clientId}</code>
+                                        </div>
+                                        <Badge variant="outline" class="text-xs">Connected</Badge>
+                                    </div>
                                 {/each}
                             </div>
                         {/if}

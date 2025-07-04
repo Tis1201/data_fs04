@@ -253,21 +253,26 @@ model ListenerWhatsAppAccount {
 }
 
 model WhatsAppAccount {
-  id            String                    @id() @default(cuid())
-  client_id     String                    @unique()
-  client_status String                    @default("DISCONNECTED")
-  createdAt     DateTime                  @default(now())
-  updatedAt     DateTime                  @updatedAt()
-  phoneNumber   String
-  name          String?
-  description   String
-  createdBy     String
-  user          User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  listeners     ListenerWhatsAppAccount[]
-  api_key       String?                   @default(cuid())
-  status        String?                   @default("ACTIVE")
-  accountId     String?                   @default(cuid())
-  account       Account?                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  id                   String                    @id() @default(cuid())
+  client_id            String                    @unique()
+  client_status        String                    @default("DISCONNECTED")
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt()
+  phoneNumber          String
+  name                 String?
+  description          String
+  createdBy            String
+  user                 User                      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  listeners            ListenerWhatsAppAccount[]
+  api_key              String?                   @default(cuid())
+  status               String?                   @default("ACTIVE")
+  connectionState      String?                   @default("disconnected")
+  lastConnectionUpdate DateTime?
+  lastError            String?
+  isAuthenticated      Boolean                   @default(false)
+  lastAuthenticated    DateTime?
+  accountId            String?                   @default(cuid())
+  account              Account?                  @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([createdBy])
   @@index([accountId])
