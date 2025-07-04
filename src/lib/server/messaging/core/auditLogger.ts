@@ -1,4 +1,4 @@
-import type { RoutingMessage, OutMessage } from '../interfaces/message';
+import type { RoutingMessage, OutMessage, InMessage } from '../interfaces/message';
 import type { UserInfo } from '$lib/server/types/user';
 import { logger } from '$lib/server/logger';
 
@@ -51,11 +51,14 @@ function safeStringify(obj: any, maxSize: number = MAX_PAYLOAD_SIZE): string {
 /**
  * Interface for message trace entries
  */
+export type MessageDirection = 'IN' | 'OUT';
+
 export interface MessageTrace {
   id: string;
   timestamp: string;
   from: string;
   to: string;
+  direction: MessageDirection;  // IN for received, OUT for sent
   authorized: boolean;
   status: 'success' | 'error';
   messageType: string;
@@ -133,6 +136,7 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: recipientId,
+      direction: 'OUT', // Outgoing message
       authorized: true,
       status: 'success',
       messageType: type,
@@ -174,6 +178,7 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: recipientId,
+      direction: 'OUT', // Outgoing message (failed authorization)
       authorized: false,
       status: 'error',
       messageType: type,
@@ -182,6 +187,52 @@ export class AuditLogger {
       payloadPreview,
       payload,  // Include the full payload
       error: 'Not authorized'
+    });
+  }
+
+  /**
+   * Log a received message
+   */
+  static logReceived(message: InMessage): void {
+    const { userInfo, type, scope, payload, connectionId, protocol } = message;
+    const payloadType = (payload as any)?.type || typeof payload;
+    
+    // Create a safe payload preview, excluding sensitive data
+    let payloadPreview = '';
+    if (payload) {
+      const safePayload = { ...(payload as any) };
+      
+      // Redact potentially sensitive fields
+      const sensitiveFields = ['password', 'token', 'secret', 'key', 'auth', 'authorization'];
+      Object.keys(safePayload).forEach(key => {
+        if (sensitiveFields.some(field => key.toLowerCase().includes(field))) {
+          safePayload[key] = '[REDACTED]';
+        }
+      });
+      
+      payloadPreview = safeStringify(safePayload);
+    }
+
+    // Special handling for request_qrcode and other incoming messages
+    const isIncomingRequest = type === 'whatsapp' && 
+      (payload as any)?.action === 'request_qrcode';
+
+    this.logTrace({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      from: userInfo.id,
+      to: 'system', // Received by the system
+      direction: 'IN', // Always IN for received messages
+      authorized: true, // Assume received messages are authorized at this stage
+      status: 'success',
+      messageType: type,
+      messageScope: scope,
+      payloadType,
+      payloadPreview,
+      payload, // Include the full payload
+      connectionId,
+      protocol,
+      sudo: message.sudo || false
     });
   }
 
@@ -213,6 +264,7 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       from: userInfo.id,
       to: recipientId,
+      direction: 'OUT', // Outgoing message (delivery failed)
       authorized: true,
       status: 'error',
       messageType: type,

@@ -692,7 +692,7 @@
                                             >
                                             <th
                                                 class="text-left py-2 px-3 text-xs font-medium text-muted-foreground"
-                                                >Auth</th
+                                                >Direction</th
                                             >
                                             <th
                                                 class="text-left py-2 px-3 text-xs font-medium text-muted-foreground"
@@ -735,23 +735,17 @@
                                                     >{trace.to || "unknown"}</td
                                                 >
                                                 <td class="py-2 px-3 text-sm">
-                                                    {#if trace.authorized === true}
+                                                    {#if trace.direction === 'IN'}
                                                         <Badge
                                                             variant="outline"
-                                                            class="bg-green-100 text-green-800 hover:bg-green-100"
-                                                            >Yes</Badge
-                                                        >
-                                                    {:else if trace.authorized === false}
-                                                        <Badge
-                                                            variant="outline"
-                                                            class="bg-red-100 text-red-800 hover:bg-red-100"
-                                                            >No</Badge
+                                                            class="bg-blue-100 text-blue-800 hover:bg-blue-100"
+                                                            >IN</Badge
                                                         >
                                                     {:else}
                                                         <Badge
                                                             variant="outline"
-                                                            class="bg-gray-100 text-gray-800 hover:bg-gray-100"
-                                                            >N/A</Badge
+                                                            class="bg-purple-100 text-purple-800 hover:bg-purple-100"
+                                                            >OUT</Badge
                                                         >
                                                     {/if}
                                                 </td>
