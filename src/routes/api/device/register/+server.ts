@@ -84,7 +84,7 @@ export const GET = createSSEHandler({
                 systemRole: 'ADMIN',
                 source: 'session'
             },
-            nodeId: 'device',
+            nodeId: 'device-register',
             protocol: 'sse',
             deviceId: deviceId
         };

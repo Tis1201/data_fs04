@@ -17,7 +17,7 @@ export const GET = createSSEHandler({
         
         const connectionMeta: Omit<ConnectionMeta, 'id' | 'connectedAt'> = {
             userInfo,
-            nodeId: 'node-1',
+            nodeId: 'device-listen',
             protocol: 'sse',
             deviceId: device.id,
         };

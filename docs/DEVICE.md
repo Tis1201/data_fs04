@@ -1,27 +1,34 @@
-# Device Registration & Claim Flow (Stable Overview)
+# Device Registration & Claim Flow
 
-This section summarizes the latest, stable, production-ready flow for device onboarding, registration, and user claim:
+This document outlines the current implementation of device onboarding, registration, and claiming process.
 
-## Executive Overview
+## Flow Overview
 
-1. **Device Registration & Initial Connection**
-   - Device initiates an SSE connection, passing a Factory JWT Token and a generated PIN.
-   - JWT Token and PIN are validated for authenticity, strength, and format.
-   - A UUID is generated for the device.
-   - The PIN is mapped to the device UUID in the DeviceManager (transient, with expiration).
+1. **Device Initialization**
+   - Device starts and generates a random PIN
+   - Device initiates an SSE connection to the server
+   - Server validates the connection and stores the device's connection details
 
-2. **Subscription Management**
-   - A subscription is created for the device: `subscription:device:uuid` → `subscriber:connection:uuid`.
-   - If SSE disconnects, both the subscription and the PIN-UUID mapping are removed (resource cleanup).
+2. **User Claim Process**
+   - User logs into the web interface
+   - User enters the device's PIN in the web interface
+   - Server validates the PIN and device connection
+   - Server generates an API key for the device
+   - Server sends a 'register' message to the device containing:
+     - `apiKey`: The generated API key
+     - `deviceId`: The assigned device ID
 
-3. **Device Claim by User**
-   - System waits for a user to claim the device (via web/mobile UI).
-   - On claim:
-     - DeviceManager is updated with the User ID for the device.
-     - A message is sent to `subscription:device:uuid`, routed to `subscriber:connection:connectionId` to notify the device that it has been claimed. The message includes `userInfo`, `api_key`, and `device_id`.
-     - Device receives the message, stores info securely, and disconnects (causing the subscription to disappear).
+3. **Device Registration**
+   - Device receives the 'register' message
+   - Device stores the API key and device ID locally
+   - Device sends its device information to the server using the API key
+   - Server validates the API key and updates the device record
+   - Device is now registered and ready for use
 
-4. **Device Registration Confirmation & User Notification**
+4. **Ongoing Communication**
+   - All subsequent API calls from the device include the `x-api-key` header
+   - The server validates the API key on each request
+   - Device information can be updated by sending a PUT request to `/api/device/add` with the API key in the header**
    - Device calls `/device/registered` to confirm successful registration, providing metadata (OS, model, etc).
    - Routing message is sent to `user:userId` so all user connections are notified of the new device.
    - Device then connects to `/device/listen` using the API Key for ongoing communication.
