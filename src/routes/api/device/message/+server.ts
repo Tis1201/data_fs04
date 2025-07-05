@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     const data = await request.json();
 
-    logger.debug(`Data: ${JSON.stringify(data)}`);
+    logger.debug(`-->: ${JSON.stringify(data)}`);
 
     const userInfo:UserInfo | null = await userInfoByUserId(device.user.id);
 

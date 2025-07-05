@@ -1,22 +1,18 @@
 import { pinSharedStore, deviceSharedStore } from './deviceSharedStore';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '$lib/server/logger';
-import { prisma } from '$lib/server/prisma';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
-// Import the WebSocket manager for broadcasting messages
-import { WebSocketManager } from '$lib/server/websocket/WebSocketManager';
 import type { UserInfo } from '../types/user';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
-import * as crypto from 'crypto';
 import { generateId } from 'lucia';
-import type { PrismaClient } from '@prisma/client';
-import { userInfo } from 'os';
-
+import { getEnhancedPrisma } from '$lib/server/prisma';
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
 
 export class DefaultDeviceManager {
+
+    private prisma: any = getEnhancedPrisma({ id: '', systemRole: 'ADMIN'});
     /**
      * Register a new device with a PIN code
      */
@@ -61,8 +57,6 @@ export class DefaultDeviceManager {
         // Get device from PIN store
         const deviceMeta = await pinSharedStore.getSingle(pin);
 
-
-
         if (!deviceMeta || !deviceMeta.id) {
             logger.warn(`No device found with PIN ${pin}`);
             return null;
@@ -70,63 +64,71 @@ export class DefaultDeviceManager {
 
         logger.info(`Found device with PIN ${pin}`, { deviceId: deviceMeta.id });
 
+
+
+
         // Update device metadata with claim info
-        deviceMeta.claimedAt = new Date();
-        deviceMeta.claimedById = userInfo.id;
+        // deviceMeta.claimedAt = new Date();
+        // deviceMeta.claimedById = userInfo.id;
 
-        // Store in device shared store
-        await deviceSharedStore.addMember(deviceMeta.id, deviceMeta);
+        // // Store in device shared store
+        // await deviceSharedStore.addMember(deviceMeta.id, deviceMeta);
 
+        // // Create and send routing message using deviceMeta connectionId
+        // // Log the connection information for debugging
+        // logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
 
-        // Create and send routing message using deviceMeta connectionId
-        // Log the connection information for debugging
-        logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
-
-        // Create the message with the new helper method and set sudo to true
-        const routingMessage = MessageFactory.createDeviceMessage(
-            'registered',
-            deviceMeta.id,
-            deviceMeta.connectionId || '',
-            userInfo,
-            senderConnectionId,
-            senderConnectionProtocol,
-            undefined, // No additional payload
-            true // Set sudo to true to bypass authorization
-        );
-
-        // Debug log to check if sudo property is set correctly
-        logger.debug(`[DeviceManager] Routing message sudo property: ${routingMessage.sudo}, type: ${typeof routingMessage.sudo}`);
         
-        // Publish the routing message
-        await publisher.publish(routingMessage);
-        logger.info(`Device registration message sent to device ${deviceMeta.id}`);
+        // // Update device record in our mock database
+        // if (deviceRecords[deviceMeta.id]) {
+        //     deviceRecords[deviceMeta.id] = {
+        //         ...deviceRecords[deviceMeta.id],
+        //         status: 'ACTIVE',
+        //         claimedAt: new Date(),
+        //         claimedBy: userInfo.id,
+        //         updatedAt: new Date()
+        //     };
+        // } else {
+        //     // Create a new record if it doesn't exist
+        //     deviceRecords[deviceMeta.id] = {
+        //         id: deviceMeta.id,
+        //         name: `Device-${deviceMeta.id.substring(0, 8)}`,
+        //         deviceType: deviceMeta.deviceType || 'OTHER',
+        //         model: deviceMeta.model,
+        //         status: 'ACTIVE',
+        //         claimedAt: new Date(),
+        //         claimedBy: userInfo.id,
+        //         createdAt: new Date(),
+        //         updatedAt: new Date()
+        //     };
+        // }
 
-        // Update device record in our mock database
-        if (deviceRecords[deviceMeta.id]) {
-            deviceRecords[deviceMeta.id] = {
-                ...deviceRecords[deviceMeta.id],
-                status: 'ACTIVE',
-                claimedAt: new Date(),
-                claimedBy: userInfo.id,
-                updatedAt: new Date()
-            };
-        } else {
-            // Create a new record if it doesn't exist
-            deviceRecords[deviceMeta.id] = {
-                id: deviceMeta.id,
-                name: `Device-${deviceMeta.id.substring(0, 8)}`,
-                deviceType: deviceMeta.deviceType || 'OTHER',
-                model: deviceMeta.model,
-                status: 'ACTIVE',
-                claimedAt: new Date(),
-                claimedBy: userInfo.id,
-                createdAt: new Date(),
-                updatedAt: new Date()
-            };
-        }
+
+        // // Create the message with the new helper method and set sudo to true
+        // const routingMessage = {
+        //     ...MessageFactory.createDeviceMessage(
+        //         'registered',
+        //         deviceMeta.id,
+        //         deviceMeta.connectionId || '',
+        //         userInfo,
+        //         senderConnectionId,
+        //         senderConnectionProtocol,
+        //         { sudo: true }
+        //     ),
+        //     sudo: true  // Ensure sudo is set at the message level
+        // };
+
+        // // Debug log to check if sudo property is set correctly
+        // logger.debug(`[DeviceManager] Routing message sudo property: ${routingMessage.sudo}, type: ${typeof routingMessage.sudo}`);
+        
+        // // Publish the routing message
+        // await publisher.publish(routingMessage);
+        // logger.info(`Device registration message sent to device ${deviceMeta.id}, ${JSON.stringify(routingMessage)}`);
+
 
         // Return the device record
-        return deviceRecords[deviceMeta.id];
+        // return deviceRecords[deviceMeta.id];
+        return null;
     }
 
     /**
@@ -242,7 +244,7 @@ export class DefaultDeviceManager {
                 systemGenerated: true,
                 senderId: 'system',
                 senderConnectionId: senderConnectionId,
-                senderConnectionProtocol: 'websocket'
+                senderConnectionProtocol: 'sse'
             });
             
             // Debug log to check if sudo property is set correctly

@@ -100,6 +100,11 @@ export const GET: RequestHandler = restrict(
 export const POST: RequestHandler = restrict(
     async ({ request, locals, auth }: any) => {
         try {
+            const auth           = await locals.auth.validate();
+            const currentAccount = auth?.currentAccount;
+            
+            logger.debug(`SSE message received, using currentAccount: ${JSON.stringify(currentAccount)}`);
+
             // Read the request body only once
             const body = await request.json();
             
@@ -137,11 +142,13 @@ export const POST: RequestHandler = restrict(
                 payload: message.payload,
                 requestId: message.requestId,
                 userInfo: auth.user,
+                currentAccount: currentAccount,
                 protocol: 'sse',
                 connectionId: '',  // Will be filled by the router
                 systemGenerated: false,
                 senderId: auth.user?.id,
                 senderConnectionId: connectionId,
+                senderAccountId: currentAccount?.id,
                 senderConnectionProtocol: 'sse',
                 timestamp: message.timestamp || new Date().toISOString()
             };
@@ -151,10 +158,14 @@ export const POST: RequestHandler = restrict(
                 type: message.type,
                 scope: message.scope,
                 payload: message.payload,
-                userInfo: auth.user,
+                userInfo: {
+                    ...auth.user,
+                    currentAccount: currentAccount
+                },
                 protocol: 'sse',
                 connectionId: connectionId,
-                requestId: message.requestId
+                requestId: message.requestId,
+                accountId: currentAccount?.id
             };
             
             // Log the message being processed
