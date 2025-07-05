@@ -80,7 +80,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     // Create a readable stream for SSE
     const meta: ConnectionMeta = {
         userInfo: userInfo,
-        nodeId: 'node-1',
+        nodeId: 'listener',
         protocol: 'sse',
         connectedAt: Date.now(),
         route: `api/listen/${params.slug}`

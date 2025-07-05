@@ -7,6 +7,7 @@ import { publisher } from '../messaging/core/publisher';
 import { WhatsAppSession } from './WhatsAppSession';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { SystemUser } from '../messaging/interfaces/message';
+import type { proto } from '@whiskeysockets/baileys';
 
 /****************************************************
  * WhatsAppAccountClient Class
@@ -52,6 +53,7 @@ export class WhatsAppAccountClient{
         this.session.on('ready', this.handle_ready.bind(this));
         this.session.on('disconnected', this.handle_disconnected.bind(this));
         this.session.on('error', this.handle_error.bind(this));
+        this.session.on('message', this.handleIncomingMessage.bind(this));
         this.session.init();
     }
 
@@ -194,6 +196,55 @@ export class WhatsAppAccountClient{
     private handle_disconnected(reason: string) {
         logger.warn(`[${this.id}] WhatsApp client disconnected: ${reason}`);
         this.updateConnectionState('disconnected', reason);
+    }
+
+    private async handleIncomingMessage(msg: proto.IWebMessageInfo) {
+        try {
+            const remoteJid = msg.key.remoteJid || 'unknown';
+            logger.debug(`[${this.id}] Received message from ${remoteJid}`);
+            
+            // Skip if message is from the current user
+            if (msg.key.fromMe) {
+                logger.warn(`[${this.id}] message from self`);
+                // return;
+            }
+
+            // Create a clean message object without circular references
+            const messageData = {
+                id: msg.key.id,
+                from: remoteJid,
+                timestamp: msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
+                content: msg.message?.conversation || '[Media message]',
+                clientId: this.id
+            };
+
+            logger.debug(`[${this.id}] Creating routing message for WhatsApp client ${this.id}`);
+            const routingMessage = MessageFactory.createSystemMessage(
+                'whatsapp',
+                `subscription:whatsapp:${this.id}`,
+                {
+                    action: 'message',
+                    content: msg
+                },
+                SystemUser,
+                {
+                    targetConnectionId: this.id,
+                    targetProtocol: 'whatsapp',
+                    echoToSender: false,
+                    sudo: true // Ensure message is delivered regardless of permissions
+                }
+            );
+
+            logger.debug(`[${this.id}] Publishing message to scope: subscription:whatsapp:${this.id}`);
+            await publisher.publish(routingMessage);
+            logger.debug(`[${this.id}] Successfully published message: ${msg.key.id}`);
+        } catch (error) {
+            logger.error(`[${this.id}] Error handling incoming message: ${error}`);
+            this.emit('error', { 
+                type: 'message_handling', 
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
     }
 
     private handle_qr(qr: string) {
