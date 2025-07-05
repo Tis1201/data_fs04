@@ -23,6 +23,23 @@ export type AuthenticatedEvent = RequestEvent & {
 export type AuthenticatedRouteHandler<T> = (event: AuthenticatedEvent) => Promise<T>;
 
 /**
+ * Type for the enhanced event with both auth and account information
+ */
+export type AccountAuthenticatedEvent = RequestEvent & {
+  auth: Awaited<ReturnType<RequestEvent['locals']['auth']['validate']>>;
+  accountMembership: {
+    accountId: string;
+    role: string;
+    userId: string;
+  };
+};
+
+/**
+ * Type for route handlers that receive account-authenticated events
+ */
+export type AccountAuthenticatedRouteHandler<T> = (event: AccountAuthenticatedEvent) => Promise<T>;
+
+/**
  * Restricts a route to users with specific roles
  * @param handler The route handler function to protect
  * @param allowedRoles Array of roles that are allowed to access the route
@@ -161,12 +178,12 @@ export function restrictAuth<T>(
 }
 
 /*************************************************************************************
- * 
+ *
  *  A restriction for api
  *  - validate the x-api-key
  *  - get the userInfo by querying db to get the creator of this x-api-key
  *  - same check if 'ADMIN' or 'USER'
- * 
+ *
  *************************************************************************************/
 export function restrict_api<T>(
   handler: (event: RequestEvent & { userInfo: UserInfo }) => Promise<Response>,
@@ -174,7 +191,7 @@ export function restrict_api<T>(
 ) {
   return async (event: RequestEvent): Promise<Response> => {
     const { request } = event;
-    
+
     // Try both header variations to handle case sensitivity issues
     const apiKey = request.headers.get('x-api-key') || request.headers.get('x-api-Key');
 
@@ -184,7 +201,7 @@ export function restrict_api<T>(
     }
 
     const userInfo = await userInfoByApiKey(apiKey);
-    
+
     if (!userInfo) {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -227,23 +244,23 @@ export function restrict_api_2<T>(
       }
 
       const userInfo = await userInfoByApiKey(apiKey);
-      
+
       if (!userInfo) {
         throw error(401, 'Unauthorized');
       }
-  
+
       if (!userInfo.systemRole || !allowedRoles.includes(userInfo.systemRole)) {
         console.log('systemRole', userInfo.systemRole, !userInfo.systemRole, !allowedRoles.includes(userInfo.systemRole));
         console.log('Unauthorized access attempt: ', userInfo.systemRole, allowedRoles);
         throw error(403, 'Forbidden');
       }
-  
+
       // Create an enhanced event with auth information
       const authenticatedEvent = {
         ...event,
         userInfo,
       } as unknown as AuthenticatedEvent;
-  
+
       // Pass the enhanced event to the handler
       return handler(authenticatedEvent as any);
     };
@@ -261,7 +278,140 @@ export function unrestricted<T>(handler: RouteHandler<T>): RouteHandler<T> {
   return handler;
 }
 
+/**
+ * Restricts a route to users with specific account roles
+ * @param handler The route handler function to protect
+ * @param allowedAccountRoles Array of account roles that are allowed to access the route
+ * @param options Optional configuration
+ * @returns A wrapped handler function that checks account permissions before executing
+ */
+export function restrictAccountRole<T>(
+  handler: AccountAuthenticatedRouteHandler<T> | RouteHandler<T>,
+  allowedAccountRoles: string[] = ['ADMIN', 'OWNER'],
+  options: {
+    accountIdSource?: 'cookie' | 'params';
+    cookieName?: string;
+    paramName?: string;
+  } = {}
+): RouteHandler<T> {
+  const {
+    accountIdSource = 'cookie',
+    cookieName = 'current_account_id',
+    paramName = 'accountId'
+  } = options;
 
+  return async (event: RequestEvent) => {
+    // Check authentication first
+    const auth = await event.locals.auth.validate();
 
+    if (!auth?.user) {
+      throw error(401, 'Unauthorized');
+    }
 
+    // Get current account ID based on source
+    let currentAccountId: string | null = null;
 
+    if (accountIdSource === 'cookie') {
+      currentAccountId = event.cookies.get(cookieName) || null;
+    } else if (accountIdSource === 'params') {
+      currentAccountId = event.params[paramName] || null;
+    }
+
+    if (!currentAccountId) {
+      logger.warn('No current account selected', {
+        userId: auth.user.id,
+        source: accountIdSource
+      });
+      throw error(400, 'No current account selected');
+    }
+
+    // Get user's membership in the current account
+    const currentUserMembership = await event.locals.prisma.accountMembership.findFirst({
+      where: {
+        userId: auth.user.id,
+        accountId: currentAccountId
+      }
+    });
+
+    if (!currentUserMembership) {
+      logger.warn('User not member of requested account', {
+        userId: auth.user.id,
+        accountId: currentAccountId
+      });
+      throw error(403, 'Access denied to this account');
+    }
+
+    // Check if user has required account role
+    if (!allowedAccountRoles.includes(currentUserMembership.role)) {
+      logger.warn('Insufficient account permissions', {
+        userId: auth.user.id,
+        accountId: currentAccountId,
+        userRole: currentUserMembership.role,
+        requiredRoles: allowedAccountRoles
+      });
+      throw error(403, 'Insufficient account permissions');
+    }
+
+    // Create an enhanced event with both auth and account information
+    const accountAuthenticatedEvent = {
+      ...event,
+      auth,
+      accountMembership: {
+        accountId: currentAccountId,
+        role: currentUserMembership.role,
+        userId: auth.user.id
+      }
+    } as AccountAuthenticatedEvent;
+
+    // Pass the enhanced event to the handler
+    return handler(accountAuthenticatedEvent as any);
+  };
+}
+
+/**
+ * Restricts a route to users who can edit a specific user
+ * This checks both account role permissions and self-editing permissions
+ * @param handler The route handler function to protect
+ * @param allowedAccountRoles Array of account roles that can edit any user
+ * @returns A wrapped handler function that checks edit permissions before executing
+ */
+export function restrictUserEdit<T>(
+  handler: AccountAuthenticatedRouteHandler<T> | RouteHandler<T>,
+  allowedAccountRoles: string[] = ['ADMIN', 'OWNER']
+): RouteHandler<T> {
+  return async (event: RequestEvent) => {
+    // First apply account role restrictions
+    const accountRestricted = restrictAccountRole(
+      handler,
+      [...allowedAccountRoles, 'MEMBER'], // Allow members too, we'll check specific permissions below
+      { accountIdSource: 'cookie' }
+    );
+
+    try {
+      return await accountRestricted(event);
+    } catch (err: any) {
+      // If account role check failed, check if user is editing themselves
+      if (err.status === 403) {
+        const auth = await event.locals.auth.validate();
+        const targetUserId = event.params.id;
+
+        if (auth?.user && targetUserId === auth.user.id) {
+          // User is editing themselves, allow it
+          const accountAuthenticatedEvent = {
+            ...event,
+            auth,
+            accountMembership: {
+              accountId: event.cookies.get('current_account_id') || '',
+              role: 'SELF_EDIT',
+              userId: auth.user.id
+            }
+          } as AccountAuthenticatedEvent;
+
+          return handler(accountAuthenticatedEvent as any);
+        }
+      }
+
+      throw err;
+    }
+  };
+}
