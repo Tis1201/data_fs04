@@ -125,8 +125,6 @@ export class DefaultDeviceManager {
             };
         }
 
-
-
         // Return the device record
         return deviceRecords[deviceMeta.id];
     }

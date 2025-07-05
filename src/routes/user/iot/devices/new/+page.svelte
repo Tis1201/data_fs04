@@ -10,7 +10,7 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { createClientMessage } from "$lib/types/messages";
+  import { sseStore } from "$lib/stores/sse-store";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   
@@ -176,16 +176,31 @@
                 <div class="w-full space-y-2">
                   <Button
                     type="button"
-                    on:click={() => {
+                    on:click={async () => {
                       if (!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming') return;
                       
-                      // Use WebSocket to claim device instead of form submission
+                      // Use SSE request to claim device instead of WebSocket
                       deviceStore.setClaimStatus('claiming');
-                      const message = createClientMessage('device', 'user:self', { 
-                        action: 'claim', 
-                        pin: $form.pin 
-                      });
-                      socketStore.send(message);
+                      
+                      try {
+                        const responsePayload = await sseStore.sendRequest(
+                          {
+                            type: 'device',
+                            scope: 'user:self',
+                            payload: { 
+                              action: 'claim',
+                              pin: $form.pin 
+                            }
+                          },
+                          5000, // 5 second timeout
+                          'device_claim'
+                        );
+                        
+                        console.log('[DEVICE_FORM] Claim request sent successfully:', responsePayload);
+                      } catch (error) {
+                        console.error('[DEVICE_FORM] Failed to send claim request:', error);
+                        deviceStore.setClaimStatus('failed');
+                      }
                     }}
                     class="w-full relative h-11"
                     size="lg"

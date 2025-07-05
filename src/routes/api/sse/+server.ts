@@ -127,6 +127,7 @@ export const POST: RequestHandler = restrict(
             
             // Determine if this is a WhatsApp message
             const isWhatsAppMessage = message.type === 'whatsapp';
+            const isDeviceMessage   = message.type === 'device';
             
             // Create a routing message for the publisher (will be used for non-WhatsApp messages)
             const routingMessage: RoutingMessage = {
@@ -159,11 +160,12 @@ export const POST: RequestHandler = restrict(
             // Log the message being processed
             logger.info(`[SSE] Processing message: type=${inMessage.type}, action=${inMessage.payload?.action}`);
             
-            if (isWhatsAppMessage) {
+            if (isWhatsAppMessage || isDeviceMessage) {
                 // For WhatsApp messages, directly dispatch to the handler
                 await MessageDispatcher.dispatch(inMessage);
                 // The WhatsApp handler will publish responses via the publisher
-            } else {
+            } 
+            else {
                 // For other message types, use the publisher as before
                 await publisher.publish(routingMessage);
             }

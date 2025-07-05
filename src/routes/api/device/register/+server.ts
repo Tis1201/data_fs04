@@ -78,13 +78,13 @@ export const GET = createSSEHandler({
         // Create connection metadata
         const connectionMeta: Omit<ConnectionMeta, 'id' | 'connectedAt'> = {
             userInfo: {
-                id: 'admin-1',
+                id: 'admin-device',
                 email: 'admin@admin.com',
                 name: 'Admin User',
                 systemRole: 'ADMIN',
                 source: 'session'
             },
-            nodeId: 'node-1',
+            nodeId: 'device',
             protocol: 'sse',
             deviceId: deviceId
         };

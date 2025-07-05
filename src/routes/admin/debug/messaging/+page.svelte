@@ -456,14 +456,16 @@
                                         <div class="flex items-start justify-between mb-2">
                                             <div class="space-y-1 flex-1 min-w-0">
                                                 <div class="flex items-center">
-                                                    <span class="font-medium truncate">
+                                                    <!-- <span class="font-medium truncate">
                                                         {conn.userInfo?.name || 'Anonymous User'}
+                                                    </span> -->
+                                                    <span class="font-medium truncate">
+                                                        {conn.userInfo?.email}
                                                     </span>
-                                                    {#if conn.userInfo?.email}
-                                                        <span class="text-muted-foreground text-sm ml-2 truncate">
-                                                            &lt;{conn.userInfo.email}&gt;
-                                                        </span>
-                                                    {/if}
+                                                    <!-- <span class="text-muted-foreground text-sm ml-2 truncate">
+                                                        [{conn.id}]
+                                                    </span> -->
+                                                
                                                 </div>
                                                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                                                     <div class="flex items-center">

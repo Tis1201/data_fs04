@@ -82,48 +82,55 @@ async function handleClaim(message: InMessage): Promise<void> {
 
     logger.info(`[DeviceHandler] Device registered, next step wait for device to connect: ${device.id} by user ${userInfo.id}`);
 
-    // Send success response to the client
-    // const response = MessageFactory.toRoutingMessage({
-    //   ...message,
-    //   type: 'device',
-    //   payload: {
-    //     action: 'device',
-    //     success: true,
-    //     message: {
-    //       type: 'success',
-    //       text: 'Device claimed successfully!',
-    //       timestamp: new Date().toISOString()
-    //     },
-    //     device: {
-    //       id: device.id,
-    //       name: device.name,
-    //       deviceType: device.deviceType,
-    //       status: device.status
-    //     },
-    //     timestamp: new Date().toISOString()
-    //   }
-    // } as InMessage);
+    // Send success response to the client with the original requestId
+    const successResponse = MessageFactory.toRoutingMessage({
+      ...message,
+      type: 'device',
+      requestId: message.requestId, // Preserve the original requestId for client promise resolution
+      payload: {
+        action: 'claim',
+        success: true,
+        message: {
+          type: 'success',
+          text: 'Device claimed successfully!',
+          timestamp: new Date().toISOString()
+        },
+        device: {
+          id: device.id,
+          name: device.name,
+          deviceType: device.deviceType,
+          status: device.status
+        },
+        timestamp: new Date().toISOString()
+      }
+    } as InMessage, {
+      systemGenerated: true,
+      echoToSender: true
+    });
 
-    // await publisher.publish(response);
+    await publisher.publish(successResponse);
 
   } catch (error:any) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error(`[DeviceHandler] Device claim failed:`, errorMessage);
     
-    // Send error response
+    // Send error response with the original requestId
     const errorResponse = MessageFactory.toRoutingMessage({
       ...message,
       type: 'device',
+      requestId: message.requestId, // Preserve the original requestId for client promise resolution
       payload: {
-        action: 'device',
+        action: 'claim',
         success: false,
         error: 'Claim Failed',
         details: errorMessage,
         code: error instanceof Error ? error.constructor.name : 'UNKNOWN_ERROR',
-        requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
         timestamp: new Date().toISOString()
       }
-    } as InMessage);
+    } as InMessage, {
+      systemGenerated: true,
+      echoToSender: true
+    });
 
     await publisher.publish(errorResponse);
   }
