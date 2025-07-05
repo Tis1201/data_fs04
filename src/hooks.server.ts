@@ -6,6 +6,7 @@ import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountMana
 import { DeviceManager } from "$lib/server/device/deviceManager";
 import { authMiddleware } from "$lib/server/auth/middleware";
 import { logger } from "$lib/server/logger";
+import { ensureActiveSetting } from "$lib/server/settings";
 
 // Initialize WhatsApp clients on server startup (not during build)
 // Use a self-executing async function to avoid blocking the main thread
@@ -23,7 +24,8 @@ if (!building) {
             // Initialize WhatsApp clients from database
             logger.info('Loading WhatsApp clients from database...');
             await whatsAppAccountManager.initializeClientsFromDatabase();
-            
+
+            await ensureActiveSetting();
             logger.info('WhatsAppAccountManager is ready');
         } catch (error) {
             logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
