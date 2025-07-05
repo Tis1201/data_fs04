@@ -157,29 +157,55 @@ export class DefaultDeviceManager {
         // logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
 
 
-        // // Update device record in our mock database
-        // if (deviceRecords[deviceMeta.id]) {
-        //     deviceRecords[deviceMeta.id] = {
-        //         ...deviceRecords[deviceMeta.id],
-        //         status: 'ACTIVE',
-        //         claimedAt: new Date(),
-        //         claimedBy: userInfo.id,
-        //         updatedAt: new Date()
-        //     };
-        // } else {
-        //     // Create a new record if it doesn't exist
-        //     deviceRecords[deviceMeta.id] = {
-        //         id: deviceMeta.id,
-        //         name: `Device-${deviceMeta.id.substring(0, 8)}`,
-        //         deviceType: deviceMeta.deviceType || 'OTHER',
-        //         model: deviceMeta.model,
-        //         status: 'ACTIVE',
-        //         claimedAt: new Date(),
-        //         claimedBy: userInfo.id,
-        //         createdAt: new Date(),
-        //         updatedAt: new Date()
-        //     };
-        // }
+        // Generate API key for the device
+        const apiKey = generateId(32);
+        const now = new Date();
+
+        // Update device with API key and connection info
+        const updatedDevice = await this.prisma.device.update({
+            where: { id: device.id },
+            data: {
+                apiKey,
+                apiKeyCreatedAt: now,
+                apiKeyRotatedAt: now,
+                status: 'ACTIVE',
+                connected: true,
+                connectedAt: now,
+                lastUsedAt: now,  // Using lastUsedAt instead of lastSeenAt
+                updatedAt: now    // Ensure updatedAt is always set
+            },
+            include: { 
+                account: true, 
+                user: true 
+            }
+        });
+
+        // Create registration message with device info
+        const registrationMessage = {
+            ...MessageFactory.createDeviceMessage(
+                'registered',
+                device.id,
+                deviceMeta.connectionId || '',
+                userInfo,
+                senderConnectionId,
+                senderConnectionProtocol,
+                {
+                    // Include all necessary device info
+                    ...device,
+                    apiKey,
+                    accountId: actualAccountId,
+                    userId: userInfo.id,
+                    // Include any additional metadata
+                    ...(deviceMeta.metadata || {})
+                },
+                { sudo: true }
+            ),
+            sudo: true  // Ensure sudo is set at the message level
+        };
+
+        // Publish the registration message
+        await publisher.publish(registrationMessage);
+        logger.info(`Device registration complete for ${device.id}`);
 
 
         // // Create the message with the new helper method and set sudo to true

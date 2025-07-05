@@ -320,24 +320,64 @@ class DummyDevice:
                 session.close()
             print("Test completed")
 
+    def handle_registration_event(self, event_data):
+        """Handle device registration event and save device info."""
+        try:
+            payload = event_data.get('payload', {})
+            device_id = payload.get('id')
+            api_key = payload.get('apiKey')
+            account_id = payload.get('accountId')
+            
+            if not all([device_id, api_key, account_id]):
+                print("Error: Missing required registration data")
+                return
+                
+            # Create workings directory if it doesn't exist
+            os.makedirs('workings', exist_ok=True)
+            
+            # Save device info to file
+            with open('workings/device.txt', 'w') as f:
+                f.write(f"device_id={device_id}\n")
+                f.write(f"api_key={api_key}\n")
+                f.write(f"account_id={account_id}\n")
+            
+            print(f"Device registered successfully. Info saved to workings/device.txt")
+            
+            # After registration, send device info
+            self.send_device_info()
+            
+        except Exception as e:
+            print(f"Error handling registration event: {e}")
+    
     def send_device_info(self):
         """Send device information to the server."""
         try:
-            # Gather all device information
-            device_info = {
-                **self.get_system_info(),
-                **self.get_network_info(),
+            # Check if we have device info
+            if not os.path.exists('workings/device.txt'):
+                print("Device not registered yet")
+                return
+                
+            # Read device info
+            device_info = {}
+            with open('workings/device.txt', 'r') as f:
+                for line in f:
+                    key, value = line.strip().split('=', 1)
+                    device_info[key] = value
+            
+            # Add system and network info
+            device_info.update(self.get_system_info())
+            device_info.update(self.get_network_info())
+            device_info.update({
                 'additionalInfo': self.get_additional_info(),
                 'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            }
+            })
             
-            
-            # Send device info to api/device/add
-            device_info['id'] = self.id  # Provided device ID
-            device_info['pin'] = self.pin  # Include the generated PIN
-            device_info['senderId'] = self.senderId
-            device_info['senderConnectionId'] = self.senderConnectionId
-            device_info['senderConnectionProtocol'] = self.senderConnectionProtocol
+            # Add connection info
+            device_info.update({
+                'senderId': self.senderId,
+                'senderConnectionId': self.senderConnectionId,
+                'senderConnectionProtocol': self.senderConnectionProtocol
+            })
             
             print("Sending device information:")
             print(json.dumps(device_info, indent=2))
@@ -345,6 +385,7 @@ class DummyDevice:
             try:
                 response = requests.post(
                     f"{self.base_url}/api/device/add",
+                    headers={"Authorization": f"Bearer {device_info['api_key']}"},
                     json=device_info,
                     headers={'Content-Type': 'application/json'}
                 )
