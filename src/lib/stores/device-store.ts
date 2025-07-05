@@ -233,6 +233,17 @@ function createDeviceStore() {
         // Reset store to initial state
         reset: () => {
             set(initialState);
+        },
+        
+        // Set claimed device information
+        setClaimedDevice: (device: Device) => {
+            update(state => ({
+                ...state,
+                deviceId: device.id,
+                name: device.name,
+                deviceType: device.deviceType,
+                status: device.status
+            }));
         }
     };
 }

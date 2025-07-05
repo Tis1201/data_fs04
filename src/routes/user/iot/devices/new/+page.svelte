@@ -28,35 +28,13 @@
   ] as [string, string][];
   
   // Initialize the form with the reusable form handler
-  const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.pinForm, {
+  // Initialize form with validation but without server submission
+  const { form, errors, submitting, errorMessage } = createFormHandler(data.pinForm, {
     debugMode: false,
-    validateOnInput: true,
-    onSuccess: (result) => {
-      if (result.data.success === true && result.data.device) {
-        claimedDevice = result.data.device;
-        deviceStore.updateDevice({
-          deviceId: result.data.device.id,
-          name: result.data.device.name,
-          deviceType: result.data.device.deviceType,
-          status: result.data.device.status,
-          claimStatus: "claimed"
-        });
-        toast.success("Device claimed successfully!");
-      }
-    },
-    onError: (error) => {
-      deviceStore.setClaimStatus("failed", error?.message || "Verification failed");
-      toast.error("Verification Failed");
-    }
+    validateOnInput: true
   });
   
   let claimedDevice: any = null;
-  
-  // Before form submission
-  function beforeSubmit() {
-    deviceStore.setClaimStatus("claiming");
-    return true;
-  }
   
   // If the device is claimed while we're on this page, update the claimedDevice variable
   onMount(() => {
@@ -146,7 +124,7 @@
 
           <!-- PIN input form using Superforms -->
           <div class="w-full max-w-md">
-            <form method="POST" action="?/claimDevice" class="space-y-6" use:enhance={beforeSubmit}>
+            <form class="space-y-6">
               <div class="space-y-2">
                 <Label for="pin" class="text-base">Device PIN Code <span class="text-destructive">*</span></Label>
                 <div class="flex justify-center">
@@ -179,10 +157,9 @@
                     on:click={async () => {
                       if (!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming') return;
                       
-                      // Use SSE request to claim device instead of WebSocket
+                      // Use SSE request to claim device instead of form submission
                       deviceStore.setClaimStatus('claiming');
                       
-                      try {
                         const responsePayload = await sseStore.sendRequest(
                           {
                             type: 'device',
@@ -197,10 +174,38 @@
                         );
                         
                         console.log('[DEVICE_FORM] Claim request sent successfully:', responsePayload);
-                      } catch (error) {
-                        console.error('[DEVICE_FORM] Failed to send claim request:', error);
-                        deviceStore.setClaimStatus('failed');
-                      }
+                        
+                        // Check for error in the response payload
+                        if (responsePayload?.payload?.success === false) {
+                          // Handle error case from SSE response
+                          const errorDetails = responsePayload.payload;
+                          deviceStore.setClaimStatus('failed', errorDetails.details || errorDetails.error || 'Verification failed');
+                          toast.error(errorDetails.error || 'Verification Failed');
+                          return;
+                        }
+
+                        // If we have device data in the response, update the UI
+                        if (responsePayload?.payload?.device || responsePayload?.data?.device) {
+                          // Support both response formats
+                          const device = responsePayload?.payload?.device || responsePayload?.data?.device;
+                          claimedDevice = {
+                            id: device.id,
+                            name: device.name,
+                            deviceType: device.deviceType,
+                            status: device.status || 'ACTIVE'
+                          };
+                          
+                          deviceStore.updateDevice({
+                            deviceId: device.id,
+                            name: device.name,
+                            deviceType: device.deviceType,
+                            status: device.status,
+                            claimStatus: 'claimed'
+                          });
+                          
+                          toast.success('Device claimed successfully!');
+                        }
+                     
                     }}
                     class="w-full relative h-11"
                     size="lg"
