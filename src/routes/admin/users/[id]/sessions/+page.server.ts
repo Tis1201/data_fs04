@@ -113,12 +113,53 @@ export const actions: Actions = {
                 
                 logger.info('Session revoked successfully', { sessionId });
                 return { success: true, message: 'Session revoked successfully' };
-            } catch (error) {
-                logger.error('Error revoking session:', error);
+            } catch (err) {
+                logger.error('Error revoking session:', err);
                 return fail(500, { error: 'Failed to revoke session' });
             }
         },
         [SystemRole.ADMIN] // Only allow admin role to revoke sessions
+    ),
+
+    // Add delete action that RecordDeleteDialog expects (same as revokeSession)
+    delete: restrict(
+        async ({ request, params, locals }) => {
+            const userId = params.id;
+            const formData = await request.formData();
+            const sessionId = formData.get('id')?.toString();
+            
+            if (!sessionId) {
+                return fail(400, { error: 'Session ID is required' });
+            }
+            
+            try {
+                // Verify the session belongs to the user
+                const session = await locals.prisma.session.findUnique({
+                    where: { id: sessionId },
+                    select: { userId: true }
+                });
+                
+                if (!session) {
+                    return fail(404, { error: 'Session not found' });
+                }
+                
+                if (session.userId !== userId) {
+                    return fail(403, { error: 'Session does not belong to this user' });
+                }
+                
+                // Delete the session
+                await locals.prisma.session.delete({
+                    where: { id: sessionId }
+                });
+                
+                logger.info('Session deleted successfully', { sessionId });
+                return { success: true, message: 'Session deleted successfully' };
+            } catch (err) {
+                logger.error('Error deleting session:', err);
+                return fail(500, { error: 'Failed to delete session' });
+            }
+        },
+        [SystemRole.ADMIN] // Only allow admin role to delete sessions
     )
 };
 

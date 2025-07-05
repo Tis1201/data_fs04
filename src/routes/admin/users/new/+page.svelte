@@ -4,7 +4,6 @@
   import { ArrowLeft, Save, User, Copy, Check, Link } from "lucide-svelte";
   import { Input } from "$lib/components/ui/input";
   import EnhancedPasswordInput from "$lib/components/ui_components_sveltekit/form/EnhancedPasswordInput.svelte";
-  import InvitationLinkDialog from "$lib/components/ui_components_sveltekit/dialog/InvitationLinkDialog.svelte";
   
   // Import the correct AdminPageLayout component with actionButtons support
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -34,13 +33,6 @@
   // Get the server-generated password from the page data
   let generatedPassword = data.generatedPassword || "";
   
-  // Invitation dialog state
-  let showInvitationDialog = false;
-  let createdUserId = "";
-  let createdUserEmail = "";
-  let invitationToken = "";
-  let invitationTokenExpiry = new Date();
-
   // Create a form handler with standardized error handling and Sonner notifications
   const {
     form,
@@ -51,44 +43,11 @@
     errorMessage,
     successMessage,
   } = createFormHandler(data.form, {
-    // Don't automatically redirect, we'll handle it after showing the dialog
     validateOnInput: true,
+    successRedirect: "/admin/users", // Redirect to users list after success
     onSuccess: (result) => {
-      // Always prevent automatic redirect
-      const redirectFlag = false;
-      
-      // Check if server returned user data
-      if (result?.data) {
-        // Store the generated password if available
-        if (result.data.generatedPassword) {
-          generatedPassword = result.data.generatedPassword;
-        }
-        
-        // Store user data for the invitation dialog
-        if (result.data.user && result.data.invitationToken) {
-          createdUserId = result.data.user.id;
-          createdUserEmail = result.data.user.email;
-          
-          // Use the server-generated invitation token
-          invitationToken = result.data.invitationToken.token;
-          invitationTokenExpiry = new Date(result.data.invitationToken.expiresAt);
-          
-          // Show the invitation dialog
-          showInvitationDialog = true;
-          
-          // Return success message with redirect flag
-          return {
-            text: "User created successfully",
-            redirect: redirectFlag
-          };
-        }
-      }
-      
-      // Even if we don't show the dialog, prevent redirect
-      return {
-        text: "User created successfully",
-        redirect: redirectFlag
-      };
+      toast.success("User created successfully!");
+      // The successRedirect will handle navigation
     },
     onError: (error) => ({
       text: error?.message || "Failed to create user",
@@ -218,16 +177,3 @@
     </AdminCard>
   </FormContainer>
 </AdminPageLayout>
-
-<!-- Invitation Link Dialog -->
-<InvitationLinkDialog
-  bind:open={showInvitationDialog}
-  userId={createdUserId}
-  userEmail={createdUserEmail}
-  invitationToken={invitationToken}
-  expiresAt={invitationTokenExpiry}
-  onClose={() => {
-    // Redirect to users list after closing the dialog
-    goto('/admin/users');
-  }}
-/>

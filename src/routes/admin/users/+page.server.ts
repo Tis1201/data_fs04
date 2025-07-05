@@ -1,5 +1,4 @@
 import type { PageServerLoad } from './$types';
-import type { UserStatus } from '@prisma/client';
 import { error, fail, json } from '@sveltejs/kit';
 import { z } from 'zod';
 import { generateId } from 'lucia';
@@ -11,7 +10,12 @@ import type { Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
-import { SystemRole } from '$lib/types/roles';
+import { SystemRole, UserStatus } from '$lib/types/roles';
+import { getSetting } from '$lib/server/settings/utils';
+import { validatePassword } from '$lib/server/auth/password-validation';
+import { EmailService } from '$lib/server/email';
+import { resetUserPassword } from '$lib/server/services/password-reset';
+import prisma from '$lib/server/prisma';
 
 // Define table options for Users
 const table_options = {
@@ -27,6 +31,23 @@ const table_options = {
         'statuses': { field: 'status', operator: 'in' }
     }
 };
+
+// Types for user with count fields
+export interface UserWithCount {
+    id: string;
+    email: string;
+    name: string | null;
+    systemRole: string;
+    status: string;
+    rolesString: string;
+    createdAt: Date;
+    updatedAt: Date;
+    _count: {
+        accountMemberships: string; // Convert to string for DataTable compatibility
+        apiKeys: string;
+        devices: string;
+    };
+}
 
 /*******************************************************************************************
  * 
@@ -126,7 +147,7 @@ export const actions = {
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
                 const status = data.get('status')?.toString() as UserStatus;
-                
+
                 if (!id) {
                     return fail(400, { error: 'User ID is required' });
                 }
@@ -181,7 +202,6 @@ export const actions = {
     delete: restrict(
         async ({ request, locals }) => {
             try {
-                // Get the user ID from form data
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
                 
@@ -211,14 +231,35 @@ export const actions = {
                     });
                 }
 
-                // Delete the user
-                await locals.prisma.user.delete({
-                    where: { id }
+                const accountMembershipCount = await locals.prisma.accountMembership.count({
+                    where: { userId: id }
                 });
+
+                if (accountMembershipCount > 0) {
+                    return fail(400, {
+                        error: `Cannot delete user: This user has ${accountMembershipCount} account membership(s). Please remove them from all accounts first.`
+                    });
+                }
+
+                await locals.prisma.$transaction(async (tx) => {
+                    // Delete invitation tokens (not important)
+                    await tx.invitationToken.deleteMany({
+                        where: { userId: id }
+                    });
+
+                    // Delete sessions (not important)
+                    await tx.session.deleteMany({
+                        where: { userId: id }
+                    });
+
+                    // Finally delete the user
+                    await tx.user.delete({
+                        where: { id }
+                    });
+                });;
 
                 logger.info('User deleted successfully:', { userId: id });
                 
-                // Return success response
                 return {
                     success: true,
                     message: 'User deleted successfully'
@@ -226,17 +267,26 @@ export const actions = {
 
             } catch (e) {
                 logger.error('Error deleting user:', e);
+                
+                // Handle specific Prisma errors
+                if (e.code === 'P2003') {
+                    return fail(400, {
+                        error: 'Cannot delete user: This user has related records that must be removed first. Please deactivate the user instead or contact an administrator.'
+                    });
+                }
+                
                 if (e.code === 'P2025') {
                     return fail(404, {
                         error: 'User not found'
                     });
                 }
+                
                 return fail(500, {
                     error: 'Failed to delete user'
                 });
             }
         },
-        [SystemRole.ADMIN] // Only allow admin role to delete users
+        [SystemRole.ADMIN]
     ),
     
     /*******************************************************************************************
@@ -253,13 +303,16 @@ export const actions = {
                     return fail(400, { success: false, message: 'User ID is required' });
                 }
                 
-                // Validate password
-                const result = passwordSchema.safeParse({ password });
-                if (!result.success) {
+                if (!password) {
+                    return fail(400, { success: false, message: 'Password is required' });
+                }
+                
+                // Validate password based on settings
+                const passwordValidation = await validatePassword(password);
+                if (!passwordValidation.valid) {
                     return fail(400, { 
                         success: false, 
-                        message: 'Invalid password format',
-                        errors: result.error.flatten() 
+                        message: passwordValidation.error
                     });
                 }
                 
@@ -275,7 +328,7 @@ export const actions = {
                     return fail(404, { success: false, message: 'User not found' });
                 }
                 
-                // Hash the password using @node-rs/argon2
+                // Hash the password using Argon2
                 const hashedPassword = await hash(password);
                 logger.debug('Password hashed successfully for update', { 
                     userId,
@@ -288,22 +341,75 @@ export const actions = {
                     data: { password: hashedPassword }
                 });
                 
-                logger.info('User password updated successfully', { 
-                    userId,
-                    email: user.email
-                });
+                logger.info(`Password updated for user: ${userId}`);
                 
-                return { 
-                    success: true, 
-                    message: 'Password updated successfully'
-                };
-            } catch (err) {
-                logger.error('Error updating user password', { 
-                    error: err 
-                });
-                return fail(500, { success: false, message: 'Failed to update user password' });
+                return { success: true, message: 'Password updated successfully' };
+            } catch (e) {
+                logger.error('Error updating password:', e as Record<string, any>);
+                return fail(500, { success: false, message: 'Failed to update password' });
             }
         },
         [SystemRole.ADMIN] // Only allow admin role to update passwords
+    ),
+
+    /*******************************************************************************************
+     * Reset Password
+     ******************************************************************************************/
+    resetPassword: restrict(
+        async ({ request, locals }) => {
+            try {
+                const data = await request.formData();
+                const userId = data.get('userId')?.toString();
+                
+                if (!userId) {
+                    return fail(400, { success: false, message: 'User ID is required' });
+                }
+                
+                // Get the Zenstack-enhanced Prisma client from locals
+                const prisma = locals.prisma;
+                
+                // Check if the user exists
+                const user = await prisma.user.findUnique({
+                    where: { id: userId },
+                    select: {
+                        id: true,
+                        email: true,
+                        name: true
+                    }
+                });
+                
+                if (!user) {
+                    return fail(404, { success: false, message: 'User not found' });
+                }
+
+                // Use the new password reset service
+                const result = await resetUserPassword({
+                    userId: user.id,
+                    userEmail: user.email,
+                    userName: user.name || user.email,
+                    prisma: prisma
+                });
+
+                if (result.success) {
+                    return {
+                        success: true,
+                        message: result.message,
+                        details: result.details,
+                        email: result.email,
+                        messageId: result.messageId
+                    };
+                } else {
+                    return fail(500, { 
+                        success: false, 
+                        message: result.message 
+                    });
+                }
+
+            } catch (error) {
+                logger.error('Error resetting password:', error as Record<string, any>);
+                return fail(500, { success: false, message: 'Failed to reset password' });
+            }
+        },
+        [SystemRole.ADMIN] // Only allow admin role to reset passwords
     )
 };

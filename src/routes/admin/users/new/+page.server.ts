@@ -6,108 +6,120 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createUserSchema } from './schema';
-import { hash } from '@node-rs/argon2';
 import { randomBytes, createHash } from 'crypto';
 import { addDays } from 'date-fns';
+import { getSetting } from '$lib/server/settings/utils';
+import { validatePassword } from '$lib/server/auth/password-validation';
+import { hash } from '@node-rs/argon2';
+import { getEnhancedPrisma } from '$lib/server/prisma';
+import { generateSecurePassword } from '$lib/utils/generate-password';
 
-function generateSecureTempPassword(): string {
-    const bytes = randomBytes(16); // 16 bytes = 128 bits
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    
-    // Ensure we have at least one of each required character type
-    password += chars.charAt(Math.floor(Math.random() * 26)); // Uppercase
-    password += chars.charAt(Math.floor(Math.random() * 26) + 26); // Lowercase
-    password += chars.charAt(Math.floor(Math.random() * 10) + 52); // Number
-    password += chars.charAt(Math.floor(Math.random() * 8) + 62); // Special char
-    
-    // Fill the rest of the password
-    for (let i = 0; i < 8; i++) {
-        password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    
-    // Shuffle the password to ensure randomness
-    return password.split('').sort(() => Math.random() - 0.5).join('');
-}
 
-/**
- * Generate a secure invitation token and store it in the database
- * @param prisma The Prisma client instance
- * @param userId The ID of the user to create the token for
- * @param expirationDays Number of days until the token expires
- * @returns The created invitation token record
- */
-async function createInvitationToken(prisma: any, userId: string, expirationDays: number = 1) {
-    // Generate a secure random token
-    const randomToken = randomBytes(32).toString('hex');
+
+// Create invitation token for the user
+async function createInvitationToken(prisma: any, userId: string) {
+    const rawToken = randomBytes(32).toString('hex');
+    const hashedToken = createHash('sha256').update(rawToken).digest('hex');
     
-    // Hash the token for storage (we'll use the raw token in the URL)
-    const hashedToken = createHash('sha256').update(randomToken).digest('hex');
-    
-    // Calculate expiration date
-    const expiresAt = addDays(new Date(), expirationDays);
-    
-    // Create and store the token in the database
     const invitationToken = await prisma.invitationToken.create({
         data: {
-            token: hashedToken,
+            id: randomBytes(16).toString('hex'),
             userId: userId,
-            expiresAt: expiresAt
+            token: hashedToken,
+            expiresAt: addDays(new Date(), 7), // 7 days expiry
+            // usedAt is null by default (not used yet)
         }
     });
     
-    // Return both the database record and the raw token for the URL
     return {
-        id: invitationToken.id,
-        expiresAt: invitationToken.expiresAt,
-        rawToken: randomToken
+        ...invitationToken,
+        rawToken // Include the raw token for the invitation link
     };
 }
 
-export const load = restrict(
-    async ({ locals }) => {
-        try {
-            // Generate a secure password for the form
-            const generatedPassword = generateSecureTempPassword();
-            
-            // Initialize the form with the schema and defaults
-            const form = await superValidate(zod(createUserSchema), {
-                id: 'user-form',
-                defaults: {
-                    email: '',
-                    name: '',
-                    role: 'USER',
-                    status: 'ACTIVE',
-                    password: generatedPassword // Prefill with generated password
-                }
-            });
-            
-            return { 
-                form,
-                generatedPassword // Include the generated password in the response
-            };
-        } catch (err) {
-            logger.error(`Error loading user form: ${err}`);
-            throw error(500, 'Failed to load user form');
+export const load: PageServerLoad = async ({ locals }) => {
+  try {
+    // Get the authentication state
+    const auth = await locals.auth.validate();
+    if (!auth?.user) {
+      throw redirect(302, '/auth/login');
+    }
+
+    // Generate a secure password for the form
+    const generatedPassword = generateSecurePassword();
+    
+    // Initialize the form with the schema and defaults
+    const form = await superValidate(zod(createUserSchema), {
+        id: 'user-form',
+        defaults: {
+            email: '',
+            name: '',
+            role: 'USER',
+            status: 'ACTIVE',
+            password: generatedPassword // Prefill with generated password
         }
-    },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
-) satisfies PageServerLoad;
+    });
+    
+    return { 
+        form,
+        generatedPassword // Include the generated password in the response
+    };
+  } catch (err) {
+    logger.error(`Error loading user form: ${err}`);
+    throw error(500, 'Failed to load user form');
+  }
+} satisfies PageServerLoad;
 
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: { request: Request; locals: any }) => {
             const form = await superValidate(request, zod(createUserSchema));
             
-            if (!form.valid) {
-                return fail(400, { form });
+            // Perform additional custom validations
+            let hasValidationErrors = !form.valid;
+            
+            // Check if password is provided - don't allow empty passwords
+            if (!form.data.password || form.data.password.trim() === '') {
+                form.errors.password = ['Password is required'];
+                hasValidationErrors = true;
+            } else {
+                // Validate password based on settings if password is provided
+                const passwordValidation = await validatePassword(form.data.password);
+                
+                if (!passwordValidation.valid) {
+                    form.errors.password = [passwordValidation.error || 'Password does not meet security requirements'];
+                    hasValidationErrors = true;
+                }
+            }
+            
+            // Check if email already exists
+            if (form.data.email) {
+                const existingUser = await locals.prisma.user.findUnique({
+                    where: { email: form.data.email }
+                });
+                
+                if (existingUser) {
+                    form.errors.email = ['A user with this email already exists'];
+                    hasValidationErrors = true;
+                }
+            }
+            
+            // Return all validation errors at once
+            if (hasValidationErrors) {
+                return fail(400, { 
+                    form,
+                    message: {
+                        type: 'error',
+                        text: 'Validation failed',
+                        details: 'Please fix the errors below and try again.'
+                    }
+                });
             }
 
             try {
-                // Generate a secure temporary password if none provided
-                const tempPassword = form.data.password || generateSecureTempPassword();
+                const tempPassword = form.data.password!; // Safe to assert non-null after validation
                 
-                // Hash the password using @node-rs/argon2
+                // Hash the password using Argon2
                 const hashedPassword = await hash(tempPassword);
                 
                 // Create the user
@@ -135,18 +147,9 @@ export const actions: Actions = {
                 logger.info(`User created: ${newUser.id} with invitation token: ${invitationToken.id}`);
                 
                 // Return success with the form data and success message
-                // Include the temporary password in the response if one was generated
-                const successMessage = {
-                    type: 'success',
-                    text: 'User created successfully',
-                    details: `User '${newUser.email}' has been created.`
-                };
-                
-                // Return the user data along with the form and success message
-                return {
+                const result = { 
                     form,
-                    message: successMessage,
-                    generatedPassword: tempPassword,
+                    success: true,
                     user: newUser, // Include the created user data for the invitation dialog
                     invitationToken: {
                         id: invitationToken.id,
@@ -154,6 +157,8 @@ export const actions: Actions = {
                         expiresAt: invitationToken.expiresAt
                     }
                 };
+                
+                return result;
                 
             } catch (err) {
                 logger.error(`Error creating user: ${err}`);
@@ -165,17 +170,22 @@ export const actions: Actions = {
                 };
                 
                 // Handle specific error types
-                if (err.code === 'P2002') {
-                    errorMessage.text = 'User already exists';
-                    errorMessage.details = `A user with this email already exists.`;
-                } else if (err.code === 'P2003') {
-                    errorMessage.text = 'Invalid reference';
-                    errorMessage.details = 'One of the references in your request is invalid.';
+                if (err && typeof err === 'object' && 'code' in err) {
+                    if (err.code === 'P2002') {
+                        errorMessage.text = 'User already exists';
+                        errorMessage.details = `A user with this email already exists.`;
+                    } else if (err.code === 'P2003') {
+                        errorMessage.text = 'Invalid reference';
+                        errorMessage.details = 'One of the references in your request is invalid.';
+                    }
                 }
                 
+                // Set the error message on the form instead of returning it separately
                 return fail(400, { 
-                    form,
-                    message: errorMessage
+                    form: {
+                        ...form,
+                        message: errorMessage
+                    }
                 });
             }
         },

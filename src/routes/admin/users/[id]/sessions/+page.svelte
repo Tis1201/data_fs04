@@ -6,27 +6,22 @@
     import PageContainer from '$lib/components/ui_components_sveltekit/layout/PageContainer.svelte';
     import PageHeader from '$lib/components/ui_components_sveltekit/layout/PageHeader.svelte';
     import ActionButton from '$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte';
-    import { initPagination, getDefaultPagination, getDefaultSort } from '$lib/components/ui_components_sveltekit/table/pagination/pagination-utils';
-    import SessionsTable from './table.svelte';
+    import SessionsPageContent from '$lib/components/ui_components_sveltekit/sessions/SessionsPageContent.svelte';
 
     export let data: PageData;
 
-    $: ({ sessions: records, meta, user } = data);
-    $: pagination = getDefaultPagination(meta, 10);
-    $: sort = getDefaultSort(meta, "createdAt", "desc");
-    
-    let loading = false;
-    
-    // Initialize pagination with stored preferences
-    initPagination('preferredPageSize', true);
+    $: ({ user } = data);
     
     // Define breadcrumbs for this page
     $: pageCrumbs = [
         ["Admin", "/admin"],
         ["Users", "/admin/users"],
         [`User`, `/admin/users/${$page.params.id}`],
-        "Sessions"
-    ];
+        ["Sessions", null]
+    ] as [string, string | null][];
+    
+    $: backButtonUrl = `/admin/users/${user?.id || $page.params.id}`;
+    $: userDisplayName = user?.name || user?.email || 'User';
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -35,18 +30,16 @@
             <ActionButton
                 label="Back to User"
                 icon={ArrowLeft}
-                onClick={() => goto(`/admin/users/${user?.id || $page.params.id}`)}
+                onClick={() => goto(backButtonUrl)}
                 variant="outline"
             />
         </svelte:fragment>
     </PageHeader>
 
-    <SessionsTable
-        props={{
-            records,
-            pagination,
-            sort,
-            loading
-        }}
+    <SessionsPageContent 
+        data={data}
+        isAdminView={true}
+        {backButtonUrl}
+        {userDisplayName}
     />
 </PageContainer>

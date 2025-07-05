@@ -21,7 +21,7 @@ export const userEditSchema = z.object({
   accountIds: z.array(z.string()).optional().default([]),
   primaryAccountId: z.string().optional().nullable(),
   // Make password optional for updates
-  password: z.string().min(8, 'Password must be at least 8 characters').optional(),
+  password: z.string().optional(),
   // Optional field for any additional roles as comma-separated string
   rolesString: z.string().optional().default('')
 });

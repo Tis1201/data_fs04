@@ -3,10 +3,11 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
     import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/PasswordUpdateDialog.svelte";
+    import ResetPasswordDialog from "$lib/components/ui_components_sveltekit/dialog/ResetPasswordDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
@@ -59,6 +60,10 @@
     let passwordUpdateDialogOpen = false;
     let userToUpdatePassword: User | null = null;
     
+    // State for reset password dialog
+    let resetPasswordDialogOpen = false;
+    let userToResetPassword: User | null = null;
+    
     // Function to prepare for status toggle
     function prepareToggleStatus(user: User) {
         userToToggle = user;
@@ -69,6 +74,12 @@
     function openPasswordUpdateDialog(user: User) {
         userToUpdatePassword = user;
         passwordUpdateDialogOpen = true;
+    }
+
+    // Function to open reset password dialog
+    function openResetPasswordDialog(user: User) {
+        userToResetPassword = user;
+        resetPasswordDialogOpen = true;
     }
 
     // Stores for filters and table state
@@ -112,6 +123,27 @@
     const selectedStatuses = writable<string[]>(
         $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? []
     );
+
+    function getStatusBadge(status: string) {
+        const statusText = status || "UNKNOWN";
+        let variant = "default";
+
+        switch (statusText) {
+            case "ACTIVE":
+                variant = "Active";
+                break;
+            case "INACTIVE":
+                variant = "Inactive";
+                break;
+            case "PENDING":
+                variant = "Pending";
+                break;
+            default:
+                variant = "default";
+        }
+
+        return variant;
+    }
 
     // Column definitions
     const columns = [
@@ -166,7 +198,7 @@
             label: "Status",
             sortable: true,
             width: "20%",
-            render: (record: User) => record.status || "N/A"
+            render: (record: User) => getStatusBadge(record.status)
         },
         {
             id: "actions",
@@ -174,7 +206,7 @@
             width: "10%",
             render: (record: User) => {
                 // Define action items here instead of in the RecordActions component
-                const actionItems: ActionItem[] = [
+                const actionItems = [
                     {
                         label: "Edit",
                         icon: Pencil,
@@ -189,6 +221,11 @@
                         label: "Update Password",
                         icon: KeyRound,
                         onClick: () => openPasswordUpdateDialog(record)
+                    },
+                    {
+                        label: "Reset Password",
+                        icon: KeyRound,
+                        onClick: () => openResetPasswordDialog(record)
                     },
                     {
                         label: isTogglingStatus && userToToggle?.id === record.id 
@@ -232,12 +269,18 @@
         }}
     />
     
+    <!-- Reset Password Dialog -->
+    <ResetPasswordDialog
+        bind:open={resetPasswordDialogOpen}
+        bind:user={userToResetPassword}
+        action="?/resetPassword"
+    />
+    
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
         {state}
         onConfirm={() => {
-            // Refresh the page to update the user list
-            window.location.reload();
+
         }}
     />
     
@@ -247,13 +290,16 @@
         action="?/toggleStatus"
         bind:record={userToToggle}
         bind:isProcessing={isTogglingStatus}
+        title={userToToggle ? (userToToggle.status === 'ACTIVE' ? 'Deactivate Account' : 'Activate Account') : null}
+        description={userToToggle ? `Are you sure you want to ${userToToggle.status === 'ACTIVE' ? 'deactivate' : 'activate'} the account "${userToToggle.name}"?` : null}
+        confirmText={userToToggle ? (userToToggle.status === 'ACTIVE' ? 'Deactivate' : 'Activate') : null}
         onSuccess={(result) => {
             // Update the user status in the local data without page refresh
             if (userToToggle) {
                 const newStatus = userToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
                 
                 // Find and update the user in the records array
-                const index = props.records.findIndex(r => r.id === userToToggle.id);
+                const index = props.records.findIndex(r => r.id === userToToggle?.id);
                 if (index !== -1) {
                     props.records[index].status = newStatus;
                     // Force a UI update

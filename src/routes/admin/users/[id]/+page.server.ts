@@ -6,33 +6,39 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
+import { hash } from '@node-rs/argon2';
+import { validatePassword } from '$lib/server/auth/password-validation';
+import type { PrismaClient } from '@prisma/client';
+import { EmailService } from '$lib/server/email';
+import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
+import { resetUserPassword } from '$lib/server/services/password-reset';
 
 /**
  * Load user data for editing
  */
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: { params: any; locals: any }) => {
+        const id = params.id;
+        
         try {
-            // Load existing user with account memberships
+            // Fetch user data with detailed account memberships and companies
             const user = await locals.prisma.user.findUnique({
-                where: { id: params.id },
-                select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    systemRole: true,
-                    status: true,
-                    rolesString: true,
-                    primaryAccountId: true,
-                    createdAt: true,
-                    updatedAt: true,
+                where: { id },
+                include: {
                     accountMemberships: {
-                        select: {
-                            accountId: true,
-                            role: true,
+                        include: {
                             account: {
-                                select: {
-                                    name: true
+                                include: {
+                                    companies: {
+                                        select: {
+                                            id: true,
+                                            name: true,
+                                            status: true,
+                                            contactEmail: true,
+                                            createdAt: true,
+                                            updatedAt: true
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -41,110 +47,129 @@ export const load = restrict(
             });
 
             if (!user) {
-                return {
-                    status: 404,
-                    error: 'User not found'
-                };
+                throw error(404, 'User not found');
             }
 
-            // Load all accounts for dropdown selection
-            const accounts = await locals.prisma.account.findMany({
+            // Get all accounts for the primary account dropdown and for adding memberships
+            const allAccounts = await locals.prisma.account.findMany({
                 select: {
                     id: true,
-                    name: true
+                    name: true,
+                    slug: true,
+                    status: true,
+                    createdAt: true,
+                    updatedAt: true
                 },
-                orderBy: {
-                    name: 'asc'
-                }
+                orderBy: { name: 'asc' }
             });
 
-            // Get current account memberships
-            const currentAccountIds = user.accountMemberships.map(m => m.accountId);
-            
-            // Use the primaryAccountId from the user record if available,
-            // otherwise fall back to the first account membership
-            const primaryAccountId = user.primaryAccountId || 
-                (user.accountMemberships.length > 0 ? user.accountMemberships[0].accountId : null);
-            
-            // Initialize form with user data
-            const form = await superValidate(
-                {
-                    id: user.id,
-                    email: user.email,
-                    name: user.name || '',
-                    systemRole: user.systemRole,
-                    status: user.status || 'ACTIVE',
-                    accountIds: currentAccountIds,
-                    primaryAccountId: primaryAccountId,
-                    rolesString: user.rolesString || '',
-                    password: ''
-                },
-                zod(userEditSchema)
-            );
+            // Format account memberships for RelationshipSection
+            const accountMemberships = user.accountMemberships.map((membership: any) => ({
+                id: membership.account.id,
+                name: membership.account.name,
+                status: membership.account.status,
+                role: membership.role,
+                createdAt: membership.account.createdAt,
+                updatedAt: membership.account.updatedAt,
+                // Additional display info
+                membershipId: membership.id,
+                membershipRole: membership.role
+            }));
+
+            // Get all companies from accounts the user is a member of
+            const userCompanies = user.accountMemberships
+                .flatMap((membership: any) => membership.account.companies)
+                .filter((company: any, index: number, self: any[]) => 
+                    index === self.findIndex((c: any) => c.id === company.id)
+                ); // Remove duplicates
+
+            // Get available accounts for adding (exclude current memberships)
+            const currentAccountIds = new Set(user.accountMemberships.map((m: any) => m.account.id));
+            const availableAccounts = allAccounts
+                .filter((account: any) => !currentAccountIds.has(account.id))
+                .map((account: any) => ({
+                    id: account.id,
+                    name: account.name,
+                    status: account.status,
+                    createdAt: account.createdAt,
+                    updatedAt: account.updatedAt
+                }));
+
+            // Create form with user data
+            const form = await superValidate({
+                email: user.email,
+                name: user.name || '',
+                systemRole: user.systemRole,
+                status: user.status,
+                rolesString: user.rolesString || '',
+                primaryAccountId: user.primaryAccountId || '',
+                password: '' // Always empty for security
+            }, zod(userEditSchema));
 
             return {
-                user,
                 form,
-                accounts,
-                meta: {
-                    roles: SYSTEM_ROLES
-                }
+                user,
+                accounts: allAccounts,
+                systemRoles: SYSTEM_ROLES,
+                // Relationship data
+                relationships: {
+                    accounts: accountMemberships,
+                    companies: userCompanies
+                },
+                availableAccounts
             };
-        } catch (e) {
-            logger.error('Error loading user:', e);
-            throw error(500, { message: 'Failed to load user data' });
+        } catch (err) {
+            logger.error('Error loading user edit page:', err as Record<string, any>);
+            throw error(500, 'Failed to load user data');
         }
     },
-    [SystemRole.ADMIN],
-    {
-        redirectTo: '/admin/users',
-        message: 'You do not have permission to edit users'
-    }
+    [SystemRole.ADMIN]
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
     /**
      * Update user data
      */
-    save: restrict(
-        async ({ request, params, locals }) => {
+    update: restrict(
+        async ({ request, params, locals }: { request: Request; params: any; locals: any }) => {
             const id = params.id;
+            
             const form = await superValidate(request, zod(userEditSchema));
-            logger.debug('Update user form data:', form);
-
+            
             if (!form.valid) {
-                return message(form, {
-                    type: 'error',
-                    text: 'Please correct the errors in the form'
-                }, { status: 400 });
+                return fail(400, { form });
             }
 
             try {
-                // Start a transaction to ensure data consistency
-                return await locals.prisma.$transaction(async (tx) => {
+                // Use a transaction to ensure data consistency
+                await locals.prisma.$transaction(async (tx: any) => {
                     // First check if user exists
                     const existingUser = await tx.user.findUnique({
-                        where: { id }
+                        where: { id },
+                        select: {
+                            id: true,
+                            email: true,
+                            accountMemberships: {
+                                include: {
+                                    account: true
+                                }
+                            }
+                        }
                     });
-                    
+
                     if (!existingUser) {
-                        return message(form, {
-                            type: 'error',
-                            text: 'User not found'
-                        }, { status: 404 });
+                        throw new Error('User not found');
                     }
-                    
-                    // Check for duplicate email
+
+                    // Check if email is being changed and if it conflicts with another user
                     if (form.data.email !== existingUser.email) {
-                        const emailExists = await tx.user.findUnique({
-                            where: { email: form.data.email }
+                        const emailConflict = await tx.user.findUnique({
+                            where: { email: form.data.email },
+                            select: { id: true }
                         });
-                        
-                        if (emailExists) {
-                            return message(form, {
-                                type: 'error',
-                                text: 'Email already in use'
-                            }, { status: 409 });
+
+                        if (emailConflict && emailConflict.id !== id) {
+                            throw new Error('A user with this email already exists');
                         }
                     }
                     
@@ -160,12 +185,20 @@ export const actions: Actions = {
                         updatedAt: new Date()
                     };
                     
-                    // Account memberships will be handled separately after user update
-                    
                     // Only update password if provided
                     if (form.data.password) {
-                        // In a real app, you would hash the password here
-                        updateData.password = form.data.password;
+                        // Validate password based on settings
+                        const passwordValidation = await validatePassword(form.data.password);
+                        if (!passwordValidation.valid) {
+                            return message(form, {
+                                type: 'error',
+                                text: 'Password validation failed',
+                                details: passwordValidation.error
+                            }, { status: 400 });
+                        }
+                        
+                        // Hash the password using Argon2
+                        updateData.password = await hash(form.data.password);
                     }
                     
                     // Update user
@@ -203,7 +236,7 @@ export const actions: Actions = {
                         
                         // Check if user already has membership in this account
                         const existingMembership = updatedUser.accountMemberships.find(
-                            m => m.accountId === form.data.primaryAccountId
+                            (m: any) => m.accountId === form.data.primaryAccountId
                         );
                         
                         if (!existingMembership) {
@@ -263,17 +296,293 @@ export const actions: Actions = {
                     });
                 });
             } catch (e) {
-                logger.error('Error updating user:', e);
+                logger.error('Error updating user:', e as Record<string, any>);
                 return message(form, {
                     type: 'error',
                     text: 'Failed to update user. Please try again.'
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN],
-        {
-            redirectTo: '/admin/users',
-            message: 'You do not have permission to update users'
-        }
+        [SystemRole.ADMIN]
+    ),
+
+    /*******************************************************************************************
+     * Update Password
+     ******************************************************************************************/
+    updatePassword: restrict(
+        async ({ request, params, locals }: { request: Request; params: any; locals: any }) => {
+            const id = params.id;
+            
+            try {
+                const formData = await request.formData();
+                const password = formData.get('password')?.toString();
+                
+                if (!password) {
+                    return fail(400, { success: false, message: 'Password is required' });
+                }
+                
+                // Validate password based on settings
+                const passwordValidation = await validatePassword(password);
+                if (!passwordValidation.valid) {
+                    return fail(400, { 
+                        success: false, 
+                        message: passwordValidation.error
+                    });
+                }
+                
+                // Check if the user exists
+                const user = await locals.prisma.user.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        email: true
+                    }
+                });
+                
+                if (!user) {
+                    return fail(404, { success: false, message: 'User not found' });
+                }
+                
+                // Hash the password using Argon2
+                const hashedPassword = await hash(password);
+                logger.debug('Password hashed successfully for update', { 
+                    userId: id,
+                    passwordLength: password.length 
+                });
+                
+                // Update the user's password
+                await locals.prisma.user.update({
+                    where: { id },
+                    data: { password: hashedPassword }
+                });
+                
+                logger.info(`Password updated for user: ${id} (${user.email})`);
+                
+                return { success: true, message: 'Password updated successfully' };
+            } catch (e) {
+                logger.error('Error updating password:', e as Record<string, any>);
+                return fail(500, { success: false, message: 'Failed to update password' });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+
+    /*******************************************************************************************
+     * Reset Password
+     ******************************************************************************************/
+    resetPassword: restrict(
+        async ({ request, params, locals }: { request: Request; params: any; locals: any }) => {
+            const id = params.id;
+            
+            try {
+                // Check if the user exists
+                const user = await locals.prisma.user.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        email: true,
+                        name: true
+                    }
+                });
+                
+                if (!user) {
+                    return fail(404, { success: false, message: 'User not found' });
+                }
+
+                // Use the new password reset service
+                const result = await resetUserPassword({
+                    userId: user.id,
+                    userEmail: user.email,
+                    userName: user.name || user.email,
+                    prisma: locals.prisma
+                });
+
+                if (result.success) {
+                    return {
+                        success: true,
+                        message: result.message,
+                        details: result.details,
+                        email: result.email,
+                        messageId: result.messageId
+                    };
+                } else {
+                    return fail(500, { 
+                        success: false, 
+                        message: result.message 
+                    });
+                }
+
+            } catch (error) {
+                logger.error('Error resetting password:', error as Record<string, any>);
+                return fail(500, { success: false, message: 'Failed to reset password' });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+
+    /*******************************************************************************************
+     * Add Account Membership
+     ******************************************************************************************/
+    addAccount: restrict(
+        async ({ request, params, locals }: { request: Request; params: any; locals: any }) => {
+            const userId = params.id;
+            
+            try {
+                const formData = await request.formData();
+                const itemIdString = formData.get('itemId')?.toString();
+                
+                if (!itemIdString) {
+                    return fail(400, { success: false, message: 'Account ID is required' });
+                }
+
+                let accountIds: string[];
+                try {
+                    accountIds = JSON.parse(itemIdString);
+                    if (!Array.isArray(accountIds)) {
+                        accountIds = [itemIdString];
+                    }
+                } catch {
+                    accountIds = [itemIdString];
+                }
+
+                // Check if user exists
+                const user = await locals.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { id: true, email: true }
+                });
+
+                if (!user) {
+                    return fail(404, { success: false, message: 'User not found' });
+                }
+
+                // Use transaction to add memberships
+                await locals.prisma.$transaction(async (tx: PrismaClient) => {
+                    for (const accountId of accountIds) {
+                        // Check if account exists
+                        const account = await tx.account.findUnique({
+                            where: { id: accountId },
+                            select: { id: true, name: true }
+                        });
+
+                        if (!account) {
+                            throw new Error(`Account not found: ${accountId}`);
+                        }
+
+                        // Check if membership already exists
+                        const existingMembership = await tx.accountMembership.findUnique({
+                            where: {
+                                userId_accountId: {
+                                    userId,
+                                    accountId
+                                }
+                            }
+                        });
+
+                        if (existingMembership) {
+                            logger.warn(`User ${userId} is already a member of account ${accountId}`);
+                            continue;
+                        }
+
+                        // Create membership
+                        await tx.accountMembership.create({
+                            data: {
+                                userId,
+                                accountId,
+                                role: 'MEMBER' // Default role
+                            }
+                        });
+
+                        logger.info(`Added user ${userId} to account ${accountId} as MEMBER`);
+                    }
+                });
+
+                return { success: true, message: 'Account membership(s) added successfully' };
+            } catch (e) {
+                logger.error('Error adding account membership:', e as Record<string, any>);
+                return fail(500, { success: false, message: 'Failed to add account membership' });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+
+    /*******************************************************************************************
+     * Remove Account Membership
+     ******************************************************************************************/
+    removeAccount: restrict(
+        async ({ request, params, locals }: { request: Request; params: any; locals: any }) => {
+            const userId = params.id;
+            
+            try {
+                const formData = await request.formData();
+                const accountId = formData.get('itemId')?.toString();
+                
+                if (!accountId) {
+                    return fail(400, { success: false, message: 'Account ID is required' });
+                }
+
+                // Check if user exists
+                const user = await locals.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { 
+                        id: true, 
+                        email: true,
+                        primaryAccountId: true
+                    }
+                });
+
+                if (!user) {
+                    return fail(404, { success: false, message: 'User not found' });
+                }
+
+                // Use transaction to remove membership and handle primary account
+                await locals.prisma.$transaction(async (tx: PrismaClient) => {
+                    // Check if membership exists
+                    const membership = await tx.accountMembership.findUnique({
+                        where: {
+                            userId_accountId: {
+                                userId,
+                                accountId
+                            }
+                        },
+                        include: {
+                            account: {
+                                select: { name: true }
+                            }
+                        }
+                    });
+
+                    if (!membership) {
+                        throw new Error('Account membership not found');
+                    }
+
+                    // Remove the membership
+                    await tx.accountMembership.delete({
+                        where: {
+                            userId_accountId: {
+                                userId,
+                                accountId
+                            }
+                        }
+                    });
+
+                    // If this was the user's primary account, clear it
+                    if (user.primaryAccountId === accountId) {
+                        await tx.user.update({
+                            where: { id: userId },
+                            data: { primaryAccountId: null }
+                        });
+                        logger.info(`Cleared primary account for user ${userId} since membership was removed`);
+                    }
+
+                    logger.info(`Removed user ${userId} from account ${accountId} (${membership.account.name})`);
+                });
+
+                return { success: true, message: 'Account membership removed successfully' };
+            } catch (e) {
+                logger.error('Error removing account membership:', e as Record<string, any>);
+                return fail(500, { success: false, message: 'Failed to remove account membership' });
+            }
+        },
+        [SystemRole.ADMIN]
     )
 };
