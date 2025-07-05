@@ -7,15 +7,12 @@
   import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
   import AdminCard from '$lib/components/admin/layout/AdminCard.svelte';
   import FormContainer from '$lib/components/ui_components_sveltekit/form/FormContainer.svelte';
-  import FormField from '$lib/components/ui_components_sveltekit/form/FormField.svelte';
-  import FormRow from '$lib/components/ui_components_sveltekit/form/FormRow.svelte';
-  import { Input } from '$lib/components/ui/input';
-  import { Textarea } from '$lib/components/ui/textarea';
+  import AccountFormFields from '$lib/components/ui_components_sveltekit/form/AccountFormFields.svelte';
   import EnhancedSelect from '$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte';
   import RelationshipSection from '$lib/components/ui_components_sveltekit/relationships/RelationshipSection.svelte';
   import { Button } from '$lib/components/ui/button';
   
-  import { getDetailPageFormConfigWithGuard, getFieldProps, processFormMessages, getSelectProps, useNavigationGuard } from '$lib/utils/formHelpers';
+  import { getDetailPageFormConfigWithGuard, getSelectProps, processFormMessages, useNavigationGuard } from '$lib/utils/formHelpers';
   
   import { accountEditSchema, ACCOUNT_STATUS_OPTIONS } from '../schema';
   
@@ -49,7 +46,7 @@
   $: isLoading = $submitting || $delayed;
   $: hasTimeout = $timeout;
   $: ({ errorMessage } = processFormMessages($message));
-  $: hasChanges = $tainted;
+  $: hasChanges = Boolean($tainted && Object.keys($tainted).length > 0);
   
   // Form action URL
   const formAction = '?/updateAccount';
@@ -114,50 +111,14 @@
       class_name="relative"
     >
       <div class="space-y-6">
-        <FormRow columns={2}>
-          <FormField 
-            id="name" 
-            label="Account Name"
-            error={$errors.name}
-            required={true}
-            helpText="Enter the official account name"
-          >
-            <Input 
-              id="name" 
-              name="name" 
-              type="text" 
-              bind:value={$form.name} 
-              placeholder="Enter account name" 
-              {...getFieldProps($errors, 'name', isLoading)}
-            />
-          </FormField>
-          
-          <FormField 
-            id="slug" 
-            label="Slug" 
-            error={$errors.slug}
-            required={true}
-            helpText="The slug is used in URLs and API endpoints. Only lowercase letters, numbers, and hyphens are allowed."
-          >
-            <Input 
-              id="slug" 
-              name="slug" 
-              type="text" 
-              bind:value={$form.slug} 
-              placeholder="account-slug" 
-              {...getFieldProps($errors, 'slug', isLoading)}
-            />
-          </FormField>
-        </FormRow>
-        
-        <FormRow columns={2}>
-          <FormField 
-            id="status" 
-            label="Status" 
-            error={$errors.status}
-            required={true}
-            helpText="Current operational status of the account"
-          >
+        <AccountFormFields
+          form={form}
+          errors={errors}
+          {isLoading}
+          showStatus={true}
+          showSlug={true}
+        >
+          <svelte:fragment slot="status-field">
             <EnhancedSelect
               name="status"
               options={ACCOUNT_STATUS_OPTIONS}
@@ -165,25 +126,8 @@
               placeholder="Select status"
               {...getSelectProps($errors, 'status', isLoading)}
             />
-          </FormField>
-        </FormRow>
-        
-        <FormField 
-          id="description" 
-          label="Description" 
-          error={$errors.description}
-          helpText="Optional description of the account's purpose"
-        >
-          <Textarea 
-            id="description" 
-            name="description" 
-            bind:value={$form.description} 
-            placeholder="Enter account description" 
-            class="w-full h-24 {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
-            disabled={isLoading}
-            aria-invalid={$errors.description ? true : undefined}
-          />
-        </FormField>
+          </svelte:fragment>
+        </AccountFormFields>
       </div>
     </AdminCard>
 

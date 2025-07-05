@@ -417,6 +417,7 @@ export const actions: Actions = {
             try {
                 const formData = await request.formData();
                 const itemId = formData.get('itemId');
+                const role = formData.get('role'); // Get role from form data
 
                 // Handle both single itemId (string) and multiple itemIds (JSON array)
                 let itemIds: string[];
@@ -433,6 +434,10 @@ export const actions: Actions = {
                 } else {
                     return fail(400, { error: 'Invalid item ID format' });
                 }
+
+                // Validate role parameter
+                const validRoles = ['OWNER', 'ADMIN', 'MEMBER'];
+                const memberRole = typeof role === 'string' && validRoles.includes(role) ? role : 'MEMBER';
 
                 // Validate item IDs
                 if (itemIds.length === 0) {
@@ -454,18 +459,18 @@ export const actions: Actions = {
                     });
                 }
 
-                // Create new memberships for all users
+                // Create new memberships for all users with the specified role
                 const membershipData = itemIds.map(userId => ({
                     userId,
                     accountId,
-                    role: 'MEMBER' as const // Default role with proper typing
+                    role: memberRole // Use the provided role instead of hardcoded 'MEMBER'
                 }));
 
                 await locals.prisma.accountMembership.createMany({
                     data: membershipData
                 });
 
-                logger.info(`Users ${itemIds.join(', ')} added to account ${accountId}`);
+                logger.info(`Users ${itemIds.join(', ')} added to account ${accountId} with role ${memberRole}`);
 
                 return { success: true };
             } catch (err) {

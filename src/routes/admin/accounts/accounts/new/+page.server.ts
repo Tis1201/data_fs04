@@ -1,34 +1,21 @@
-import { fail, error } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { z } from 'zod';
-
-// Define the account schema
-const accountSchema = z.object({
-    name: z.string()
-        .min(2, { message: "Name must be at least 2 characters" })
-        .max(100, { message: "Name must be less than 100 characters" }),
-    slug: z.string()
-        .min(2, { message: "Slug must be at least 2 characters" })
-        .max(50, { message: "Slug must be less than 50 characters" })
-        .regex(/^[a-z0-9-]+$/, { message: "Slug can only contain lowercase letters, numbers, and hyphens" }),
-    description: z.string().optional(),
-    status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE")
-});
+import { accountEditSchema } from '../schema';
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: { locals: any }) => {
         // Initialize the account creation form with the schema and defaults
-        const form = await superValidate(zod(accountSchema), {
+        const form = await superValidate(zod(accountEditSchema), {
             defaults: {
                 name: '',
                 slug: '',
                 description: '',
-                status: 'ACTIVE'
+                status: 'ACTIVE' as const
             }
         });
 
@@ -42,9 +29,9 @@ export const load = restrict(
 export const actions: Actions = {
     // Action for creating a new account using Superforms
     createAccount: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: { request: Request; locals: any }) => {
         // Validate the form data against the schema
-        const form = await superValidate(request, zod(accountSchema));
+        const form = await superValidate(request, zod(accountEditSchema));
 
         // If validation fails, return the form with errors
         if (!form.valid) {
@@ -86,7 +73,7 @@ export const actions: Actions = {
                 success: true, 
                 account
             };
-        } catch (err) {
+        } catch (err: any) {
             logger.error('Error creating account:', err);
             
             return message(form, {
