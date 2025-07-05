@@ -4,29 +4,22 @@
     import CompaniesTable from "./table.svelte";
     import type { PageData } from "./$types";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import { createTableProps } from "$lib/utils/table-props-utils";
     
     // Import page data from server
     export let data: PageData;
     
-    // Create props for the companies table
-    $: tableProps = {
-        records: data.companies || [],
-        pagination: {
-            page: data.meta?.currentPage || 1,
-            per_page: data.meta?.itemsPerPage || 10,
-            total_records: data.meta?.totalItems || 0,
-            total_pages: data.meta?.totalPages || 0
-        },
-        sort: {
-            field: data.sort?.field || "createdAt",
-            order: data.sort?.order || "desc"
-        },
-        loading: false,
-        filters: {
-            industries: data.filters?.industries || [],
-            accounts: data.accounts || []
+    // Create props for the companies table using the utility
+    $: tableProps = createTableProps(data, {
+        recordsKey: 'companies',
+        defaultSort: { field: 'createdAt', order: 'desc' },
+        additionalProps: {
+            filters: {
+                industries: data.filters?.industries || [],
+                accounts: data.accounts || []
+            }
         }
-    };
+    });
     
     // Define breadcrumbs for this page
     const pageCrumbs = [

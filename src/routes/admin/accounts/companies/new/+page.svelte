@@ -1,5 +1,7 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
+    import { superForm } from 'sveltekit-superforms/client';
+    import { zod } from 'sveltekit-superforms/adapters';
     import { toast } from "svelte-sonner";
     import { ArrowLeft, Save, FileText } from "lucide-svelte";
     import { Button } from "$lib/components/ui/button";
@@ -34,17 +36,28 @@
         "New Company"
     ];
     
-    // Import the reusable form handler
-    import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+    // Import form utilities and schema
+    import { getDetailPageFormConfig, getFieldProps, processFormMessages, getSelectProps } from '$lib/utils/formHelpers';
+    import { companySchema } from './company';
     
-    // Create a form handler with standardized error handling
-    const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-        successRedirect: '/admin/accounts/companies',
-        validateOnInput: true,
-        onSuccess: () => {
-            // Toast is handled by the redirect
-        }
-    });
+    // Enhanced SuperForms setup - best practice approach
+    const { form, errors, enhance, submitting, message, delayed, timeout, tainted } = 
+        superForm(data.form, {
+            validators: zod(companySchema), // Schema validation for proper typing
+            ...getDetailPageFormConfig("Company"), // FormHelpers utilities for consistency
+            onResult: async ({ result }) => {
+                if (result.type === "success") {
+                    // Redirect to companies list on success
+                    await goto('/admin/accounts/companies');
+                }
+            }
+        });
+    
+    // Reactive states - using formHelpers pattern
+    $: isLoading = $submitting || $delayed;
+    $: hasTimeout = $timeout;
+    $: ({ errorMessage } = processFormMessages($message));
+    $: hasChanges = $tainted;
     
     // Status options for the radio group
     const statusOptions = [
@@ -61,7 +74,7 @@
       {
         label: "Cancel",
         icon: ArrowLeft,
-        onClick: () => goto('/admin/accounts/companies'),
+        onClick: async () => await goto('/admin/accounts/companies'),
         variant: "outline",
         class: "h-9" // Fixed height for consistency
       },
@@ -75,7 +88,7 @@
         class: "h-9" // Fixed height for consistency
       }
     ]}
-    loading={$submitting}
+    loading={isLoading}
     showCreateButton={false}
     compact={true}
     contentSpacing="space-y-4"
@@ -85,7 +98,12 @@
         action="?/create"
         {enhance}
         novalidate
-        errorMessage={$errorMessage}
+        {errorMessage}
+        showAlerts={true}
+        disabled={isLoading}
+        {hasTimeout}
+        {isLoading}
+        delayed={$delayed}
         class="w-full space-y-6"
       >
         <AdminCard
@@ -96,19 +114,30 @@
         >
             <div class="space-y-6">
                 <FormRow columns={2}>
-                    <FormField id="name" label="Company Name" required={true} error={$errors.name}>
+                    <FormField 
+                        id="name" 
+                        label="Company Name" 
+                        required={true} 
+                        error={$errors.name}
+                        helpText="Enter the official company name"
+                    >
                         <Input
                             id="name"
                             name="name"
                             type="text"
                             bind:value={$form.name}
                             placeholder="Enter company name"
-                            aria-invalid={$errors.name ? 'true' : undefined}
-                            {...$constraints.name}
+                            {...getFieldProps($errors, 'name', isLoading)}
                         />
                     </FormField>
                     
-                    <FormField id="accountId" label="Account" required={true} error={$errors.accountId}>
+                    <FormField 
+                        id="accountId" 
+                        label="Account" 
+                        required={true} 
+                        error={$errors.accountId}
+                        helpText="Select the parent account for this company"
+                    >
                         <EnhancedSelect
                             name="accountId"
                             bind:value={$form.accountId}
@@ -117,12 +146,19 @@
                                 value: account.id,
                                 label: account.name
                             }))}
+                            {...getSelectProps($errors, 'accountId', isLoading)}
                         />
                     </FormField>
                 </FormRow>
                 
                 <FormRow columns={1}>
-                    <FormField id="status" label="Status" required={true} error={$errors.status}>
+                    <FormField 
+                        id="status" 
+                        label="Status" 
+                        required={true} 
+                        error={$errors.status}
+                        helpText="Set the initial status for the company"
+                    >
                         <div class="flex items-center space-x-4 pt-2">
                             <div class="flex items-center space-x-2">
                                 <Checkbox 
@@ -132,8 +168,8 @@
                                     on:change={(e) => {
                                         $form.status = e.target.checked ? 'ACTIVE' : 'INACTIVE';
                                     }}
-                                    aria-invalid={$errors.status ? 'true' : undefined}
-                                    {...$constraints.status}
+                                    disabled={isLoading}
+                                    aria-invalid={$errors.status ? true : undefined}
                                     value="ACTIVE"
                                 />
                                 <label for="status" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
@@ -156,41 +192,56 @@
         >
             <div class="space-y-6">
                 <FormRow columns={1}>
-                    <FormField id="address" label="Address" error={$errors.address}>
+                    <FormField 
+                        id="address" 
+                        label="Address" 
+                        error={$errors.address}
+                        helpText="Physical address of the company"
+                    >
                         <Textarea
                             id="address"
                             name="address"
                             bind:value={$form.address}
                             placeholder="Enter company address"
                             rows="2"
-                            aria-invalid={$errors.address ? 'true' : undefined}
-                            {...$constraints.address}
+                            class="w-full {$errors.address ? 'border-destructive focus:border-destructive' : ''}"
+                            disabled={isLoading}
+                            aria-invalid={$errors.address ? true : undefined}
                         />
                     </FormField>
                 </FormRow>
                 
                 <FormRow columns={2}>
-                    <FormField id="contactEmail" label="Contact Email" error={$errors.contactEmail}>
+                    <FormField 
+                        id="contactEmail" 
+                        label="Contact Email" 
+                        required={true} 
+                        error={$errors.contactEmail}
+                        helpText="Primary email for company communications"
+                    >
                         <Input
                             id="contactEmail"
                             name="contactEmail"
                             type="email"
                             bind:value={$form.contactEmail}
                             placeholder="contact@example.com"
-                            aria-invalid={$errors.contactEmail ? 'true' : undefined}
-                            {...$constraints.contactEmail}
+                            {...getFieldProps($errors, 'contactEmail', isLoading)}
                         />
                     </FormField>
                     
-                    <FormField id="contactPhone" label="Contact Phone" error={$errors.contactPhone}>
+                    <FormField 
+                        id="contactPhone" 
+                        label="Contact Phone" 
+                        error={$errors.contactPhone}
+                        helpText="Primary phone number for company contact"
+                    >
                         <Input
                             id="contactPhone"
                             name="contactPhone"
                             type="tel"
                             bind:value={$form.contactPhone}
                             placeholder="+1 (555) 123-4567"
-                            aria-invalid={$errors.contactPhone ? 'true' : undefined}
-                            {...$constraints.contactPhone}
+                            {...getFieldProps($errors, 'contactPhone', isLoading)}
                         />
                     </FormField>
                 </FormRow>
@@ -204,15 +255,21 @@
         >
             <div class="space-y-6">
                 <FormRow columns={1}>
-                    <FormField id="description" label="Description" error={$errors.description}>
+                    <FormField 
+                        id="description" 
+                        label="Description" 
+                        error={$errors.description}
+                        helpText="Optional description of the company's business or purpose"
+                    >
                         <Textarea
                             id="description"
                             name="description"
                             bind:value={$form.description}
                             placeholder="Enter company description"
                             rows="3"
-                            aria-invalid={$errors.description ? 'true' : undefined}
-                            {...$constraints.description}
+                            class="w-full {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
+                            disabled={isLoading}
+                            aria-invalid={$errors.description ? true : undefined}
                         />
                     </FormField>
                 </FormRow>

@@ -11,8 +11,8 @@ export const load = restrict(
             const search = url.searchParams.get('search') || '';
             const page = parseInt(url.searchParams.get('page') || '1');
             const perPage = parseInt(url.searchParams.get('per_page') || '10');
-            const sortField = url.searchParams.get('sort_field') || 'createdAt';
-            const sortOrder = url.searchParams.get('sort_order') || 'desc';
+            const sortField = url.searchParams.get('sort') || 'createdAt';
+            const sortOrder = url.searchParams.get('order') || 'desc';
             const industries = url.searchParams.get('industries')?.split(',').filter(Boolean) || [];
             const accountId = url.searchParams.get('accountId') || '';
 

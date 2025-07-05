@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validatePhoneNumber, getPhoneValidationMessage } from '$lib/utils/validation/phone';
 
 // Define the schema for company creation
 export const companySchema = z.object({
@@ -12,12 +13,11 @@ export const companySchema = z.object({
         .optional()
         .nullable(),
     contactEmail: z.string()
+        .min(1, { message: 'Contact email is required' })
         .email({ message: 'Invalid email address' })
-        .max(100, { message: 'Email must be 100 characters or less' })
-        .optional()
-        .nullable(),
+        .max(100, { message: 'Email must be 100 characters or less' }),
     contactPhone: z.string()
-        .max(20, { message: 'Phone number must be 20 characters or less' })
+        .refine(validatePhoneNumber, { message: getPhoneValidationMessage() })
         .optional()
         .nullable(),
     description: z.string()

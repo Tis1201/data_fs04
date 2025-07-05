@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
+  import { goto, invalidate } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import { Save, FileText, ArrowLeft } from "lucide-svelte";
+  import { Save, FileText, ArrowLeft, Building } from "lucide-svelte";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
-  import { Skeleton } from "$lib/components/ui/skeleton";
-  import { Switch } from "$lib/components/ui/switch";
-  import { Label } from "$lib/components/ui/label";
   import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
+  import { superForm } from 'sveltekit-superforms/client';
   
   // Import custom form components
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -16,6 +14,8 @@
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+  import RelationshipSection from "$lib/components/ui_components_sveltekit/relationships/RelationshipSection.svelte";
+  import { Users } from "lucide-svelte";
   import type { PageData } from "./$types";
   
   // Import page data
@@ -30,22 +30,77 @@
     data.company.name,
   ];
   
-  // Import the reusable form handler
-  import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
-  
-  // Create a form handler with standardized error handling
-  const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-    validateOnInput: true,
-    debugMode: false,
-    dataType: 'json', // Add this to support complex validation like unions
-    onSuccess: (result) => {
-      toast.success("Company updated successfully!");
-      goto('/admin/accounts/companies'); // Manual navigation instead of successRedirect
+  // Use standard SuperForms approach with comprehensive error handling
+  const { form, errors, enhance, submitting, message, delayed, timeout } = superForm(data.form, {
+    taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
+    invalidateAll: false, // Prevent automatic invalidation
+    resetForm: false, // Don't reset the form after submission
+    delayMs: 500, // Show loading state after 500ms
+    timeoutMs: 8000, // Timeout after 8 seconds
+    
+    onResult: async ({ result }) => {
+      if (result.type === "success") {
+        // Show success message
+        toast.success("Company updated successfully!", {
+          description: "All changes have been saved.",
+          duration: 4000
+        });
+        
+        // Manually invalidate to get fresh data
+        await invalidate();
+      } else if (result.type === "failure") {
+        // Handle form validation errors
+        if (result.data?.form?.message) {
+          toast.error("Validation Error", {
+            description: result.data.form.message.text || "Please check your input and try again.",
+            duration: 6000
+          });
+        } else {
+          toast.error("Failed to update company", {
+            description: "Please check your input and try again.",
+            duration: 6000
+          });
+        }
+      } else if (result.type === "error") {
+        // Handle server errors
+        toast.error("Server Error", {
+          description: "An unexpected error occurred. Please try again later.",
+          duration: 6000
+        });
+      }
     },
-    onError: (error) => {
-      toast.error(error?.text || "Failed to update company");
+    
+    onError: ({ result }) => {
+      console.error("Form submission error:", result);
+      toast.error("Connection Error", {
+        description: "Unable to connect to the server. Please check your connection and try again.",
+        duration: 6000
+      });
+    },
+    
+    onSubmit: ({ formData, cancel }) => {
+      // Optional: Add pre-submission validation or data manipulation
+      console.log("Form submitting with data:", Object.fromEntries(formData));
+    },
+    
+    onUpdate: ({ form }) => {
+      // Clear previous error messages when user starts typing
+      if (form.valid) {
+        // Optional: Clear any persistent error messages
+      }
     }
   });
+
+  // Enhanced message handling for FormContainer (only errors, success uses toast)
+  $: errorMessage = $message?.type === 'error' ? { 
+    text: $message.text || 'An error occurred',
+    details: $message.details,
+    code: $message.code 
+  } : null;
+  
+  // Loading state management
+  $: isLoading = $submitting || $delayed;
+  $: hasTimeout = $timeout;
   
   // Format account options for the select dropdown
   const accountOptions = data.accounts.map(account => ({
@@ -62,18 +117,21 @@
         label: "Cancel",
         icon: ArrowLeft,
         onClick: () => goto('/admin/accounts/companies'),
-        variant: "outline"
+        variant: "outline",
+        disabled: isLoading
       },
       {
-        label: "Save",
+        label: isLoading ? ($delayed ? "Saving..." : "Processing...") : "Save Changes",
         icon: Save,
         onClick: () => {
           const form = document.querySelector('form[action="?/updateCompany"]');
           if (form) form.requestSubmit();
-        }
+        },
+        disabled: isLoading || !$form || Object.keys($errors).length > 0,
+        loading: isLoading
       }
     ]}
-    loading={$submitting}
+    loading={isLoading}
     showCreateButton={false}
     compact={true}
     contentSpacing="space-y-4"
@@ -83,13 +141,19 @@
     action="?/updateCompany" 
     {enhance} 
     novalidate 
-    errorMessage={$errorMessage}
+    {errorMessage}
+    showAlerts={true}
+    disabled={isLoading}
+    {hasTimeout}
+    {isLoading}
+    delayed={$delayed}
   >
     <AdminCard
       title="Company Information"
       description="Edit company details"
-      icon={FileText}
+      icon={Building}
       compact={true}
+      class="relative"
     >
       <div class="space-y-6">
         <FormRow columns={2}>
@@ -98,6 +162,7 @@
             label="Company Name" 
             error={$errors.name}
             required={true}
+            helpText="Enter the official company name"
           >
             <Input 
               id="name" 
@@ -105,8 +170,9 @@
               type="text" 
               bind:value={$form.name} 
               placeholder="Enter company name" 
+              disabled={isLoading}
               aria-invalid={$errors.name ? 'true' : undefined}
-              {...$constraints.name}
+              class={$errors.name ? 'border-destructive focus:border-destructive' : ''}
             />
           </FormField>
           
@@ -114,6 +180,8 @@
             id="status" 
             label="Status" 
             error={$errors.status}
+            required={true}
+            helpText="Current operational status of the company"
           >
             <EnhancedSelect
               name="status"
@@ -123,8 +191,10 @@
                 { value: "PENDING", label: "Pending" }
               ]}
               bind:value={$form.status}
+              disabled={isLoading}
+              placeholder="Select status"
               aria-invalid={$errors.status ? 'true' : undefined}
-              {...$constraints.status}
+              className={$errors.status ? 'border-destructive' : ''}
             />
           </FormField>
         </FormRow>
@@ -134,6 +204,8 @@
             id="contactEmail" 
             label="Contact Email" 
             error={$errors.contactEmail}
+            required={true}
+            helpText="Primary email for company communications"
           >
             <Input 
               id="contactEmail" 
@@ -141,8 +213,9 @@
               type="email" 
               bind:value={$form.contactEmail} 
               placeholder="contact@example.com" 
+              disabled={isLoading}
               aria-invalid={$errors.contactEmail ? 'true' : undefined}
-              {...$constraints.contactEmail}
+              class={$errors.contactEmail ? 'border-destructive focus:border-destructive' : ''}
             />
           </FormField>
           
@@ -150,6 +223,7 @@
             id="contactPhone" 
             label="Contact Phone" 
             error={$errors.contactPhone}
+            helpText="Primary phone number for company contact"
           >
             <Input 
               id="contactPhone" 
@@ -157,8 +231,9 @@
               type="tel" 
               bind:value={$form.contactPhone} 
               placeholder="+1 (555) 123-4567" 
+              disabled={isLoading}
               aria-invalid={$errors.contactPhone ? 'true' : undefined}
-              {...$constraints.contactPhone}
+              class={$errors.contactPhone ? 'border-destructive focus:border-destructive' : ''}
             />
           </FormField>
         </FormRow>
@@ -168,6 +243,7 @@
             id="address" 
             label="Address" 
             error={$errors.address}
+            helpText="Physical address of the company"
           >
             <Input 
               id="address" 
@@ -175,8 +251,9 @@
               type="text" 
               bind:value={$form.address} 
               placeholder="Company address" 
+              disabled={isLoading}
               aria-invalid={$errors.address ? 'true' : undefined}
-              {...$constraints.address}
+              class={$errors.address ? 'border-destructive focus:border-destructive' : ''}
             />
           </FormField>
           
@@ -184,14 +261,17 @@
             id="accountId" 
             label="Account" 
             error={$errors.accountId}
+            required={true}
+            helpText="Parent account this company belongs to"
           >
             <EnhancedSelect
               name="accountId"
               options={accountOptions}
               bind:value={$form.accountId}
               placeholder="Select an account"
+              disabled={isLoading}
               aria-invalid={$errors.accountId ? 'true' : undefined}
-              {...$constraints.accountId}
+              className={$errors.accountId ? 'border-destructive' : ''}
             />
           </FormField>
         </FormRow>
@@ -200,36 +280,36 @@
           id="description" 
           label="Description" 
           error={$errors.description}
+          helpText="Optional description of the company's business or purpose"
         >
           <Textarea 
             id="description" 
             name="description" 
             bind:value={$form.description} 
             placeholder="Enter company description" 
-            class="w-full h-24"
+            disabled={isLoading}
+            class="w-full h-24 {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
             aria-invalid={$errors.description ? 'true' : undefined}
-            {...$constraints.description}
-          />
-        </FormField>
-        
-        <FormField 
-          id="status" 
-          label="Status" 
-          error={$errors.status}
-        >
-          <EnhancedSelect
-            name="status"
-            options={[
-              { value: "ACTIVE", label: "Active" },
-              { value: "INACTIVE", label: "Inactive" },
-              { value: "PENDING", label: "Pending" }
-            ]}
-            bind:value={$form.status}
-            aria-invalid={$errors.status ? 'true' : undefined}
-            {...$constraints.status}
           />
         </FormField>
       </div>
     </AdminCard>
   </FormContainer>
+  
+  <!-- Account Members Section -->
+  <RelationshipSection
+    title="Account Members"
+    description="Users who are members of the same account as this company"
+    icon={Users}
+    relationships={data.members}
+    availableItems={[]} 
+    relationshipType="members"
+    canAdd={false}
+    canRemove={true}
+    viewUrl="/admin/users"
+    addAction=""
+    removeAction="?/removeMember"
+    loading={false}
+    multiSelect={true}
+  />
 </AdminPageLayout>
