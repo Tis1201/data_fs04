@@ -173,7 +173,7 @@
 
         try {
             // Call the screenshot handler on the device
-            const responsePayload = await socketStore.sendRequest(
+            const responsePayload = await sseStore.sendRequest(
                 {
                     type: "device",
                     scope: `subscription:device:${device.id}`,
@@ -182,19 +182,18 @@
                         type: "screenshot:request",
                         deviceId: device.id,
                         quality: 80, // JPEG quality (1-100)
-                        // no requestId or timestamp here – sendRequest() will append them
                     },
                 },
-                /* timeoutMs = */ 10000, // Screenshots might take longer than pings
-                /* requestIdPrefix = */ "screenshot",
+                10000, // Screenshots might take longer than pings
+                'device-screenshot'
             );
 
             console.log("Screenshot response:", responsePayload);
 
             // Check if we have an image in the response
-            if (responsePayload?.image) {
+            if (responsePayload.payload && responsePayload.payload.image) {
                 // Create a modal or display the image
-                const imageData = responsePayload.image;
+                const imageData = responsePayload.payload.image;
                 const format = responsePayload.format || "jpeg";
 
                 // Create an image element to display the screenshot
@@ -675,29 +674,6 @@
     </div>
 
     <!-- Status message for actions -->
-    {#if $actionStatus.status}
-        <div
-            class="mt-4 p-3 rounded-md text-sm flex items-center"
-            class:bg-muted={$actionStatus.status === "loading"}
-            class:bg-green-50={$actionStatus.status === "success"}
-            class:bg-red-50={$actionStatus.status === "error"}
-        >
-            {#if $actionStatus.status === "loading"}
-                <Loader2
-                    class="mr-2 h-4 w-4 animate-spin text-muted-foreground"
-                />
-            {:else if $actionStatus.status === "success"}
-                <CheckCircle class="mr-2 h-4 w-4 text-green-500" />
-            {:else if $actionStatus.status === "error"}
-                <AlertCircle class="mr-2 h-4 w-4 text-red-500" />
-            {/if}
-            <span
-                class:text-muted-foreground={$actionStatus.status === "loading"}
-                class:text-green-700={$actionStatus.status === "success"}
-                class:text-red-700={$actionStatus.status === "error"}
-            >
-                {$actionStatus.message}
-            </span>
-        </div>
-    {/if}
+    <!-- Status message is already displayed in the device actions section -->
+    <!-- Removed duplicate status message that was here -->
 </UserPageLayout>
