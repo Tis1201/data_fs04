@@ -7,11 +7,12 @@
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { toast } from "svelte-sonner";
     import { enhance } from "$app/forms";
-    import { Save, Settings, History } from "lucide-svelte";
+    import { Save, Settings, History, ArrowLeft } from "lucide-svelte";
     import SettingsForm from "./form.svelte";
     import SettingsTable from "./table.svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
     import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
+    import { goto } from "$app/navigation";
 
     export let data: PageData;
 
@@ -27,6 +28,7 @@
     let loading = false;
     let jsonError: string | null = null;
     let activeView = "settings";
+    let isSubmitting = false;
 
     // Define menu items for the SimpleMenubar
     const menuItems = [
@@ -118,6 +120,49 @@
         }
     }
 
+    // Handle form submission state
+    function handleFormSubmit() {
+        isSubmitting = true;
+    }
+
+    function handleFormResult(event) {
+        isSubmitting = false;
+        const { success, result, cancelled } = event.detail;
+        
+        if (cancelled) {
+            // Form was cancelled due to validation errors
+            console.log("Form submission cancelled");
+        } else if (success) {
+            console.log("Form submission successful");
+        } else {
+            console.log("Form submission failed", result);
+        }
+    }
+
+    // Action buttons for the page header
+    $: actionButtons = [
+        {
+            label: "Back to Settings",
+            icon: ArrowLeft,
+            onClick: () => goto('/admin/settings'),
+            variant: "outline",
+            disabled: isSubmitting
+        },
+        {
+            label: isSubmitting ? "Saving..." : "Save Settings",
+            icon: Save,
+            onClick: () => {
+                const form = document.querySelector('form[action="?/update"]');
+                if (form) {
+                    handleFormSubmit();
+                    form.requestSubmit();
+                }
+            },
+            disabled: isSubmitting,
+            loading: isSubmitting
+        }
+    ];
+
     onMount(() => {
         // Initialize with any needed setup
     });
@@ -128,16 +173,7 @@
 <AdminPageLayout
     {title}
     crumbs={pageCrumbs}
-    actionButtons={[
-        {
-            label: "Save",
-            icon: Save,
-            onClick: () => {
-                const form = document.querySelector('form[action="?/update"]');
-                if (form) form.requestSubmit();
-            }
-        }
-    ]}
+    actionButtons={actionButtons}
     {loading}
     showCreateButton={false}
     compact={true}
@@ -158,7 +194,12 @@
                         <Skeleton class="h-64 w-full" />
                     </div>
                 {:else}
-                    <SettingsForm form={data.form} {jsonError} />
+                    <SettingsForm 
+                        form={data.form} 
+                        {jsonError} 
+                        on:submit={handleFormSubmit}
+                        on:result={handleFormResult}
+                    />
                 {/if}
             {:else if activeView === "history"}
                 {#if loading}

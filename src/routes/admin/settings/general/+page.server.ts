@@ -1,8 +1,13 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { superValidate } from 'sveltekit-superforms/server';
+import { superValidate, message } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { zod } from 'sveltekit-superforms/adapters';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
+import { logger } from '$lib/server/logger';
+import prisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack
+import { getCurrentActiveSetting, updateActiveSetting } from '$lib/server/settings';
 
 // Schema for settings form
 const settingsSchema = z.object({
@@ -10,80 +15,93 @@ const settingsSchema = z.object({
   data: z.string().min(2, 'Settings data is required'),
 });
 
-export const load: PageServerLoad = async ({ locals }) => {
-  // Get the currently active settings
-  const activeSettings = await locals.prisma.setting.findFirst({
-    where: {
-      isActive: true,
-    },
-    orderBy: {
-      updatedAt: 'desc',
-    },
-  });
+export const load = restrict(
+  async (event: AuthenticatedEvent) => {
+    const { locals, auth } = event;
+    
+    try {
+      // Get the currently active settings (ensures one exists)
+      const activeSettings = await getCurrentActiveSetting();
 
-  // Get settings history
-  const settingsHistory = await locals.prisma.setting.findMany({
-    where: {
-      isActive: false,
-    },
-    orderBy: {
-      updatedAt: 'desc',
-    },
-    take: 10, // Limit to last 10 entries
-  });
+      // Get settings history
+      const settingsHistory = await prisma.setting.findMany({
+        where: {
+          isActive: false,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+        take: 10, // Limit to last 10 entries
+      });
 
-  // Create form with empty data or existing data
-  const form = await superValidate(
-    activeSettings 
-      ? { id: activeSettings.id, data: activeSettings.data || '{}' } 
-      : { data: '{}' }, 
-    zod(settingsSchema)
-  );
+      // Create form with existing data
+      const form = await superValidate(
+        { id: activeSettings.id, data: activeSettings.data || '{}' }, 
+        zod(settingsSchema)
+      );
 
-  return {
-    form,
-    activeSettings,
-    settingsHistory,
-  };
-};
+      return {
+        form,
+        activeSettings,
+        settingsHistory,
+      };
+    } catch (err) {
+      logger.error('Error loading settings:', err as Record<string, any>);
+      throw error(500, 'Failed to load settings');
+    }
+  },
+  [SystemRole.ADMIN]
+) satisfies PageServerLoad;
 
 export const actions: Actions = {
-  update: async ({ request, locals }) => {
-    const form = await superValidate(request, zod(settingsSchema));
-    
-    if (!form.valid) {
-      return fail(400, { form });
-    }
-
-    try {
-      // Parse JSON to validate it's proper JSON
-      JSON.parse(form.data.data);
+  update: restrict(
+    async (event: AuthenticatedEvent) => {
+      const { request, locals, auth } = event;
       
-      // If there's an existing active setting, deactivate it
-      if (form.data.id) {
-        await locals.prisma.setting.update({
-          where: { id: form.data.id },
-          data: { isActive: false }
-        });
+      // Auth should never be null here due to restrict guard, but TypeScript doesn't know this
+      if (!auth?.user) {
+        throw error(401, 'Unauthorized');
       }
       
-      // Create a new active setting
-      await locals.prisma.setting.create({
-        data: {
-          data: form.data.data,
-          isActive: true,
-          createdBy: locals.user?.id || 'system',
-          updatedBy: locals.user?.id || 'system',
-        }
-      });
+      const form = await superValidate(request, zod(settingsSchema));
       
-      return { form };
-    } catch (e) {
-      console.error('Error updating settings:', e);
-      return fail(400, { 
-        form,
-        error: e instanceof Error ? e.message : 'Invalid JSON data'
-      });
-    }
-  }
+      if (!form.valid) {
+        return fail(400, { form });
+      }
+
+      try {
+        // Use the utility function to update settings atomically
+        await updateActiveSetting(form.data.data, auth.user.id || 'system');
+        
+        logger.info(`Settings updated by user: ${auth.user.id || 'system'} (${auth.user.systemRole})`);
+        
+        return message(form, {
+          type: 'success',
+          text: 'Settings updated successfully',
+          timestamp: new Date().toISOString()
+        });
+      } catch (e) {
+        logger.error('Error updating settings:', e as Record<string, any>);
+        
+        if (e instanceof SyntaxError) {
+          return message(form, {
+            type: 'error',
+            text: 'Invalid JSON format',
+            details: 'Please check your settings format and try again.',
+            code: 'INVALID_JSON',
+            timestamp: new Date().toISOString()
+          }, { status: 400 });
+        }
+        
+        return message(form, {
+          type: 'error',
+          text: 'Failed to update settings',
+          details: e instanceof Error ? e.message : 'An unexpected error occurred',
+          code: 'UPDATE_FAILED',
+          timestamp: new Date().toISOString()
+        }, { status: 500 });
+      }
+    },
+    [SystemRole.ADMIN]
+  )
 };

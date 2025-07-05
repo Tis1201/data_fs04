@@ -7,8 +7,10 @@
   import { Input } from "$lib/components/ui/input";
   import { Switch } from "$lib/components/ui/switch";
   import { Separator } from "$lib/components/ui/separator";
-  import { Save, Settings2, Lock, Shield, Zap } from "lucide-svelte";
+  import { Save, Settings2, Lock, Shield, Zap, Loader2 } from "lucide-svelte";
   import type { SuperValidated } from "sveltekit-superforms";
+  import { invalidate } from "$app/navigation";
+  import { createEventDispatcher } from 'svelte';
   
   // Import custom form components
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
@@ -16,6 +18,7 @@
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+  import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
   
   // Schema for settings form
   const settingsSchema = z.object({
@@ -26,23 +29,99 @@
   export let form: SuperValidated<typeof settingsSchema>;
   export let jsonError: string | null = null;
 
-  const { form: formData, enhance, errors, submitting } = superForm(form, {
+  // Use standard SuperForms approach with comprehensive error handling
+  const { form: formData, enhance, errors, submitting, message, delayed, timeout } = superForm(form, {
     validators: zodClient(settingsSchema),
-    onUpdate: ({ form }) => {
-      if (form.valid) {
-        toast.success("Settings updated", {
-          description: "Your general settings have been successfully saved",
-          duration: 3000
+    taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
+    invalidateAll: false, // Prevent automatic invalidation
+    resetForm: false, // Don't reset the form after submission
+    delayMs: 500, // Show loading state after 500ms
+    timeoutMs: 8000, // Timeout after 8 seconds
+    
+    onResult: async ({ result }) => {
+      if (result.type === "success") {
+        // Show success message
+        toast.success("Settings updated successfully!", {
+          description: "Your general settings have been saved and applied.",
+          duration: 4000
         });
+        
+        // Manually invalidate to get fresh data
+        await invalidate();
+        
+        // Dispatch success event to parent
+        dispatch('result', { success: true, result });
+      } else if (result.type === "failure") {
+        // Handle form validation errors
+        if (result.data?.form?.message) {
+          toast.error("Validation Error", {
+            description: result.data.form.message.text || "Please check your settings and try again.",
+            duration: 6000
+          });
+        } else {
+          toast.error("Failed to update settings", {
+            description: "Please check your settings and try again.",
+            duration: 6000
+          });
+        }
+        
+        // Dispatch failure event to parent
+        dispatch('result', { success: false, result });
+      } else if (result.type === "error") {
+        // Handle server errors
+        toast.error("Server Error", {
+          description: "An unexpected error occurred. Please try again later.",
+          duration: 6000
+        });
+        
+        // Dispatch error event to parent
+        dispatch('result', { success: false, result });
       }
     },
+    
     onError: ({ result }) => {
-      toast.error("Failed to update settings", {
-        description: result.error || "Please check your settings and try again",
-        duration: 5000
+      console.error("Form submission error:", result);
+      toast.error("Connection Error", {
+        description: "Unable to connect to the server. Please check your connection and try again.",
+        duration: 6000
       });
+      
+      // Dispatch error event to parent
+      dispatch('result', { success: false, result });
+    },
+    
+    onSubmit: ({ formData, cancel }) => {
+      // Validate before submission
+      if (!validateBeforeSubmit()) {
+        cancel();
+        // Dispatch cancel event to parent
+        dispatch('result', { success: false, cancelled: true });
+        return;
+      }
+      console.log("Form submitting with data:", Object.fromEntries(formData));
+      
+      // Dispatch submit event to parent
+      dispatch('submit');
+    },
+    
+    onUpdate: ({ form }) => {
+      // Clear previous error messages when user starts typing
+      if (form.valid) {
+        jsonError = null;
+      }
     }
   });
+
+  // Enhanced message handling for FormContainer (only errors, success uses toast)
+  $: errorMessage = $message?.type === 'error' ? { 
+    text: $message.text || 'An error occurred',
+    details: $message.details,
+    code: $message.code 
+  } : null;
+  
+  // Loading state management
+  $: isLoading = $submitting || $delayed;
+  $: hasTimeout = $timeout;
 
   // Parse settings from JSON
   let settings = {
@@ -54,7 +133,8 @@
       captchaEnabled: false,
       captchaType: 'recaptcha',
       emailProvider: 'smtp',
-      emailEnabled: false
+      emailEnabled: false,
+      allowRegistration: true
     },
     security: {
       enforceStrongPasswords: false,
@@ -66,7 +146,6 @@
       debugMode: false,
       logLevel: "info",
       maintenanceMode: false,
-      allowRegistration: true
     },
     notifications: {
       emailNotifications: true,
@@ -95,7 +174,8 @@
           captchaEnabled: parsed.auth?.captchaEnabled ?? settings.auth.captchaEnabled,
           captchaType: parsed.auth?.captchaType ?? settings.auth.captchaType,
           emailProvider: parsed.auth?.emailProvider ?? settings.auth.emailProvider,
-          emailEnabled: parsed.auth?.emailEnabled ?? settings.auth.emailEnabled
+          emailEnabled: parsed.auth?.emailEnabled ?? settings.auth.emailEnabled,
+          allowRegistration: parsed.auth?.allowRegistration ?? parsed.system?.allowRegistration ?? settings.auth.allowRegistration
         },
         security: {
           enforceStrongPasswords: parsed.security?.enforceStrongPasswords ?? settings.security.enforceStrongPasswords,
@@ -106,8 +186,7 @@
         system: {
           debugMode: parsed.system?.debugMode ?? settings.system.debugMode,
           logLevel: parsed.system?.logLevel ?? settings.system.logLevel,
-          maintenanceMode: parsed.system?.maintenanceMode ?? settings.system.maintenanceMode,
-          allowRegistration: parsed.system?.allowRegistration ?? settings.system.allowRegistration
+          maintenanceMode: parsed.system?.maintenanceMode ?? settings.system.maintenanceMode
         },
         notifications: {
           emailNotifications: parsed.notifications?.emailNotifications ?? settings.notifications.emailNotifications,
@@ -126,8 +205,6 @@
   } catch (e) {
     console.error('Error parsing settings:', e);
   }
-
-
 
   // Update the JSON data when settings change
   function updateJsonData() {
@@ -155,322 +232,230 @@
     { value: "debug", label: "Debug" },
     { value: "trace", label: "Trace" }
   ];
+
+  // Create event dispatcher
+  const dispatch = createEventDispatcher();
 </script>
 
-<form 
+<FormContainer 
   method="POST" 
   action="?/update" 
-  use:enhance 
-  on:submit={validateBeforeSubmit}
-  class="space-y-6"
+  {enhance} 
+  novalidate 
+  {errorMessage}
+  showAlerts={true}
+  disabled={isLoading}
+  {hasTimeout}
+  {isLoading}
+  delayed={$delayed}
 >
   <input type="hidden" name="id" bind:value={$formData.id} />
   <input type="hidden" name="data" bind:value={$formData.data} />
   
   {#if jsonError}
-    <div class="text-sm text-destructive">{jsonError}</div>
+    <ErrorAlert 
+      title="Configuration Error" 
+      message={jsonError}
+      variant="destructive"
+    />
   {/if}
-  <!-- Authentication Settings -->
-  <div class="p-4 border rounded-md bg-card/50 space-y-4">
-    <div class="flex items-center gap-2">
-      <Lock class="h-5 w-5 text-primary" />
-      <h3 class="text-lg font-medium">Authentication</h3>
-    </div>
-    <Separator />
-    
-    <div class="grid gap-4 pl-1">
-        <!-- <FormField id="auth_sessionAuth" label="Session Authentication" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Enable username/password authentication</p>
-            <Switch 
-              id="auth_sessionAuth"
-              checked={settings.auth.sessionAuth} 
-              onCheckedChange={(checked) => {
-                settings.auth.sessionAuth = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField> -->
-            
-        <!-- <FormField id="auth_oauthAuth" label="OAuth Authentication" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Enable third-party authentication providers</p>
-            <Switch 
-              id="auth_oauthAuth"
-              checked={settings.auth.oauthAuth} 
-              onCheckedChange={(checked) => {
-                settings.auth.oauthAuth = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField>
-            
-        <FormRow columns={2}>
-          <FormField id="sessionTimeout" label="Session Timeout (minutes)" error={null}>
-            <Input 
-              id="sessionTimeout" 
-              type="number" 
-              min="1" 
-              max="1440"
-              value={settings.auth.sessionTimeout} 
-              on:input={(e) => {
-                settings.auth.sessionTimeout = parseInt(e.currentTarget.value) || 30;
-                updateJsonData();
-              }}
-            />
-          </FormField>
-          
-          <FormField id="maxLoginAttempts" label="Max Login Attempts" error={null}>
-            <Input 
-              id="maxLoginAttempts" 
-              type="number" 
-              min="1" 
-              max="10"
-              value={settings.auth.maxLoginAttempts} 
-              on:input={(e) => {
-                settings.auth.maxLoginAttempts = parseInt(e.currentTarget.value) || 5;
-                updateJsonData();
-              }}
-            />
-          </FormField>
-        </FormRow> -->
 
-        <FormField id="auth_captcha" label="CAPTCHA Protection" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Enable CAPTCHA verification for login attempts</p>
-            <Switch 
-              id="auth_captcha"
-              checked={settings.auth.captchaEnabled} 
-              onCheckedChange={(checked) => {
-                settings.auth.captchaEnabled = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField>
-
-        <!-- {#if settings.auth.captchaEnabled}
-          <FormField id="captchaType" label="CAPTCHA Type" error={null}>
-            <EnhancedSelect
-              id="captchaType"
-              name="captchaType"
-              options={[
-                { value: 'recaptcha', label: 'Google reCAPTCHA' },
-                { value: 'hcaptcha', label: 'hCaptcha' },
-                { value: 'turnstile', label: 'Cloudflare Turnstile' }
-              ]}
-              value={settings.auth.captchaType}
-              placeholder="Select CAPTCHA type"
-              labelText="CAPTCHA Type"
-              on:change={(e) => {
-                settings.auth.captchaType = e.detail;
-                updateJsonData();
-              }}
-            />
+  <div class="space-y-6 relative">
+    <!-- Authentication Settings -->
+    <div class="p-4 border rounded-md bg-card/50 space-y-4">
+      <div class="flex items-center gap-2">
+        <Lock class="h-5 w-5 text-primary" />
+        <h3 class="text-lg font-medium">Authentication</h3>
+      </div>
+      <Separator />
+      
+      <div class="grid gap-4 pl-1">
+          <FormField id="auth_captcha" label="CAPTCHA Protection" error={null}>
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-muted-foreground">Enable CAPTCHA verification for login attempts</p>
+              <Switch 
+                id="auth_captcha"
+                checked={settings.auth.captchaEnabled} 
+                disabled={isLoading}
+                onCheckedChange={(checked) => {
+                  settings.auth.captchaEnabled = checked;
+                  updateJsonData();
+                }}
+              />
+            </div>
           </FormField>
-        {/if} -->
 
-        <FormField id="auth_email" label="Email Notifications" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Enable email notifications for authentication</p>
-            <Switch 
-              id="auth_email"
-              checked={settings.auth.emailEnabled} 
-              onCheckedChange={(checked) => {
-                settings.auth.emailEnabled = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField>
-
-        <!-- {#if settings.auth.emailEnabled}
-          <FormField id="emailProvider" label="Email Service Provider" error={null}>
-            <EnhancedSelect
-              id="emailProvider"
-              name="emailProvider"
-              options={[
-                { value: 'smtp', label: 'SMTP Server' },
-                { value: 'sendgrid', label: 'SendGrid' },
-                { value: 'mailgun', label: 'Mailgun' },
-                { value: 'ses', label: 'Amazon SES' }
-              ]}
-              value={settings.auth.emailProvider}
-              placeholder="Select email provider"
-              labelText="Email Provider"
-              on:change={(e) => {
-                settings.auth.emailProvider = e.detail;
-                updateJsonData();
-              }}
-            />
-          </FormField>
-        {/if} -->
-    </div>
-  </div>
-  
-  <!-- Security Settings -->
-  <div class="p-4 border rounded-md bg-card/50 space-y-4">
-    <div class="flex items-center gap-2">
-      <Shield class="h-5 w-5 text-primary" />
-      <h3 class="text-lg font-medium">Security</h3>
-    </div>
-    <Separator />
-    
-    <div class="grid gap-4 pl-1">
-        <FormField id="security_enforceStrongPasswords" label="Enforce Strong Passwords" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Require complex passwords with minimum requirements</p>
-            <Switch 
-              id="security_enforceStrongPasswords"
-              checked={settings.security.enforceStrongPasswords} 
-              onCheckedChange={(checked) => {
-                settings.security.enforceStrongPasswords = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField>
-            
-        <!-- <FormField id="security_twoFactorAuth" label="Two-Factor Authentication" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Require 2FA for all users</p>
-            <Switch 
-              id="security_twoFactorAuth"
-              checked={settings.security.twoFactorAuth} 
-              onCheckedChange={(checked) => {
-                settings.security.twoFactorAuth = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField> -->
-    </div>
-  </div>
-  
-  <!-- System Settings -->
-  <div class="p-4 border rounded-md bg-card/50 space-y-4">
-    <div class="flex items-center gap-2">
-      <Settings2 class="h-5 w-5 text-primary" />
-      <h3 class="text-lg font-medium">System</h3>
-    </div>
-    <Separator />
-    
-    <div class="grid gap-4 pl-1">
-        <FormField id="system_debugMode" label="Debug Mode" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Enable detailed error messages and logging</p>
-            <Switch 
-              id="system_debugMode"
-              checked={settings.system.debugMode} 
-              onCheckedChange={(checked) => {
-                settings.system.debugMode = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField>
-            
-        <FormField id="system_maintenanceMode" label="Maintenance Mode" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Put application in maintenance mode</p>
-            <Switch 
-              id="system_maintenanceMode"
-              checked={settings.system.maintenanceMode} 
-              onCheckedChange={(checked) => {
-                settings.system.maintenanceMode = checked;
-                updateJsonData();
-              }}
-            />
-          </div>
-        </FormField>
-            
-        <FormField id="logLevel" label="Log Level" error={null}>
-          <EnhancedSelect
-            id="logLevel"
-            name="logLevel"
-            options={logLevels}
-            value={settings.system.logLevel}
-            placeholder="Select log level"
-            labelText="Log Level"
-            on:change={(e) => {
-              settings.system.logLevel = e.detail;
-              updateJsonData();
-            }}
-          />
-        </FormField>
-            
         <FormField id="system_allowRegistration" label="Allow Registration" error={null}>
           <div class="flex items-center justify-between">
             <p class="text-sm text-muted-foreground">Allow new users to register</p>
-            <Switch 
-              id="system_allowRegistration"
-              checked={settings.system.allowRegistration} 
-              onCheckedChange={(checked) => {
-                settings.system.allowRegistration = checked;
-                updateJsonData();
-              }}
+            <Switch
+                    id="system_allowRegistration"
+                    checked={settings.auth.allowRegistration}
+                    disabled={isLoading}
+                    onCheckedChange={(checked) => {
+                  settings.auth.allowRegistration = checked;
+                  updateJsonData();
+                }}
             />
           </div>
         </FormField>
+
+          <FormField id="auth_email" label="Email Notifications" error={null}>
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-muted-foreground">Enable email notifications for authentication</p>
+              <Switch 
+                id="auth_email"
+                checked={settings.auth.emailEnabled} 
+                disabled={isLoading}
+                onCheckedChange={(checked) => {
+                  settings.auth.emailEnabled = checked;
+                  updateJsonData();
+                }}
+              />
+            </div>
+          </FormField>
+      </div>
     </div>
-  </div>
-  
-  <!-- Performance Settings -->
-  <div class="p-4 border rounded-md bg-card/50 space-y-4">
-    <div class="flex items-center gap-2">
-      <Zap class="h-5 w-5 text-primary" />
-      <h3 class="text-lg font-medium">Performance</h3>
-    </div>
-    <Separator />
     
-    <div class="grid gap-4 pl-1">
-        <FormField id="performance_cacheEnabled" label="Enable Caching" error={null}>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-muted-foreground">Cache responses to improve performance</p>
-            <Switch 
-              id="performance_cacheEnabled"
-              checked={settings.performance.cacheEnabled} 
-              onCheckedChange={(checked) => {
-                settings.performance.cacheEnabled = checked;
+    <!-- Security Settings -->
+    <div class="p-4 border rounded-md bg-card/50 space-y-4">
+      <div class="flex items-center gap-2">
+        <Shield class="h-5 w-5 text-primary" />
+        <h3 class="text-lg font-medium">Security</h3>
+      </div>
+      <Separator />
+      
+      <div class="grid gap-4 pl-1">
+          <FormField id="security_enforceStrongPasswords" label="Enforce Strong Passwords" error={null}>
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-muted-foreground">Require complex passwords with minimum requirements</p>
+              <Switch 
+                id="security_enforceStrongPasswords"
+                checked={settings.security.enforceStrongPasswords} 
+                disabled={isLoading}
+                onCheckedChange={(checked) => {
+                  settings.security.enforceStrongPasswords = checked;
+                  updateJsonData();
+                }}
+              />
+            </div>
+          </FormField>
+      </div>
+    </div>
+    
+    <!-- System Settings -->
+    <div class="p-4 border rounded-md bg-card/50 space-y-4">
+      <div class="flex items-center gap-2">
+        <Settings2 class="h-5 w-5 text-primary" />
+        <h3 class="text-lg font-medium">System</h3>
+      </div>
+      <Separator />
+      
+      <div class="grid gap-4 pl-1">
+          <FormField id="system_debugMode" label="Debug Mode" error={null}>
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-muted-foreground">Enable detailed error messages and logging</p>
+              <Switch 
+                id="system_debugMode"
+                checked={settings.system.debugMode} 
+                disabled={isLoading}
+                onCheckedChange={(checked) => {
+                  settings.system.debugMode = checked;
+                  updateJsonData();
+                }}
+              />
+            </div>
+          </FormField>
+              
+          <FormField id="system_maintenanceMode" label="Maintenance Mode" error={null}>
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-muted-foreground">Put application in maintenance mode</p>
+              <Switch 
+                id="system_maintenanceMode"
+                checked={settings.system.maintenanceMode} 
+                disabled={isLoading}
+                onCheckedChange={(checked) => {
+                  settings.system.maintenanceMode = checked;
+                  updateJsonData();
+                }}
+              />
+            </div>
+          </FormField>
+              
+          <FormField id="logLevel" label="Log Level" error={null}>
+            <EnhancedSelect
+              id="logLevel"
+              name="logLevel"
+              options={logLevels}
+              value={settings.system.logLevel}
+              placeholder="Select log level"
+              labelText="Log Level"
+              disabled={isLoading}
+              on:change={(e) => {
+                settings.system.logLevel = e.detail;
                 updateJsonData();
               }}
             />
-          </div>
-        </FormField>
+          </FormField>
+      </div>
+    </div>
+    
+    <!-- Performance Settings -->
+    <div class="p-4 border rounded-md bg-card/50 space-y-4">
+      <div class="flex items-center gap-2">
+        <Zap class="h-5 w-5 text-primary" />
+        <h3 class="text-lg font-medium">Performance</h3>
+      </div>
+      <Separator />
+      
+      <div class="grid gap-4 pl-1">
+          <FormField id="performance_cacheEnabled" label="Enable Caching" error={null}>
+            <div class="flex items-center justify-between">
+              <p class="text-sm text-muted-foreground">Cache responses to improve performance</p>
+              <Switch 
+                id="performance_cacheEnabled"
+                checked={settings.performance.cacheEnabled} 
+                disabled={isLoading}
+                onCheckedChange={(checked) => {
+                  settings.performance.cacheEnabled = checked;
+                  updateJsonData();
+                }}
+              />
+            </div>
+          </FormField>
+              
+          <FormRow columns={2}>
+            <FormField id="cacheTTL" label="Cache TTL (seconds)" error={null}>
+              <Input 
+                id="cacheTTL" 
+                type="number" 
+                min="60" 
+                max="86400"
+                value={settings.performance.cacheTTL} 
+                disabled={isLoading}
+                on:input={(e) => {
+                  settings.performance.cacheTTL = parseInt(e.currentTarget.value) || 3600;
+                  updateJsonData();
+                }}
+              />
+            </FormField>
             
-        <FormRow columns={2}>
-          <FormField id="cacheTTL" label="Cache TTL (seconds)" error={null}>
-            <Input 
-              id="cacheTTL" 
-              type="number" 
-              min="60" 
-              max="86400"
-              value={settings.performance.cacheTTL} 
-              on:input={(e) => {
-                settings.performance.cacheTTL = parseInt(e.currentTarget.value) || 3600;
-                updateJsonData();
-              }}
-            />
-          </FormField>
-          
-          <FormField id="maxRequestsPerMinute" label="Rate Limit (req/min)" error={null}>
-            <Input 
-              id="maxRequestsPerMinute" 
-              type="number" 
-              min="10" 
-              max="1000"
-              value={settings.performance.maxRequestsPerMinute} 
-              on:input={(e) => {
-                settings.performance.maxRequestsPerMinute = parseInt(e.currentTarget.value) || 100;
-                updateJsonData();
-              }}
-            />
-          </FormField>
-        </FormRow>
+            <FormField id="maxRequestsPerMinute" label="Rate Limit (req/min)" error={null}>
+              <Input 
+                id="maxRequestsPerMinute" 
+                type="number" 
+                min="10" 
+                max="1000"
+                value={settings.performance.maxRequestsPerMinute} 
+                disabled={isLoading}
+                on:input={(e) => {
+                  settings.performance.maxRequestsPerMinute = parseInt(e.currentTarget.value) || 100;
+                  updateJsonData();
+                }}
+              />
+            </FormField>
+          </FormRow>
+      </div>
     </div>
   </div>
-  
-  <!-- Save button moved to page header -->
-</form>
+</FormContainer>
