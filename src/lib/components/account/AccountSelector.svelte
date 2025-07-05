@@ -9,11 +9,9 @@
   } from "$lib/components/ui/dropdown-menu";
   import { Badge } from "$lib/components/ui/badge";
   import { Check, ChevronDown, Building } from "lucide-svelte";
-  import { goto } from "$app/navigation";
   import { page } from "$app/stores";
   import { toast } from 'svelte-sonner';
-  import { onMount } from 'svelte';
-  
+
   // Types for account memberships
   type Account = {
     id: string;
@@ -64,11 +62,9 @@
       const result = await response.json();
       
       if (result.success) {
-        // Reload the page to reflect the new account context
         toast.success(`Now using ${result.account.name}`);
         
-        // Reload the current page to refresh data with new account context
-        goto(window.location.pathname, { replaceState: true });
+        window.location.href = '/user/dashboard';
       } else {
         toast.error(result.message || "Failed to switch account");
       }

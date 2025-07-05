@@ -36,6 +36,13 @@
                     {@html action}
                 </div>
             {/if}
+            
+            <!-- Actions slot for dynamic buttons/controls -->
+            {#if $$slots.actions}
+                <div class="ml-4">
+                    <slot name="actions" />
+                </div>
+            {/if}
         </div>
         
         <!-- Additional header content -->
