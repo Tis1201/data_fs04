@@ -1,14 +1,38 @@
 <script lang="ts">
-    import { page } from "$app/stores";
-    import { goto } from "$app/navigation";
-    import { Building2, Mail, Phone, Globe, MapPin, CreditCard, Bell, Shield, Key } from "lucide-svelte";
+    import {invalidateAll} from "$app/navigation";
+    import {Bell, Building2, CreditCard, Edit, Key, Lock, Mail, MapPin, Save, Shield, X} from "lucide-svelte";
     import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
     import UserCard from "$lib/components/user/layout/UserCard.svelte";
-    import { Input } from "$lib/components/ui/input";
-    import { Label } from "$lib/components/ui/label";
-    import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
-    import { Switch } from "$lib/components/ui/switch";
+    import RelationshipSection from '$lib/components/ui_components_sveltekit/relationships/RelationshipSection.svelte';
+    import FormContainer from '$lib/components/ui_components_sveltekit/form/FormContainer.svelte';
+    import AccountFormFields from '$lib/components/ui_components_sveltekit/form/AccountFormFields.svelte';
+    import {Button} from "$lib/components/ui/button";
+    import {Tabs, TabsContent, TabsList, TabsTrigger} from "$lib/components/ui/tabs";
+    import {Switch} from "$lib/components/ui/switch";
+    import {toast} from "svelte-sonner";
+    import {superForm} from 'sveltekit-superforms/client';
+    import {zod} from 'sveltekit-superforms/adapters';
+    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import {processFormMessages} from '$lib/utils/formHelpers';
+    import {canEditAccount} from '$lib/utils/permissions';
+    import {notificationSchema, passwordSchema, userAccountSchema} from './schema';
+
+    import type {PageData} from "./$types";
+
+    export let data: PageData;
     
+    // Client-side debugging
+    console.log('🎯 Client-side page component loaded');
+    console.log('📊 Data received from server:', {
+        hasData: !!data,
+        dataKeys: data ? Object.keys(data) : [],
+        hasUser: !!data?.user,
+        hasAccount: !!data?.account,
+        hasForms: !!data?.forms,
+        formsKeys: data?.forms ? Object.keys(data.forms) : [],
+        hasRelationships: !!data?.relationships
+    });
+
     // Define page metadata
     const pageTitle = "Account Settings";
     
@@ -19,66 +43,129 @@
         ["Account", ""]
     ] as [string, string][];
     
-    // Mock data for the placeholder
-    let accountData = {
-        company: {
-            name: "Acme Inc.",
-            email: "contact@acme.com",
-            phone: "+1 (555) 123-4567",
-            website: "acme.com",
-            address: "123 Business St, Tech City, 10001"
-        },
-        billing: {
-            plan: "Pro",
-            status: "Active",
-            nextBilling: "June 19, 2025",
-            paymentMethod: "•••• •••• •••• 4242"
-        },
-        notifications: {
-            email: true,
-            sms: false,
-            newsletter: true,
-            security: true
-        },
-        security: {
-            twoFactor: true,
-            lastLogin: "2 hours ago",
-            devices: [
-                { id: 1, name: "MacBook Pro", location: "San Francisco, CA", lastUsed: "Now" },
-                { id: 2, name: "iPhone 13", location: "San Francisco, CA", lastUsed: "30 minutes ago" }
-            ]
-        }
-    };
-    
-    let activeTab = 'company';
+    let activeTab = 'account';
     let editMode = {
-        company: false,
-        billing: false,
-        notifications: false,
-        security: false
+        account: false,
+        notifications: false
     };
     
-    function toggleEdit(section: string) {
+    // Password dialog state
+    let passwordDialogOpen = false;
+    
+    console.log('📋 Attempting to initialize SuperForms...');
+    
+    // SuperForms setup - using account form for account data
+    const accountForm = superForm(data.forms!.account, {
+        validators: zod(userAccountSchema),
+        onUpdated: ({ form }) => {
+            console.log('🔄 Account form updated:', {
+                messageType: form.message?.type,
+                messageText: form.message?.text
+            });
+            if (form.message?.type === 'success') {
+                toast.success(form.message.text);
+                editMode.account = false;
+                invalidateAll();
+            } else if (form.message?.type === 'error') {
+                toast.error(form.message.text);
+            }
+        }
+    });
+    
+    const notificationForm = superForm(data.forms!.notifications, {
+        validators: zod(notificationSchema),
+        onUpdated: ({ form }) => {
+            console.log('🔔 Notification form updated:', {
+                messageType: form.message?.type,
+                messageText: form.message?.text
+            });
+            if (form.message?.type === 'success') {
+                toast.success(form.message.text);
+                editMode.notifications = false;
+                invalidateAll();
+            } else if (form.message?.type === 'error') {
+                toast.error(form.message.text);
+            }
+        }
+    });
+    
+    const passwordForm = superForm(data.forms!.password, {
+        validators: zod(passwordSchema),
+        onUpdated: ({ form }) => {
+            console.log('🔒 Password form updated:', {
+                messageType: form.message?.type,
+                messageText: form.message?.text
+            });
+            if (form.message?.type === 'success') {
+                toast.success(form.message.text);
+                passwordDialogOpen = false;
+            } else if (form.message?.type === 'error') {
+                toast.error(form.message.text);
+            }
+        }
+    });
+    
+    const { form: accountData, errors: accountErrors, enhance: accountEnhance, submitting: accountSubmitting, message: accountMessage, tainted: accountTainted } = accountForm;
+    const { form: notificationData, enhance: notificationEnhance, submitting: notificationSubmitting } = notificationForm;
+    const { form: passwordData, enhance: passwordEnhance, submitting: passwordSubmitting } = passwordForm;
+    
+    // Process form messages for FormContainer  
+    $: ({ errorMessage } = processFormMessages($accountMessage));
+    $: isLoading = $accountSubmitting;
+    $: hasChanges = Boolean($accountTainted && Object.keys($accountTainted).length > 0);
+    
+    console.log('✅ SuperForms initialized successfully');
+    
+    function toggleEdit(section: keyof typeof editMode) {
+        console.log('✏️ Toggling edit mode for section:', section);
         editMode[section] = !editMode[section];
+        
+        if (section === 'account' && editMode.account) {
+            console.log('📝 Resetting form data for account editing');
+            // Reset form to current data when starting edit
+            $accountData = {
+                name: data.account?.name || '',
+                slug: data.account?.slug || '',
+                description: data.account?.description || ''
+            };
+            console.log('📝 Form data reset to:', $accountData);
+        }
     }
     
-    function saveChanges(section: string) {
-        // In a real app, you would save changes to your backend here
-        editMode[section] = false;
-        // Show success message
-        alert('Changes saved successfully');
+    function handleSessionSignOut(sessionId: string) {
+        console.log('🚪 Attempting to sign out session:', sessionId);
+        if (confirm('Are you sure you want to sign out this session?')) {
+            const formData = new FormData();
+            formData.append('sessionId', sessionId);
+            
+            fetch('?/signOutSession', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.json()).then(result => {
+                console.log('🚪 Session sign out result:', result);
+                if (result.type === 'success') {
+                    toast.success('Session signed out successfully');
+                    invalidateAll();
+                } else {
+                    toast.error('Failed to sign out session');
+                }
+            }).catch((error) => {
+                console.error('🚪 Session sign out error:', error);
+                toast.error('Failed to sign out session');
+            });
+        }
     }
 </script>
 
-<UserPageLayout 
+<UserPageLayout
     title={pageTitle}
     crumbs={pageCrumbs}
 >
     <Tabs bind:value={activeTab} class="space-y-6">
         <TabsList class="grid w-full grid-cols-2 md:grid-cols-4">
-            <TabsTrigger value="company">
+            <TabsTrigger value="account">
                 <Building2 class="h-4 w-4 mr-2" />
-                Company
+                Account
             </TabsTrigger>
             <TabsTrigger value="billing">
                 <CreditCard class="h-4 w-4 mr-2" />
@@ -94,87 +181,102 @@
             </TabsTrigger>
         </TabsList>
         
-        <!-- Company Tab -->
-        <TabsContent value="company" class="space-y-6">
+        <!-- Account Tab -->
+        <TabsContent value="account" class="space-y-6">
             <UserCard 
-                title="Company Information"
-                description="Manage your company details"
+                title="Account Information"
+                description="Manage your account details"
                 icon={Building2}
-                action={
-                    editMode.company 
-                        ? `<div class='flex space-x-2'>
-                            <button type='button' class='inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3' on:click={() => toggleEdit('company')}>
-                                Cancel
-                            </button>
-                            <button type='button' class='inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-3' on:click={() => saveChanges('company')}>
-                                Save Changes
-                            </button>
-                          </div>`
-                        : `<button type='button' class='inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3' on:click={() => toggleEdit('company')}>
-                            Edit
-                          </button>`
-                }
             >
-                <div class="space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <Label for="company-name">Company Name</Label>
-                            {#if editMode.company}
-                                <Input id="company-name" value={accountData.company.name} />
-                            {:else}
-                                <p class="text-sm font-medium">{accountData.company.name}</p>
-                            {/if}
+                <svelte:fragment slot="actions">
+                    {#if canEditAccount(data.currentAccount)}
+                            <Button variant="outline" size="sm" on:click={() => toggleEdit('account')}>
+                                <Edit class="h-4 w-4 mr-1" />
+                                Edit
+                            </Button>
+                    {:else}
+                        <div class="flex items-center space-x-2 text-sm text-muted-foreground">
+                            <Lock class="h-4 w-4" />
+                            <span>Only account admins can edit these settings</span>
+                        </div>
+                    {/if}
+                </svelte:fragment>
+                
+                {#if editMode.account}
+                    <!-- Edit Mode: Use FormContainer with AccountFormFields -->
+                    <FormContainer 
+                        method="POST" 
+                        action="?/updateAccount"
+                        enhance={accountEnhance}
+                        {errorMessage}
+                        showAlerts={true}
+                        disabled={isLoading}
+                        {isLoading}
+                        showToasts={false}
+                        formId="account-form"
+                    >
+                        <AccountFormFields
+                            form={accountData}
+                            errors={accountErrors}
+                            {isLoading}
+                            showStatus={false}
+                            showSlug={true}
+                        />
+
+                        <div class="sticky bottom-0 bg-background border-t border-border p-4 -mx-4 -mb-4">
+                            <div class="flex items-center justify-end">
+                              <div class="flex items-center space-x-2">
+
+                                  {#if hasChanges && !isLoading}
+                                      <div class="flex items-center space-x-2 text-sm text-muted-foreground">
+                                          <div class="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                                          <span>You have unsaved changes</span>
+                                      </div>
+                                  {/if}
+
+                                {#if hasChanges && !isLoading}
+                                    <Button variant="outline" size="sm" on:click={() => toggleEdit('account')} disabled={$accountSubmitting}>
+                                        <X class="h-4 w-4 mr-1" />
+                                        Cancel
+                                    </Button>
+                                {/if}
+                                
+                                <Button 
+                                  type="submit" 
+                                  disabled={isLoading || !hasChanges}
+                                  class="min-w-[120px]"
+                                >
+                                  {#if isLoading}
+                                    <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                                    Saving...
+                                  {:else}
+                                    <Save class="w-4 h-4 mr-2" />
+                                    Save Changes
+                                  {/if}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                    </FormContainer>
+                {:else}
+                    <!-- View Mode: Display current values -->
+                    <div class="space-y-6">
+                        <div class="space-y-4">
+                            <h3 class="font-medium">Account Name</h3>
+                            <p class="text-sm font-medium py-2">{data.account?.name || 'No account set'}</p>
                         </div>
                         
-                        <div class="space-y-2">
-                            <Label for="company-email">Email</Label>
-                            <div class="flex items-center">
-                                <Mail class="h-4 w-4 mr-2 text-muted-foreground" />
-                                {#if editMode.company}
-                                    <Input id="company-email" value={accountData.company.email} type="email" />
-                                {:else}
-                                    <p class="text-sm font-medium">{accountData.company.email}</p>
-                                {/if}
-                            </div>
+                        <div class="space-y-4">
+                            <h3 class="font-medium">Account Slug</h3>
+                            <p class="text-sm font-medium py-2">{data.account?.slug || 'No slug set'}</p>
                         </div>
                         
-                        <div class="space-y-2">
-                            <Label for="company-phone">Phone</Label>
-                            <div class="flex items-center">
-                                <Phone class="h-4 w-4 mr-2 text-muted-foreground" />
-                                {#if editMode.company}
-                                    <Input id="company-phone" value={accountData.company.phone} />
-                                {:else}
-                                    <p class="text-sm font-medium">{accountData.company.phone}</p>
-                                {/if}
-                            </div>
-                        </div>
-                        
-                        <div class="space-y-2">
-                            <Label for="company-website">Website</Label>
-                            <div class="flex items-center">
-                                <Globe class="h-4 w-4 mr-2 text-muted-foreground" />
-                                {#if editMode.company}
-                                    <Input id="company-website" value={accountData.company.website} />
-                                {:else}
-                                    <p class="text-sm font-medium">{accountData.company.website}</p>
-                                {/if}
-                            </div>
+                        <div class="space-y-4">
+                            <h3 class="font-medium">Account Description</h3>
+                            <p class="text-sm font-medium">{data.account?.description || 'No description set'}</p>
                         </div>
                     </div>
-                    
-                    <div class="space-y-2">
-                        <Label for="company-address">Address</Label>
-                        <div class="flex">
-                            <MapPin class="h-4 w-4 mr-2 mt-1.5 text-muted-foreground flex-shrink-0" />
-                            {#if editMode.company}
-                                <Input id="company-address" value={accountData.company.address} />
-                            {:else}
-                                <p class="text-sm font-medium">{accountData.company.address}</p>
-                            {/if}
-                        </div>
-                    </div>
-                </div>
+                {/if}
             </UserCard>
         </TabsContent>
         
@@ -191,44 +293,27 @@
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div class="border rounded-lg p-4">
                                 <p class="text-sm text-muted-foreground">Plan</p>
-                                <p class="font-medium">{accountData.billing.plan}</p>
+                                <p class="font-medium">Free</p>
                             </div>
                             <div class="border rounded-lg p-4">
                                 <p class="text-sm text-muted-foreground">Status</p>
-                                <p class="font-medium">{accountData.billing.status}</p>
+                                <p class="font-medium text-green-600">Active</p>
                             </div>
                             <div class="border rounded-lg p-4">
-                                <p class="text-sm text-muted-foreground">Next Billing Date</p>
-                                <p class="font-medium">{accountData.billing.nextBilling}</p>
+                                <p class="text-sm text-muted-foreground">Account Created</p>
+                                <p class="font-medium">
+                                    <RelativeDate date={data.user?.createdAt || new Date()} format="full" />
+                                </p>
                             </div>
                         </div>
                     </div>
                     
                     <div class="space-y-4">
-                        <div class="flex justify-between items-center">
-                            <h3 class="font-medium">Payment Method</h3>
-                            <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3">
-                                Update
-                            </button>
-                        </div>
-                        <div class="border rounded-lg p-4 flex items-center justify-between">
-                            <div class="flex items-center">
-                                <CreditCard class="h-5 w-5 mr-3 text-muted-foreground" />
-                                <div>
-                                    <p class="font-medium">Visa ending in 4242</p>
-                                    <p class="text-sm text-muted-foreground">Expires 12/25</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="flex justify-end">
-                        <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3 mr-2">
-                            Download Invoices
-                        </button>
-                        <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-destructive text-destructive hover:bg-destructive/10 h-9 px-3">
-                            Cancel Subscription
-                        </button>
+                        <h3 class="font-medium">Upgrade Plan</h3>
+                        <p class="text-sm text-muted-foreground">Contact your administrator to upgrade your plan and access more features.</p>
+                        <Button variant="outline" size="sm" disabled>
+                            Contact Administrator
+                        </Button>
                     </div>
                 </div>
             </UserCard>
@@ -240,53 +325,86 @@
                 title="Notification Preferences"
                 description="Manage how you receive notifications"
                 icon={Bell}
-                action={
-                    editMode.notifications 
-                        ? `
-                            <div class="flex space-x-2">
-                                <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3" on:click={() => toggleEdit('notifications')}>
-                                    Cancel
-                                </button>
-                                <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-3" on:click={() => saveChanges('notifications')}>
-                                    Save Changes
-                                </button>
-                            </div>
-                        `
-                        : `
-                            <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3" on:click={() => toggleEdit('notifications')}>
-                                Edit
-                            </button>
-                        `
-                }
             >
-                <div class="space-y-6">
-                    <div class="space-y-4">
-                        <h3 class="font-medium">Email Notifications</h3>
+                <svelte:fragment slot="actions">
+                    {#if editMode.notifications}
+                        <div class="flex space-x-2">
+                            <Button variant="outline" size="sm" on:click={() => toggleEdit('notifications')} disabled={$notificationSubmitting}>
+                                <X class="h-4 w-4 mr-1" />
+                                Cancel
+                            </Button>
+                            <Button size="sm" type="submit" form="notifications-form" disabled={$notificationSubmitting}>
+                                <Save class="h-4 w-4 mr-1" />
+                                {$notificationSubmitting ? 'Saving...' : 'Save Changes'}
+                            </Button>
+                        </div>
+                    {:else}
+                        <Button variant="outline" size="sm" on:click={() => toggleEdit('notifications')}>
+                            <Edit class="h-4 w-4 mr-1" />
+                            Edit
+                        </Button>
+                    {/if}
+                </svelte:fragment>
+                
+                <form id="notifications-form" method="POST" action="?/updateNotifications" use:notificationEnhance>
+                    <div class="space-y-6">
                         <div class="space-y-4">
-                            {#each Object.entries({
-                                'email': 'Email',
-                                'newsletter': 'Newsletter',
-                                'security': 'Security Alerts'
-                            }) as [key, label]}
+                            <h3 class="font-medium">Email Notifications</h3>
+                            <div class="space-y-4">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <p class="text-sm font-medium">{label}</p>
-                                        <p class="text-xs text-muted-foreground">
-                                            {key === 'email' ? 'Receive important account notifications' : 
-                                             key === 'newsletter' ? 'Get product updates and announcements' :
-                                             'Get important security notifications'}
-                                        </p>
+                                        <p class="text-sm font-medium">Email Notifications</p>
+                                        <p class="text-xs text-muted-foreground">Receive important account notifications</p>
                                     </div>
                                     <Switch 
-                                        checked={accountData.notifications[key]}
+                                        name="email"
+                                        checked={editMode.notifications ? $notificationData.email : data.settings?.emailNotifications || false}
                                         disabled={!editMode.notifications}
-                                        on:change={() => accountData.notifications[key] = !accountData.notifications[key]}
+                                        onCheckedChange={(checked) => {
+                                            if (editMode.notifications) {
+                                                $notificationData.email = checked;
+                                            }
+                                        }}
                                     />
                                 </div>
-                            {/each}
+                                
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium">Newsletter</p>
+                                        <p class="text-xs text-muted-foreground">Get product updates and announcements</p>
+                                    </div>
+                                    <Switch 
+                                        name="newsletter"
+                                        checked={editMode.notifications ? $notificationData.newsletter : data.settings?.newsletterSubscription || false}
+                                        disabled={!editMode.notifications}
+                                        onCheckedChange={(checked) => {
+                                            if (editMode.notifications) {
+                                                $notificationData.newsletter = checked;
+                                            }
+                                        }}
+                                    />
+                                </div>
+                                
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium">Security Alerts</p>
+                                        <p class="text-xs text-muted-foreground">Get important security notifications</p>
+                                    </div>
+                                    <Switch 
+                                        name="security"
+                                        checked={editMode.notifications ? $notificationData.security : data.settings?.securityAlerts || false}
+                                        disabled={!editMode.notifications}
+                                        onCheckedChange={(checked) => {
+                                            if (editMode.notifications) {
+                                                $notificationData.security = checked;
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </form>
             </UserCard>
         </TabsContent>
         
@@ -305,42 +423,56 @@
                                 <Key class="h-5 w-5 mr-3 text-muted-foreground" />
                                 <div>
                                     <p class="font-medium">
-                                        {accountData.security.twoFactor ? 'Enabled' : 'Disabled'}
+                                        {data.settings?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
                                     </p>
                                     <p class="text-sm text-muted-foreground">
-                                        {accountData.security.twoFactor 
-                                            ? 'Add an extra layer of security to your account' 
-                                            : 'Add an extra layer of security to your account'}
+                                        Add an extra layer of security to your account
                                     </p>
                                 </div>
                             </div>
-                            <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${accountData.security.twoFactor ? 'border border-input bg-background hover:bg-accent hover:text-accent-foreground' : 'bg-primary text-primary-foreground shadow hover:bg-primary/90'} h-9 px-3">
-                                {accountData.security.twoFactor ? 'Manage' : 'Enable'}
-                            </button>
+                            <Button 
+                                variant={data.settings?.twoFactorEnabled ? 'outline' : 'default'} 
+                                size="sm"
+                                disabled
+                            >
+                                {data.settings?.twoFactorEnabled ? 'Manage' : 'Enable'}
+                            </Button>
                         </div>
                     </div>
                     
                     <div class="space-y-4">
-                        <h3 class="font-medium">Active Sessions</h3>
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-medium">Active Sessions</h3>
+                            <p class="text-sm text-muted-foreground">
+                                Last login: <RelativeDate date={data.user?.lastLogin || new Date()} format="relative" />
+                            </p>
+                        </div>
                         <div class="space-y-2">
-                            {#each accountData.security.devices as device}
+                            {#each data.activeSessions || [] as session}
                                 <div class="flex items-center justify-between p-3 border rounded-lg">
                                     <div class="flex items-center">
                                         <div class="p-2 rounded-full bg-muted mr-3">
                                             <Key class="h-4 w-4" />
                                         </div>
                                         <div>
-                                            <p class="font-medium">{device.name}</p>
+                                            <p class="font-medium">{session.name}</p>
+                                            <div class="flex items-center text-xs text-muted-foreground mb-1">
+                                                <Mail class="h-3 w-3 mr-1" />
+                                                {session.userEmail} • ID: {session.userId}
+                                            </div>
                                             <div class="flex items-center text-xs text-muted-foreground">
                                                 <MapPin class="h-3 w-3 mr-1" />
-                                                {device.location} • Last used {device.lastUsed}
+                                                {session.location} • 
+                                                <RelativeDate date={session.lastUsed} format="relative" />
                                             </div>
                                         </div>
                                     </div>
-                                    {#if device.lastUsed !== 'Now'}
-                                        <button type="button" class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-9 px-3">
+                                    {#if session.isCurrentSession}
+                                        <span class="text-xs text-green-600 font-medium">Current session</span>
+                                    {:else}
+                                        <Button variant="ghost" size="sm" on:click={() => handleSessionSignOut(session.id)}>
                                             Sign out
-                                        </button>
+                                        </Button>
                                     {/if}
                                 </div>
                             {/each}
@@ -350,4 +482,27 @@
             </UserCard>
         </TabsContent>
     </Tabs>
+
+    <!-- Companies Relationship Section -->
+    <div class="mt-8">
+        <RelationshipSection
+            title="Companies"
+            description="Companies associated with this account"
+            icon={Building2}
+            relationships={data.relationships?.companies || []}
+            relationshipType="companies"
+            canAdd={false}
+            canRemove={canEditAccount(data.currentAccount)}
+            canCreate={canEditAccount(data.currentAccount)}
+            removeAction="?/removeCompany"
+            createAction="?/createCompany"
+            loading={false}
+            multiSelect={false}
+            destructiveRemoval={true}
+            removalWarningMessage="This will permanently delete the company record and all associated data. This action cannot be undone."
+            enableCreateDialog={true}
+            createDialogTitle="Create New Company"
+            createDialogDescription="Create a new company for this account"
+        />
+    </div>
 </UserPageLayout>
