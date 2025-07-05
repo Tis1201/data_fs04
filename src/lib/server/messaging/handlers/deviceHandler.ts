@@ -39,7 +39,7 @@ export const deviceHandler: Handler = {
 
 // Private function expressions
 async function handleClaim(message: InMessage): Promise<void> {
-  const { payload, userInfo, connectionId, protocol } = message;
+  const { payload, userInfo, accountId, connectionId, protocol } = message;
   const { pin } = payload;
 
   try {
@@ -56,7 +56,7 @@ async function handleClaim(message: InMessage): Promise<void> {
     
     // Claim the device using the device manager
     // Pass the WebSocket connection ID and protocol from the client
-    const device = await DeviceManager.claimDevice(pin, userInfo, connectionId, protocol);
+    const device = await DeviceManager.claimDevice(pin, userInfo, accountId,connectionId, protocol);
 
     if (!device) {
       const errorMessage = 'The PIN you entered doesn\'t match any available device. Please verify the 6-digit PIN and try again.';

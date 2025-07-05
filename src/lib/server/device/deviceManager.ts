@@ -12,7 +12,17 @@ const deviceRecords: Record<string, any> = {};
 
 export class DefaultDeviceManager {
 
-    private prisma: any = getEnhancedPrisma({ id: '', systemRole: 'ADMIN'});
+    // In your class
+    private prisma: ReturnType<typeof getEnhancedPrisma>;
+
+    // In constructor
+    constructor() {
+        this.prisma = getEnhancedPrisma({
+            id: 'system',  // or get from the actual user context
+            systemRole: 'ADMIN'  // or get from the actual user context
+        });
+    }
+
     /**
      * Register a new device with a PIN code
      */
@@ -50,9 +60,9 @@ export class DefaultDeviceManager {
      * @param userId The ID of the user claiming the device
      * @returns The claimed device or null if not found
      */
-    async claimDevice(pin: string, userInfo: UserInfo, senderConnectionId: string, senderConnectionProtocol: string): Promise<any> {
+    async claimDevice(pin: string, userInfo: UserInfo, accountId: string, senderConnectionId: string, senderConnectionProtocol: string): Promise<any> {
 
-        logger.info(`Attempting to claim device with PIN ${pin} over ${senderConnectionId}[${senderConnectionProtocol}]`);
+        logger.info(`Attempting to claim device with PIN ${pin} for account ${accountId} over ${senderConnectionId}[${senderConnectionProtocol}]`);
 
         // Get device from PIN store
         const deviceMeta = await pinSharedStore.getSingle(pin);
@@ -64,8 +74,76 @@ export class DefaultDeviceManager {
 
         logger.info(`Found device with PIN ${pin}`, { deviceId: deviceMeta.id });
 
+        // Get the actual account ID from userInfo
+        const actualAccountId = userInfo.currentAccount?.account?.id;
+        if (!actualAccountId) {
+            throw new Error('User is not associated with any account');
+        }
 
+        // Verify the account exists and user has access to it
+        const account = await this.prisma.account.findUnique({
+            where: { id: actualAccountId },
+            select: { id: true }
+        });
 
+        if (!account) {
+            throw new Error(`Account ${actualAccountId} not found or you don't have access to it`);
+        }
+
+        // Prepare base device data without relations
+        const baseDeviceData = {
+            id: deviceMeta.id,
+            name: deviceMeta.name || `Device-${deviceMeta.id.substring(0, 8)}`,
+            deviceType: deviceMeta.deviceType || 'UNKNOWN',
+            status: 'ACTIVE',
+            claimedAt: new Date(),
+            claimedBy: userInfo.id,
+            // Include any additional metadata from deviceMeta
+            ...(deviceMeta.metadata || {})
+        };
+
+        logger.debug(`Upserting device with data:`, baseDeviceData);
+        
+        // First try to update if exists
+        const existingDevice = await this.prisma.device.findUnique({
+            where: { id: deviceMeta.id },
+            include: { account: true, user: true }
+        });
+
+        let device;
+        if (existingDevice) {
+            // For update, use the relation fields
+            device = await this.prisma.device.update({
+                where: { id: deviceMeta.id },
+                data: {
+                    ...baseDeviceData,
+                    account: { connect: { id: actualAccountId } },
+                    user: { connect: { id: userInfo.id } }
+                },
+                include: {
+                    account: true,
+                    user: true
+                }
+            });
+        } else {
+            // For create, include the relations in the create call
+            device = await this.prisma.device.create({
+                data: {
+                    ...baseDeviceData,
+                    account: { connect: { id: actualAccountId } },
+                    user: { connect: { id: userInfo.id } }
+                },
+                include: {
+                    account: true,
+                    user: true
+                }
+            });
+        }
+
+        logger.info(`Device ${device.id} successfully claimed by user ${userInfo.id} for account ${accountId}`);
+        
+        // Remove the PIN from the shared store since it's now claimed
+        await pinSharedStore.remove(pin);
 
         // Update device metadata with claim info
         // deviceMeta.claimedAt = new Date();
@@ -78,7 +156,7 @@ export class DefaultDeviceManager {
         // // Log the connection information for debugging
         // logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
 
-        
+
         // // Update device record in our mock database
         // if (deviceRecords[deviceMeta.id]) {
         //     deviceRecords[deviceMeta.id] = {
@@ -120,7 +198,7 @@ export class DefaultDeviceManager {
 
         // // Debug log to check if sudo property is set correctly
         // logger.debug(`[DeviceManager] Routing message sudo property: ${routingMessage.sudo}, type: ${typeof routingMessage.sudo}`);
-        
+
         // // Publish the routing message
         // await publisher.publish(routingMessage);
         // logger.info(`Device registration message sent to device ${deviceMeta.id}, ${JSON.stringify(routingMessage)}`);
@@ -128,7 +206,7 @@ export class DefaultDeviceManager {
 
         // Return the device record
         // return deviceRecords[deviceMeta.id];
-        return null;
+        return device;
     }
 
     /**
@@ -149,9 +227,9 @@ export class DefaultDeviceManager {
         // logger.info(`Found device with PIN ${pin}, deviceId: ${deviceMeta.id}`);
 
         const senderInfo = await userInfoByUserId(senderId);
-        
+
         logger.debug(`User info retrieved: ${JSON.stringify(senderInfo)}`);
-        
+
         try {
             if (!deviceMeta) {
                 throw new Error(`No device found with PIN ${pin}`);
@@ -166,7 +244,7 @@ export class DefaultDeviceManager {
             const apiKeyValue = generateId(32);
             const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
             const deviceType = data.deviceType || 'unknown';
-            
+
             // Check if user has a current account to include in the device record
             let accountConnection = null;
             if (senderInfo?.currentAccount?.account?.id) {
@@ -177,7 +255,7 @@ export class DefaultDeviceManager {
             } else {
                 logger.debug(`No current account found for user ${senderId}`);
             }
-            
+
             // Create device record with system info
             const deviceRecord = {
                 id: id,
@@ -206,7 +284,7 @@ export class DefaultDeviceManager {
                 },
                 ...(accountConnection ? { account: accountConnection } : {})
             };
-            
+
             // Save device record in database with user relationship
             logger.debug(`Upserting device with record: ${JSON.stringify(deviceRecord)}`);
             const device = await prisma.device.upsert({
@@ -239,14 +317,14 @@ export class DefaultDeviceManager {
             };
 
             // Create the routing message with sudo explicitly set to true
-            const successResponse = MessageFactory.toRoutingMessage(successMessage, { 
+            const successResponse = MessageFactory.toRoutingMessage(successMessage, {
                 sudo: true,
                 systemGenerated: true,
                 senderId: 'system',
                 senderConnectionId: senderConnectionId,
                 senderConnectionProtocol: 'sse'
             });
-            
+
             // Debug log to check if sudo property is set correctly
             logger.debug(`[DeviceManager] Success response sudo property: ${successResponse.sudo}, type: ${typeof successResponse.sudo}`);
 
@@ -266,7 +344,7 @@ export class DefaultDeviceManager {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             logger.error(`Failed to register device ${id}:`, error);
 
-            
+
             if (!senderInfo) {
                 logger.error(`Failed to find user info for sender: ${senderId}`);
                 throw new Error('User information not found');
@@ -299,7 +377,7 @@ export class DefaultDeviceManager {
             logger.debug(`Published error response to messaging system: ${senderConnectionId} [${senderConnectionProtocol}]`);
 
             await publisher.publish(errorResponse);
-            
+
 
             // Always throw the error to be handled by the API endpoint
             throw new Error(`Device registration failed: ${errorMessage}`);
