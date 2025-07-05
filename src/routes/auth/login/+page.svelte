@@ -6,17 +6,19 @@
     import { PasswordInput } from '$lib/components/ui/password-input';
     import {Checkbox} from '$lib/components/ui/checkbox';
     import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+    import * as Dialog from '$lib/components/ui/dialog';
     import type { PageData } from './$types';
     import { cn } from '$lib/utils/ui-utils';
-    import { AlertTriangle } from 'lucide-svelte';
+    import { AlertTriangle, Mail } from 'lucide-svelte';
     import { goto } from '$app/navigation';
     import { toast } from 'svelte-sonner';
-    import { loginSchema } from '$lib/schemas/auth';
+    import { loginSchema, forgotPasswordSchema } from '$lib/schemas/auth';
     import { zodClient } from 'sveltekit-superforms/adapters';
 
     export let data: PageData;
 
     let serverError: string | null = null;
+    let forgotPasswordOpen = false;
 
     const { form, errors, enhance, submitting } = superForm(data.form, {
         validators: zodClient(loginSchema),
@@ -38,11 +40,36 @@
             }
         },
         onError: ({ result }) => {
-            serverError = result.error || 'An unexpected error occurred';
+            serverError = typeof result.error === 'string' ? result.error : 'An unexpected error occurred';
             console.error('Login error:', serverError);
         },
         dataType: 'json'
     });
+
+    // Forgot password form - handle undefined gracefully
+    const forgotPasswordForm = superForm(data.forgotPasswordForm || { data: { email: '' }, valid: true, errors: {}, message: undefined }, {
+        validators: zodClient(forgotPasswordSchema),
+        taintedMessage: null,
+        onResult: async ({ result }) => {
+            if (result.type === 'success') {
+                toast.success(result.data?.message || 'Password reset email sent');
+                forgotPasswordOpen = false;
+            } else if (result.type === 'failure') {
+                toast.error('Please check your email and try again');
+            }
+        },
+        onError: ({ result }) => {
+            toast.error('An error occurred. Please try again.');
+        },
+        dataType: 'json'
+    });
+
+    const { 
+        form: forgotForm, 
+        errors: forgotErrors, 
+        enhance: forgotEnhance, 
+        submitting: forgotSubmitting 
+    } = forgotPasswordForm;
 </script>
 
 <style>
@@ -83,7 +110,7 @@
                     </Alert>
                 {/if}
 
-                <form method="POST" use:enhance class="grid gap-4">
+                <form method="POST" action="?/login" use:enhance class="grid gap-4">
                     <div class="grid gap-2">
                         <Label for="email" class="text-sm font-medium text-[#44218d]">Email</Label>
                         <Input
@@ -134,14 +161,14 @@
                             />
                             <Label for="remember" class="text-sm font-medium text-[#44218d]/90 select-none">Remember me</Label>
                         </div> -->
-                        <!-- <Button 
+                        <Button 
                             type="button" 
                             variant="link" 
-                            href="/reset-password" 
-                            class="text-sm font-medium text-[#44218d]/90 hover:text-[#44218d]"
+                            on:click={() => forgotPasswordOpen = true}
+                            class="text-sm font-medium text-[#44218d]/90 hover:text-[#44218d] p-0 h-auto"
                         >
                             Forgot password?
-                        </Button> -->
+                        </Button>
                     </div>
 
                     <Button
@@ -152,7 +179,74 @@
                         {$submitting ? 'Signing in...' : 'Sign in'}
                     </Button>
                 </form>
+
+                <!-- Registration Link -->
+                {#if data.allowRegistration}
+                    <div class="text-center">
+                        <p class="text-sm text-[#44218d]/70">
+                            Don't have an account?
+                            <Button 
+                                variant="link" 
+                                href="/auth/register"
+                                class="text-[#44218d] hover:text-[#44218d]/80 font-medium p-0 h-auto"
+                            >
+                                Create account
+                            </Button>
+                        </p>
+                    </div>
+                {/if}
             </div>
         </div>
     </div>
 </div>
+
+<!-- Forgot Password Dialog -->
+<Dialog.Root bind:open={forgotPasswordOpen}>
+    <Dialog.Content class="sm:max-w-md">
+        <Dialog.Header>
+            <Dialog.Title class="flex items-center gap-2">
+                <Mail class="h-5 w-5" />
+                Reset Your Password
+            </Dialog.Title>
+            <Dialog.Description>
+                Enter your email address and we'll send you a password reset link.
+            </Dialog.Description>
+        </Dialog.Header>
+        
+        <form method="POST" action="?/forgotPassword" use:forgotEnhance class="space-y-4">
+            <div class="space-y-2">
+                <Label for="forgot-email">Email Address</Label>
+                <Input
+                    id="forgot-email"
+                    type="email"
+                    name="email"
+                    bind:value={$forgotForm.email}
+                    placeholder="Enter your email address"
+                    disabled={$forgotSubmitting}
+                    class={cn($forgotErrors.email && 'border-red-500')}
+                    required
+                />
+                {#if $forgotErrors.email}
+                    <p class="text-sm text-red-500">{$forgotErrors.email}</p>
+                {/if}
+            </div>
+            
+            <div class="flex justify-end gap-3">
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    on:click={() => forgotPasswordOpen = false}
+                    disabled={$forgotSubmitting}
+                >
+                    Cancel
+                </Button>
+                <Button 
+                    type="submit"
+                    disabled={$forgotSubmitting}
+                >
+                    {$forgotSubmitting ? 'Sending...' : 'Send Reset Email'}
+                </Button>
+            </div>
+        </form>
+    </Dialog.Content>
+</Dialog.Root>
