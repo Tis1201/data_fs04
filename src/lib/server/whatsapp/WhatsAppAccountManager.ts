@@ -11,6 +11,15 @@ export class WhatsAppAccountManager extends EventEmitter {
   // Store for all WhatsApp clients
   private clients = new Map<string, WhatsAppAccountClient>();
   private cleanupInterval: NodeJS.Timeout | null = null;
+  
+  
+  /**
+   * Get all active client IDs
+   */
+  public get getAllClientIds(): string[] {
+    return Array.from(this.clients.keys());
+  }
+
   private readonly CLEANUP_INTERVAL_MS = 60000; // Every minute
   private readonly MAX_AWAITING_SCAN_MS = 300000; // 5 minutes
   private prisma: any;
@@ -48,7 +57,7 @@ export class WhatsAppAccountManager extends EventEmitter {
       logger.error(`[WhatsappAccountManager] Error creating/restoring WhatsApp client: ${error}`);
       throw error;
     }
-  }
+  }  
 
   /****************************************************************************************
    * 

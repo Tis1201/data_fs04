@@ -24,7 +24,7 @@ export const GET: RequestHandler = restrict(
         // Create connection metadata
         const connectionMeta = {
             userInfo: auth.user,
-            nodeId: 'web-node',
+            nodeId: 'web',
             protocol: 'sse',
             connectedAt: Date.now(),
         };

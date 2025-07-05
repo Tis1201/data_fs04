@@ -359,29 +359,36 @@
             cleanupEventListeners = null;
         }
 
-        const currentState = getCurrentState();
-
-
-        const responsePayload = await sseStore.sendRequest(
-            {
-                type: "whatsapp",
-                scope: "user:self",
-                payload: { 
-                    action: "cleanup",
-                    content: {
-                        clientId: currentState.clientId
-                    }
-                },
-            },
-            5000, // 15 second timeout
-             "whatsapp_cleanup",
-        );
-
-        
-        console.log(
-            "[WHATSAPP_FORM] Cleanup request sent successfully:",
-            responsePayload,
-        );
+        // Check if we're in a browser environment before using sseStore
+        if (typeof window !== 'undefined') {
+            try {
+                const currentState = getCurrentState();
+                
+                const responsePayload = await sseStore.sendRequest(
+                    {
+                        type: "whatsapp",
+                        scope: "user:self",
+                        payload: { 
+                            action: "cleanup",
+                            content: {
+                                clientId: currentState.clientId
+                            }
+                        },
+                    },
+                    5000, // 5 second timeout
+                    "whatsapp_cleanup",
+                );
+                
+                console.log(
+                    "[WHATSAPP_FORM] Cleanup request sent successfully:",
+                    responsePayload,
+                );
+            } catch (error) {
+                console.error("[WHATSAPP_FORM] Error during cleanup:", error);
+            }
+        } else {
+            console.log("[WHATSAPP_FORM] Skipping cleanup during SSR");
+        }
     }
 
     onDestroy(async () => {

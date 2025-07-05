@@ -374,6 +374,11 @@ model WhatsAppAccount {
   listeners     ListenerWhatsAppAccount[]
   api_key       String? @default(cuid())
   status        String? @default("ACTIVE")
+  connectionState String? @default("disconnected")
+  lastConnectionUpdate DateTime?
+  lastError      String? 
+  isAuthenticated Boolean @default(false)
+  lastAuthenticated DateTime?
   
   // Account relationship
   accountId     String? @default(cuid())

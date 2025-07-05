@@ -2,102 +2,90 @@
 
 This directory contains the server-side implementation of WhatsApp Web integration using the `@whiskeysockets/baileys` library, integrated with the FS04 Web messaging system.
 
-## Testing
-
-### Test File: `test_whatsapp.ts`
-
-Located at `/tests/whatsapp/test_whatsapp.ts`, this file provides a simple way to test the WhatsApp integration directly from the command line.
-
-#### Features:
-- Tests the complete WhatsApp Web authentication flow
-- Displays QR code in the terminal for authentication
-- Shows connection status and events
-- Can be used to send test messages
-
-#### Prerequisites:
-```bash
-npm install --save-dev qrcode-terminal
-```
-
-#### Usage:
-```bash
-tsx tests/whatsapp/test_whatsapp.ts
-```
-
-#### Test Flow:
-1. The script initializes a WhatsApp session with a specific session ID
-2. When run, it will display a QR code in the terminal
-3. Scan the QR code using your phone's WhatsApp app
-4. The script will show authentication status and connection events
-5. Once connected, you can uncomment and modify the `sendMessage` line to test message sending
-
-#### Example Output:
-```
-🔌 Initializing WhatsApp session...
-=== QR Code Received ===
-[QR Code Displayed]
-Scan the QR code above to authenticate
-========================
-
-✅ Session authenticated successfully as UserName (1234567890)
-🚀 WhatsApp client is ready!
-Session info: { ... }
-```
-
-#### Notes:
-- The test uses a hardcoded session ID for consistency between test runs
-- Make sure your test environment has access to the database for session persistence
-- The test will keep running until manually stopped (Ctrl+C)
-
 ## Core Architecture
 
 ### Key Components
 
-1. **WhatsAppAccountManager**
-   - Singleton service that manages all active WhatsApp client instances
-   - Handles client creation, retrieval, and cleanup
-   - Initializes clients from database on server start
+1. **WhatsAppAccountManager** (Singleton)
+   - Manages all active WhatsApp client instances
+   - Handles client lifecycle (creation, retrieval, cleanup)
+   - Implements automatic cleanup of stale sessions
+   - Provides a singleton instance for application-wide access
 
 2. **WhatsAppAccountClient**
    - Represents a single WhatsApp account connection
-   - Manages the lifecycle of the connection
-   - Handles authentication, message sending, and event emission
+   - Manages authentication state and session lifecycle
+   - Handles message sending and event propagation
    - Uses composition with `WhatsAppSession` for WebSocket management
+   - Provides a clean API for UI interaction
 
 3. **WhatsAppSession**
-   - Manages the WebSocket connection to WhatsApp Web
+   - Manages the low-level WebSocket connection to WhatsApp Web
    - Handles authentication state and session persistence
-   - Emits events for QR code generation, authentication, and messages
-   - Uses `usePrismaAuthState` for persistent storage of session data
+   - Emits events for key lifecycle events:
+     - `qrcode`: When a new QR code is available for authentication
+     - `authenticated`: When authentication is successful
+     - `auth_failure`: When authentication fails
+     - `ready`: When the connection is fully established
+     - `disconnected`: When the connection is lost
+     - `message`: When a new message is received
+     - `error`: When an error occurs
 
 4. **usePrismaAuthState**
    - Implements the Baileys auth state interface
-   - Stores authentication data in the database using Prisma
+   - Persists authentication data in the database using Prisma
    - Handles encryption/decryption of sensitive data
-
-5. **whatsappHandler**
-   - Message handler for the messaging system
-   - Processes incoming WhatsApp-related messages
-   - Routes commands to appropriate clients
-   - Manages subscriptions and cleanup
+   - Supports multiple concurrent sessions
 
 ## Data Flow
 
-1. **Connection Initialization**
-   ```
-   UI Request → WebSocket → whatsappHandler → WhatsAppAccountManager → WhatsAppAccountClient → WhatsAppSession
-   ```
+### 1. Initialization
+```
+Application Start → WhatsAppAccountManager (creates instance)
+```
 
-2. **Authentication Flow**
-   ```
-   WhatsAppSession (generates QR) → WhatsAppAccountClient (emits event) → WebSocket → UI (shows QR)
-   User scans QR → WhatsAppSession (authenticates) → WhatsAppAccountClient (emits 'authenticated')
-   ```
+### 2. Client Creation
+```
+UI Request → WhatsAppAccountManager.create() → WhatsAppAccountClient → WhatsAppSession
+```
 
-3. **Message Flow**
-   ```
-   Incoming: WhatsApp Web → WhatsAppSession → WhatsAppAccountClient → WebSocket → UI
-   Outgoing: UI → WebSocket → whatsappHandler → WhatsAppAccountClient → WhatsAppSession → WhatsApp Web
+### 3. Authentication Flow
+```
+1. WhatsAppSession → Generates QR code → WhatsAppAccountClient → UI
+2. User scans QR code → WhatsApp Web → WhatsAppSession
+3. WhatsAppSession → Authenticates → Saves credentials via usePrismaAuthState
+4. WhatsAppSession → Emits 'authenticated' → WhatsAppAccountClient → UI
+```
+
+### 4. Message Flow
+```
+Incoming: WhatsApp Web → WhatsAppSession → WhatsAppAccountClient → UI
+Outgoing: UI → WhatsAppAccountClient → WhatsAppSession → WhatsApp Web
+```
+
+## Database Schema
+
+### whatsAppAuthData
+- `id`: Unique identifier (UUID)
+- `clientId`: Reference to the client ID
+- `file`: File identifier (e.g., 'creds', 'app-state-sync-key')
+- `data`: Encrypted authentication data
+- `createdAt`: Timestamp of creation
+- `updatedAt`: Timestamp of last update
+
+## Error Handling
+
+- All components implement proper error handling and logging
+- Authentication failures trigger appropriate events
+- Network issues are automatically handled with reconnection logic
+- Database errors are logged and handled gracefully
+
+## Security Considerations
+
+- Authentication data is encrypted before storage
+- Session data is scoped to individual clients
+- Proper cleanup of resources on session end
+- Rate limiting and request validation is implemented
    ```
 
 ## Database Schema

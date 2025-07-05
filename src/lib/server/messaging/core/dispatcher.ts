@@ -6,6 +6,7 @@ import type { InMessage } from "../interfaces/message";
 import { messageHandler } from '../handlers/messageHandler';
 import { whatsappHandler } from "../handlers/whatsappHandler";
 import { deviceHandler } from "../handlers/deviceHandler";
+import { AuditLogger } from "./auditLogger";
 
 export interface MessageDispatcher {
   dispatch(message: InMessage): Promise<void>;
@@ -14,6 +15,9 @@ export interface MessageDispatcher {
 export const MessageDispatcher: MessageDispatcher = {
   async dispatch(message: InMessage): Promise<void> {
     const { type, payload, scope } = message;
+    
+    // Log the received message for auditing
+    AuditLogger.logReceived(message);
 
     // Route based on message type prefix
     if (type == 'webrtc') {

@@ -7,6 +7,7 @@ import { publisher } from '../messaging/core/publisher';
 import { WhatsAppSession } from './WhatsAppSession';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { SystemUser } from '../messaging/interfaces/message';
+import type { proto } from '@whiskeysockets/baileys';
 
 /****************************************************
  * WhatsAppAccountClient Class
@@ -37,6 +38,9 @@ export class WhatsAppAccountClient{
      * @param createdBy - Optional identifier for the user who created the client.
      * @param options - Optional directories for authentication and media storage.
      ********************************************************************************/
+    private connectionState: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
+    private lastConnectionUpdate: Date | null = null;
+
     constructor(id: string) {
         this.id = id;
         logger.info(`Created WhatsApp client instance with ID: ${this.id}`);
@@ -46,14 +50,37 @@ export class WhatsAppAccountClient{
         // Bind the event handlers to ensure 'this' context is preserved
         this.session.on('qrcode', this.handle_qr.bind(this));
         this.session.on('authenticated', this.handle_authenticated.bind(this));
+        this.session.on('ready', this.handle_ready.bind(this));
+        this.session.on('disconnected', this.handle_disconnected.bind(this));
         this.session.on('error', this.handle_error.bind(this));
+        this.session.on('message', this.handleIncomingMessage.bind(this));
         this.session.init();
     }
 
-    private handle_authenticated({ pushName, phoneNumber }: { pushName?: string | null; phoneNumber?: string | null }) {
+    private async handle_authenticated({ pushName, phoneNumber }: { pushName?: string | null; phoneNumber?: string | null }) {
         logger.info(`[${this.id}] Session authenticated - User: ${pushName} (${phoneNumber})`);
         
         try {
+            // Update account info in database first
+            try {
+                await this.prisma.whatsAppAccount.update({
+                    where: { client_id: this.id },
+                    data: {
+                        name: pushName || null,
+                        phoneNumber: phoneNumber || null,
+                        lastAuthenticated: new Date(),
+                        isAuthenticated: true,
+                        client_status: 'CONNECTED',
+                        connectionState: 'connected'
+                    }
+                });
+                logger.info(`[${this.id}] Updated account info in database`);
+            } catch (error) {
+                logger.error(`[${this.id}] Failed to update account info: ${error}`);
+                throw error; // Re-throw to be caught by outer try-catch
+            }
+
+            // Send authenticated message
             const routingMessage = MessageFactory.createSystemMessage(
                 'whatsapp',
                 `subscription:whatsapp:${this.id}`,
@@ -125,8 +152,104 @@ export class WhatsAppAccountClient{
         publisher.publish(routingMessage);
     }
 
+    private async updateConnectionState(state: 'connecting' | 'connected' | 'disconnected', error?: string) {
+        if (this.connectionState === state) {
+            return; // No state change needed
+        }
+
+        const previousState = this.connectionState;
+        this.connectionState = state;
+        this.lastConnectionUpdate = new Date();
+
+        logger.debug(`[${this.id}] Connection state updated: ${previousState} -> ${state}`, {
+            previousState,
+            newState: state,
+            timestamp: this.lastConnectionUpdate.toISOString()
+        });
+
+        try {
+            await this.prisma.whatsAppAccount.update({
+                where: { client_id: this.id },
+                data: {
+                    client_status: state.toUpperCase(),
+                    connectionState: state,
+                    lastConnectionUpdate: this.lastConnectionUpdate,
+                    ...(error && { lastError: error })
+                }
+            });
+            
+            logger.info(`[${this.id}] Connection state updated: ${previousState} -> ${state}`, {
+                previousState,
+                newState: state,
+                timestamp: this.lastConnectionUpdate.toISOString()
+            });
+        } catch (error) {
+            logger.error(`[${this.id}] Failed to update connection state: ${error}`);
+        }
+    }
+
+    private handle_ready() {
+        logger.info(`[${this.id}] WhatsApp client is ready`);
+        this.updateConnectionState('connected');
+    }
+
+    private handle_disconnected(reason: string) {
+        logger.warn(`[${this.id}] WhatsApp client disconnected: ${reason}`);
+        this.updateConnectionState('disconnected', reason);
+    }
+
+    private async handleIncomingMessage(msg: proto.IWebMessageInfo) {
+        try {
+            const remoteJid = msg.key.remoteJid || 'unknown';
+            logger.debug(`[${this.id}] Received message from ${remoteJid}`);
+            
+            // Skip if message is from the current user
+            if (msg.key.fromMe) {
+                logger.warn(`[${this.id}] message from self`);
+                // return;
+            }
+
+            // Create a clean message object without circular references
+            const messageData = {
+                id: msg.key.id,
+                from: remoteJid,
+                timestamp: msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
+                content: msg.message?.conversation || '[Media message]',
+                clientId: this.id
+            };
+
+            logger.debug(`[${this.id}] Creating routing message for WhatsApp client ${this.id}`);
+            const routingMessage = MessageFactory.createSystemMessage(
+                'whatsapp',
+                `subscription:whatsapp:${this.id}`,
+                {
+                    action: 'message',
+                    content: msg
+                },
+                SystemUser,
+                {
+                    targetConnectionId: this.id,
+                    targetProtocol: 'whatsapp',
+                    echoToSender: false,
+                    sudo: true // Ensure message is delivered regardless of permissions
+                }
+            );
+
+            logger.debug(`[${this.id}] Publishing message to scope: subscription:whatsapp:${this.id}`);
+            await publisher.publish(routingMessage);
+            logger.debug(`[${this.id}] Successfully published message: ${msg.key.id}`);
+        } catch (error) {
+            logger.error(`[${this.id}] Error handling incoming message: ${error}`);
+            this.emit('error', { 
+                type: 'message_handling', 
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    }
+
     private handle_qr(qr: string) {
-        logger.debug(`QR code received for client ${this.id}`); 
+        logger.debug(`[${this.id}] QR code received`);
+        this.updateConnectionState('connecting');
         
         const routingMessage = MessageFactory.createSystemMessage(
             'whatsapp',
