@@ -1,9 +1,10 @@
 import { error, json } from '@sveltejs/kit';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { RequestEvent, RequestHandler } from '@sveltejs/kit';
 import type { PageServerLoad } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByApiKey, userInfoByUserId } from '$lib/server/security/auth-utils';
+import type { Device } from '@prisma/client';
 
 /**
  * Type for route handlers that can be protected
@@ -98,6 +99,16 @@ export type ApiAuthEvent = {
   locals: RequestEvent['locals'];
   request: Request;
 };
+
+export function restrictDevice(
+  handler: (e: RequestEvent & { device: Device; userInfo: UserInfo }) => Promise<Response>
+): RequestHandler {
+  return async (event) => {
+      const result = await restrict_device(event);
+      if ('error' in result) return result.response;
+      return handler({ ...event, ...result });
+  };
+}
 
 /**
  * Authenticates a device using an API key
