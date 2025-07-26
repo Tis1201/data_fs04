@@ -68,7 +68,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     logger.error(`Error loading user form: ${err}`);
     throw error(500, 'Failed to load user form');
   }
-} satisfies PageServerLoad;
+};
 
 export const actions: Actions = {
     create: restrict(

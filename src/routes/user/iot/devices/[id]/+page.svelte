@@ -1,43 +1,75 @@
 <script lang="ts">
-    import { goto } from "$app/navigation";
-    import { toast } from "svelte-sonner";
-    import { writable } from "svelte/store";
-    import { sseStore } from "$lib/stores/sse-store";
-
-    import { socketStore } from "$lib/stores/websocket-store";
-    import { Button } from "$lib/components/ui/button";
-    import { Badge } from "$lib/components/ui/badge";
+    import {goto} from "$app/navigation";
+    import {superForm} from "sveltekit-superforms/client";
+    import {toast} from "svelte-sonner";
+    import {writable} from "svelte/store";
+    import {sseStore} from "$lib/stores/sse-store";
+    import {Button} from "$lib/components/ui/button";
+    import {Badge} from "$lib/components/ui/badge";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import {
-        Clock,
-        Wifi,
-        Cpu,
-        Server,
-        Shield,
-        Info,
-        Tag,
-        Settings,
-        Camera,
-        FileText,
-        Edit,
-        RotateCcw,
-        Loader2,
         ArrowLeft,
-        AlertCircle,
-        CheckCircle,
+        Camera,
+        Clock,
+        Cpu,
+        Edit,
+        FileText,
+        Info,
+        Key,
+        Loader2,
         Radar,
+        RefreshCw,
+        RotateCcw,
+        Server,
+        Settings,
+        Shield,
+        Tag,
+        Terminal,
+        Wifi,
     } from "lucide-svelte";
     import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
     import UserCard from "$lib/components/user/layout/UserCard.svelte";
-    import {
-        CompactInfoGrid,
-        CompactInfoItem,
-    } from "$lib/components/ui_components_sveltekit/layout";
+    import {CompactInfoGrid, CompactInfoItem,} from "$lib/components/ui_components_sveltekit/layout";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
-    import type { PageData } from "./$types";
+    import type {PageData} from "./$types";
 
     export let data: PageData;
-    const { device } = data;
+    const { device, form } = data;
+
+    // Setup the form for API key generation
+    const {
+        form: apiKeyForm,
+        enhance: apiKeyEnhance,
+        submitting: apiKeySubmitting,
+    } = superForm(data.form, {
+        id: "api-key-form",
+        resetForm: false,
+        taintedMessage: null,
+        onSubmit: ({ action }) => {
+            console.log("Form submission started, action:", action);
+            // Only handle the generateApiKey action
+            if (action?.toString() !== "?/generateApiKey") {
+                return;
+            }
+        },
+        onResult: ({ result }) => {
+            console.log("Form result received:", result);
+            if (result.type === "success") {
+                toast.success("API key generated successfully");
+                // Refresh the page to show the new API key
+                goto(`/user/iot/devices/${device.id}`, {
+                    invalidateAll: true,
+                });
+            } else if (result.type === "failure") {
+                toast.error(result.data?.error || "Failed to generate API key");
+            }
+        },
+        onError: (error) => {
+            console.error("Form error:", error);
+            toast.error("An error occurred while generating API key");
+        },
+    });
 
     // Helper functions for status and connection colors
     function getStatusColor(status: string) {
@@ -63,7 +95,7 @@
     const title = device.name || "Device Details";
 
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Home", "/user"],
         ["IoT", "/user/iot"],
         ["Devices", "/user/iot/devices"],
@@ -181,7 +213,7 @@
                         action: "message",
                         type: "screenshot:request",
                         deviceId: device.id,
-                        quality: 80, // JPEG quality (1-100)
+                        quality: 120, // JPEG quality (1-100)
                     },
                 },
                 10000, // Screenshots might take longer than pings
@@ -418,6 +450,21 @@
                 <span class="text-xs">Screenshot</span>
             </Button>
 
+            <!-- Screenshot Button -->
+            <Button
+                    variant="outline"
+                    class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
+                    on:click={retrieveSnapshot}
+                    disabled={$isLoading && $actionStatus.action === "snapshot"}
+            >
+                {#if $isLoading && $actionStatus.action === "snapshot"}
+                    <Loader2 class="h-5 w-5 animate-spin" />
+                {:else}
+                    <Terminal class="h-5 w-5" />
+                {/if}
+                <span class="text-xs">Terminal</span>
+            </Button>
+
             <!-- Restart App Button -->
             <Button
                 variant="outline"
@@ -578,6 +625,51 @@
                 ]}
             />
         </svelte:fragment>
+    </UserCard>
+
+    <UserCard
+        title="Device Security"
+        description="Manage API key for device authentication"
+        icon={Shield}
+        compact={true}
+        class_name="mb-4"
+    >
+        <div class="space-y-4">
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <div class="font-medium flex items-center text-sm">
+                        <Key class="mr-1.5 h-3.5 w-3.5" />
+                        API Key
+                    </div>
+                    <form
+                        id="api-key-form"
+                        action="?/generateApiKey"
+                        method="POST"
+                        use:apiKeyEnhance
+                    >
+                        <Button
+                            type="submit"
+                            variant="outline"
+                            size="sm"
+                            disabled={$apiKeySubmitting}
+                            class="flex items-center"
+                        >
+                            <RefreshCw class="mr-2 h-3 w-3" />
+                            {$apiKeySubmitting
+                                ? "Generating..."
+                                : "Generate New Key"}
+                        </Button>
+                    </form>
+                </div>
+
+                <SecureKeyDisplay
+                    apiKey={device.apiKey || ""}
+                    createdAt={device.apiKeyCreatedAt}
+                    rotatedAt={device.apiKeyRotatedAt}
+                    loading={$apiKeySubmitting}
+                />
+            </div>
+        </div>
     </UserCard>
 
     <!-- Technical Details Card -->

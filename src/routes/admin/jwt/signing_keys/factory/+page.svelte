@@ -16,11 +16,18 @@
     import { Button } from '$lib/components/ui/button';
     import SigningKeyDisplay from '$lib/components/ui_components_sveltekit/display/SigningKeyDisplay.svelte';
     
+    // Import form components
+    import { superForm } from 'sveltekit-superforms/client';
+    import { zod } from 'sveltekit-superforms/adapters';
+    import { z } from 'zod';
+    
     // Types
     import type { PageData } from './$types';
     
-    // Import form components
-    import { superForm } from 'sveltekit-superforms/client';
+    // Schema for creating a new key
+    const createKeySchema = z.object({
+        keyType: z.literal('FACTORY'),
+    });
     
     // Import page data from server
     export let data: PageData;
@@ -29,7 +36,8 @@
     import KeyHistoryTable from './table.svelte';
     
     // Create form handlers
-    const { form: createForm, submitting: createSubmitting, enhance: createEnhance, message: createMessage } = superForm(data.createForm, {
+    const { form: createForm, submitting, enhance: createEnhance, message: createMessage } = superForm(data.createForm, {
+        validators: zod(createKeySchema),
         taintedMessage: false,
         validationMethod: 'oninput',
         resetForm: false,
@@ -206,7 +214,7 @@
             <svelte:fragment slot="create-form">
                 <form method="POST" action="?/createKey" use:createEnhance>
                     <input type="hidden" name="keyType" value="FACTORY" />
-                    <Button type="submit" class="w-full" disabled={createSubmitting}>
+                    <Button type="submit" class="w-full" disabled={$submitting}>
                         Create Factory Key
                     </Button>
                 </form>

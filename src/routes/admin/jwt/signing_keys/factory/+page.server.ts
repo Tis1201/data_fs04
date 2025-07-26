@@ -270,7 +270,7 @@ export const load = restrict(
       const paginatedKeys = keys.slice(startIndex, startIndex + perPage);
       
       // Create empty forms
-      const createForm = await superValidate(zod(createKeySchema), {
+      const createForm = await superValidate({ keyType: 'FACTORY' }, zod(createKeySchema), {
         id: 'factory-create-form'
       });
       const rotateForm = await superValidate(zod(rotateKeySchema), {
@@ -300,7 +300,7 @@ export const load = restrict(
       logger.error(`Error loading factory JWT signing keys: ${err}`);
       return {
         keys: [],
-        createForm: await superValidate(zod(createKeySchema), {
+        createForm: await superValidate({ keyType: 'FACTORY' }, zod(createKeySchema), {
           id: 'factory-create-form'
         }),
         rotateForm: await superValidate(zod(rotateKeySchema), {

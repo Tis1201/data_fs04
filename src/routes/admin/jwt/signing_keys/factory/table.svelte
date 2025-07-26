@@ -168,9 +168,7 @@
             sortable: false,
             width: "10%",
             render: (record: JwtSigningKey) => {
-                const actions: ActionItem[] = [];
-                
-                // Only show rotate action for primary key
+                const actions = [];
                 if (record.isPrimary) {
                     actions.push({
                         label: "Rotate Key",
@@ -179,11 +177,10 @@
                         variant: "ghost"
                     });
                 }
-                
                 return {
                     component: RecordActions,
                     props: {
-                        actions
+                        items: actions
                     }
                 };
             }
