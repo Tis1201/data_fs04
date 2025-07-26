@@ -100,6 +100,7 @@
 		"dotenv": "^16.4.5",
 		"generate-password": "^1.7.1",
 		"json-stringify-safe": "^5.0.1",
+		"jsonwebtoken": "^9.0.2",
 		"konva": "^9.3.18",
 		"label": "^0.2.2",
 		"libphonenumber-js": "^1.11.14",

@@ -97,7 +97,7 @@ export const GET: RequestHandler = async ({ locals, setHeaders }) => {
     // Get active signing keys from the database
     const signingKeys = await locals.prisma.jwtSigningKey.findMany({
       where: {
-        keyType: 'ACCESS',
+        keyType: 'TOKEN',
         isActive: true
       },
       select: {

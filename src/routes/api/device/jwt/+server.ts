@@ -1,6 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrictDevice } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
+import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
+import jwt from 'jsonwebtoken';
 
 /**
  * Returns a JWT for an authenticated device.
@@ -24,14 +26,47 @@ export const GET: RequestHandler = restrictDevice(
 
         if (!signingKey) {
             logger.error('No active signing key found');
-            return json({ error: 'Server configuration error' }, { status: 500 });
+            return json(createErrorResponse(
+                'No active signing key found',
+                {
+                    details: "Missing signing key"
+                }
+                
+            ), { status: 500 });
         }
 
-        return json({
-            success: true,
-            jwt: token,
-            deviceId: device.id,
-            userId: userInfo.id
-        });
+       
+        try{
+            const token = jwt.sign(
+                {
+                    deviceId: device.id,
+                    userId: userInfo.id,
+                    deviceName: device.name,
+                    // you can add roles, scopes, etc. here
+                },
+                signingKey.privateKey, // or .secret if using HMAC
+                {
+                    algorithm: signingKey.algorithm || 'HS256', // depends on your DB model
+                    expiresIn: '1h',
+                    issuer: 'fs04',
+                    subject: device.id,
+                }
+            );
+
+            return json(createSuccessResponse({
+                jwt: token,
+            }))
+        
+        }catch(error){
+            return json(createErrorResponse(
+                error as Error               
+            ), { status: 500 });
+        }
+
+        // const jwt = createJWT(signingKey, device.id, userInfo.id);
+
+        
+
+     
     }
 );
