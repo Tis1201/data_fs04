@@ -1,5 +1,19 @@
 # JWT Authentication
 
+## Prerequisites
+
+Before using JWT authentication, you need to generate a token signing key in the admin panel:
+
+1. Log in to the admin interface
+2. Navigate to the JWT Signing Keys section
+3. Click "Generate New Key"
+4. Select the key type (e.g., RSA)
+5. Set the algorithm (e.g., RS256)
+6. Mark the key as primary if it's your main signing key
+7. Save the key
+
+**Note:** The system requires at least one active signing key with the `TOKEN` type to generate JWTs. If no valid key is found, token generation will fail with a 500 error.
+
 This document outlines the JWT (JSON Web Token) authentication system used in the application, including token issuance, validation, and key management.
 
 ## Token Issuance
@@ -16,13 +30,28 @@ GET /api/device/jwt
 ### Token Generation
 1. The system retrieves the primary signing key for access tokens from the database
 2. A JWT is signed with the following claims:
-   - `deviceId`: The unique identifier of the authenticated device
-   - `userId`: The ID of the user associated with the device
-   - `deviceName`: The name of the device
-   - `iat` (Issued At): Timestamp when the token was issued
-   - `exp` (Expiration): Timestamp when the token will expire (default: 1 hour)
+   - `deviceId`: The unique identifier of the authenticated device (e.g., "94a5dbe5-6604-429e-9b84-882ce2816dd5")
+   - `accountId`: The ID of the account the device belongs to (e.g., "cmc4mnmcu0003rzxvupiqycd7")
+   - `userId`: The ID of the user associated with the device (e.g., "cmc4msp7r000810g1ya5u3od2")
+   - `deviceName`: The name of the device (e.g., "Device-94a5dbe5")
+   - `iat` (Issued At): Timestamp when the token was issued (e.g., 1753512831)
+   - `exp` (Expiration): Timestamp when the token will expire (default: 1 hour from issuance)
    - `iss` (Issuer): Set to "fs04"
-   - `sub` (Subject): Set to the device ID
+   - `sub` (Subject): Set to the device ID (same as deviceId)
+
+### Example JWT Payload
+```json
+{
+  "deviceId": "94a5dbe5-6604-429e-9b84-882ce2816dd5",
+  "accountId": "cmc4mnmcu0003rzxvupiqycd7",
+  "userId": "cmc4msp7r000810g1ya5u3od2",
+  "deviceName": "Device-94a5dbe5",
+  "iat": 1753512831,
+  "exp": 1753516431,
+  "iss": "fs04",
+  "sub": "94a5dbe5-6604-429e-9b84-882ce2816dd5"
+}
+```
 
 ### Response
 On success, returns a JSON object containing the JWT:

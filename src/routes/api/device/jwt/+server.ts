@@ -40,6 +40,7 @@ export const GET: RequestHandler = restrictDevice(
             const token = jwt.sign(
                 {
                     deviceId: device.id,
+                    accountId: device.accountId,
                     userId: userInfo.id,
                     deviceName: device.name,
                     // you can add roles, scopes, etc. here
