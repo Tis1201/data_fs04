@@ -74,9 +74,9 @@ export const GET: RequestHandler = async ({ locals, setHeaders }) => {
       return json({ keys: [] });
     }
 
-    const jwk = pemToJwk(signingKey.publicKey, signingKey.keyId, signingKey.algorithm);
+    const jwk = pemToJwk(signingKey.publicKey, signingKey.id, signingKey.algorithm);
     if (!jwk) {
-      logger.error(`Failed to generate JWK for keyId ${signingKey.keyId}`);
+      logger.error(`Failed to generate JWK for keyId ${signingKey.id}`);
       return json({ keys: [] });
     }
 

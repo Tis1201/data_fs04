@@ -50,6 +50,7 @@ export const GET: RequestHandler = restrictDevice(
                     expiresIn: '1h',
                     issuer: 'fs04',
                     subject: device.id,
+                    keyid: signingKey.id,
                 }
             );
 
