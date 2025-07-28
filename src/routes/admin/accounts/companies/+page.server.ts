@@ -3,6 +3,8 @@ import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType, CompanyStatus } from '$lib/constants/system';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -139,11 +141,23 @@ export const actions: Actions = {
             }
 
             try {
-                await locals.prisma.company.delete({
+                const company = await locals.prisma.company.delete({
                     where: { id }
                 });
 
                 logger.info(`Company deleted: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Company',
+                    recordId: id,
+                    oldData: company,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true };
             } catch (err) {
                 logger.error('Error deleting company:', err);
@@ -170,6 +184,18 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Company status updated: ${id} (${status})`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Company',
+                    recordId: id,
+                    oldData: {status: status == CompanyStatus.ACTIVE ? CompanyStatus.INACTIVE : CompanyStatus.ACTIVE},
+                    newData: {status},
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true, company };
             } catch (err) {
                 logger.error('Error updating company status:', err);

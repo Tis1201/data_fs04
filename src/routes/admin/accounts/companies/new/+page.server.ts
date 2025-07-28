@@ -6,6 +6,8 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { companySchema } from './company';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 
 
@@ -65,6 +67,17 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Company created: ${company.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Company',
+                    recordId: company.id,
+                    oldData: null,
+                    newData: company,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { 
                     form,
