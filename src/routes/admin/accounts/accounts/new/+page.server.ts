@@ -6,6 +6,8 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { accountEditSchema } from '../schema';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
     async ({ locals }: { locals: any }) => {
@@ -66,6 +68,17 @@ export const actions: Actions = {
 
             // Log the account creation
             logger.info(`Account created: ${account.id} (${account.name})`);
+            
+            await logAudit({
+                actionType: AuditActionType.INSERT,
+                tableName: 'Account',
+                recordId: account.id,
+                oldData: null,
+                newData: account,
+                userId: locals.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: locals.prisma
+            })
 
             // Return success with the created account
             return { 

@@ -8,6 +8,8 @@ import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import type { RequestEvent } from '@sveltejs/kit';
 import { validatePhoneNumber, getPhoneValidationMessage } from '$lib/utils/validation/phone';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define the company schema - UPDATED with international phone validation
 const companySchema = z.object({
@@ -217,6 +219,17 @@ export const actions: Actions = {
 
                 logger.info(`Company updated: ${updatedCompany.id} (${updatedCompany.name}) - Status: ${updatedCompany.status}`);
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Company',
+                    recordId: updatedCompany.id,
+                    oldData: existingCompany,
+                    newData: updatedCompany,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 // Create a clean, serializable response
                 const cleanCompany = {
                     id: updatedCompany.id,
@@ -335,7 +348,7 @@ export const actions: Actions = {
                 }
 
                 // Remove the user from the account membership
-                await locals.prisma.accountMembership.delete({
+                const membership = await locals.prisma.accountMembership.delete({
                     where: {
                         userId_accountId: {
                             userId: form.data.itemId,
@@ -345,6 +358,17 @@ export const actions: Actions = {
                 });
 
                 logger.info(`User ${form.data.itemId} removed from account ${company.accountId} (via company ${companyId})`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'AccountMembership',
+                    recordId: membership.id,
+                    oldData: membership,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 return message(form, {
                     type: 'success',

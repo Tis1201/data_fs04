@@ -7,6 +7,8 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createSuccessResponse } from '$lib/types/api';
 import { accountEditSchema, relationshipSchema, companyCreateSchema } from '../schema';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 
 export const load = restrict(
@@ -230,6 +232,17 @@ export const actions: Actions = {
 
                 logger.info(`Account updated: ${account.id} (${account.name})`);
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Account',
+                    recordId: account.id,
+                    oldData: existingAccount,
+                    newData: account,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(form, createSuccessResponse('Account updated successfully', {
                     details: `Account '${account.name}' has been updated.`,
                     data: {
@@ -309,6 +322,17 @@ export const actions: Actions = {
                 });
 
                 logger.info(`New company created and added to account: ${company.id} (${company.name}) -> ${accountId}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Company',
+                    recordId: company.id,
+                    oldData: null,
+                    newData: company,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 return message(form, createSuccessResponse('Company created successfully', {
                     details: `Company '${company.name}' has been created and added to the account.`,
@@ -392,6 +416,17 @@ export const actions: Actions = {
 
                 logger.info(`Companies ${itemIds.join(', ')} added to account ${accountId}`);
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Company',
+                    recordId: itemIds,
+                    oldData: { accountId: null },
+                    newData: { accountId },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true };
             } catch (err) {
                 if (err instanceof Error) {
@@ -472,6 +507,28 @@ export const actions: Actions = {
 
                 logger.info(`Users ${itemIds.join(', ')} added to account ${accountId} with role ${memberRole}`);
 
+                const memberships = await locals.prisma.accountMembership.findMany({
+                    where: {
+                        userId: { in: itemIds },
+                        accountId
+                    }
+                });
+
+                await Promise.all(
+                    memberships.map(membership =>
+                        logAudit({
+                            actionType: AuditActionType.INSERT,
+                            tableName: 'AccountMembership',
+                            recordId: membership.id,
+                            oldData: null,
+                            newData: membership,
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: locals.prisma
+                        })
+                    )
+                );
+
                 return { success: true };
             } catch (err) {
                 if (err instanceof Error) {
@@ -546,6 +603,17 @@ export const actions: Actions = {
 
                 logger.info(`Groups ${itemIds.join(', ')} added to account ${accountId}`);
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Group',
+                    recordId: itemIds,
+                    oldData: { accountId: null },
+                    newData: { accountId },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true };
             } catch (err) {
                 if (err instanceof Error) {
@@ -600,6 +668,17 @@ export const actions: Actions = {
 
                 logger.info(`Company ${form.data.itemId} removed from account ${accountId}`);
 
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Company',
+                    recordId: form.data.itemId,
+                    oldData: company,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true };
             } catch (err) {
                 if (err instanceof Error) {
@@ -633,7 +712,7 @@ export const actions: Actions = {
             }
 
             try {
-                await locals.prisma.accountMembership.delete({
+                const accountMembership = await locals.prisma.accountMembership.delete({
                     where: {
                         userId_accountId: {
                             userId: form.data.itemId,
@@ -643,6 +722,17 @@ export const actions: Actions = {
                 });
 
                 logger.info(`User ${form.data.itemId} removed from account ${accountId}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'AccountMembership',
+                    recordId: accountMembership.id,
+                    oldData: accountMembership,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 return { success: true };
             } catch (err) {
@@ -701,6 +791,17 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Group ${form.data.itemId} removed from account ${accountId}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Group',
+                    recordId: group.id,
+                    oldData: group,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 return { success: true };
             } catch (err) {

@@ -7,6 +7,8 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from '../../groups/new/group';
 import { z } from 'zod';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -190,6 +192,17 @@ export const actions: Actions = {
                 // Log the group update
                 logger.info(`Group updated: ${group.id} (${group.name})`);
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Group',
+                    recordId: group.id,
+                    oldData: existingGroup,
+                    newData: group,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 // Return success with the updated group
                 return { form };
             } catch (err) {
@@ -303,6 +316,17 @@ export const actions: Actions = {
                 // Log the user addition
                 logger.info(`User added to group: ${membership.user.name} (${membership.user.email}) added to ${group.name}`);
 
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'GroupMembership',
+                    recordId: groupMembership.id,
+                    oldData: null,
+                    newData: groupMembership,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 // Return success
                 // Create a new form for the next submission
                 const newForm = await superValidate(
@@ -375,6 +399,17 @@ export const actions: Actions = {
                 
                 // Log the user removal
                 logger.info(`User removed from group: ${groupMembership.membership.user.name} (${groupMembership.membership.user.email}) removed from ${groupMembership.group.name}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'GroupMembership',
+                    recordId: groupMembership.id,
+                    oldData: groupMembership,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return {
                     success: true,
