@@ -19,3 +19,21 @@ export enum UserStatus {
   INACTIVE = 'INACTIVE',
   SUSPENDED = 'SUSPENDED'
 }
+
+/**
+ * Company statuses
+ */
+export enum CompanyStatus {
+  ACTIVE = 'ACTIVE',
+  INACTIVE = 'INACTIVE',
+  SUSPENDED = 'SUSPENDED'
+}
+
+/**
+ * Action types for audit log
+ */
+export enum AuditActionType {
+  INSERT = 'INSERT',
+  UPDATE = 'UPDATE',
+  DELETE = 'DELETE'
+}
