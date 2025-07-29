@@ -9,6 +9,8 @@ import { factoryTokenSchema } from '$lib/schemas/factory-token';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const actions: Actions = {
     updateToken: restrict(
@@ -69,6 +71,17 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Factory token updated: ${factoryToken.id} by user ${auth.user.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'FactoryToken',
+                    recordId: factoryToken.id,
+                    oldData: existingToken,
+                    newData: factoryToken,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 // Return success response
                 return message(

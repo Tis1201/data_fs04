@@ -10,7 +10,7 @@ export interface LogAuditOptions {
     oldData: Record<string, any> | null;
     newData: Record<string, any> | null;
     userId: string;
-    ipAddress: string;
+    ipAddress?: string;
     changeSummary?: string;
 }
 

@@ -9,6 +9,8 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define table options for Devices
 const table_options = {
@@ -94,6 +96,17 @@ export const actions = {
                     }
                 });
 
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Device',
+                    recordId: device.id,
+                    oldData: null,
+                    newData: device,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { 
                     form,
                     success: true
@@ -153,6 +166,17 @@ export const actions = {
                 });
 
                 logger.info(`Device ${id} status changed to ${status}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: device.id,
+                    oldData: { status: status == 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' },
+                    newData: { status },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { success: true };
             } catch (err) {
@@ -198,6 +222,17 @@ export const actions = {
                 });
 
                 logger.info('Device deleted successfully:', { deviceId: id });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: device,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 // Return success response
                 return {
