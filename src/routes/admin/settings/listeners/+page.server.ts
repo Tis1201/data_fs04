@@ -10,6 +10,9 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
+import { listenerSchema } from './new/schema';
 
 // Define table options for Listener Endpoints
 const table_options = {
@@ -124,6 +127,17 @@ export const actions = {
                         userId: auth.user.id
                     }
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'ListenerEndpoint',
+                    recordId: listener.id,
+                    oldData: null,
+                    newData: listener,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 // Create webhook endpoint connections if not listening to all
                 if (!listenToAll && webhookEndpointIds.length > 0) {
@@ -217,6 +231,17 @@ export const actions = {
                     name: listener.name,
                     status
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'ListenerEndpoint',
+                    recordId: id,
+                    oldData: { status: status == 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' },
+                    newData: { status },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 return { success: true };
             } catch (err) {
@@ -251,36 +276,47 @@ export const actions = {
                     }
                 });
 
-                if (!webhook) {
-                    return fail(404, { error: 'Webhook endpoint not found' });
+                if (!listener) {
+                    return fail(404, { error: 'Listener endpoint not found' });
                 }
 
                 // Delete the webhook
-                await locals.prisma.webhookEndPoint.delete({
+                await locals.prisma.listenerEndPoint.delete({
                     where: { id }
                 });
 
-                logger.info('Webhook endpoint deleted successfully:', { 
-                    webhookId: id,
-                    name: webhook.name,
-                    postfix: webhook.postfix
+                logger.info('Listener endpoint deleted successfully:', { 
+                    listenerId: id,
+                    name: listener.name,
+                    postfix: listener.postfix
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'ListenerEndpoint',
+                    recordId: id,
+                    oldData: listener,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 // Return success response
                 return {
                     success: true,
-                    message: 'Webhook endpoint deleted successfully'
+                    message: 'Listener endpoint deleted successfully'
                 };
 
             } catch (e) {
-                logger.error('Error deleting webhook endpoint:', e);
+                logger.error('Error deleting listener endpoint:', e);
                 if (e.code === 'P2025') {
                     return fail(404, {
-                        error: 'Webhook endpoint not found'
+                        error: 'Listener endpoint not found'
                     });
                 }
                 return fail(500, {
-                    error: 'Failed to delete webhook endpoint'
+                    error: 'Failed to delete listener endpoint'
                 });
             }
         },
@@ -293,7 +329,7 @@ export const actions = {
     update: restrict(
         async ({ request, locals }) => {
             try {
-                const form = await superValidate(request, zod(webhookSchema));
+                const form = await superValidate(request, zod(listenerSchema));
                 if (!form.valid) {
                     return fail(400, { form });
                 }
@@ -302,67 +338,78 @@ export const actions = {
                 const id = data.get('id')?.toString();
                 
                 if (!id) {
-                    return fail(400, { form, error: 'Webhook ID is required' });
+                    return fail(400, { form, error: 'Listener ID is required' });
                 }
                 
                 const { name, postfix, description, active, expiresAt } = form.data;
                 
-                // Check if the webhook exists
-                const webhook = await locals.prisma.webhookEndPoint.findUnique({
+                // Check if the listener exists
+                const listener = await locals.prisma.listenerEndPoint.findUnique({
                     where: { id }
                 });
                 
-                if (!webhook) {
-                    return fail(404, { form, error: 'Webhook endpoint not found' });
+                if (!listener) {
+                    return fail(404, { form, error: 'Listener endpoint not found' });
                 }
                 
-                // Check if another webhook with the same postfix exists
-                if (postfix !== webhook.postfix) {
-                    const existingWebhook = await locals.prisma.webhookEndPoint.findFirst({
+                // Check if another listener with the same postfix exists
+                if (postfix !== listener.postfix) {
+                    const existinglistener = await locals.prisma.listenerEndPoint.findFirst({
                         where: { 
                             postfix,
                             id: { not: id }
                         }
                     });
                     
-                    if (existingWebhook) {
+                    if (existinglistener) {
                         return fail(400, {
                             form,
-                            error: "Another webhook with this postfix already exists"
+                            error: "Another listener with this postfix already exists"
                         });
                     }
                 }
                 
-                // Update the webhook
-                await locals.prisma.webhookEndPoint.update({
+                // Update the listener
+                const updatedListener = await locals.prisma.listenerEndPoint.update({
                     where: { id },
                     data: {
                         name,
                         postfix,
                         description,
-                        active: active ?? webhook.active,
+                        active: active ?? listener.active,
                         expiresAt
                     }
                 });
                 
-                logger.info('Webhook endpoint updated successfully', { 
-                    webhookId: id,
+                logger.info('listener endpoint updated successfully', { 
+                    listenerId: id,
                     name,
                     postfix
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'ListenerEndpoint',
+                    recordId: id,
+                    oldData: listener,
+                    newData: updatedListener,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 return { 
                     form,
                     success: true,
-                    message: 'Webhook endpoint updated successfully'
+                    message: 'listener endpoint updated successfully'
                 };
             } catch (err) {
-                logger.error('Error updating webhook endpoint', { 
+                logger.error('Error updating listener endpoint', { 
                     error: err 
                 });
-                return fail(500, { success: false, message: 'Failed to update webhook endpoint' });
+                return fail(500, { success: false, message: 'Failed to update listener endpoint' });
             }
         },
-        [SystemRole.ADMIN] // Only allow admin role to update webhook endpoints
+        [SystemRole.ADMIN] // Only allow admin role to update listener endpoints
     )
 };
