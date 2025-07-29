@@ -6,6 +6,8 @@ import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { bundleSchema } from '../../new/bundle';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -135,10 +137,21 @@ export const actions: Actions = {
                     };
 
                     // Update bundle
-                    await tx.bundle.update({
+                    const bundle = await tx.bundle.update({
                         where: { id },
                         data: updateData
                     });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'Bundle',
+                        recordId: id,
+                        oldData: existingBundle,
+                        newData: bundle,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: tx
+                    })
 
                     // Redirect back to the bundle detail page after successful update
                     throw redirect(303, `/admin/iot/bundles/${id}`);

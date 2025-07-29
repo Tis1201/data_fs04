@@ -9,6 +9,8 @@ import { bundleSchema } from './bundle';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { createSuccessResponse } from '$lib/types/api';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
     async ({ locals, auth }: any) => { // Use auth from enhanced event
@@ -133,6 +135,17 @@ export const actions: Actions = {
                     });
                     
                     logger.info(`Bundle created: ${bundle.id}`);
+
+                    await logAudit({
+                        actionType: AuditActionType.INSERT,
+                        tableName: 'Bundle',
+                        recordId: bundle.id,
+                        oldData: null,
+                        newData: bundle,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    })
                     
                     // Return success message with bundle details
                     return message(

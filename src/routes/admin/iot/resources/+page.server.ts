@@ -8,6 +8,8 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define table options for Resources
 const table_options = {
@@ -76,6 +78,17 @@ export const actions = {
 
                 // Delete the resource
                 const result = await deleteRecord(locals, 'resource', id);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Resource',
+                    recordId: id,
+                    oldData: result.model,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 if (result.success) {
                     return { success: true, message: 'Resource deleted successfully' };

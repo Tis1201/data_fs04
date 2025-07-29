@@ -9,6 +9,8 @@ import { logger } from '$lib/server/logger';
 import { validateAndGetUserId, validateAuth } from '$lib/server/security/auth-utils';
 import { z } from 'zod';
 import type { UserInfo } from '$lib/server/types/user';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define the PIN code schema
 const pinSchema = z.object({
@@ -182,6 +184,17 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Device updated successfully: ${device.id} by user ${userId}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: device.id,
+                    oldData: existingDevice,
+                    newData: device,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 // Return success with the updated device
                 const successForm = message(form, 'Device registered successfully!', { status: 'success' });

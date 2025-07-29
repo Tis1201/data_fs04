@@ -4,6 +4,8 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 /**
  * App Selection API Endpoint for Bundle Components
@@ -103,6 +105,17 @@ export const POST = restrict(
       });
       
       logger.info(`Resource added to bundle: ${resourceId} to ${bundleId}`);
+
+      await logAudit({
+            actionType: AuditActionType.INSERT,
+            tableName: 'BundleApp',
+            recordId: bundleResource.id,
+            oldData: null,
+            newData: bundleResource,
+            userId: locals.user.id,
+            ipAddress: locals.ipAddress,
+            prisma: prisma
+        })
       
       return json({
         success: true,
@@ -158,6 +171,17 @@ export const DELETE = restrict(
       });
       
       logger.info(`Resource removed from bundle: ${resourceId} from ${bundleId}`);
+
+      await logAudit({
+            actionType: AuditActionType.DELETE,
+            tableName: 'BundleApp',
+            recordId: bundleResource.id,
+            oldData: bundleResource,
+            newData: null,
+            userId: locals.user.id,
+            ipAddress: locals.ipAddress,
+            prisma: prisma
+        })
       
       return json({
         success: true

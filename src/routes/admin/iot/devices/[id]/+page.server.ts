@@ -9,6 +9,8 @@ import { SystemRole } from '$lib/types/roles';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { v4 as uuidv4 } from 'uuid';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -146,6 +148,17 @@ export const actions: Actions = {
                         where: { id },
                         data: updateData
                     });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'Device',
+                        recordId: id,
+                        oldData: existingDevice,
+                        newData: updatedDevice,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    })
 
                     return {
                         form,
