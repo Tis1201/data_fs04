@@ -8,6 +8,8 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { handleZenstackError, handleFormError } from '$lib/server/errors/errorHandlers';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -269,11 +271,23 @@ export const actions: Actions = {
             }
 
             try {
-                await locals.prisma.tokenUsageLog.delete({
+                const tokenUsageLog = await locals.prisma.tokenUsageLog.delete({
                     where: { id }
                 });
 
                 logger.info(`Token log deleted: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'TokenUsageLog',
+                    recordId: id,
+                    oldData: tokenUsageLog,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(
                     form,
                     createSuccessResponse('Token log deleted successfully')
@@ -307,6 +321,14 @@ export const actions: Actions = {
                 const days = parseInt(olderThan || '30');
                 const threshold = new Date();
                 threshold.setDate(threshold.getDate() - days);
+
+                const tokenUsageLogs = await locals.prisma.tokenUsageLog.findMany({
+                    where: {
+                        createdAt: {
+                            lt: threshold
+                        }
+                    }
+                });
                 
                 // Delete logs older than the threshold
                 const result = await locals.prisma.tokenUsageLog.deleteMany({
@@ -318,6 +340,22 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Cleared ${result.count} token logs older than ${days} days`);
+                
+                await Promise.all(
+                    tokenUsageLogs.map(log =>
+                        logAudit({
+                            actionType: AuditActionType.DELETE,
+                            tableName: 'TokenUsageLog',
+                            recordId: log.id,
+                            oldData: log,
+                            newData: null,
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: locals.prisma
+                        })
+                    )
+                );
+
                 return message(
                     form,
                     createSuccessResponse(`Successfully cleared ${result.count} token logs older than ${days} days`)
