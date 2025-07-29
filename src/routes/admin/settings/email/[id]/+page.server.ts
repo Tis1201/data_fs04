@@ -8,6 +8,8 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { emailSettingsSchema } from '../../email/schema';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const actions: Actions = {
     updateEmail: restrict(
@@ -83,6 +85,17 @@ export const actions: Actions = {
                 // Log the update
                 logger.info(`Email settings updated: ${result.id} (${result.name})`);
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'EmailServiceProvider',
+                    recordId: id,
+                    oldData: existingEmail,
+                    newData: result,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 // Return success with the updated form
                 return { form };
             } catch (err) {
@@ -119,6 +132,17 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Email settings deleted: ${emailSettings.id} (${emailSettings.name})`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'EmailServiceProvider',
+                    recordId: id,
+                    oldData: emailSettings,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return {
                     success: true,

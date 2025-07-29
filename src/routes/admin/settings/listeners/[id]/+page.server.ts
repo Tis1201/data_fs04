@@ -6,6 +6,8 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -131,12 +133,23 @@ export const actions: Actions = {
                     };
                     
                     // Update listener
-                    await tx.listenerEndpoint.update({
+                    const listenerEndpoint = await tx.listenerEndpoint.update({
                         where: { id },
                         data: updateData
                     });
                     
                     logger.info('Listener updated successfully:', { listenerId: id });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'ListenerEndpoint',
+                        recordId: id,
+                        oldData: existingListener,
+                        newData: listenerEndpoint,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma,
+                    })
                     
                     return {
                         form,

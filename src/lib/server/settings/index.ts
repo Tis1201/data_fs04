@@ -1,5 +1,7 @@
 import prisma from '../prisma';
 import { logger } from '../logger';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '../audit-logger';
 
 /**
  * Ensures there is always exactly one active setting in the database.
@@ -90,7 +92,7 @@ export async function updateActiveSetting(data: string, updatedBy: string) {
     });
     
     // Create new active setting
-    return await tx.setting.create({
+    const setting = await tx.setting.create({
       data: {
         data,
         isActive: true,
@@ -98,5 +100,17 @@ export async function updateActiveSetting(data: string, updatedBy: string) {
         updatedBy,
       }
     });
+
+    await logAudit({
+        actionType: AuditActionType.INSERT,
+        tableName: 'Setting',
+        recordId: setting.id,
+        oldData: null,
+        newData: setting,
+        userId: updatedBy,
+        prisma: tx,
+    })
+
+    return setting;
   });
 }

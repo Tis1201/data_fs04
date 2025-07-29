@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuditActionType } from '$lib/constants/system';
 
 export interface LogAuditOptions {
-    prisma: PrismaClient;
+    prisma: PrismaClient | Omit<PrismaClient<Prisma.PrismaClientOptions, never>, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
     actionType: AuditActionType;
     tableName: string;
     recordId: string | string[];

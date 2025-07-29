@@ -10,6 +10,8 @@ import { fetchTableData, deleteRecord } from '$lib/components/ui_components_svel
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { generateId } from 'lucia';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define table options for API Keys
 const table_options = {
@@ -136,6 +138,17 @@ export const actions = {
                 });
 
                 logger.info('API key created successfully:', { apiKeyId: apiKey.id });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'ApiKey',
+                    recordId: apiKey.id,
+                    oldData: null,
+                    newData: apiKey,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { 
                     form,
@@ -197,6 +210,17 @@ export const actions = {
                 });
 
                 logger.info(`API key ${id} status changed to ${active ? 'active' : 'inactive'}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'ApiKey',
+                    recordId: id,
+                    oldData: { active: !active },
+                    newData: { active },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { success: true };
             } catch (err) {
@@ -226,7 +250,9 @@ export const actions = {
                     select: {
                         id: true,
                         name: true,
-                        userId: true
+                        userId: true,
+                        key: true,
+                        lastUsedAt: true
                     }
                 });
 
@@ -252,6 +278,17 @@ export const actions = {
                 });
 
                 logger.info(`API key ${id} regenerated successfully`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'ApiKey',
+                    recordId: id,
+                    oldData: { key: apiKey.key, lastUsedAt: apiKey.lastUsedAt },
+                    newData: { key: newApiKey.key, lastUsedAt: newApiKey.lastUsedAt },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return {
                     success: true,
@@ -306,6 +343,17 @@ export const actions = {
                 });
 
                 logger.info('API key deleted successfully:', { apiKeyId: id });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'ApiKey',
+                    recordId: id,
+                    oldData: apiKey,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return {
                     success: true,
