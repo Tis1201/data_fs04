@@ -83,7 +83,7 @@ export const actions = {
                     actionType: AuditActionType.DELETE,
                     tableName: 'Resource',
                     recordId: id,
-                    oldData: result.model,
+                    oldData: null,
                     newData: null,
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
