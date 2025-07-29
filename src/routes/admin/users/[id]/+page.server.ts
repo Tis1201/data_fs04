@@ -12,6 +12,8 @@ import type { PrismaClient } from '@prisma/client';
 import { EmailService } from '$lib/server/email';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { resetUserPassword } from '$lib/server/services/password-reset';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * Load user data for editing
@@ -149,6 +151,10 @@ export const actions: Actions = {
                         select: {
                             id: true,
                             email: true,
+                            name: true,
+                            systemRole: true,
+                            status: true,
+                            rolesString: true,
                             accountMemberships: {
                                 include: {
                                     account: true
@@ -222,6 +228,17 @@ export const actions: Actions = {
                             }
                         }
                     });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'User',
+                        recordId: id,
+                        oldData: existingUser,
+                        newData: updatedUser,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: tx
+                    })
                     
                     // Store the primary account ID for form update
                     const primaryAccountId = form.data.primaryAccountId;
@@ -241,7 +258,7 @@ export const actions: Actions = {
                         
                         if (!existingMembership) {
                             // Create new membership with default role 'MEMBER'
-                            await tx.accountMembership.create({
+                            const membership = await tx.accountMembership.create({
                                 data: {
                                     userId: id,
                                     accountId: form.data.primaryAccountId,
@@ -253,6 +270,17 @@ export const actions: Actions = {
                                 userId: id, 
                                 accountId: form.data.primaryAccountId 
                             });
+
+                            await logAudit({
+                                actionType: AuditActionType.INSERT,
+                                tableName: 'AccountMembership',
+                                recordId: membership.id,
+                                oldData: null,
+                                newData: membership,
+                                userId: locals.user.id,
+                                ipAddress: locals.ipAddress,
+                                prisma: tx
+                            })
                         }
                         
                         // Update the user's primaryAccountId directly
@@ -357,6 +385,18 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Password updated for user: ${id} (${user.email})`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: null,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                    changeSummary: "Update Password"
+                })
                 
                 return { success: true, message: 'Password updated successfully' };
             } catch (e) {
@@ -396,6 +436,18 @@ export const actions: Actions = {
                     userName: user.name || user.email,
                     prisma: locals.prisma
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: null,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                    changeSummary: "Reset Password"
+                })
 
                 if (result.success) {
                     return {
@@ -484,7 +536,7 @@ export const actions: Actions = {
                         }
 
                         // Create membership
-                        await tx.accountMembership.create({
+                        const membership = await tx.accountMembership.create({
                             data: {
                                 userId,
                                 accountId,
@@ -493,6 +545,17 @@ export const actions: Actions = {
                         });
 
                         logger.info(`Added user ${userId} to account ${accountId} as MEMBER`);
+
+                        await logAudit({
+                            actionType: AuditActionType.INSERT,
+                            tableName: 'AccountMembership',
+                            recordId: membership.id,
+                            oldData: null,
+                            newData: membership,
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: tx
+                        })
                     }
                 });
 
@@ -572,9 +635,31 @@ export const actions: Actions = {
                             data: { primaryAccountId: null }
                         });
                         logger.info(`Cleared primary account for user ${userId} since membership was removed`);
+
+                        await logAudit({
+                            actionType: AuditActionType.UPDATE,
+                            tableName: 'User',
+                            recordId: userId,
+                            oldData: { primaryAccountId: accountId },
+                            newData: { primaryAccountId: null },
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: tx
+                        })
                     }
 
                     logger.info(`Removed user ${userId} from account ${accountId} (${membership.account.name})`);
+
+                    await logAudit({
+                        actionType: AuditActionType.DELETE,
+                        tableName: 'AccountMembership',
+                        recordId: membership.id,
+                        oldData: membership,
+                        newData: null,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: tx
+                    })
                 });
 
                 return { success: true, message: 'Account membership removed successfully' };
