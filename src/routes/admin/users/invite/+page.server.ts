@@ -7,6 +7,8 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createInvitation, sendInvitationEmail } from '$lib/server/invitation/service';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Schema for creating invitations
 const inviteUserSchema = z.object({
@@ -113,6 +115,17 @@ export const actions: Actions = {
           role,
           name
         );
+
+        await logAudit({
+            actionType: AuditActionType.INSERT,
+            tableName: 'User',
+            recordId: user.id,
+            oldData: null,
+            newData: user,
+            userId: locals.user.id,
+            ipAddress: locals.ipAddress,
+            prisma: locals.prisma
+        })
 
         // Generate invitation URL for manual sharing
         const baseUrl = process.env.PUBLIC_BASE_URL || 'http://localhost:5173';

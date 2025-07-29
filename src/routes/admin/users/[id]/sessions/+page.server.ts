@@ -5,6 +5,8 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define table options for Sessions
 const table_options = {
@@ -112,6 +114,18 @@ export const actions: Actions = {
                 });
                 
                 logger.info('Session revoked successfully', { sessionId });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Session',
+                    recordId: sessionId,
+                    oldData: session,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true, message: 'Session revoked successfully' };
             } catch (err) {
                 logger.error('Error revoking session:', err);
@@ -153,6 +167,18 @@ export const actions: Actions = {
                 });
                 
                 logger.info('Session deleted successfully', { sessionId });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Session',
+                    recordId: sessionId,
+                    oldData: session,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true, message: 'Session deleted successfully' };
             } catch (err) {
                 logger.error('Error deleting session:', err);

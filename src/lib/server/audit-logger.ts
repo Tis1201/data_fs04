@@ -11,6 +11,7 @@ export interface LogAuditOptions {
     newData: Record<string, any> | null;
     userId: string;
     ipAddress: string;
+    changeSummary?: string;
 }
 
 export async function logAudit(options: LogAuditOptions): Promise<void> {
@@ -22,10 +23,11 @@ export async function logAudit(options: LogAuditOptions): Promise<void> {
         newData,
         userId,
         ipAddress,
-        prisma
+        prisma,
+        changeSummary
     } = options
 
-    const changeSummary = generateChangeSummary(oldData || {}, newData || {});
+    const generatedChangeSummary = changeSummary || generateChangeSummary(oldData || {}, newData || {});
 
     if (Array.isArray(recordId)) {
         await prisma.auditLog.createMany({
@@ -33,9 +35,9 @@ export async function logAudit(options: LogAuditOptions): Promise<void> {
                 actionType,
                 tableName,
                 recordId: id,
-                changeSummary,
                 userId,
                 ipAddress,
+                changeSummary: generatedChangeSummary,
                 oldData: oldData === null ? Prisma.JsonNull : oldData,
                 newData: newData === null ? Prisma.JsonNull : newData
             }))
@@ -46,9 +48,9 @@ export async function logAudit(options: LogAuditOptions): Promise<void> {
                 actionType,
                 tableName,
                 recordId,
-                changeSummary,
                 userId,
                 ipAddress,
+                changeSummary: generatedChangeSummary,
                 oldData: oldData === null ? Prisma.JsonNull : oldData,
                 newData: newData === null ? Prisma.JsonNull : newData
             }
