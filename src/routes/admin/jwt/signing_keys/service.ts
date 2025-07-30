@@ -3,6 +3,8 @@ import { generateKeyPair } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '$lib/server/logger';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Types
 export type JwtKeyType = 'FACTORY' | 'TOKEN' | 'LINK';
@@ -131,6 +133,16 @@ export async function createKey(
         },
       },
     });
+
+    await logAudit({
+        actionType: AuditActionType.INSERT,
+        tableName: 'JwtSigningKey',
+        recordId: newKey.id,
+        oldData: null,
+        newData: newKey,
+        userId: userId,
+        prisma: prisma
+    })
     
     return {
       success: true,
@@ -213,6 +225,16 @@ export async function rotateKey(
       });
       
       console.log('Updated existing key to not be primary');
+
+      await logAudit({
+        actionType: AuditActionType.UPDATE,
+        tableName: 'JwtSigningKey',
+        recordId: keyId,
+        oldData: { isPrimary: true },
+        newData: { isPrimary: false },
+        userId: userId,
+        prisma: prisma
+      })
       
       // 2. Create a new key as primary
       const newKey = await prisma.jwtSigningKey.create({
@@ -238,6 +260,16 @@ export async function rotateKey(
       });
       
       console.log('Created new primary key with ID:', newKey.id);
+
+      await logAudit({
+        actionType: AuditActionType.INSERT,
+        tableName: 'JwtSigningKey',
+        recordId: newKey.id,
+        oldData: null,
+        newData: newKey,
+        userId: userId,
+        prisma: prisma
+      })
       
       return {
         success: true,

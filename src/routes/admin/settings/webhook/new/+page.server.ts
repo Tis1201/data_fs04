@@ -8,6 +8,8 @@ import { restrict } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
 import { randomUUID } from 'crypto';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 
 
@@ -123,6 +125,17 @@ export const actions = {
                     name,
                     postfix
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'WebhookEndpoint',
+                    recordId: webhook.id,
+                    oldData: null,
+                    newData: webhook,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
 
                 // Return success with the form data
                 return { 

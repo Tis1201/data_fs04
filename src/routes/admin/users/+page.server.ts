@@ -16,6 +16,8 @@ import { validatePassword } from '$lib/server/auth/password-validation';
 import { EmailService } from '$lib/server/email';
 import { resetUserPassword } from '$lib/server/services/password-reset';
 import prisma from '$lib/server/prisma';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define table options for Users
 const table_options = {
@@ -119,6 +121,17 @@ export const actions = {
                     }
                 });
 
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: null,
+                    newData: user,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { 
                     form,
                     success: true
@@ -186,6 +199,17 @@ export const actions = {
                 });
 
                 logger.info(`User ${id} status changed to ${status}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: { status: user.status },
+                    newData: { status },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { success: true };
             } catch (err) {
@@ -259,6 +283,17 @@ export const actions = {
                 });;
 
                 logger.info('User deleted successfully:', { userId: id });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: user,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return {
                     success: true,
@@ -336,12 +371,24 @@ export const actions = {
                 });
                 
                 // Update the user's password
-                await prisma.user.update({
+                const updatedUser = await prisma.user.update({
                     where: { id: userId },
                     data: { password: hashedPassword }
                 });
                 
                 logger.info(`Password updated for user: ${userId}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: null,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                    changeSummary: "Update Password"
+                })
                 
                 return { success: true, message: 'Password updated successfully' };
             } catch (e) {
@@ -389,6 +436,18 @@ export const actions = {
                     userName: user.name || user.email,
                     prisma: prisma
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'User',
+                    recordId: user.id,
+                    oldData: null,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                    changeSummary: "Reset Password"
+                })
 
                 if (result.success) {
                     return {

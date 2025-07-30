@@ -9,6 +9,8 @@ import { logger } from '$lib/server/logger';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ locals }:any) => {
@@ -114,6 +116,17 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Factory token created: ${factoryToken.id} by user ${userInfo.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'FactoryToken',
+                    recordId: factoryToken.id,
+                    oldData: null,
+                    newData: factoryToken,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 // Return success response with the form and additional data
                 return message(

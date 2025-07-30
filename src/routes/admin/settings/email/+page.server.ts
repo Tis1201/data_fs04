@@ -9,6 +9,8 @@ import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { handleZenstackError, handleFormError } from '$lib/server/errors/errorHandlers';
 import { EmailService } from '$lib/server/email';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -144,7 +146,7 @@ export const actions: Actions = {
                 // Check if this is the default provider
                 const provider = await locals.prisma.emailServiceProvider.findUnique({
                     where: { id },
-                    select: { isDefault: true }
+                    select: { isDefault: true, name: true }
                 });
 
                 if (provider?.isDefault) {
@@ -161,6 +163,18 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Email provider deleted: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'EmailServiceProvider',
+                    recordId: id,
+                    oldData: provider,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(
                     form,
                     createSuccessResponse('Email provider deleted successfully')
@@ -218,6 +232,18 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Email provider set as default: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'EmailServiceProvider',
+                    recordId: id,
+                    oldData: { isDefault: false },
+                    newData: { isDefault: true },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(
                     form,
                     createSuccessResponse('Default email provider updated successfully')
@@ -291,6 +317,18 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Email provider ${active ? 'activated' : 'deactivated'}: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'EmailServiceProvider',
+                    recordId: id,
+                    oldData: { isActive: !active },
+                    newData: { isActive: active },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(
                     form,
                     createSuccessResponse(`Email provider ${active ? 'activated' : 'deactivated'} successfully`, 
@@ -349,6 +387,18 @@ export const actions: Actions = {
                 }
 
                 try {
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'EmailServiceProvider',
+                        recordId: form.data.id,
+                        oldData: null,
+                        newData: null,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma,
+                        changeSummary: "Test email send"
+                    })
+                    
                     // Create an instance of the EmailService with the provider
                     const emailService = new EmailService(provider);
                     

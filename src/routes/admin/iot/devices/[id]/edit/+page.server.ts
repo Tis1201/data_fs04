@@ -6,6 +6,8 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -104,10 +106,21 @@ export const actions: Actions = {
                     };
 
                     // Update device
-                    await tx.device.update({
+                    const updatedDevice = await tx.device.update({
                         where: { id },
                         data: updateData
                     });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'Device',
+                        recordId: id,
+                        oldData: existingDevice,
+                        newData: updatedDevice,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: tx
+                    })
 
                     // Redirect back to the device detail page after successful update
                     throw redirect(303, `/admin/iot/devices/${id}`);

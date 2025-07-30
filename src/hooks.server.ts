@@ -54,6 +54,10 @@ export const handle: Handle = async ({ event, resolve }) => {
             }
         });
     }
+
+    const forwardedFor = event.request.headers.get('x-forwarded-for');
+    const ip = forwardedFor?.split(',')[0]?.trim() || event.getClientAddress();
+    event.locals.ipAddress = ip;
     
     // Use auth middleware
     return await authMiddleware({ event, resolve });

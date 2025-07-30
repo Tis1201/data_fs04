@@ -6,6 +6,8 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from './group';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
     async ({ locals }) => {
@@ -66,12 +68,23 @@ export const actions: Actions = {
                     data: {
                         name: form.data.name,
                         description: form.data.description,
-                        permissions: form.data.permissions,
+                        permissions: JSON.parse(form.data.permissions),
                         accountId: form.data.accountId
                     }
                 });
                 
                 logger.info(`Group created: ${group.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Group',
+                    recordId: group.id,
+                    oldData: null,
+                    newData: group,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { 
                     form,
