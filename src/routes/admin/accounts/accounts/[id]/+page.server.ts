@@ -717,5 +717,85 @@ export const actions: Actions = {
             }
         },
         [SystemRole.ADMIN]
+    ),
+
+    // Delete account action
+    deleteAccount: restrict(
+        async ({ request, params, locals }: RequestEvent) => {
+            const { id } = params;
+
+            if (!id) {
+                return fail(400, { error: 'Account ID is required' });
+            }
+
+            try {
+                // Check if account exists first
+                const existingAccount = await locals.prisma.account.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        name: true,
+                        _count: {
+                            select: {
+                                companies: true,
+                                members: true,
+                                devices: true,
+                                resources: true
+                            }
+                        }
+                    }
+                });
+
+                if (!existingAccount) {
+                    return fail(404, { error: 'Account not found' });
+                }
+
+                // Check if account has dependencies that would prevent deletion
+                const hasCompanies = existingAccount._count.companies > 0;
+                const hasMembers = existingAccount._count.members > 0;
+                const hasDevices = existingAccount._count.devices > 0;
+                const hasResources = existingAccount._count.resources > 0;
+
+                if (hasCompanies || hasMembers || hasDevices || hasResources) {
+                    const dependencies = [];
+                    if (hasCompanies) dependencies.push(`${existingAccount._count.companies} companies`);
+                    if (hasMembers) dependencies.push(`${existingAccount._count.members} members`);
+                    if (hasDevices) dependencies.push(`${existingAccount._count.devices} devices`);
+                    if (hasResources) dependencies.push(`${existingAccount._count.resources} resources`);
+
+                    return fail(400, { 
+                        error: `Cannot delete account with existing dependencies: ${dependencies.join(', ')}. Please remove all dependencies first.` 
+                    });
+                }
+
+                // Delete the account
+                const deletedAccount = await locals.prisma.account.delete({
+                    where: { id }
+                });
+
+                logger.info(`Account deleted: ${deletedAccount.id} (${deletedAccount.name})`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Account',
+                    recordId: id,
+                    oldData: deletedAccount,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+
+                return { success: true };
+            } catch (err) {
+                if (err instanceof Error) {
+                    logger.error('Error deleting account:', { message: err.message, stack: err.stack });
+                } else {
+                    logger.error('Error deleting account:', { error: err });
+                }
+                return fail(500, { error: 'Failed to delete account' });
+            }
+        },
+        [SystemRole.ADMIN]
     )
 };

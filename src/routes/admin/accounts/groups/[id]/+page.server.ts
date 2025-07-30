@@ -386,5 +386,101 @@ export const actions: Actions = {
             }
         },
         [SystemRole.ADMIN]
+    ),
+
+    // Delete group action
+    deleteGroup: restrict(
+        async ({ request, params, locals }) => {
+            const { id } = params;
+
+            if (!id) {
+                return fail(400, { error: 'Group ID is required' });
+            }
+
+            try {
+                logger.info(`Starting group deletion process for ID: ${id}`);
+
+                // Check if group exists first
+                const existingGroup = await locals.prisma.group.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        name: true,
+                        accountId: true,
+                        _count: {
+                            select: {
+                                members: true
+                            }
+                        }
+                    }
+                });
+
+                if (!existingGroup) {
+                    logger.warn(`Group not found: ${id}`);
+                    return fail(404, { error: 'Group not found' });
+                }
+
+                logger.info(`Found group: ${existingGroup.name} (${existingGroup.id})`);
+
+                // Check if group has members that would prevent deletion
+                const hasMembers = existingGroup._count.members > 0;
+
+                if (hasMembers) {
+                    const errorMsg = `Cannot delete group with existing members: ${existingGroup._count.members} members. Please remove all members first.`;
+                    logger.warn(`Deletion blocked for group ${id}: ${errorMsg}`);
+                    
+                    return fail(400, { error: errorMsg });
+                }
+
+                logger.info(`No members found, proceeding with deletion of group: ${id}`);
+
+                // Delete the group
+                const deletedGroup = await locals.prisma.group.delete({
+                    where: { id }
+                });
+
+                logger.info(`Group successfully deleted from database: ${deletedGroup.id} (${deletedGroup.name})`);
+
+                // Audit logging with better error handling
+                try {
+                    await logAudit({
+                        actionType: AuditActionType.DELETE,
+                        tableName: 'Group',
+                        recordId: id,
+                        oldData: deletedGroup,
+                        newData: null,
+                        userId: locals.user?.id || 'unknown',
+                        ipAddress: locals.ipAddress || 'unknown',
+                        prisma: locals.prisma
+                    });
+                    logger.info(`Audit log entry created for group deletion: ${id}`);
+                } catch (auditError) {
+                    // Don't fail the deletion if audit logging fails
+                    logger.error('Failed to create audit log entry:', auditError as Record<string, any>);
+                }
+
+                logger.info(`Group deletion completed successfully: ${id}`);
+                return { success: true };
+            } catch (err) {
+                const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                const stackTrace = err instanceof Error ? err.stack : undefined;
+                
+                logger.error(`Error deleting group ${id}:`, { 
+                    message: errorMsg, 
+                    stack: stackTrace,
+                    groupId: id
+                });
+                
+                // Provide more specific error messages based on the error type
+                if (errorMsg.includes('Foreign key constraint')) {
+                    return fail(400, { error: 'Cannot delete group - it is still referenced by other records. Please remove all related data first.' });
+                } else if (errorMsg.includes('Record to delete does not exist')) {
+                    return fail(404, { error: 'Group not found or already deleted.' });
+                } else {
+                    return fail(500, { error: `Failed to delete group: ${errorMsg}` });
+                }
+            }
+        },
+        [SystemRole.ADMIN]
     )
 };

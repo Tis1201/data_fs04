@@ -1,8 +1,9 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import { Save, Users, ArrowLeft, UserPlus, UserMinus, User, Search } from "lucide-svelte";
+  import { Save, Users, ArrowLeft, UserPlus, UserMinus, User, Search, Trash } from "lucide-svelte";
   import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
+  import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
   import UserSelection from './UserSelection.svelte';
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
@@ -32,6 +33,18 @@
     ["Groups", "/admin/accounts/groups"],
     data.group.name,
   ];
+
+  // State for delete confirmation dialog
+  let deleteState = {
+    selectedRecord: null as typeof data.group | null,
+    confirmationOpen: false
+  };
+
+  // Function to open delete confirmation dialog
+  function confirmDelete() {
+    deleteState.selectedRecord = data.group;
+    deleteState.confirmationOpen = true;
+  }
   
   // Import superForm directly
   import { superForm } from 'sveltekit-superforms/client';
@@ -138,6 +151,13 @@
     {title}
     crumbs={pageCrumbs}
     actionButtons={[
+      {
+        label: "Delete",
+        icon: Trash,
+        onClick: confirmDelete,
+        variant: "destructive",
+        disabled: $submitting
+      },
       {
         label: "Cancel",
         icon: ArrowLeft,
@@ -323,3 +343,14 @@
   </AdminCard>
 </AdminPageLayout>
 </div>
+
+<!-- Delete Confirmation Dialog -->
+<RecordDeleteDialog
+  state={deleteState}
+  action="?/deleteGroup"
+  actionName="deleteGroup"
+  onConfirm={() => {
+    // Navigate back to groups list after successful deletion
+    goto('/admin/accounts/groups');
+  }}
+/>

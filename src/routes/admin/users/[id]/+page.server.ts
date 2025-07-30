@@ -584,5 +584,138 @@ export const actions: Actions = {
             }
         },
         [SystemRole.ADMIN]
+    ),
+
+    /*******************************************************************************************
+     * Delete User
+     ******************************************************************************************/
+    deleteUser: restrict(
+        async ({ request, params, locals }: { request: Request; params: any; locals: any }) => {
+            const id = params.id;
+
+            if (!id) {
+                return fail(400, { error: 'User ID is required' });
+            }
+
+            try {
+                logger.info(`Starting user deletion process for ID: ${id}`);
+
+                // Get the user to be deleted
+                const user = await locals.prisma.user.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        email: true,
+                        name: true,
+                        systemRole: true
+                    }
+                });
+
+                if (!user) {
+                    logger.warn(`User not found: ${id}`);
+                    return fail(404, { error: 'User not found' });
+                }
+
+                logger.info(`Found user: ${user.email} (${user.id})`);
+
+                // Check if the user is trying to delete themselves
+                if (locals.user?.id === id) {
+                    return fail(400, {
+                        error: 'You cannot delete your own account'
+                    });
+                }
+
+                // Check for critical dependencies that prevent deletion
+                const accountMembershipCount = await locals.prisma.accountMembership.count({
+                    where: { userId: id }
+                });
+
+                if (accountMembershipCount > 0) {
+                    const errorMsg = `Cannot delete user: This user has ${accountMembershipCount} account membership(s). Please remove them from all accounts first.`;
+                    logger.warn(`Deletion blocked for user ${id}: ${errorMsg}`);
+                    return fail(400, { error: errorMsg });
+                }
+
+                logger.info(`No critical dependencies found, proceeding with deletion of user: ${id}`);
+
+                // Use transaction to delete related records and then the user
+                await locals.prisma.$transaction(async (tx) => {
+                    // Delete invitation tokens (not critical)
+                    await tx.invitationToken.deleteMany({
+                        where: { userId: id }
+                    });
+
+                    // Delete sessions (not critical)
+                    await tx.session.deleteMany({
+                        where: { userId: id }
+                    });
+
+                    // Delete API keys (not critical)
+                    await tx.apiKey.deleteMany({
+                        where: { userId: id }
+                    });
+
+                    // Delete refresh tokens (not critical)
+                    await tx.refreshToken.deleteMany({
+                        where: { userId: id }
+                    });
+
+                    // Finally delete the user
+                    await tx.user.delete({
+                        where: { id }
+                    });
+                });
+
+                logger.info(`User successfully deleted: ${user.id} (${user.email})`);
+
+                // Audit logging with better error handling
+                try {
+                    await logAudit({
+                        actionType: AuditActionType.DELETE,
+                        tableName: 'User',
+                        recordId: id,
+                        oldData: user,
+                        newData: null,
+                        userId: locals.user?.id || 'unknown',
+                        ipAddress: locals.ipAddress || 'unknown',
+                        prisma: locals.prisma
+                    });
+                    logger.info(`Audit log entry created for user deletion: ${id}`);
+                } catch (auditError) {
+                    // Don't fail the deletion if audit logging fails
+                    logger.error('Failed to create audit log entry:', auditError as Record<string, any>);
+                }
+
+                logger.info(`User deletion completed successfully: ${id}`);
+                return { success: true };
+            } catch (err) {
+                const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                const stackTrace = err instanceof Error ? err.stack : undefined;
+                
+                logger.error(`Error deleting user ${id}:`, { 
+                    message: errorMsg, 
+                    stack: stackTrace,
+                    userId: id
+                });
+                
+                // Handle specific Prisma errors (same as list page)
+                if (err.code === 'P2003') {
+                    return fail(400, {
+                        error: 'Cannot delete user: This user has related records that must be removed first. Please deactivate the user instead or contact an administrator.'
+                    });
+                }
+                
+                if (err.code === 'P2025') {
+                    return fail(404, {
+                        error: 'User not found'
+                    });
+                }
+                
+                return fail(500, {
+                    error: 'Failed to delete user'
+                });
+            }
+        },
+        [SystemRole.ADMIN]
     )
 };

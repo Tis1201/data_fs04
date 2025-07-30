@@ -1,12 +1,13 @@
 <script lang="ts">
   import { goto, invalidate } from "$app/navigation";
   import { toast } from "svelte-sonner";
-  import { Save, FileText, ArrowLeft, Building } from "lucide-svelte";
+  import { Save, FileText, ArrowLeft, Building, Trash } from "lucide-svelte";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   import { superForm } from 'sveltekit-superforms/client';
+  import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
   
   // Import custom form components
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -29,6 +30,18 @@
     ["Companies", "/admin/accounts/companies"],
     data.company.name,
   ];
+
+  // State for delete confirmation dialog
+  let deleteState = {
+    selectedRecord: null as typeof data.company | null,
+    confirmationOpen: false
+  };
+
+  // Function to open delete confirmation dialog
+  function confirmDelete() {
+    deleteState.selectedRecord = data.company;
+    deleteState.confirmationOpen = true;
+  }
   
   // Use standard SuperForms approach with comprehensive error handling
   const { form, errors, enhance, submitting, message, delayed, timeout } = superForm(data.form, {
@@ -113,6 +126,13 @@
     {title}
     crumbs={pageCrumbs}
     actionButtons={[
+      {
+        label: "Delete",
+        icon: Trash,
+        onClick: confirmDelete,
+        variant: "destructive",
+        disabled: isLoading
+      },
       {
         label: "Cancel",
         icon: ArrowLeft,
@@ -313,3 +333,14 @@
     multiSelect={true}
   />
 </AdminPageLayout>
+
+<!-- Delete Confirmation Dialog -->
+<RecordDeleteDialog
+  state={deleteState}
+  action="?/deleteCompany"
+  actionName="deleteCompany"
+  onConfirm={() => {
+    // Navigate back to companies list after successful deletion
+    goto('/admin/accounts/companies');
+  }}
+/>
