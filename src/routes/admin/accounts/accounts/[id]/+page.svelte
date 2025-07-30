@@ -1,7 +1,7 @@
 <script lang="ts">
   import { superForm } from 'sveltekit-superforms/client';
   import { zod } from 'sveltekit-superforms/adapters';
-  import { FileText, Building, Users, Shield, Save, X } from 'lucide-svelte';
+  import {FileText, Building, Users, Shield, Save, X, Trash, ArrowLeft} from 'lucide-svelte';
   import { goto } from "$app/navigation";
   
   import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
@@ -11,28 +11,29 @@
   import EnhancedSelect from '$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte';
   import RelationshipSection from '$lib/components/ui_components_sveltekit/relationships/RelationshipSection.svelte';
   import { Button } from '$lib/components/ui/button';
-  
+  import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
+
   import { getDetailPageFormConfigWithGuard, getSelectProps, processFormMessages, useNavigationGuard } from '$lib/utils/formHelpers';
-  
+
   import { accountEditSchema, ACCOUNT_STATUS_OPTIONS } from '../schema';
-  
+
   import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
-  
+
   import type { PageData } from './$types';
-  
+
   export let data: PageData;
-  
+
   const title = `Edit Account: ${data.account.name}`;
   const pageCrumbs = [
     ['Dashboard', '/admin/dashboard'],
     ['Accounts', '/admin/accounts/accounts'],
     [data.account.name, '']
   ] as [string, string][];
-  
+
   // Initialize navigation guard (replaces all the manual dialog state management)
   const navigationGuard = useNavigationGuard("Account");
   const { dialogOpen, dialogTitle, dialogDescription, guardedNavigate, handleConfirm, handleCancel, getDialogProps } = navigationGuard;
-  
+
   // Enhanced SuperForms setup using utilities
   const { form, errors, enhance, submitting, message, delayed, timeout, tainted } = 
     superForm(data.form, {
@@ -41,19 +42,39 @@
         // Reset tainted state on successful submission (handled by the helper)
       })
     });
-  
+
   // Reactive states
   $: isLoading = $submitting || $delayed;
   $: hasTimeout = $timeout;
   $: ({ errorMessage } = processFormMessages($message));
   $: hasChanges = Boolean($tainted && Object.keys($tainted).length > 0);
-  
+
   // Form action URL
   const formAction = '?/updateAccount';
-  
+
+  // State for delete confirmation dialog
+  let deleteState = {
+    selectedRecord: null as typeof data.account | null,
+    confirmationOpen: false
+  };
+
+  // Function to open delete confirmation dialog
+  function confirmDelete() {
+    deleteState.selectedRecord = data.account;
+    deleteState.confirmationOpen = true;
+  }
+
   const actionButtons = [
     {
-      label: 'View All Accounts',
+      label: "Delete",
+      icon: Trash,
+      onClick: confirmDelete,
+      variant: 'destructive' as const,
+      disabled: isLoading
+    },
+    {
+      label: "Cancel",
+      icon: ArrowLeft,
       onClick: () => {
         guardedNavigate(hasChanges, async () => {
           await goto('/admin/accounts/accounts');
@@ -62,7 +83,7 @@
       variant: 'outline' as const
     }
   ];
-  
+
   // Generate slug from name
   function generateSlug(name: string): string {
     return name
@@ -72,13 +93,13 @@
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
   }
-  
+
   // Auto-generate slug when name changes
   $: if ($form.name && (!$form.slug || $form.slug === generateSlug(previousName || ''))) {
     $form.slug = generateSlug($form.name);
     previousName = $form.name;
   }
-  
+
   let previousName = data.account.name;
 </script>
 
@@ -242,6 +263,17 @@
     multiSelect={false}
   />
 </AdminPageLayout>
+
+<!-- Delete Confirmation Dialog -->
+<RecordDeleteDialog
+  state={deleteState}
+  action="?/deleteAccount"
+  actionName="deleteAccount"
+  onConfirm={() => {
+    // Navigate back to accounts list after successful deletion
+    goto('/admin/accounts/accounts');
+  }}
+/>
 
 <!-- Custom Confirmation Dialog -->
 <ConfirmationDialog

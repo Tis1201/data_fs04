@@ -3,12 +3,13 @@
     import { superForm } from 'sveltekit-superforms/client';
     import { zod } from 'sveltekit-superforms/adapters';
     import {toast} from "svelte-sonner";
-    import {ArrowLeft, Save, ShieldCheck, User, Building, KeyRound} from "lucide-svelte";
+    import {ArrowLeft, Save, ShieldCheck, User, Building, KeyRound, Trash} from "lucide-svelte";
     import {Input} from "$lib/components/ui/input";
     import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "$lib/components/ui/dialog";
     import { Button } from "$lib/components/ui/button";
+    import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
 
     // Import custom form components
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -31,12 +32,24 @@
 
     // Import page data
     export let data: PageData;
-    const { user, meta, accounts = [], relationships, availableAccounts } = data;
+    const { user, accounts = [], relationships, availableAccounts } = data;
     
     // Page configuration
     const entityName = "User";
     const listUrl = "/admin/users";
     const formAction = "?/update";
+
+    // State for delete confirmation dialog
+    let deleteState = {
+        selectedRecord: null as typeof user | null,
+        confirmationOpen: false
+    };
+
+    // Function to open delete confirmation dialog
+    function confirmDelete() {
+        deleteState.selectedRecord = user;
+        deleteState.confirmationOpen = true;
+    }
     
     // Page title and breadcrumbs
     const title = `Edit ${entityName}: ${user?.email || 'User Details'}`;
@@ -65,6 +78,13 @@
 
     // Custom action buttons (including password reset)
     $: actionButtons = [
+        {
+            label: "Delete",
+            icon: Trash,
+            onClick: confirmDelete,
+            variant: "destructive" as const,
+            disabled: isLoading
+        },
         {
             label: "Cancel",
             icon: ArrowLeft,
@@ -316,3 +336,14 @@
         />
     </div>
 </AdminPageLayout>
+
+<!-- Delete Confirmation Dialog -->
+<RecordDeleteDialog
+    state={deleteState}
+    action="?/deleteUser"  
+    actionName="deleteUser"
+    onConfirm={() => {
+        // Navigate back to users list after successful deletion
+        goto('/admin/users');
+    }}
+/>
