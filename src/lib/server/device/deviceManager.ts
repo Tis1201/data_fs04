@@ -7,6 +7,8 @@ import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { generateId } from 'lucia';
 import { getEnhancedPrisma } from '$lib/server/prisma';
+import { logAudit } from '../audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
 
@@ -141,6 +143,16 @@ export class DefaultDeviceManager {
         }
 
         logger.info(`Device ${device.id} successfully claimed by user ${userInfo.id} for account ${accountId}`);
+
+        await logAudit({
+            actionType: AuditActionType.INSERT,
+            tableName: 'Device',
+            recordId: device.id,
+            oldData: null,
+            newData: device,
+            userId: userInfo.id,
+            prisma: this.prisma
+        })
         
         // Remove the PIN from the shared store since it's now claimed
         await pinSharedStore.remove(pin);

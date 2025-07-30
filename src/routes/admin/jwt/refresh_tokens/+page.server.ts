@@ -8,6 +8,8 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { handleZenstackError, handleFormError } from '$lib/server/errors/errorHandlers';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -165,7 +167,7 @@ export const actions: Actions = {
                 // Check if token is already revoked
                 const token = await locals.prisma.refreshToken.findUnique({
                     where: { id },
-                    select: { isRevoked: true }
+                    select: { isRevoked: true, revokedAt: true }
                 });
 
                 if (token?.isRevoked) {
@@ -177,15 +179,28 @@ export const actions: Actions = {
                 }
 
                 // Revoke the token
-                await locals.prisma.refreshToken.update({
+                const revokedToken = await locals.prisma.refreshToken.update({
                     where: { id },
                     data: {
                         isRevoked: true,
                         revokedAt: new Date()
-                    }
+                    },
+                    select: { isRevoked: true, revokedAt: true }
                 });
 
                 logger.info(`Refresh token revoked: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'RefreshToken',
+                    recordId: id,
+                    oldData: token,
+                    newData: revokedToken,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(
                     form,
                     createSuccessResponse('Refresh token revoked successfully')
@@ -219,11 +234,23 @@ export const actions: Actions = {
             }
 
             try {
-                await locals.prisma.refreshToken.delete({
+                const token = await locals.prisma.refreshToken.delete({
                     where: { id }
                 });
 
                 logger.info(`Refresh token deleted: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'RefreshToken',
+                    recordId: id,
+                    oldData: token,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return message(
                     form,
                     createSuccessResponse('Refresh token deleted successfully')
@@ -257,6 +284,13 @@ export const actions: Actions = {
             }
 
             try {
+                const refreshTokens = await locals.prisma.refreshToken.findMany({
+                    where: {
+                        userId,
+                        isRevoked: false
+                    }
+                });
+
                 // Revoke all non-revoked tokens for the user
                 const result = await locals.prisma.refreshToken.updateMany({
                     where: { 
@@ -270,6 +304,22 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Revoked ${result.count} refresh tokens for user: ${userId}`);
+
+                await Promise.all(
+                    refreshTokens.map(token =>
+                        logAudit({
+                            actionType: AuditActionType.UPDATE,
+                            tableName: 'RefreshToken',
+                            recordId: token.id,
+                            oldData: { isRevoked: false, revokedAt: null },
+                            newData: { isRevoked: true, revokedAt: new Date() },
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: locals.prisma
+                        })
+                    )
+                );
+
                 return message(
                     form,
                     createSuccessResponse(`Successfully revoked ${result.count} refresh tokens`)
@@ -303,6 +353,13 @@ export const actions: Actions = {
             }
 
             try {
+                const refreshTokens = await locals.prisma.refreshToken.findMany({
+                    where: {
+                        accountId,
+                        isRevoked: false
+                    }
+                });
+
                 // Revoke all non-revoked tokens for the account
                 const result = await locals.prisma.refreshToken.updateMany({
                     where: { 
@@ -316,6 +373,22 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Revoked ${result.count} refresh tokens for account: ${accountId}`);
+
+                await Promise.all(
+                    refreshTokens.map(token =>
+                        logAudit({
+                            actionType: AuditActionType.UPDATE,
+                            tableName: 'RefreshToken',
+                            recordId: token.id,
+                            oldData: { isRevoked: false, revokedAt: null },
+                            newData: { isRevoked: true, revokedAt: new Date() },
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: locals.prisma
+                        })
+                    )
+                );
+
                 return message(
                     form,
                     createSuccessResponse(`Successfully revoked ${result.count} refresh tokens`)

@@ -8,6 +8,8 @@ import { logger } from '$lib/server/logger';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
 import { emailSchema } from './email';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ locals }) => {
@@ -100,6 +102,17 @@ export const actions: Actions = {
                 }
                 
                 logger.info(`Email provider created: ${emailProvider.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'EmailServiceProvider',
+                    recordId: emailProvider.id,
+                    oldData: null,
+                    newData: emailProvider,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return message(
                     form,

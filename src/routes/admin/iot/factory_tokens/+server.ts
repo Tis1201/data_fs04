@@ -3,6 +3,8 @@ import type { RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { restrict } from '$lib/server/security/guards';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 /**
  * Factory Tokens API Endpoint
@@ -37,6 +39,17 @@ export const DELETE = restrict(
             });
             
             logger.info(`Factory token deleted: ${id}`);
+
+            await logAudit({
+                actionType: AuditActionType.DELETE,
+                tableName: 'FactoryToken',
+                recordId: id,
+                oldData: factoryToken,
+                newData: null,
+                userId: locals.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: prisma
+            })
             
             return json({
                 success: true
@@ -96,6 +109,17 @@ export const PATCH = restrict(
             });
             
             logger.info(`Factory token status updated: ${id}, isUsed: ${isUsed}`);
+
+            await logAudit({
+                actionType: AuditActionType.UPDATE,
+                tableName: 'FactoryToken',
+                recordId: id,
+                oldData: factoryToken,
+                newData: updatedToken,
+                userId: locals.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: prisma
+            })
             
             return json({
                 success: true,

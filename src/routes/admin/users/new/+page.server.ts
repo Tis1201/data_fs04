@@ -13,6 +13,8 @@ import { validatePassword } from '$lib/server/auth/password-validation';
 import { hash } from '@node-rs/argon2';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { generateSecurePassword } from '$lib/utils/generate-password';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 
 
@@ -145,6 +147,17 @@ export const actions: Actions = {
                 const invitationToken = await createInvitationToken(locals.prisma, newUser.id);
                 
                 logger.info(`User created: ${newUser.id} with invitation token: ${invitationToken.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'User',
+                    recordId: newUser.id,
+                    oldData: null,
+                    newData: newUser,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 // Return success with the form data and success message
                 const result = { 

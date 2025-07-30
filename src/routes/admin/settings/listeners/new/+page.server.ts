@@ -8,6 +8,8 @@ import { restrict } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
 import { randomUUID } from 'crypto';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 
 
@@ -205,6 +207,17 @@ export const actions = {
                         userId: auth.user.id
                     }
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'ListenerEndpoint',
+                    recordId: listener.id,
+                    oldData: null,
+                    newData: listener,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 // Create webhook endpoint connections if not listening to all
                 // Check if we have webhook endpoints to connect

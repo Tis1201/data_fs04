@@ -4,6 +4,8 @@ import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define table options for Bundles
 const table_options = {
@@ -85,7 +87,17 @@ export const actions = {
                 await locals.prisma.$transaction([
                     locals.prisma.bundleApp.deleteMany({ where: { bundleId: id } }),
                     locals.prisma.bundleWave.deleteMany({ where: { bundleId: id } }),
-                    locals.prisma.bundle.delete({ where: { id } })
+                    locals.prisma.bundle.delete({ where: { id } }),
+                    logAudit({
+                        actionType: AuditActionType.DELETE,
+                        tableName: 'Bundle',
+                        recordId: id,
+                        oldData: bundle,
+                        newData: null,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    })
                 ]);
                 
                 return { success: true };

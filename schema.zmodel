@@ -50,6 +50,30 @@ model Account {
   @@index([slug])
 }
 
+model AuditLog {
+  id            String    @id @default(cuid())
+  userId       String
+  ipAddress      String?
+  actionType          String
+  tableName          String
+  recordId        String   
+  oldData Json?
+  newData Json?
+  changeSummary   String?
+  timestamp     DateTime  @default(now())
+  
+  // Relationships
+  
+  // Authorization rules
+  @@allow('read', auth().systemRole in ['SUPER_ADMIN', 'ADMIN'])
+  @@allow('create', true)
+  @@allow('update,delete', false)
+  
+  @@index([userId])
+}
+
+
+
 model Company {
   id            String    @id @default(cuid())
   name          String

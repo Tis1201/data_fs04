@@ -9,6 +9,8 @@ import { bundleSchema } from '../new/bundle';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
   async ({ params, locals }) => {
@@ -191,6 +193,17 @@ export const actions: Actions = {
         });
 
         logger.info(`Bundle updated: ${updatedBundle.id}`);
+
+        await logAudit({
+            actionType: AuditActionType.UPDATE,
+            tableName: 'Bundle',
+            recordId: id,
+            oldData: existingBundle,
+            newData: updatedBundle,
+            userId: locals.user.id,
+            ipAddress: locals.ipAddress,
+            prisma: locals.prisma
+        })
 
         // Return success message
         return message(

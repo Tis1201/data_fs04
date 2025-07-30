@@ -3,6 +3,8 @@ import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -124,11 +126,23 @@ export const actions: Actions = {
             }
 
             try {
-                await locals.prisma.group.delete({
+                const group = await locals.prisma.group.delete({
                     where: { id }
                 });
 
                 logger.info(`Group deleted: ${id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Group',
+                    recordId: group.id,
+                    oldData: group,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true };
             } catch (err) {
                 logger.error('Error deleting group:', err);

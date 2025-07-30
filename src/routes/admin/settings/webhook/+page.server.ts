@@ -10,6 +10,8 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define table options for Webhook Endpoints
 const table_options = {
@@ -107,6 +109,17 @@ export const actions = {
                     postfix
                 });
 
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'WebhookEndpoint',
+                    recordId: webhook.id,
+                    oldData: null,
+                    newData: webhook,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
+
                 return { 
                     form,
                     success: true
@@ -170,6 +183,17 @@ export const actions = {
                     name: webhook.name,
                     status
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'WebhookEndpoint',
+                    recordId: webhook.id,
+                    oldData: { status: status == 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' },
+                    newData: { status },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 return { success: true };
             } catch (err) {
@@ -218,6 +242,17 @@ export const actions = {
                     name: webhook.name,
                     postfix: webhook.postfix
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'WebhookEndpoint',
+                    recordId: id,
+                    oldData: webhook,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 // Return success response
                 return {
@@ -287,7 +322,7 @@ export const actions = {
                 }
                 
                 // Update the webhook
-                await locals.prisma.webhookEndPoint.update({
+                const updatedWebhook = await locals.prisma.webhookEndPoint.update({
                     where: { id },
                     data: {
                         name,
@@ -303,6 +338,17 @@ export const actions = {
                     name,
                     postfix
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'WebhookEndpoint',
+                    recordId: id,
+                    oldData: webhook,
+                    newData: updatedWebhook,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                })
                 
                 return { 
                     form,

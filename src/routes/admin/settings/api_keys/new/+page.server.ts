@@ -7,6 +7,8 @@ import { restrict } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
 import { SystemRole } from '$lib/types/roles';
 import { createApiKeySchema } from './schema';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ locals }) => {
@@ -61,6 +63,17 @@ export const actions = {
                 });
 
                 logger.info('API key created successfully:', { apiKeyId: newApiKey.id });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'ApiKey',
+                    recordId: newApiKey.id,
+                    oldData: null,
+                    newData: newApiKey,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { 
                     form,
