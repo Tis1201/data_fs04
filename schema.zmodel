@@ -2,8 +2,8 @@
 // learn more about it in the docs: https://zenstack.dev/docs/reference/zmodel-language
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -65,8 +65,7 @@ model AuditLog {
   // Relationships
   
   // Authorization rules
-  @@allow('read', auth().systemRole in ['SUPER_ADMIN', 'ADMIN'])
-  @@allow('create', true)
+  @@allow('read,create', true)
   @@allow('update,delete', false)
   
   @@index([userId])

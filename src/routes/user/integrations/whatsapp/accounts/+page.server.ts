@@ -5,6 +5,8 @@ import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/ut
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { logger } from '$lib/server/logger';
 import { handleApiError } from '$lib/server/errors/errorHandlers';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define table options for WhatsApp accounts
 const table_options = {
@@ -141,6 +143,17 @@ export const actions = restrict(
                 });
                 
                 logger.debug(`WhatsApp account ${id} deleted successfully`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'WhatsAppAccount',
+                    recordId: id,
+                    oldData: whatsAppAccount,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { 
                     success: true, 

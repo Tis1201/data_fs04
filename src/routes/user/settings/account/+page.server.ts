@@ -8,6 +8,8 @@ import { SystemRole } from '$lib/types/roles';
 import { hash, verify } from '@node-rs/argon2';
 import prisma from '$lib/server/prisma';
 import { userAccountSchema, notificationSchema, passwordSchema, companyCreateSchema, relationshipSchema } from './schema';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 /**
  * Load user account settings data
@@ -300,7 +302,7 @@ export const actions: Actions = {
                 }
 
                 // Update account information
-                await prisma.account.update({
+                const updatedAccount = await prisma.account.update({
                     where: { id: account.id },
                     data: {
                         name: form.data.name,
@@ -313,6 +315,17 @@ export const actions: Actions = {
                     userId: auth!.user.id, 
                     accountId: account.id 
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Account',
+                    recordId: account.id,
+                    oldData: account,
+                    newData: updatedAccount,
+                    userId: auth!.user.id,
+                    ipAddress: auth?.ipAddress,
+                    prisma: prisma
+                })
 
                 return message(form, {
                     type: 'success',
@@ -400,6 +413,18 @@ export const actions: Actions = {
 
                 logger.info('Password updated', { userId: auth!.user.id });
 
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Account',
+                    recordId: auth!.user.id,
+                    oldData: null,
+                    newData: null,
+                    userId: auth!.user.id,
+                    ipAddress: auth?.ipAddress,
+                    prisma: prisma,
+                    changeSummary: "Update password"
+                })
+
                 return message(form, {
                     type: 'success',
                     text: 'Password updated successfully'
@@ -454,6 +479,18 @@ export const actions: Actions = {
                     userId: auth!.user.id, 
                     sessionId 
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Session',
+                    recordId: sessionId,
+                    oldData: sessionToDelete,
+                    newData: null,
+                    userId: auth!.user.id,
+                    ipAddress: auth?.ipAddress,
+                    prisma: prisma,
+                    changeSummary: "Signout session"
+                })
 
                 return { success: true, message: 'Session signed out successfully' };
             } catch (err) {
@@ -525,6 +562,17 @@ export const actions: Actions = {
                     accountId: account.id,
                     companyId: company.id
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Company',
+                    recordId: company.id,
+                    oldData: null,
+                    newData: company,
+                    userId: auth!.user.id,
+                    ipAddress: auth?.ipAddress,
+                    prisma: prisma
+                })
 
                 return message(form, {
                     type: 'success',
@@ -607,6 +655,17 @@ export const actions: Actions = {
                     accountId: account.id,
                     companyId: form.data.itemId
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Company',
+                    recordId: company.id,
+                    oldData: company,
+                    newData: null,
+                    userId: auth!.user.id,
+                    ipAddress: auth?.ipAddress,
+                    prisma: prisma
+                })
 
                 return message(form, {
                     type: 'success',

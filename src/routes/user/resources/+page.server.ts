@@ -3,6 +3,8 @@ import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -139,6 +141,18 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Resource deleted: ${id} by user ${locals.user.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Resource',
+                    recordId: id,
+                    oldData: null,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
                 return { success: true };
             } catch (err) {
                 logger.error(`Error deleting resource: ${err}`);

@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { logger } from '$lib/server/logger';
 import { validatePassword } from '$lib/server/auth/password-validation';
 import { hash, verify } from '@node-rs/argon2';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Schema for profile editing
 const profileEditSchema = z.object({
@@ -128,12 +130,10 @@ export const actions: Actions = {
       }
       
       // Validate current password if password change is requested
+      const currentUser = await locals.prisma.user.findUnique({
+        where: { id: auth.user.id }
+      });
       if (form.data.newPassword && form.data.currentPassword) {
-        const currentUser = await locals.prisma.user.findUnique({
-          where: { id: auth.user.id },
-          select: { password: true }
-        });
-        
         if (!currentUser || !currentUser.password) {
           form.errors.currentPassword = ['Unable to verify current password'];
           hasValidationErrors = true;
@@ -166,18 +166,21 @@ export const actions: Actions = {
       // Update user in database
       const updatedUser = await locals.prisma.user.update({
         where: { id: auth.user.id },
-        data: updateData,
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          systemRole: true,
-          status: true,
-          updatedAt: true
-        }
+        data: updateData
       });
 
       logger.info(`User profile updated: ${updatedUser.id}`);
+
+      await logAudit({
+        actionType: AuditActionType.UPDATE,
+        tableName: 'User',
+        recordId: auth.user.id,
+        oldData: currentUser,
+        newData: updatedUser,
+        userId: locals.user.id,
+        ipAddress: locals.ipAddress,
+        prisma: locals.prisma
+      })
 
       // Clear password fields after successful update
       form.data.currentPassword = '';

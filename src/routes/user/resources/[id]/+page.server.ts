@@ -3,6 +3,8 @@ import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define actions for this route
 export const actions: Actions = {
@@ -14,12 +16,7 @@ export const actions: Actions = {
             try {
                 // Check if the resource exists and the user has permission to delete it
                 const resource = await locals.prisma.resource.findUnique({
-                    where: { id },
-                    select: {
-                        id: true,
-                        createdBy: true,
-                        accountId: true
-                    }
+                    where: { id }
                 });
                 
                 // If resource doesn't exist, return an error
@@ -54,6 +51,17 @@ export const actions: Actions = {
                 await locals.prisma.resource.delete({
                     where: { id }
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Resource',
+                    recordId: id,
+                    oldData: resource,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 // Return success
                 return {

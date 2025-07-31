@@ -5,6 +5,8 @@ import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma'; // Raw Prisma client
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load: PageServerLoad = restrict(
     async ({ params, url, locals, cookies }) => {
@@ -152,8 +154,7 @@ export const actions: Actions = {
             try {
                 // Verify the session belongs to the user using RAW Prisma
                 const session = await prisma.session.findUnique({
-                    where: { id: sessionId },
-                    select: { userId: true }
+                    where: { id: sessionId }
                 });
                 
                 if (!session) {
@@ -170,6 +171,18 @@ export const actions: Actions = {
                 });
                 
                 logger.info('Session revoked successfully', { sessionId, revokedBy: auth.user.id });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Session',
+                    recordId: sessionId,
+                    oldData: session,
+                    newData: null,
+                    userId: auth.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: prisma
+                })
+
                 return { success: true, message: 'Session revoked successfully' };
             } catch (err) {
                 logger.error('Error revoking session:', err as any);
@@ -218,8 +231,7 @@ export const actions: Actions = {
             try {
                 // Verify the session belongs to the user using RAW Prisma
                 const session = await prisma.session.findUnique({
-                    where: { id: sessionId },
-                    select: { userId: true }
+                    where: { id: sessionId }
                 });
                 
                 if (!session) {
@@ -236,6 +248,18 @@ export const actions: Actions = {
                 });
                 
                 logger.info('Session revoked successfully', { sessionId, revokedBy: auth.user.id });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Session',
+                    recordId: sessionId,
+                    oldData: session,
+                    newData: null,
+                    userId: auth.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: prisma
+                })
+
                 return {
                     type: 'success',
                     message: 'Session revoked successfully'

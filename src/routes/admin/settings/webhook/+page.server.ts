@@ -12,6 +12,7 @@ import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { getStatusBeforeToggled } from '$lib/utils';
 
 // Define table options for Webhook Endpoints
 const table_options = {
@@ -188,7 +189,7 @@ export const actions = {
                     actionType: AuditActionType.UPDATE,
                     tableName: 'WebhookEndpoint',
                     recordId: webhook.id,
-                    oldData: { status: status == 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' },
+                    oldData: getStatusBeforeToggled(status),
                     newData: { status },
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
