@@ -8,6 +8,8 @@ import { message } from 'sveltekit-superforms/server';
 import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 /**
  * Load WhatsApp account data for viewing/editing
@@ -180,6 +182,17 @@ export const actions = {
                             // phoneNumber and status are read-only and not updated
                         }
                     });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'WhatsAppAccount',
+                        recordId: id,
+                        oldData: existingAccount,
+                        newData: account,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    })
                     
                     return message(
                         form,

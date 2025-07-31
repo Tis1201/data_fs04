@@ -11,7 +11,7 @@ export { canPerformAdminActions } from './permissions';
 export { getFieldProps, processFormMessages } from './formHelpers';
 
 // API Utilities
-export { generateRequestId } from './ApiUtils';
+export { generateRequestId, getStatusBeforeToggled } from './ApiUtils';
 
 // Format Utilities
 export { formatDate } from './format'; 

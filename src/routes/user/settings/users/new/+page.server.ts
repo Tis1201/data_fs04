@@ -10,6 +10,8 @@ import { getAdminPrismaFromAuth } from '$lib/utils/database/admin-prisma';
 import { createUserSchema } from './schema';
 import { generateSecurePassword } from '$lib/utils/generate-password';
 import prisma from '$lib/server/prisma';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
   try {
@@ -161,7 +163,7 @@ export const actions: Actions = {
       
       // Add the new user to the current account with selected role
       const adminPrisma = getAdminPrismaFromAuth(auth);
-      await adminPrisma.accountMembership.create({
+      const membership = await adminPrisma.accountMembership.create({
         data: {
           userId: newUser.id,
           accountId: currentAccountId,
@@ -171,6 +173,28 @@ export const actions: Actions = {
       
       logger.info(`User ${newUser.id} added to account ${currentAccountId} with ${form.data.accountRole} role`);
       logger.info(`User created: ${newUser.id} by ${auth.user.email}`);
+
+      await logAudit({
+        actionType: AuditActionType.INSERT,
+        tableName: 'User',
+        recordId: newUser.id,
+        oldData: null,
+        newData: newUser,
+        userId: auth!.user.id,
+        ipAddress: locals.ipAddress,
+        prisma: adminPrisma
+      })
+      
+      await logAudit({
+        actionType: AuditActionType.INSERT,
+        tableName: 'AccountMembership',
+        recordId: membership.id,
+        oldData: null,
+        newData: membership,
+        userId: auth!.user.id,
+        ipAddress: locals.ipAddress,
+        prisma: adminPrisma
+      })
       
       // Return success with the form data and success message
       return message(form, {

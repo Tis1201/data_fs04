@@ -9,6 +9,9 @@ import { restrict } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
+import { getStatusBeforeToggled } from '$lib/utils';
 
 // Define table options for Devices
 const table_options = {
@@ -130,6 +133,17 @@ export const actions = {
                 });
 
                 logger.info(`User ${auth.user.id} changed device ${id} status to ${status}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: getStatusBeforeToggled(status),
+                    newData: { status },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
                 
                 return { success: true };
             } catch (err) {

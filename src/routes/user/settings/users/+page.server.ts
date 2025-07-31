@@ -8,6 +8,8 @@ import { logger } from '$lib/server/logger';
 import { getAdminPrismaFromAuth } from '$lib/utils/database';
 import { resetUserPassword } from '$lib/server/services/password-reset';
 import { restrictAccountRole, type AccountAuthenticatedEvent } from '$lib/server/security/guards';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
     const loadHandler = restrictAccountRole(
@@ -147,11 +149,26 @@ export const actions: Actions = {
                         return fail(400, { message: 'Invalid status' });
                     }
 
+                    const user = await adminPrisma.user.findUnique({
+                        where: { id: userId }
+                    })
+
                     // Update user status using admin Prisma
                     await adminPrisma.user.update({
                         where: { id: userId },
                         data: { status: newStatus.toUpperCase() as keyof typeof UserStatus }
                     });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'User',
+                        recordId: userId,
+                        oldData: { status: user?.status },
+                        newData: { status: newStatus.toUpperCase() as keyof typeof UserStatus },
+                        userId: auth!.user.id,
+                        ipAddress: auth?.ipAddress,
+                        prisma: adminPrisma
+                    })
 
                     return {
                         type: 'success',
@@ -199,6 +216,13 @@ export const actions: Actions = {
                         return fail(400, { message: 'Cannot remove yourself from the account' });
                     }
 
+                    const memberships = await adminPrisma.accountMembership.findMany({
+                        where: {
+                            userId: userId,
+                            accountId: accountId
+                        }
+                    })
+
                     // Remove user from account (delete the membership, not the user) using admin Prisma
                     await adminPrisma.accountMembership.deleteMany({
                         where: {
@@ -206,6 +230,21 @@ export const actions: Actions = {
                             accountId: accountId
                         }
                     });
+                    
+                    await Promise.all(
+                        memberships.map(membership =>
+                            logAudit({
+                                actionType: AuditActionType.DELETE,
+                                tableName: 'AccountMembership',
+                                recordId: membership.id,
+                                oldData: membership,
+                                newData: null,
+                                userId: auth!.user.id,
+                                ipAddress: auth?.ipAddress,
+                                prisma: adminPrisma
+                            })
+                        )
+                    );
 
                     return {
                         type: 'success',
@@ -255,6 +294,13 @@ export const actions: Actions = {
                         return fail(400, { message: 'Invalid role' });
                     }
 
+                    const memberships = await adminPrisma.accountMembership.findMany({
+                        where: {
+                            userId: userId,
+                            accountId: accountId
+                        }
+                    })
+
                     // Update account membership role using admin Prisma
                     await adminPrisma.accountMembership.updateMany({
                         where: {
@@ -263,6 +309,21 @@ export const actions: Actions = {
                         },
                         data: { role: newRole.toUpperCase() }
                     });
+
+                    await Promise.all(
+                        memberships.map(membership =>
+                            logAudit({
+                                actionType: AuditActionType.UPDATE,
+                                tableName: 'AccountMembership',
+                                recordId: membership.id,
+                                oldData: { role: membership.role },
+                                newData: { role: newRole.toUpperCase() },
+                                userId: auth!.user.id,
+                                ipAddress: auth?.ipAddress,
+                                prisma: adminPrisma
+                            })
+                        )
+                    );
 
                     return {
                         type: 'success',
@@ -358,6 +419,18 @@ export const actions: Actions = {
 
                     logger.info(`Password updated for user: ${userId} (${targetUserMembership.user.email})`);
 
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'User',
+                        recordId: userId,
+                        oldData: null,
+                        newData: null,
+                        userId: auth!.user.id,
+                        ipAddress: auth?.ipAddress,
+                        prisma: adminPrisma,
+                        changeSummary: "Update password"
+                    })
+
                     return { success: true, message: 'Password updated successfully' };
                 } catch (err) {
                     logger.error('Error updating password:', { error: err });
@@ -429,6 +502,18 @@ export const actions: Actions = {
                     });
 
                     if (result.success) {
+                        await logAudit({
+                            actionType: AuditActionType.UPDATE,
+                            tableName: 'User',
+                            recordId: targetUserMembership.user.id,
+                            oldData: null,
+                            newData: null,
+                            userId: auth!.user.id,
+                            ipAddress: auth?.ipAddress,
+                            prisma: adminPrisma,
+                            changeSummary: "Reset Password"
+                        })
+
                         return {
                             success: true,
                             message: result.message,

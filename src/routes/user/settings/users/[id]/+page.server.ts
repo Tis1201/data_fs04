@@ -28,6 +28,8 @@ import { restrictAccountRole } from '$lib/server/security/guards';
 import type { AccountAuthenticatedEvent, AccountAuthenticatedRouteHandler } from '$lib/server/security/guards';
 import { resetUserPassword } from '$lib/server/services/password-reset';
 import { canPerformAdminActions } from '$lib/utils/permissions';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 export const load: PageServerLoad = async ({ params, locals, cookies }: RequestEvent) => {
     const userId = params.id;
@@ -173,6 +175,18 @@ const resetPasswordHandler: AccountAuthenticatedRouteHandler<any> = async ({
             prisma: prisma
         });
 
+        await logAudit({
+            actionType: AuditActionType.UPDATE,
+            tableName: 'User',
+            recordId: id!,
+            oldData: null,
+            newData: null,
+            userId: accountMembership.userId,
+            ipAddress: locals.ipAddress,
+            prisma: prisma,
+            changeSummary: "Reset password"
+        })
+
         if (result.success) {
             return message(
                 form,
@@ -243,6 +257,11 @@ export const actions: Actions = {
                 return fail(400, { message: 'Name and email are required' });
             }
 
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { name: true, email: true }
+            })
+
             // Update user profile
             await prisma.user.update({
                 where: { id: userId },
@@ -251,6 +270,17 @@ export const actions: Actions = {
                     email: email.trim().toLowerCase()
                 }
             });
+
+            await logAudit({
+                actionType: AuditActionType.UPDATE,
+                tableName: 'User',
+                recordId: userId,
+                oldData: user,
+                newData: { name: name.trim(), email: email.trim().toLowerCase()},
+                userId: auth!.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: prisma
+            })
 
             return {
                 type: 'success',
@@ -291,6 +321,16 @@ export const actions: Actions = {
                     }
                 }
 
+                const membership = await prisma.accountMembership.findUnique({
+                    where: {
+                        userId_accountId: {
+                            userId: params.id,
+                            accountId: accountId
+                        }
+                    },
+                    select: { role: true }
+                })
+
                 // Update the account membership role
                 const updatedMembership = await prisma.accountMembership.update({
                     where: {
@@ -309,6 +349,17 @@ export const actions: Actions = {
                     newRole: updatedMembership.role,
                     updatedBy: accountMembership.userId 
                 });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'AccountMembership',
+                    recordId: updatedMembership.id,
+                    oldData: membership,
+                    newData: { role: newRole },
+                    userId: accountMembership.userId,
+                    ipAddress: locals.ipAddress,
+                    prisma: prisma
+                })
 
                 return {
                     status: 200,
@@ -422,6 +473,18 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Password updated for user: ${id} (${targetUserMembership.user.email})`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'User',
+                    recordId: id!,
+                    oldData: null,
+                    newData: null,
+                    userId: accountMembership.userId,
+                    ipAddress: locals.ipAddress,
+                    prisma: prisma,
+                    changeSummary: "Update password"
+                })
 
                 return message(
                     form,

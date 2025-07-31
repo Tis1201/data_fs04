@@ -9,6 +9,8 @@ import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountMana
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId } from '$lib/server/security/auth-utils';
 import { SystemRole } from '$lib/types/roles';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 
 export const load = restrict(
@@ -112,6 +114,17 @@ export const actions: Actions = {
                 };
                 
                 logger.info(`Successfully created WhatsApp account: ${account.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'WhatsAppAccount',
+                    recordId: account.id,
+                    oldData: null,
+                    newData: account,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
 
                 
                 

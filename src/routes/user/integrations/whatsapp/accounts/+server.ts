@@ -5,6 +5,8 @@ import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountMana
 import { logger } from '$lib/server/logger';
 import { handleApiError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // DELETE handler for WhatsApp accounts
 export const DELETE = restrict(
@@ -54,6 +56,17 @@ export const DELETE = restrict(
             });
             
             logger.debug(`WhatsApp account ${id} deleted successfully`);
+
+            await logAudit({
+                actionType: AuditActionType.DELETE,
+                tableName: 'WhatsAppAccount',
+                recordId: id,
+                oldData: whatsAppAccount,
+                newData: null,
+                userId: locals.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: locals.prisma
+            })
             
             // Use standardized success response format
             return json(createSuccessResponse('WhatsApp account deleted successfully'));
