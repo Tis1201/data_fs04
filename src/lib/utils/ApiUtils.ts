@@ -126,3 +126,13 @@ export async function api_patch<T = any>(
         throw error;
     }
 }
+
+/**
+ * Toggles status between 'ACTIVE' and 'INACTIVE'.
+ * Returns the opposite status.
+ */
+export function getStatusBeforeToggled(status: string): { status: string } {
+    return {
+        status: status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+    };
+}

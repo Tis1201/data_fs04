@@ -12,6 +12,8 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getEnhancedPrisma } from '$lib/server/prisma';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define the upload directory - in a real app, this would be configurable
 const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads');
@@ -193,6 +195,17 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Resource created: ${resource.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Resource',
+                    recordId: resource.id,
+                    oldData: null,
+                    newData: resource,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: enhancedPrisma
+                })
                 
                 // Remove file from form data to avoid serialization issues
                 const cleanForm = { ...form };
