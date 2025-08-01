@@ -132,6 +132,24 @@
         }
     }
     
+    // Generate slug from name
+    function generateSlug(name: string): string {
+        return name
+            .toLowerCase()
+            .replace(/\s+/g, '-')
+            .replace(/[^a-z0-9-]/g, '')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+    }
+
+    // Auto-generate slug when name changes
+    $: if ($accountData.name && (!$accountData.slug || $accountData.slug === generateSlug(previousName || ''))) {
+        $accountData.slug = generateSlug($accountData.name);
+        previousName = $accountData.name;
+    }
+
+    let previousName = data.account?.name || '';
+
     function handleSessionSignOut(sessionId: string) {
         console.log('🚪 Attempting to sign out session:', sessionId);
         if (confirm('Are you sure you want to sign out this session?')) {
@@ -213,7 +231,6 @@
                         disabled={isLoading}
                         {isLoading}
                         showToasts={false}
-                        formId="account-form"
                     >
                         <AccountFormFields
                             form={accountData}
