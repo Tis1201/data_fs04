@@ -77,8 +77,12 @@
     // Function to open delete confirmation dialog
     function confirmDelete(user: any) {
         state.selectedRecord = user;
+        userToDelete = user; // Store the user separately
         state.confirmationOpen = true;
     }
+    
+    // Store the user to be deleted separately to avoid state clearing issues
+    let userToDelete: any | null = null;
     
     // Function to prepare for status toggle
     function prepareToggleStatus(user: any) {
@@ -141,7 +145,7 @@
             });
 
             actions.push({
-                label: "Remove from Account",
+                label: "Remove User",
                 icon: Trash,
                 onClick: () => confirmDelete(user)
             });
@@ -329,12 +333,14 @@
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
         {state}
+        actionName="removeFromAccount"
+        useFormSubmission={false}
         onConfirm={async () => {
             // Handle user removal from account
-            if (state.selectedRecord) {
+            if (userToDelete) {
                 try {
                     const formData = new FormData();
-                    formData.append('userId', state.selectedRecord.id);
+                    formData.append('userId', userToDelete.id);
                     
                     const response = await fetch('?/removeFromAccount', {
                         method: 'POST',
@@ -342,15 +348,21 @@
                     });
                     
                     const result = await response.json();
+                    console.log("result", result);
+                    console.log("result.type", result.type);
+                    console.log("userToDelete", userToDelete);
                     if (result.type === 'success') {
-                        toast.success(`${state.selectedRecord.name || state.selectedRecord.email} removed from account`);
+                        console.log("result.type", result.type);
+                        toast.success(`${userToDelete.name || userToDelete.email} removed from account`);
                         state.confirmationOpen = false;
                         state.selectedRecord = null;
+                        userToDelete = null;
                         invalidateAll();
                     } else {
                         toast.error(result.message || 'Failed to remove user from account');
                     }
                 } catch (error) {
+                    console.log("error", error);
                     toast.error('Failed to remove user from account');
                 }
             }
