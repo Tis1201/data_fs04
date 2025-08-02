@@ -1,6 +1,7 @@
 import { lucia } from "$lib/server/auth/lucia";
 import type { Handle } from "@sveltejs/kit";
 import prisma from "$lib/server/prisma";
+import redis from "$lib/server/redis";
 import { building } from "$app/environment";
 import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
 import { DeviceManager } from "$lib/server/device/deviceManager";
@@ -53,6 +54,11 @@ export const handle: Handle = async ({ event, resolve }) => {
                 'Content-Type': 'text/plain'
             }
         });
+    }
+    
+        // Add redis client to locals if available
+    if (redis) {
+        event.locals.redis = redis;
     }
     
     // Use auth middleware
