@@ -6,10 +6,19 @@ import type Redis from 'ioredis';
  * This follows the project pattern of creating service classes for reusable functionality
  */
 export class RedisService {
-  private redis: Redis;
+  private _redis: Redis;
 
   constructor(redis: Redis) {
-    this.redis = redis;
+    this._redis = redis;
+  }
+  
+  /**
+   * Get the Redis client instance
+   * This is exposed for special operations that aren't covered by the standard methods
+   * Should be used with caution and only in admin contexts
+   */
+  get client(): Redis {
+    return this._redis;
   }
 
   /**
@@ -18,9 +27,9 @@ export class RedisService {
   async set(key: string, value: string, ttlSeconds?: number): Promise<'OK' | null> {
     try {
       if (ttlSeconds) {
-        return await this.redis.set(key, value, 'EX', ttlSeconds);
+        return await this._redis.set(key, value, 'EX', ttlSeconds);
       }
-      return await this.redis.set(key, value);
+      return await this._redis.set(key, value);
     } catch (error) {
       logger.error(`Redis set error: ${error.message}`, {
         error: error.message,
@@ -36,7 +45,7 @@ export class RedisService {
    */
   async get(key: string): Promise<string | null> {
     try {
-      return await this.redis.get(key);
+      return await this._redis.get(key);
     } catch (error) {
       logger.error(`Redis get error: ${error.message}`, {
         error: error.message,
@@ -52,7 +61,7 @@ export class RedisService {
    */
   async del(key: string): Promise<number> {
     try {
-      return await this.redis.del(key);
+      return await this._redis.del(key);
     } catch (error) {
       logger.error(`Redis del error: ${error.message}`, {
         error: error.message,
@@ -68,7 +77,7 @@ export class RedisService {
    */
   async exists(key: string): Promise<boolean> {
     try {
-      const result = await this.redis.exists(key);
+      const result = await this._redis.exists(key);
       return result === 1;
     } catch (error) {
       logger.error(`Redis exists error: ${error.message}`, {
@@ -85,7 +94,7 @@ export class RedisService {
    */
   async expire(key: string, ttlSeconds: number): Promise<boolean> {
     try {
-      const result = await this.redis.expire(key, ttlSeconds);
+      const result = await this._redis.expire(key, ttlSeconds);
       return result === 1;
     } catch (error) {
       logger.error(`Redis expire error: ${error.message}`, {
@@ -102,7 +111,7 @@ export class RedisService {
    */
   async incr(key: string): Promise<number> {
     try {
-      return await this.redis.incr(key);
+      return await this._redis.incr(key);
     } catch (error) {
       logger.error(`Redis incr error: ${error.message}`, {
         error: error.message,
@@ -118,7 +127,7 @@ export class RedisService {
    */
   async sadd(key: string, ...members: string[]): Promise<number> {
     try {
-      return await this.redis.sadd(key, ...members);
+      return await this._redis.sadd(key, ...members);
     } catch (error) {
       logger.error(`Redis sadd error: ${error.message}`, {
         error: error.message,
@@ -134,7 +143,7 @@ export class RedisService {
    */
   async smembers(key: string): Promise<string[]> {
     try {
-      return await this.redis.smembers(key);
+      return await this._redis.smembers(key);
     } catch (error) {
       logger.error(`Redis smembers error: ${error.message}`, {
         error: error.message,
@@ -150,7 +159,7 @@ export class RedisService {
    */
   async publish(channel: string, message: string): Promise<number> {
     try {
-      return await this.redis.publish(channel, message);
+      return await this._redis.publish(channel, message);
     } catch (error) {
       logger.error(`Redis publish error: ${error.message}`, {
         error: error.message,
@@ -170,7 +179,7 @@ export class RedisService {
     
     try {
       // Create a duplicate client for subscription (Redis clients that subscribe cannot issue commands)
-      const subscriber = this.redis.duplicate();
+      const subscriber = this._redis.duplicate();
       
       subscriber.on('message', (_channel, message) => {
         try {
@@ -218,7 +227,7 @@ export class RedisService {
   subscribeToChannel(channel: string, messageHandler: (message: string) => void): Redis {
     try {
       // Create a duplicate client for subscription (Redis clients that subscribe cannot issue commands)
-      const subscriber = this.redis.duplicate();
+      const subscriber = this._redis.duplicate();
       
       subscriber.on('message', (_channel, message) => {
         try {

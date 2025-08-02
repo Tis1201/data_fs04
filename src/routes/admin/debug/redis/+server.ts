@@ -53,10 +53,10 @@ export const POST = restrict(
         try {
             // Parse the request body
             const body = await request.json();
-            const { key, value, ttl } = body;
+            const { key, value, ttl, command } = body;
             
-            if (!key || value === undefined) {
-                return json({ error: 'Key and value are required' }, { status: 400 });
+            if (!key) {
+                return json({ error: 'Key is required' }, { status: 400 });
             }
             
             // Get Redis service from locals
@@ -66,17 +66,56 @@ export const POST = restrict(
                 return json({ error: 'Redis service not available. Make sure USE_PUSHPIN=true in your .env file.' }, { status: 503 });
             }
             
-            // Set the value in Redis with optional TTL
-            const result = await redisService.set(key, value, ttl);
-            
-            // Log the authenticated user and action
-            logger.debug(`User ${auth.user.id} set Redis key: ${key}`);
-            
-            return json({
-                success: result === 'OK',
-                key,
-                ttl: ttl || null
-            });
+            // Handle special commands
+            if (command === 'keys') {
+                // For security, only allow certain patterns
+                if (!key.startsWith('device:')) {
+                    return json({ error: 'Only device: key patterns are allowed for security reasons' }, { status: 403 });
+                }
+                
+                // Use the Redis client directly for the KEYS command
+                const keys = await redisService.client.keys(key);
+                logger.debug(`User ${auth.user.id} executed KEYS command with pattern: ${key}`);
+                
+                return json({
+                    success: true,
+                    keys
+                });
+            } else if (command === 'lrange') {
+                // For security, only allow certain patterns
+                if (!key.startsWith('device:')) {
+                    return json({ error: 'Only device: key patterns are allowed for security reasons' }, { status: 403 });
+                }
+                
+                // Parse range parameters
+                const [start, stop] = value.split(' ').map(v => parseInt(v));
+                
+                // Use the Redis client directly for the LRANGE command
+                const result = await redisService.client.lrange(key, start, stop);
+                logger.debug(`User ${auth.user.id} executed LRANGE command on key: ${key}`);
+                
+                return json({
+                    success: true,
+                    result
+                });
+            } else {
+                // Default behavior: set a value
+                if (value === undefined) {
+                    return json({ error: 'Value is required for SET operation' }, { status: 400 });
+                }
+                
+                // Set the value in Redis with optional TTL
+                const result = await redisService.set(key, value, ttl);
+                
+                // Log the authenticated user and action
+                logger.debug(`User ${auth.user.id} set Redis key: ${key}`);
+                
+                return json({
+                    success: result === 'OK',
+                    key,
+                    ttl: ttl || null
+                });
+            }
         } catch (error) {
             logger.error(`Redis example error: ${JSON.stringify(error)}`);
             return json({ error: 'Failed to set Redis value' }, { status: 500 });

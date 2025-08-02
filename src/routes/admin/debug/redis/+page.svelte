@@ -2,12 +2,13 @@
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import { goto } from "$app/navigation";
     import { onMount } from "svelte";
+    import { browser } from "$app/environment";
 
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
-    import { Database, RefreshCw, Plus, Search, Trash } from "lucide-svelte";
+    import { Database, RefreshCw, Plus, Search, Trash, Wifi, WifiOff } from "lucide-svelte";
     import { Alert, AlertDescription } from "$lib/components/ui/alert";
     import { Badge } from "$lib/components/ui/badge";
     import { Separator } from "$lib/components/ui/separator";
@@ -40,6 +41,18 @@
     let errorMessage = "";
     let successMessage = "";
     let recentKeys: string[] = [];
+    
+    // State for connected devices
+    let connectedDevices: Array<{
+        id: string;
+        status: string;
+        first_connected?: string;
+        last_disconnected?: string;
+        connection_count?: number;
+        history?: string[];
+    }> = [];
+    let isLoadingDevices = false;
+    let deviceError = "";
     
     // Function to get a value from Redis
     async function getValue() {
@@ -180,6 +193,100 @@
         searchKey = key;
         getValue();
     }
+    
+    // Function to list all connected devices
+    async function listConnectedDevices() {
+        isLoadingDevices = true;
+        deviceError = "";
+        
+        try {
+            // First, get all device keys using a pattern match
+            const response = await fetch('/admin/debug/redis', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    key: 'device:*:status',
+                    value: '_KEYS_PATTERN_',
+                    command: 'keys'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                deviceError = data.error || "Failed to get device keys";
+                return;
+            }
+            
+            const deviceKeys = data.keys || [];
+            const devices = [];
+            
+            // For each device key, get the status and metadata
+            for (const key of deviceKeys) {
+                const deviceId = key.split(':')[1]; // Extract device ID from key pattern
+                
+                // Get device status
+                const statusResponse = await fetch(`/admin/debug/redis?key=${encodeURIComponent(key)}`);
+                const statusData = await statusResponse.json();
+                
+                // Get device metadata
+                const metaResponse = await fetch(`/admin/debug/redis?key=${encodeURIComponent(`device:${deviceId}:meta`)}`);
+                const metaData = await metaResponse.json();
+                
+                // Get device history
+                const historyResponse = await fetch('/admin/debug/redis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        key: `device:${deviceId}:history`,
+                        value: '0 9', // Get last 10 entries
+                        command: 'lrange'
+                    })
+                });
+                
+                const historyData = await historyResponse.json();
+                
+                let deviceInfo = {
+                    id: deviceId,
+                    status: statusData.exists ? statusData.value : 'unknown'
+                };
+                
+                // Add metadata if available
+                if (metaData.exists && metaData.value) {
+                    try {
+                        const meta = JSON.parse(metaData.value);
+                        deviceInfo = { ...deviceInfo, ...meta };
+                    } catch (e) {
+                        console.error(`Error parsing metadata for device ${deviceId}:`, e);
+                    }
+                }
+                
+                // Add history if available
+                if (historyData.result && Array.isArray(historyData.result)) {
+                    deviceInfo.history = historyData.result;
+                }
+                
+                devices.push(deviceInfo);
+            }
+            
+            connectedDevices = devices;
+        } catch (error) {
+            deviceError = `Error: ${error.message}`;
+        } finally {
+            isLoadingDevices = false;
+        }
+    }
+    
+    // Load connected devices on mount
+    onMount(() => {
+        if (browser) {
+            listConnectedDevices();
+        }
+    });
 </script>
 
 <AdminPageLayout
@@ -302,6 +409,105 @@
                 <Alert variant="default">
                     <AlertDescription>{successMessage}</AlertDescription>
                 </Alert>
+            {/if}
+        </div>
+    </AdminCard>
+    
+    <!-- Connected Devices Card -->
+    <AdminCard
+      title="Connected Devices"
+      description="List of all devices connected through Pushpin"
+      icon={Wifi}
+      class="mt-6"
+    >
+        <div class="space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-medium">Device Status</h3>
+                <Button variant="outline" size="sm" on:click={listConnectedDevices}>
+                    <RefreshCw class="mr-2 h-4 w-4" />
+                    Refresh
+                </Button>
+            </div>
+            
+            {#if deviceError}
+                <Alert variant="destructive">
+                    <AlertDescription>{deviceError}</AlertDescription>
+                </Alert>
+            {/if}
+            
+            {#if isLoadingDevices}
+                <div class="space-y-2">
+                    <Skeleton class="h-12 w-full" />
+                    <Skeleton class="h-12 w-full" />
+                    <Skeleton class="h-12 w-full" />
+                </div>
+            {:else if connectedDevices.length === 0}
+                <Alert>
+                    <AlertDescription>No connected devices found</AlertDescription>
+                </Alert>
+            {:else}
+                <div class="space-y-4">
+                    {#each connectedDevices as device}
+                        <div class="border rounded-md p-4">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    {#if device.status === 'online'}
+                                        <Wifi class="h-5 w-5 text-green-500 mr-2" />
+                                    {:else}
+                                        <WifiOff class="h-5 w-5 text-red-500 mr-2" />
+                                    {/if}
+                                    <h4 class="font-medium">{device.id}</h4>
+                                </div>
+                                <Badge variant={device.status === 'online' ? 'default' : 'outline'}>
+                                    {device.status}
+                                </Badge>
+                            </div>
+                            
+                            <div class="mt-2 text-sm text-muted-foreground grid grid-cols-2 gap-2">
+                                {#if device.first_connected}
+                                    <div>
+                                        <span class="font-medium">First connected:</span> 
+                                        {new Date(device.first_connected).toLocaleString()}
+                                    </div>
+                                {/if}
+                                
+                                {#if device.last_disconnected}
+                                    <div>
+                                        <span class="font-medium">Last disconnected:</span> 
+                                        {new Date(device.last_disconnected).toLocaleString()}
+                                    </div>
+                                {/if}
+                                
+                                {#if device.connection_count !== undefined}
+                                    <div>
+                                        <span class="font-medium">Connection count:</span> 
+                                        {device.connection_count}
+                                    </div>
+                                {/if}
+                            </div>
+                            
+                            {#if device.history && device.history.length > 0}
+                                <div class="mt-3">
+                                    <h5 class="text-sm font-medium mb-1">Recent History</h5>
+                                    <div class="text-xs space-y-1 max-h-24 overflow-y-auto">
+                                        {#each device.history as entry}
+                                            <div class="flex">
+                                                {#if entry.includes('online:')}
+                                                    <Badge variant="default" class="mr-2">Online</Badge>
+                                                {:else if entry.includes('offline:')}
+                                                    <Badge variant="outline" class="mr-2">Offline</Badge>
+                                                {/if}
+                                                <span>
+                                                    {entry.split(':')[1] ? new Date(entry.split(':')[1]).toLocaleString() : entry}
+                                                </span>
+                                            </div>
+                                        {/each}
+                                    </div>
+                                </div>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
             {/if}
         </div>
     </AdminCard>
