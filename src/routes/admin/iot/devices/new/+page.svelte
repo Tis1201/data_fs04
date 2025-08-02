@@ -128,7 +128,7 @@
     {
       label: "Back to Devices",
       icon: ArrowLeft,
-      onClick: () => goto("/user/iot/devices"),
+      onClick: () => goto("/admin/iot/devices"),
       // variant: "outline"
     }
   ]}
