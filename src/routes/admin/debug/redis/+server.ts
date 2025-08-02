@@ -81,6 +81,40 @@ export const POST = restrict(
                     success: true,
                     keys
                 });
+            } else if (command === 'publish') {
+                // Handle publishing messages to devices via the messages channel
+                // This follows the Pushpin Connection Tracker format
+                
+                try {
+                    // Extract the device ID directly from the request body
+                    const deviceId = key;
+                    const messageContent = value;
+                    
+                    if (!deviceId || !messageContent) {
+                        return json({ error: 'Message must contain device ID and content' }, { status: 400 });
+                    }
+                    
+                    // Format the message according to the Pushpin Connection Tracker format
+                    const messageObj = {
+                        channel: deviceId,
+                        payload: messageContent
+                    };
+                    
+                    // Publish the message to the messages channel
+                    // The Go tracker will relay this to the appropriate Pushpin channel
+                    const result = await redisService.publish('messages', JSON.stringify(messageObj));
+                    
+                    logger.debug(`User ${auth.user.id} published message to device: ${deviceId}`);
+                    
+                    return json({
+                        success: true,
+                        recipients: result,
+                        channel: deviceId
+                    });
+                } catch (error) {
+                    logger.error(`Error publishing message: ${JSON.stringify(error)}`);
+                    return json({ error: 'Invalid message format. Must be valid JSON with channel and content properties.' }, { status: 400 });
+                }
             } else if (command === 'lrange') {
                 // For security, only allow certain patterns
                 if (!key.startsWith('device:')) {

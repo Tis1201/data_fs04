@@ -8,12 +8,14 @@
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Label } from "$lib/components/ui/label";
-    import { Database, RefreshCw, Plus, Search, Trash, Wifi, WifiOff } from "lucide-svelte";
+    import { Database, RefreshCw, Plus, Search, Trash, Wifi, WifiOff, Send, MessageSquare, Video } from "lucide-svelte";
     import { Alert, AlertDescription } from "$lib/components/ui/alert";
     import { Badge } from "$lib/components/ui/badge";
     import { Separator } from "$lib/components/ui/separator";
     import { Skeleton } from "$lib/components/ui/skeleton";
     import { toast } from "svelte-sonner";
+    import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "$lib/components/ui/dialog";
+    import { Textarea } from "$lib/components/ui/textarea";
 
     const title = `Redis Debug`;
     const pageCrumbs = [
@@ -53,6 +55,20 @@
     }> = [];
     let isLoadingDevices = false;
     let deviceError = "";
+    
+    // State for publish dialog
+    let showPublishDialog = false;
+    let selectedDeviceId = "";
+    let messageContent = "";
+    let isPublishing = false;
+    let publishError = "";
+    
+    // State for WebRTC offer dialog
+    let showWebRTCDialog = false;
+    let webrtcDeviceId = "";
+    let webrtcConnectionId = "";
+    let isWebRTCPublishing = false;
+    let webrtcError = "";
     
     // Function to get a value from Redis
     async function getValue() {
@@ -287,6 +303,154 @@
             listConnectedDevices();
         }
     });
+    
+    // Function to open publish dialog
+    function openPublishDialog(deviceId: string) {
+        selectedDeviceId = deviceId;
+        messageContent = JSON.stringify({
+            action: 'message',
+            type: 'notification',
+            message: 'Hello from admin'
+        }, null, 2);
+        publishError = "";
+        showPublishDialog = true;
+    }
+    
+    // Function to open WebRTC offer dialog
+    function openWebRTCDialog(deviceId: string) {
+        webrtcDeviceId = deviceId;
+        webrtcConnectionId = crypto.randomUUID();
+        webrtcError = "";
+        showWebRTCDialog = true;
+    }
+    
+    // Function to publish message to device
+    async function publishMessageToDevice() {
+        if (!selectedDeviceId || !messageContent) {
+            publishError = "Device ID and message content are required";
+            return;
+        }
+        
+        isPublishing = true;
+        publishError = "";
+        
+        try {
+            let messagePayload;
+            try {
+                // Parse the user-entered JSON content
+                messagePayload = JSON.parse(messageContent);
+            } catch (e) {
+                publishError = "Invalid JSON format. Please check your message content.";
+                isPublishing = false;
+                return;
+            }
+            
+            // Format the message with the proper device message structure
+            const deviceMessage = {
+                type: 'device',
+                payload: messagePayload,
+                scope: `device:${selectedDeviceId}`
+            };
+            
+            // Send the request to the server
+            const response = await fetch('/admin/debug/redis', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    key: selectedDeviceId,
+                    value: JSON.stringify(deviceMessage),
+                    command: 'publish'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                toast.success("Message published successfully", {
+                    description: `Published to device: ${selectedDeviceId}`
+                });
+                showPublishDialog = false;
+                messageContent = "";
+            } else {
+                publishError = data.error || "Failed to publish message";
+                toast.error("Failed to publish message", {
+                    description: publishError
+                });
+            }
+        } catch (error) {
+            publishError = `Error: ${error.message}`;
+            toast.error("Error", {
+                description: publishError
+            });
+        } finally {
+            isPublishing = false;
+        }
+    }
+    
+    // Function to send WebRTC offer to device
+    async function sendWebRTCOffer() {
+        if (!webrtcDeviceId || !webrtcConnectionId) {
+            webrtcError = "Device ID and connection ID are required";
+            return;
+        }
+        
+        isWebRTCPublishing = true;
+        webrtcError = "";
+        
+        try {
+            // Create the WebRTC offer message in the correct format
+            const offerPayload = {
+                action: 'message',
+                type: 'webrtc:connect',
+                deviceId: webrtcDeviceId
+            };
+            
+            // Format the message according to the device messaging system format
+            const messageObject = {
+                channel: webrtcDeviceId,
+                content: JSON.stringify({
+                    type: 'device',
+                    payload: offerPayload,
+                    scope: `connection:${webrtcConnectionId}`
+                })
+            };
+            
+            const response = await fetch('/admin/debug/redis', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    key: 'messages',
+                    value: JSON.stringify(messageObject),
+                    command: 'publish'
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                toast.success("WebRTC connect request sent", {
+                    description: `Connection ID: ${webrtcConnectionId}`
+                });
+                showWebRTCDialog = false;
+            } else {
+                webrtcError = data.error || "Failed to send WebRTC connect request";
+                toast.error("Failed to send WebRTC connect request", {
+                    description: webrtcError
+                });
+            }
+        } catch (error) {
+            webrtcError = `Error: ${error.message}`;
+            toast.error("Error", {
+                description: webrtcError
+            });
+        } finally {
+            isWebRTCPublishing = false;
+        }
+    }
 </script>
 
 <AdminPageLayout
@@ -458,9 +622,31 @@
                                     {/if}
                                     <h4 class="font-medium">{device.id}</h4>
                                 </div>
-                                <Badge variant={device.status === 'online' ? 'default' : 'outline'}>
-                                    {device.status}
-                                </Badge>
+                                <div class="flex items-center gap-2">
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        on:click={() => openPublishDialog(device.id)}
+                                        disabled={device.status !== 'online'}
+                                        title={device.status === 'online' ? 'Send message to device' : 'Device is offline'}
+                                    >
+                                        <MessageSquare class="h-4 w-4 mr-1" />
+                                        Publish
+                                    </Button>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        on:click={() => openWebRTCDialog(device.id)}
+                                        disabled={device.status !== 'online'}
+                                        title={device.status === 'online' ? 'Send WebRTC connect request' : 'Device is offline'}
+                                    >
+                                        <Video class="h-4 w-4 mr-1" />
+                                        WebRTC
+                                    </Button>
+                                    <Badge variant={device.status === 'online' ? 'default' : 'outline'}>
+                                        {device.status}
+                                    </Badge>
+                                </div>
                             </div>
                             
                             <div class="mt-2 text-sm text-muted-foreground grid grid-cols-2 gap-2">
@@ -511,4 +697,87 @@
             {/if}
         </div>
     </AdminCard>
+    <!-- Publish Message Dialog -->
+    <Dialog bind:open={showPublishDialog}>
+        <DialogContent class="sm:max-w-[500px]">
+            <DialogHeader>
+                <DialogTitle>Publish Message to Device</DialogTitle>
+                <DialogDescription>
+                    Send a message to device {selectedDeviceId} via Redis messages channel.
+                    This will be relayed to the device through Pushpin.
+                </DialogDescription>
+            </DialogHeader>
+            
+            <div class="grid gap-4 py-4">
+                <div class="grid gap-2">
+                    <Label for="message">Message Content (JSON)</Label>
+                    <Textarea
+                        id="message"
+                        bind:value={messageContent}
+                        rows={8}
+                        
+                    />
+                    <p class="text-xs text-muted-foreground">
+                        Enter valid JSON that will be sent to the device.
+                    </p>
+                </div>
+                
+                {#if publishError}
+                    <Alert variant="destructive">
+                        <AlertDescription>{publishError}</AlertDescription>
+                    </Alert>
+                {/if}
+            </div>
+            
+            <DialogFooter>
+                <Button variant="outline" on:click={() => showPublishDialog = false}>Cancel</Button>
+                <Button on:click={publishMessageToDevice} disabled={isPublishing}>
+                    {#if isPublishing}
+                        <RefreshCw class="mr-2 h-4 w-4 animate-spin" />
+                    {:else}
+                        <Send class="mr-2 h-4 w-4" />
+                    {/if}
+                    Publish
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    
+    <!-- WebRTC Offer Dialog -->
+    <Dialog bind:open={showWebRTCDialog}>
+        <DialogContent class="sm:max-w-[500px]">
+            <DialogHeader>
+                <DialogTitle>Send WebRTC Connect Request</DialogTitle>
+                <DialogDescription>
+                    Send a WebRTC connect request to device {webrtcDeviceId}.
+                    This will initiate a WebRTC connection from the device.
+                </DialogDescription>
+            </DialogHeader>
+            
+            <div class="space-y-4 py-4">
+                <div class="grid grid-cols-4 items-center gap-4">
+                    <Label for="connection-id" class="text-right">Connection ID</Label>
+                    <Input id="connection-id" class="col-span-3" bind:value={webrtcConnectionId} readonly />
+                </div>
+                
+                {#if webrtcError}
+                    <Alert variant="destructive">
+                        <AlertDescription>{webrtcError}</AlertDescription>
+                    </Alert>
+                {/if}
+            </div>
+            
+            <DialogFooter>
+                <Button variant="outline" on:click={() => showWebRTCDialog = false}>Cancel</Button>
+                <Button on:click={sendWebRTCOffer} disabled={isWebRTCPublishing}>
+                    {#if isWebRTCPublishing}
+                        <RefreshCw class="mr-2 h-4 w-4 animate-spin" />
+                    {:else}
+                        <Send class="mr-2 h-4 w-4" />
+                    {/if}
+                    Send Request
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
 </AdminPageLayout>
