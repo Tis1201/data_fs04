@@ -7,6 +7,8 @@ import { SystemRole } from '$lib/types/roles';
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 import type { RequestHandler } from './$types';
 import { handleApiError } from '$lib/server/errors/errorHandlers';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 // Define the API key schema
 const apiKeySchema = z.object({
@@ -94,6 +96,17 @@ export const POST = restrict(
                 }
             });
 
+            await logAudit({
+                actionType: AuditActionType.INSERT,
+                tableName: 'ApiKey',
+                recordId: newKey.id,
+                oldData: null,
+                newData: newKey,
+                userId: locals.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: locals.prisma
+            })
+
             return json(createSuccessResponse(newKey, {
                 message: 'API key created successfully'
             }));
@@ -140,6 +153,17 @@ export const DELETE = restrict(
             await locals.prisma.apiKey.delete({
                 where: { id }
             });
+
+            await logAudit({
+                actionType: AuditActionType.DELETE,
+                tableName: 'ApiKey',
+                recordId: apiKey.id,
+                oldData: apiKey,
+                newData: null,
+                userId: locals.user.id,
+                ipAddress: locals.ipAddress,
+                prisma: locals.prisma
+            })
 
             return json(createSuccessResponse(null, {
                 message: 'API key deleted successfully'
