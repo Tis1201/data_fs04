@@ -3,7 +3,7 @@ import { logger } from "$lib/server/logger";
 import { getRedisService } from "$lib/server/services/redisService";
 import { ConnectionManager } from "$lib/server/messaging/core/connectionManager";
 import { PushpinConnection } from "$lib/server/messaging/connections/pushpin_connection";
-import type { Redis } from "ioredis";
+import { getAdminPrisma } from "$lib/server/prisma";
 
 // Flag to track if we've already initialized the Redis subscription
 // This prevents multiple subscriptions when the middleware runs multiple times
@@ -11,6 +11,8 @@ let isRedisSubscriptionInitialized = false;
 
 // Flag to track if we've already loaded initial devices
 let isInitialDevicesLoaded = false;
+
+const adminPrisma = getAdminPrisma();
 
 /**
  * Middleware that handles Pushpin connection tracking
@@ -66,6 +68,23 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
                                 // Register each online device with the connection manager
                                 for (const device of onlineDevices) {
                                     try {
+
+                                        logger.debug(`Check if device exists in db: ${JSON.stringify(device.id)}`);
+                                        const dbDevice = await adminPrisma.device.findFirst(
+                                            {
+                                                where: {
+                                                    id: device.id
+                                                }
+                                            }
+                                        );
+
+                                        logger.debug(`Found device: ${JSON.stringify(dbDevice)}`);
+
+                                        if(!dbDevice){
+                                            logger.warn(`Unable to find dbDevice with id: ${device.id}`)
+                                        }
+
+
                                         // Create a publish function bound to this Redis service
                                         const publishFn = (channel: string, message: any) => {
                                             return publish(redisService, channel, message);
