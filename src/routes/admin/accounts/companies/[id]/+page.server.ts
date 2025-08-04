@@ -53,7 +53,7 @@ export const load = restrict(
             
             // Get all accounts for the dropdown
             const accounts = await locals.prisma.account.findMany({
-                where: { status: 'ACTIVE' },
+                where: { status: 'ACTIVE', isSystem: false },
                 select: {
                     id: true,
                     name: true
@@ -65,7 +65,7 @@ export const load = restrict(
             
             // Fetch users who are members of the same account as this company
             const accountMembers = await locals.prisma.accountMembership.findMany({
-                where: { accountId: company.accountId },
+                where: { accountId: company.accountId, role: { not: 'SYSTEM' } },
                 select: {
                     id: true,
                     role: true,
@@ -353,7 +353,8 @@ export const actions: Actions = {
                         userId_accountId: {
                             userId: form.data.itemId,
                             accountId: company.accountId
-                        }
+                        },
+                        role: { not: 'SYSTEM' }
                     }
                 });
 

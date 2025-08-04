@@ -51,7 +51,8 @@ export const load: PageServerLoad = async ({ params, locals, cookies }: RequestE
         const targetUserMembership = await prisma.accountMembership.findFirst({
             where: {
                 accountId: currentAccountId,
-                userId: userId
+                userId: userId,
+                role: { not: 'SYSTEM' }
             },
             include: {
                 user: {
@@ -89,7 +90,8 @@ export const load: PageServerLoad = async ({ params, locals, cookies }: RequestE
         const currentUserMembership = await prisma.accountMembership.findFirst({
             where: {
                 accountId: currentAccountId,
-                userId: auth.user.id
+                userId: auth.user.id,
+                role: { not: 'SYSTEM' }
             }
         });
 
@@ -150,7 +152,8 @@ const resetPasswordHandler: AccountAuthenticatedRouteHandler<any> = async ({
         const targetUserMembership = await prisma.accountMembership.findFirst({
             where: {
                 accountId: accountId,
-                userId: id
+                userId: id,
+                role: { not: 'SYSTEM' }
             },
             include: {
                 user: {
@@ -237,7 +240,8 @@ export const actions: Actions = {
         const currentUserMembership = await prisma.accountMembership.findFirst({
             where: {
                 accountId: currentAccountId,
-                userId: auth.user.id
+                userId: auth.user.id,
+                role: { not: 'SYSTEM' }
             }
         });
 
@@ -326,7 +330,8 @@ export const actions: Actions = {
                         userId_accountId: {
                             userId: params.id,
                             accountId: accountId
-                        }
+                        },
+                        role: { not: 'SYSTEM' }
                     },
                     select: { role: true }
                 })
@@ -337,7 +342,8 @@ export const actions: Actions = {
                         userId_accountId: {
                             userId: params.id,
                             accountId: accountId
-                        }
+                        },
+                        role: { not: 'SYSTEM' }
                     },
                     data: {
                         role: newRole
@@ -426,7 +432,8 @@ export const actions: Actions = {
                 const targetUserMembership = await prisma.accountMembership.findFirst({
                     where: {
                         accountId: accountId,
-                        userId: id
+                        userId: id,
+                        role: { not: 'SYSTEM' }
                     },
                     include: {
                         user: {
@@ -444,7 +451,7 @@ export const actions: Actions = {
                 if (!targetUserMembership) {
                     // Let's also check if the user exists at all in this account
                     const allMemberships = await prisma.accountMembership.findMany({
-                        where: { accountId: accountId },
+                        where: { accountId: accountId, role: { not: 'SYSTEM' } },
                         select: { userId: true, role: true }
                     });
                     console.log('All memberships in account:', allMemberships);

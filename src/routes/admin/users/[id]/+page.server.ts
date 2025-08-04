@@ -54,6 +54,7 @@ export const load = restrict(
 
             // Get all accounts for the primary account dropdown and for adding memberships
             const allAccounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
                 select: {
                     id: true,
                     name: true,
@@ -526,7 +527,8 @@ export const actions: Actions = {
                                 userId_accountId: {
                                     userId,
                                     accountId
-                                }
+                                },
+                                role: { not: 'SYSTEM' }
                             }
                         });
 
@@ -605,7 +607,8 @@ export const actions: Actions = {
                             userId_accountId: {
                                 userId,
                                 accountId
-                            }
+                            },
+                            role: { not: 'SYSTEM' }
                         },
                         include: {
                             account: {
@@ -624,7 +627,8 @@ export const actions: Actions = {
                             userId_accountId: {
                                 userId,
                                 accountId
-                            }
+                            },
+                            role: { not: 'SYSTEM' }
                         }
                     });
 
@@ -712,7 +716,7 @@ export const actions: Actions = {
 
                 // Check for critical dependencies that prevent deletion
                 const accountMembershipCount = await locals.prisma.accountMembership.count({
-                    where: { userId: id }
+                    where: { userId: id, role: { not: 'SYSTEM' } }
                 });
 
                 if (accountMembershipCount > 0) {

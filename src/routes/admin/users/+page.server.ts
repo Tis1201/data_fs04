@@ -256,7 +256,7 @@ export const actions = {
                 }
 
                 const accountMembershipCount = await locals.prisma.accountMembership.count({
-                    where: { userId: id }
+                    where: { userId: id, role: { not: 'SYSTEM' } }
                 });
 
                 if (accountMembershipCount > 0) {

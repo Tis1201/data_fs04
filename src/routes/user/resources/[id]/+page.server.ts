@@ -123,7 +123,8 @@ export const load = restrict(
             const hasAccess = await locals.prisma.accountMembership.findFirst({
                 where: {
                     accountId: resource.accountId,
-                    userId: locals.user.id
+                    userId: locals.user.id,
+                    role: { not: 'SYSTEM' }
                 }
             });
             

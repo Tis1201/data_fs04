@@ -57,7 +57,7 @@ export const load = restrict(
             
             // Members (AccountMemberships with User data)
             locals.prisma.accountMembership.findMany({
-                where: { accountId: id },
+                where: { accountId: id, role: { not: 'SYSTEM' } },
                 select: {
                     id: true,
                     role: true,
@@ -510,7 +510,8 @@ export const actions: Actions = {
                 const memberships = await locals.prisma.accountMembership.findMany({
                     where: {
                         userId: { in: itemIds },
-                        accountId
+                        accountId,
+                        role: { not: 'SYSTEM' }
                     }
                 });
 
@@ -717,7 +718,8 @@ export const actions: Actions = {
                         userId_accountId: {
                             userId: form.data.itemId,
                             accountId
-                        }
+                        },
+                        role: { not: 'SYSTEM' }
                     }
                 });
 

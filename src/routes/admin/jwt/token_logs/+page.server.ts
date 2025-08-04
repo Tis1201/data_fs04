@@ -133,6 +133,7 @@ export const load = restrict(
             
             // Get accounts for filtering (limit to 20 most recent)
             const accounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
                 take: 20,
                 orderBy: { createdAt: 'desc' },
                 select: { id: true, name: true }

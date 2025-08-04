@@ -59,7 +59,7 @@ export async function userInfoByUserId(userId: string): Promise<UserInfo | null>
     
     // Load account memberships
     const memberships = await prisma.accountMembership.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, role: { not: 'SYSTEM' } },
       include: {
         account: {
           select: { id: true, name: true, slug: true }
@@ -163,7 +163,7 @@ export async function extractUserInfoFromRequest(
 
     // Load account memberships
     const memberships = await event.locals.prisma.accountMembership.findMany({
-      where: { userId: auth.user.id },
+      where: { userId: auth.user.id, role: { not: 'SYSTEM' } },
       include: {
         account: {
           select: { id: true, name: true, slug: true }
