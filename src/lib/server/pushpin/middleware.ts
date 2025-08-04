@@ -16,6 +16,28 @@ let isInitialDevicesLoaded = false;
  * Middleware that handles Pushpin connection tracking
  * This should be applied after auth middleware to ensure user authentication is available
  */
+
+/**
+ * Publish a message to a Redis channel for Pushpin to deliver
+ * @param redisService Redis service instance
+ * @param channel Channel to publish to
+ * @param message Message to publish
+ */
+async function publish(redisService: ReturnType<typeof getRedisService>, channel: string, message: any): Promise<void> {
+    try {
+
+        logger.debug(`Entry to publish: ${channel}:${JSON.stringify(message)}`);
+
+        
+        // Publish to Redis channel
+        await redisService.publish(channel, JSON.stringify(message));
+        logger.debug(`[PushpinMiddleware] Published message to channel ${channel}`);
+    } catch (error: any) {
+        logger.error(`[PushpinMiddleware] Failed to publish message to channel ${channel}: ${error.message}`);
+        throw error;
+    }
+}
+
 export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
 
     // logger.debug(`Entry to pushpinMiddleware`);
@@ -44,7 +66,12 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
                                 // Register each online device with the connection manager
                                 for (const device of onlineDevices) {
                                     try {
-                                        // Create a new PushpinConnection for each device
+                                        // Create a publish function bound to this Redis service
+                                        const publishFn = (channel: string, message: any) => {
+                                            return publish(redisService, channel, message);
+                                        };
+                                        
+                                        // Create a new PushpinConnection for each device with the publish function
                                         const connection = new PushpinConnection({
                                             id: device.id,
                                             type: 'pushpin',
@@ -53,7 +80,7 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
                                                 deviceInfo: device.info,
                                                 nodeId: process.env.NODE_ID || 'unknown'
                                             }
-                                        }); 
+                                        }, publishFn); 
                                         
                                         // Register the connection with the ConnectionManager
                                         ConnectionManager.registerConnection(connection);
@@ -183,7 +210,12 @@ async function subscribe_to_device_status_changes(redisService: ReturnType<typeo
                                     deviceInfo = JSON.parse(infoStr);
                                 }
                                 
-                                // Create and register the connection
+                                // Create a publish function bound to this Redis service
+                                const publishFn = (channel: string, message: any) => {
+                                    return publish(redisService, channel, message);
+                                };
+                                
+                                // Create and register the connection with publish function
                                 const connection = new PushpinConnection({
                                     id: deviceId,
                                     type: 'pushpin',
@@ -192,7 +224,7 @@ async function subscribe_to_device_status_changes(redisService: ReturnType<typeo
                                         deviceInfo,
                                         nodeId: process.env.NODE_ID || 'unknown'
                                     }
-                                });
+                                }, publishFn);
                                 
                                 ConnectionManager.registerConnection(connection);
                                 logger.info(`[PushpinMiddleware] Registered device ${deviceId} with ConnectionManager`);
