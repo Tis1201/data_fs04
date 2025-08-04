@@ -179,7 +179,6 @@
                                     bind:value={formData.email}
                                     placeholder="Enter email address"
                                     readonly={!canEditEmail()}
-                                    disabled={!canEditEmail()}
                                     class={!canEditEmail() ? "bg-muted/50" : ""}
                                     required
                                 />
