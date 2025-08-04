@@ -222,6 +222,10 @@
         bind:open={statusToggleDialogOpen}
         action="?/toggleStatus"
         bind:record={companyToToggle}
+        title={companyToToggle ? (companyToToggle.status === 'ACTIVE' ? 'Deactivate Account' : 'Activate Account') : null}
+        description={companyToToggle ? `Are you sure you want to ${companyToToggle.status === 'ACTIVE' ? 'deactivate' : 'activate'} the account "${companyToToggle.name}"?` : null}
+        confirmText={companyToToggle ? (companyToToggle.status === 'ACTIVE' ? 'Deactivate' : 'Activate') : null}
+        cancelText="Cancel"
         bind:isProcessing={isTogglingStatus}
         onSuccess={(result) => {
             // Update the company status in the local data without page refresh

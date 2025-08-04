@@ -99,9 +99,6 @@ export const load = restrict(
                 {
                     name: group.name,
                     description: group.description || '',
-                    permissions: typeof group.permissions === 'object' 
-                        ? JSON.stringify(group.permissions) 
-                        : group.permissions || '{}',
                     accountId: group.accountId
                 }, 
                 zod(groupSchema)
@@ -175,16 +172,12 @@ export const actions: Actions = {
                     }, { status: 400 });
                 }
 
-                // Set default permissions as empty object
-                const permissions = '{}';
-
-                // Update the group
+                // Update the group (permissions are managed separately as relations)
                 const group = await locals.prisma.group.update({
                     where: { id },
                     data: {
                         name: form.data.name,
                         description: form.data.description || null,
-                        permissions: permissions, // Store default empty permissions
                         accountId: form.data.accountId
                     }
                 });

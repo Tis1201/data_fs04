@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -122,35 +122,74 @@ export const actions: Actions = {
             const id = formData.get('id')?.toString();
 
             if (!id) {
-                return { success: false, error: 'Group ID is required' };
+                return fail(400, { error: 'Group ID is required' });
             }
 
             try {
-                const group = await locals.prisma.group.delete({
+                // Check if group exists first
+                const existingGroup = await locals.prisma.group.findUnique({
+                    where: { id },
+                    select: {
+                        id: true,
+                        name: true,
+                        _count: {
+                            select: {
+                                members: true
+                            }
+                        }
+                    }
+                });
+
+                if (!existingGroup) {
+                    return fail(404, { error: 'Group not found' });
+                }
+
+                // Check if group has members that would prevent deletion
+                const hasMembers = existingGroup._count.members > 0;
+
+                if (hasMembers) {
+                    const errorMsg = `Cannot delete group with existing members: ${existingGroup._count.members} members. Please remove all members first.`;
+                    logger.warn(`Deletion blocked for group ${id}: ${errorMsg}`);
+                    
+                    return fail(400, { error: errorMsg });
+                }
+
+                // Delete the group
+                const deletedGroup = await locals.prisma.group.delete({
                     where: { id }
                 });
 
-                logger.info(`Group deleted: ${id}`);
+                logger.info(`Group successfully deleted: ${deletedGroup.id} (${deletedGroup.name})`);
 
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Group',
-                    recordId: group.id,
-                    oldData: group,
+                    recordId: id,
+                    oldData: deletedGroup,
                     newData: null,
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
                     prisma: locals.prisma
-                })
+                });
 
                 return { success: true };
             } catch (err) {
-                logger.error('Error deleting group:', err);
-                return { success: false, error: 'Failed to delete group' };
+                const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+                logger.error(`Error deleting group ${id}:`, { 
+                    message: errorMsg, 
+                    groupId: id
+                });
+                
+                // Provide more specific error messages based on the error type
+                if (errorMsg.includes('Foreign key constraint')) {
+                    return fail(400, { error: 'Cannot delete group - it is still referenced by other records. Please remove all related data first.' });
+                } else if (errorMsg.includes('Record to delete does not exist')) {
+                    return fail(404, { error: 'Group not found or already deleted.' });
+                } else {
+                    return fail(500, { error: `Failed to delete group: ${errorMsg}` });
+                }
             }
         },
         [SystemRole.ADMIN]
     ),
-    
-
 };
