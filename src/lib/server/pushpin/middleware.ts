@@ -4,6 +4,8 @@ import { getRedisService } from "$lib/server/services/redisService";
 import { ConnectionManager } from "$lib/server/messaging/core/connectionManager";
 import { PushpinConnection } from "$lib/server/messaging/connections/pushpin_connection";
 import { getAdminPrisma } from "$lib/server/prisma";
+import { subscriptionRegistry } from "../messaging/core/subscriptionRegistry";
+import type { ConnectionMeta } from "../messaging/interfaces/connection";
 
 // Flag to track if we've already initialized the Redis subscription
 // This prevents multiple subscriptions when the middleware runs multiple times
@@ -93,11 +95,14 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
                                         }
 
                                         //Create userInfo from dbDevice
+                                        if (!dbDevice || !dbDevice.user) throw Error("Unable to find user");
+
                                         const userInfo = {
-                                            id: dbDevice?.user.id,
-                                            email: dbDevice?.user.email,
-                                            name: dbDevice?.user.name,
-                                            systemRole: dbDevice?.user.systemRole,
+                                            id: dbDevice.user.id,
+                                            email: dbDevice.user.email,
+                                            name: dbDevice.user.name,
+                                            systemRole: dbDevice.user.systemRole,
+                                            source: 'apiKey' as const
                                         }
 
                                         logger.debug(`Using UserInfo: ${JSON.stringify(userInfo)}`)
@@ -107,19 +112,55 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
                                             return publish(redisService, channel, message);
                                         };
 
-                                        // Create a new PushpinConnection for each device with the publish function
-                                        const connection = new PushpinConnection({
-                                            id: device.id,
-                                            type: 'pushpin',
+                                        // Compose ConnectionMeta as in SSE
+                                        const fullConnectionMeta: ConnectionMeta = {
+                                            userInfo: userInfo,
+                                            nodeId: process.env.NODE_ID || 'unknown',
+                                            protocol: 'pushpin',
                                             deviceId: device.id,
-                                            meta: {
-                                                deviceInfo: device.info,
-                                                nodeId: process.env.NODE_ID || 'unknown'
-                                            }
-                                        }, publishFn);
+                                            connectedAt: Date.now(),
+                                        };
 
-                                        // Register the connection with the ConnectionManager
+
+                                        // Create and register PushpinConnection
+                                        const connection = new PushpinConnection(fullConnectionMeta, publishFn);
+
+                                        logger.debug(`Connection: ${connection.meta}`);
+
+
                                         ConnectionManager.registerConnection(connection);
+
+                                        // Mark device as connected in DB (as in SSE)
+                                        try {
+                                            await adminPrisma.device.update({
+                                                where: { id: device.id },
+                                                data: { connected: true, connectedAt: new Date() }
+                                            });
+                                            logger.info(`[PushpinMiddleware] Device ${device.id} marked as connected`);
+                                        } catch (err) {
+                                            logger.error(`[PushpinMiddleware] Failed to update device status for ${device.id}: ${err}`);
+                                        }
+
+                                        ConnectionManager.registerConnection(connection);
+                                        const newConnectionId = connection.meta?.id;
+
+                                        if (!newConnectionId) {
+                                            throw new Error('Failed to generate connection ID');
+                                        }
+
+                                        // Update the outer scope connectionId
+                                        // connectionId = newConnectionId;
+
+                                        // Add subscription for device-specific messages
+                                        const deviceSubscriptionKey = `subscription:device:${device.id}`;
+                                        const connectionScope = `subscriber:connection:${newConnectionId}`;
+
+                                        await subscriptionRegistry.addSubscription(deviceSubscriptionKey, connectionScope);
+                                        logger.debug('Subscription added successfully');
+
+
+
+                                        // Create a new PushpinConnection for each device with the publish function
                                         logger.debug(`[PushpinMiddleware] Registered device ${device.id} with ConnectionManager`);
                                     } catch (error: any) {
                                         logger.error(`[PushpinMiddleware] Failed to register device ${device.id}: ${error.message}`);

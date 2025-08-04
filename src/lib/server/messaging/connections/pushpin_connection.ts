@@ -101,8 +101,11 @@ export class PushpinConnection implements Connection {
             };
 
             // Use the channel format expected by Pushpin
-            const channel = `device:${this.meta.deviceId}:messages`;
-            await this.publishFn(channel, data);
+            await this.publishFn("messages", {
+                channel: this.meta.deviceId,
+                payload: data
+            });
+
         } catch (error) {
             logger.error(`[PushpinConnection] Failed to send message: ${error}`);
             throw error;
