@@ -1,351 +1,246 @@
-import type { Handle } from "@sveltejs/kit";
-import { logger } from "$lib/server/logger";
-import { getRedisService } from "$lib/server/services/redisService";
-import { ConnectionManager } from "$lib/server/messaging/core/connectionManager";
-import { PushpinConnection } from "$lib/server/messaging/connections/pushpin_connection";
-import { getAdminPrisma } from "$lib/server/prisma";
-import { subscriptionRegistry } from "../messaging/core/subscriptionRegistry";
-import type { ConnectionMeta } from "../messaging/interfaces/connection";
+/****************************************************************************************
+ *  pushpinMiddleware.ts
+ *
+ *  Tracks device online/offline status via Redis, keeps the in-memory
+ *  ConnectionManager in sync, and re-hydrates currently-online devices on boot.
+ *
+ ***************************************************************************************/
 
-// Flag to track if we've already initialized the Redis subscription
-// This prevents multiple subscriptions when the middleware runs multiple times
-let isRedisSubscriptionInitialized = false;
+import type { Handle } from '@sveltejs/kit';
+import { logger } from '$lib/server/logger';
+import { getRedisService } from '$lib/server/services/redisService';
+import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
+import { PushpinConnection } from '$lib/server/messaging/connections/pushpin_connection';
+import { getAdminPrisma } from '$lib/server/prisma';
+import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
+import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 
-// Flag to track if we've already loaded initial devices
-let isInitialDevicesLoaded = false;
+/****************************************************************************************
+ *  Module-level singletons / guards
+ ***************************************************************************************/
+let redisSubscriptionReady = false;   // ensure single pub/sub listener
+let initialDevicesLoaded   = false;   // ensure we hydrate devices only once
+const adminPrisma          = getAdminPrisma();
 
-const adminPrisma = getAdminPrisma();
-
-/**
- * Middleware that handles Pushpin connection tracking
- * This should be applied after auth middleware to ensure user authentication is available
- */
-
-/**
- * Publish a message to a Redis channel for Pushpin to deliver
- * @param redisService Redis service instance
- * @param channel Channel to publish to
- * @param message Message to publish
- */
-async function publish(redisService: ReturnType<typeof getRedisService>, channel: string, message: any): Promise<void> {
+/****************************************************************************************
+ *  publish — thin wrapper with logging
+ ***************************************************************************************/
+async function publish(
+    redisService: ReturnType<typeof getRedisService>,
+    channel: string,
+    message: unknown
+): Promise<void> {
     try {
-
-        logger.debug(`Entry to publish: ${channel}:${JSON.stringify(message)}`);
-
-
-        // Publish to Redis channel
+        logger.debug(`[Pushpin] publish → ${channel}: ${JSON.stringify(message)}`);
         await redisService.publish(channel, JSON.stringify(message));
-        logger.debug(`[PushpinMiddleware] Published message to channel ${channel}`);
-    } catch (error: any) {
-        logger.error(`[PushpinMiddleware] Failed to publish message to channel ${channel}: ${error.message}`);
-        throw error;
+    } catch (err: any) {
+        logger.error(`[Pushpin] publish failed (${channel}): ${err.message}`);
+        throw err;
     }
 }
 
+/****************************************************************************************
+ *
+ *  pushpinMiddleware  (export)
+ *
+ *  Should be mounted **after** auth middleware so event.locals.redis is populated.
+ *
+ ***************************************************************************************/
 export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
-
-    // logger.debug(`Entry to pushpinMiddleware`);
-
-    // Only proceed if Redis is available
     if (event.locals.redis) {
         const redisService = getRedisService(event.locals);
 
         if (redisService) {
-            logger.debug("[PushpinMiddleware] Redis service available");
+            logger.debug('[Pushpin] Redis available');
 
-            // Initialize Redis subscription and load devices only once
-            if (!isRedisSubscriptionInitialized || !isInitialDevicesLoaded) {
-                try {
-                    // Use a non-blocking approach to avoid delaying the response
-                    (async () => {
-                        // Load online devices only if not done yet
-                        if (!isInitialDevicesLoaded) {
-                            const onlineDevices = await load_online_devices(redisService);
-                            logger.info(`[PushpinMiddleware] Found ${onlineDevices.length} online devices`);
-
-                            // Register the devices with the ConnectionManager
-                            if (onlineDevices.length > 0) {
-                                logger.debug(`[PushpinMiddleware] Online device IDs: ${onlineDevices.map(d => d.id).join(', ')}`);
-
-                                // Register each online device with the connection manager
-                                for (const device of onlineDevices) {
-                                    try {
-
-                                        logger.debug(`Check if device exists in db: ${JSON.stringify(device.id)}`);
-
-                                        const dbDevice = await adminPrisma.device.findFirst({
-                                            where: { id: device.id },
-                                            include: {
-                                                user: {
-                                                    select: {
-                                                        id: true,
-                                                        email: true,
-                                                        name: true,
-                                                        systemRole: true
-                                                    }
-                                                }
-                                            }
-                                        });
-
-
-                                        logger.debug(`Found device: ${JSON.stringify(dbDevice)}`);
-
-                                        if (!dbDevice) {
-                                            logger.warn(`Unable to find dbDevice with id: ${device.id}`)
-                                        }
-
-                                        //Create userInfo from dbDevice
-                                        if (!dbDevice || !dbDevice.user) throw Error("Unable to find user");
-
-                                        const userInfo = {
-                                            id: dbDevice.user.id,
-                                            email: dbDevice.user.email,
-                                            name: dbDevice.user.name,
-                                            systemRole: dbDevice.user.systemRole,
-                                            source: 'apiKey' as const
-                                        }
-
-                                        logger.debug(`Using UserInfo: ${JSON.stringify(userInfo)}`)
-
-                                        // Create a publish function bound to this Redis service
-                                        const publishFn = (channel: string, message: any) => {
-                                            return publish(redisService, channel, message);
-                                        };
-
-                                        // Compose ConnectionMeta as in SSE
-                                        const fullConnectionMeta: ConnectionMeta = {
-                                            userInfo: userInfo,
-                                            nodeId: process.env.NODE_ID || 'unknown',
-                                            protocol: 'pushpin',
-                                            deviceId: device.id,
-                                            connectedAt: Date.now(),
-                                        };
-
-
-                                        // Create and register PushpinConnection
-                                        const connection = new PushpinConnection(fullConnectionMeta, publishFn);
-
-                                        logger.debug(`Connection: ${connection.meta}`);
-
-
-                                        ConnectionManager.registerConnection(connection);
-
-                                        // Mark device as connected in DB (as in SSE)
-                                        try {
-                                            await adminPrisma.device.update({
-                                                where: { id: device.id },
-                                                data: { connected: true, connectedAt: new Date() }
-                                            });
-                                            logger.info(`[PushpinMiddleware] Device ${device.id} marked as connected`);
-                                        } catch (err) {
-                                            logger.error(`[PushpinMiddleware] Failed to update device status for ${device.id}: ${err}`);
-                                        }
-
-                                        ConnectionManager.registerConnection(connection);
-                                        const newConnectionId = connection.meta?.id;
-
-                                        if (!newConnectionId) {
-                                            throw new Error('Failed to generate connection ID');
-                                        }
-
-                                        // Update the outer scope connectionId
-                                        // connectionId = newConnectionId;
-
-                                        // Add subscription for device-specific messages
-                                        const deviceSubscriptionKey = `subscription:device:${device.id}`;
-                                        const connectionScope = `subscriber:connection:${newConnectionId}`;
-
-                                        await subscriptionRegistry.addSubscription(deviceSubscriptionKey, connectionScope);
-                                        logger.debug('Subscription added successfully');
-
-
-
-                                        // Create a new PushpinConnection for each device with the publish function
-                                        logger.debug(`[PushpinMiddleware] Registered device ${device.id} with ConnectionManager`);
-                                    } catch (error: any) {
-                                        logger.error(`[PushpinMiddleware] Failed to register device ${device.id}: ${error.message}`);
-                                    }
-                                }
-                            }
-
-                            // Mark initial devices as loaded
-                            isInitialDevicesLoaded = true;
+            // hydrate + subscribe exactly once per node process
+            if (!initialDevicesLoaded || !redisSubscriptionReady) {
+                (async () => {
+                    try {
+                        if (!initialDevicesLoaded) {
+                            await loadOnlineDevices(redisService);
+                            initialDevicesLoaded = true;
                         }
-
-                        // Subscribe to device status changes only if not already subscribed
-                        if (!isRedisSubscriptionInitialized) {
-                            await subscribe_to_device_status_changes(redisService);
-                            // Mark subscription as initialized
-                            isRedisSubscriptionInitialized = true;
-                            logger.info(`[PushpinMiddleware] Redis subscription initialized`);
+                        if (!redisSubscriptionReady) {
+                            await subscribeToDeviceStatusChange(redisService);
+                            redisSubscriptionReady = true;
                         }
-                    })().catch(error => {
-                        logger.error(`[PushpinMiddleware] Error in async device loading: ${error.message}`, {
-                            error: error.message,
-                            stack: error.stack
+                    } catch (err: any) {
+                        logger.error(`[Pushpin] bootstrap error: ${err.message}`, {
+                            stack: err.stack
                         });
-                    });
-                } catch (error: any) {
-                    logger.error(`[PushpinMiddleware] Failed to process devices: ${error.message}`, {
-                        error: error.message,
-                        stack: error.stack
-                    });
-                }
+                    }
+                })();
             }
         }
     }
 
-    // Always continue to the next middleware/handler
-    return await resolve(event);
+    return resolve(event);
+};
+
+/****************************************************************************************
+ *
+ *  loadOnlineDevices
+ *
+ *  One-shot fetch of devices whose Redis key says status=online; registers each.
+ *
+ ***************************************************************************************/
+async function loadOnlineDevices(
+    redisService: ReturnType<typeof getRedisService>
+): Promise<void> {
+    logger.info('[Pushpin] Loading currently-online devices');
+
+    const keys      = await redisService.client.keys('device:*:status');
+    const onlineIds = (await Promise.all(
+        keys.map(async (k) => (await redisService.get(k)) === 'online' ? k.split(':')[1] : null)
+    )).filter(Boolean) as string[];
+
+    logger.info(`[Pushpin] ${onlineIds.length} devices reported online`);
+
+    for (const id of onlineIds) {
+        try {
+            await registerDevice(id, redisService);
+        } catch (err: any) {
+            logger.error(`[Pushpin] Failed to re-hydrate device ${id}: ${err.message}`);
+        }
+    }
 }
 
-/**
- * Load all online devices from Redis
- * @param redisService The Redis service instance
- * @returns Promise<Array<{id: string, info: any}>> Array of online device objects
- */
-async function load_online_devices(redisService: ReturnType<typeof getRedisService>): Promise<Array<{ id: string, info: any }>> {
-    try {
-        logger.info('[PushpinMiddleware] Loading online devices from Redis');
+/****************************************************************************************
+ *
+ *  subscribeToDeviceStatusChange
+ *
+ *  Long-lived Redis pub/sub listener that reacts to real-time online/offline events.
+ *
+ ***************************************************************************************/
+async function subscribeToDeviceStatusChange(
+    redisService: ReturnType<typeof getRedisService>
+): Promise<void> {
+    const CHANNEL = 'device_status_changes';
+    logger.info(`[Pushpin] Subscribing to "${CHANNEL}"`);
 
-        // Get all keys matching the pattern for online devices
-        const keys = await redisService.client.keys('device:*:status');
-        logger.info(`[PushpinMiddleware] Found ${keys.length} device status keys`);
+    const sub = await redisService.subscribeToChannel(CHANNEL, async (raw: string) => {
+        const data = safeParse<{ deviceId?: string; status?: 'online' | 'offline' }>(raw);
+        if (!data?.deviceId || !data.status) {
+            logger.warn('[Pushpin] Invalid payload received – ignoring');
+            return;
+        }
 
-        // Filter for online devices only
-        const onlineDevices: Array<{ id: string, info: any }> = [];
+        const { deviceId, status } = data;
+        logger.debug(`[Pushpin] ${deviceId} → ${status}`);
 
-        for (const key of keys) {
-            const status = await redisService.get(key);
+        try {
             if (status === 'online') {
-                // Extract device ID from the key (format: device:<id>:status)
-                const deviceId = key.split(':')[1];
-
-                // Get additional device info if available
-                const deviceInfoKey = `device:${deviceId}:info`;
-                let deviceInfo: any = {};
-
-                try {
-                    const infoStr = await redisService.get(deviceInfoKey);
-                    if (infoStr) {
-                        deviceInfo = JSON.parse(infoStr);
-                    }
-                } catch (error: any) {
-                    logger.warn(`[PushpinMiddleware] Error parsing device info for ${deviceId}: ${error.message}`);
-                }
-
-                onlineDevices.push({
-                    id: deviceId,
-                    info: deviceInfo
-                });
+                await registerDevice(deviceId, redisService);
+            } else {
+                await unregisterDevice(deviceId);
             }
+        } catch (err: any) {
+            logger.error(`[Pushpin] Error applying status for ${deviceId}: ${err.message}`);
         }
+    });
 
-        logger.info(`[PushpinMiddleware] Loaded ${onlineDevices.length} online devices`);
-        return onlineDevices;
-    } catch (error: any) {
-        logger.error(`[PushpinMiddleware] Failed to load online devices: ${error.message}`, {
-            error: error.message,
-            stack: error.stack
-        });
-        return [];
-    }
+    // simple back-off auto-resubscribe
+    sub?.on('error', (err: Error) => {
+        logger.error(`[Pushpin] Redis sub error: ${err.message}`);
+        setTimeout(() => subscribeToDeviceStatusChange(redisService).catch(logger.error), 1000);
+    });
+
+    logger.info('[Pushpin] Subscription established');
 }
 
-/**
- * Subscribe to device status changes from Redis
- * @param redisService The Redis service instance
- */
-async function subscribe_to_device_status_changes(redisService: ReturnType<typeof getRedisService>): Promise<void> {
-    try {
-        const channelName = 'device_status_changes';
-        logger.info(`[PushpinMiddleware] Subscribing to ${channelName} channel`);
+/****************************************************************************************
+ *
+ *  registerDevice
+ *
+ *  Registers a device in ConnectionManager & DB if not already present.
+ *
+ ***************************************************************************************/
+async function registerDevice(
+    deviceId: string,
+    redisService: ReturnType<typeof getRedisService>
+): Promise<void> {
+    if (ConnectionManager.getConnectionById(deviceId)) return; // already registered
 
-        // Create a subscription to the device status changes channel
-        const subscriber = await redisService.subscribeToChannel(channelName, (message: string) => {
-            try {
-                // Parse the message
-                const data = JSON.parse(message);
-                logger.debug(`[PushpinMiddleware] Received device status change: ${JSON.stringify(data)}`);
-
-                // Handle the device status change
-                if (data && data.deviceId && data.status) {
-                    const { deviceId, status } = data;
-
-                    if (status === 'online') {
-                        // Device came online - register it
-                        logger.info(`[PushpinMiddleware] Device ${deviceId} came online`);
-
-                        // Get device info if available
-                        (async () => {
-                            try {
-                                const deviceInfoKey = `device:${deviceId}:info`;
-                                let deviceInfo: any = {};
-
-                                const infoStr = await redisService.get(deviceInfoKey);
-                                if (infoStr) {
-                                    deviceInfo = JSON.parse(infoStr);
-                                }
-
-                                // Create a publish function bound to this Redis service
-                                const publishFn = (channel: string, message: any) => {
-                                    return publish(redisService, channel, message);
-                                };
-
-                                // Create and register the connection with publish function
-                                const connection = new PushpinConnection({
-                                    id: deviceId,
-                                    type: 'pushpin',
-                                    deviceId: deviceId,
-                                    meta: {
-                                        deviceInfo,
-                                        nodeId: process.env.NODE_ID || 'unknown'
-                                    }
-                                }, publishFn);
-
-                                ConnectionManager.registerConnection(connection);
-                                logger.info(`[PushpinMiddleware] Registered device ${deviceId} with ConnectionManager`);
-                            } catch (error: any) {
-                                logger.error(`[PushpinMiddleware] Error registering device ${deviceId}: ${error.message}`);
-                            }
-                        })();
-                    } else if (status === 'offline') {
-                        // Device went offline - unregister it
-                        logger.info(`[PushpinMiddleware] Device ${deviceId} went offline`);
-
-                        // Find and unregister the connection
-                        const connection = ConnectionManager.getConnectionById(deviceId);
-                        if (connection) {
-                            ConnectionManager.unregisterConnection(connection);
-                            logger.info(`[PushpinMiddleware] Unregistered device ${deviceId} from ConnectionManager`);
-                        }
-                    }
-                }
-            } catch (error: any) {
-                logger.error(`[PushpinMiddleware] Error processing device status change: ${error.message}`, {
-                    error: error.message,
-                    stack: error.stack
-                });
-            }
-        });
-
-        // Handle subscription errors
-        if (subscriber) {
-            subscriber.on('error', (error: Error) => {
-                logger.error(`[PushpinMiddleware] Redis subscription error: ${error.message}`, {
-                    error: error.message,
-                    stack: error.stack
-                });
-            });
-
-            logger.info(`[PushpinMiddleware] Successfully subscribed to ${channelName} channel`);
-        } else {
-            logger.warn(`[PushpinMiddleware] Failed to subscribe to ${channelName} channel`);
+    const dbDevice = await adminPrisma.device.findFirst({
+        where: { id: deviceId },
+        include: {
+            user: { select: { id: true, email: true, name: true, systemRole: true } }
         }
-    } catch (error: any) {
-        logger.error(`[PushpinMiddleware] Failed to subscribe to device status changes: ${error.message}`, {
-            error: error.message,
-            stack: error.stack
+    });
+
+    if (!dbDevice?.user) {
+        logger.warn(`[Pushpin] Device ${deviceId} has no linked user`);
+        return;
+    }
+
+    const userInfo = {
+        id: dbDevice.user.id,
+        email: dbDevice.user.email,
+        name: dbDevice.user.name,
+        systemRole: dbDevice.user.systemRole,
+        source: 'apiKey' as const
+    };
+
+    const publishFn = (channel: string, msg: unknown) => publish(redisService, channel, msg);
+
+    const meta: ConnectionMeta = {
+        userInfo,
+        nodeId: process.env.NODE_ID || 'unknown',
+        protocol: 'pushpin',
+        deviceId,
+        connectedAt: Date.now()
+    };
+
+    const connection = new PushpinConnection(meta, publishFn);
+    ConnectionManager.registerConnection(connection);
+
+    await adminPrisma.device.update({
+        where: { id: deviceId },
+        data: { connected: true, connectedAt: new Date() }
+    });
+
+    await subscriptionRegistry.addSubscription(
+        `subscription:device:${deviceId}`,
+        `subscriber:connection:${connection.meta.id}`
+    );
+
+    logger.info(`[Pushpin] Device ${deviceId} registered`);
+}
+
+/****************************************************************************************
+ *
+ *  unregisterDevice
+ *
+ *  Removes device from ConnectionManager and flags it offline in DB.
+ *
+ ***************************************************************************************/
+async function unregisterDevice(deviceId: string): Promise<void> {
+    const conn = ConnectionManager.getConnectionById(deviceId);
+    if (conn) ConnectionManager.unregisterConnection(conn);
+
+    try {
+        await adminPrisma.device.update({
+            where: { id: deviceId },
+            data: { connected: false }
         });
+    } catch (err: any) {
+        logger.error(`[Pushpin] DB update failed for ${deviceId}: ${err.message}`);
+    }
+
+    logger.info(`[Pushpin] Device ${deviceId} unregistered`);
+}
+
+/****************************************************************************************
+ *
+ *  safeParse  – tiny JSON.parse wrapper that returns null on failure.
+ *
+ ***************************************************************************************/
+function safeParse<T>(raw: string): T | null {
+    try {
+        return JSON.parse(raw) as T;
+    } catch {
+        logger.warn('[Pushpin] Malformed JSON – discarded');
+        return null;
     }
 }
