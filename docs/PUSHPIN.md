@@ -32,15 +32,10 @@ const connection = new PushpinConnection(meta, publishFn);
 
 ---
 
-## 2. PushpinConnection Class
+## 2. Pushpin Middleware & Device Connection Tracking
 
-The `PushpinConnection` class represents a device connection managed via Pushpin. It is constructed with:
-- **meta**: Connection metadata (deviceId, info, etc.)
-- **publishFn**: A function for publishing messages to Redis channels
+This document describes the architecture and operation of the Pushpin middleware as implemented in [`src/lib/server/pushpin/middleware.ts`]. It also explains how Pushpin (WebSocket) and SSE (Server-Sent Events) connections are interchangeable thanks to the unified `Connection` abstraction.
 
-**Responsibilities:**
-- Sends pings to the device at regular intervals
-- Publishes messages to the device using the provided `publishFn`
 - Handles connection cleanup and status
 
 **Constructor Example:**
