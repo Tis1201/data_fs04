@@ -450,14 +450,14 @@
                 <span class="text-xs">Screenshot</span>
             </Button>
 
-            <!-- Screenshot Button -->
+            <!-- Terminal Button -->
             <Button
                     variant="outline"
                     class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
                     on:click={retrieveSnapshot}
-                    disabled={$isLoading && $actionStatus.action === "snapshot"}
+                    disabled={$isLoading && $actionStatus.action === "terminal"}
             >
-                {#if $isLoading && $actionStatus.action === "snapshot"}
+                {#if $isLoading && $actionStatus.action === "terminal"}
                     <Loader2 class="h-5 w-5 animate-spin" />
                 {:else}
                     <Terminal class="h-5 w-5" />
