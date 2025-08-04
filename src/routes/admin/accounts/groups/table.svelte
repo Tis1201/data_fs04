@@ -42,12 +42,19 @@
     // State for confirmation dialog
     let state = {
         selectedRecord: null as Group | null,
-        confirmationOpen: false
+        confirmationOpen: false,
+        title: "Delete Group",
+        message: "",
+        confirmButtonText: "Delete",
+        cancelButtonText: "Cancel",
+        successMessage: "Group deleted successfully",
+        errorMessage: "Failed to delete group"
     };
 
     // Function to open delete confirmation dialog
     function confirmDelete(group: Group) {
         state.selectedRecord = group;
+        state.message = `Are you sure you want to delete the group "${group.name}"? This action cannot be undone.`;
         state.confirmationOpen = true;
     }
     
@@ -64,16 +71,9 @@
             goto(url.toString(), { replaceState: true, noScroll: true });
         }
     });
-</script>
-
-<!-- Column definitions for the groups table -->
-<script lang="ts" context="module">
-    import { Badge } from "$lib/components/ui/badge";
-    
-
     
     // Define columns for the groups table
-    const columns = [
+    $: columns = [
         {
             id: "name",
             label: "Name",
@@ -123,7 +123,7 @@
             width: "10%",
             render: (record: Group) => {
                 // Define action items here instead of in the RecordActions component
-                const actionItems: ActionItem[] = [
+                const actionItems = [
                     {
                         label: "Edit",
                         icon: Pencil,
@@ -153,6 +153,7 @@
     <RecordDeleteDialog
         {state}
         actionName="deleteGroup"
+        action="?/deleteGroup"
         onConfirm={() => {
             // Refresh the page to update the group list
             window.location.reload();
