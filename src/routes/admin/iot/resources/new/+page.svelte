@@ -75,6 +75,7 @@
             }
             $form.size = file.size;
             $form.path = file.name;
+            $form.file = $fileField
         }
     }
 

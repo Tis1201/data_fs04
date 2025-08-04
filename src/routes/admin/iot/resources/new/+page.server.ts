@@ -13,6 +13,7 @@ import { join, dirname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { getObjectUrl, uploadToS3 } from '$lib/server/s3/S3';
 
 // Define the upload directory - in a real app, this would be configurable
 const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads', 'iot');
@@ -43,12 +44,16 @@ async function saveFile(file: File): Promise<string> {
         // Convert the file to an ArrayBuffer
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        
-        // Write the file to disk
-        writeFileSync(filePath, buffer);
-        
-        // Return the public URL path
-        return `/uploads/iot/${safeFileName}`;
+
+        const dev = process.env.NODE_ENV !== 'production';
+
+        if (dev) {
+            writeFileSync(filePath, buffer);
+            return `/uploads/iot/${safeFileName}`;
+        } else {
+            await uploadToS3(safeFileName, buffer, file.type);
+            return getObjectUrl(safeFileName);
+        }
     } catch (err) {
         logger.error(`Error saving file: ${err}`);
         throw new Error(`Failed to save file: ${err.message}`);
