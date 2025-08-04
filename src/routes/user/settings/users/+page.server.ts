@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
             
             // Get user memberships for admin Prisma client
             const userMemberships = await prisma.accountMembership.findMany({
-                where: { userId: auth!.user.id },
+                where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                 include: {
                     account: {
                         select: { id: true, name: true, slug: true }
@@ -50,7 +50,8 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
                         accountId: accountId,
                         userId: {
                             not: auth!.user.id // Exclude the current user from the list
-                        }
+                        },
+                        role: { not: 'SYSTEM' }
                     },
                     select: {
                         id: true,
@@ -123,7 +124,7 @@ export const actions: Actions = {
                 
                 // Get user memberships for admin Prisma client
                 const userMemberships = await prisma.accountMembership.findMany({
-                    where: { userId: auth!.user.id },
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                     include: {
                         account: {
                             select: { id: true, name: true, slug: true }
@@ -192,7 +193,7 @@ export const actions: Actions = {
                 
                 // Get user memberships for admin Prisma client
                 const userMemberships = await prisma.accountMembership.findMany({
-                    where: { userId: auth!.user.id },
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                     include: {
                         account: {
                             select: { id: true, name: true, slug: true }
@@ -219,7 +220,8 @@ export const actions: Actions = {
                     const memberships = await adminPrisma.accountMembership.findMany({
                         where: {
                             userId: userId,
-                            accountId: accountId
+                            accountId: accountId,
+                            role: { not: 'SYSTEM' }
                         }
                     })
 
@@ -227,7 +229,8 @@ export const actions: Actions = {
                     await adminPrisma.accountMembership.deleteMany({
                         where: {
                             userId: userId,
-                            accountId: accountId
+                            accountId: accountId,
+                            role: { not: 'SYSTEM' }
                         }
                     });
                     
@@ -268,7 +271,7 @@ export const actions: Actions = {
                 
                 // Get user memberships for admin Prisma client
                 const userMemberships = await prisma.accountMembership.findMany({
-                    where: { userId: auth!.user.id },
+                    where: { userId: auth!.user.i, role: { not: 'SYSTEM' } },
                     include: {
                         account: {
                             select: { id: true, name: true, slug: true }
@@ -297,7 +300,8 @@ export const actions: Actions = {
                     const memberships = await adminPrisma.accountMembership.findMany({
                         where: {
                             userId: userId,
-                            accountId: accountId
+                            accountId: accountId,
+                            role: { not: 'SYSTEM' }
                         }
                     })
 
@@ -305,7 +309,8 @@ export const actions: Actions = {
                     await adminPrisma.accountMembership.updateMany({
                         where: {
                             userId: userId,
-                            accountId: accountId
+                            accountId: accountId,
+                            role: { not: 'SYSTEM' }
                         },
                         data: { role: newRole.toUpperCase() }
                     });
@@ -350,7 +355,7 @@ export const actions: Actions = {
                 
                 // Get user memberships for admin Prisma client
                 const userMemberships = await prisma.accountMembership.findMany({
-                    where: { userId: auth!.user.id },
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                     include: {
                         account: {
                             select: { id: true, name: true, slug: true }
@@ -387,7 +392,8 @@ export const actions: Actions = {
                     const targetUserMembership = await adminPrisma.accountMembership.findFirst({
                         where: {
                             accountId: accountId,
-                            userId: userId
+                            userId: userId,
+                            role: { not: 'SYSTEM' }
                         },
                         include: {
                             user: {
@@ -453,7 +459,7 @@ export const actions: Actions = {
                 
                 // Get user memberships for admin Prisma client
                 const userMemberships = await prisma.accountMembership.findMany({
-                    where: { userId: auth!.user.id },
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                     include: {
                         account: {
                             select: { id: true, name: true, slug: true }
@@ -476,7 +482,8 @@ export const actions: Actions = {
                     const targetUserMembership = await adminPrisma.accountMembership.findFirst({
                         where: {
                             accountId: accountId,
-                            userId: userId
+                            userId: userId,
+                            role: { not: 'SYSTEM' }
                         },
                         include: {
                             user: {

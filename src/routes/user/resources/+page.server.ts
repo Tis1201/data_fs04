@@ -76,6 +76,7 @@ export const load = restrict(
                 
             // Get accounts for filtering - Zenstack will automatically filter based on access policies
             const accounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
                 select: {
                     id: true,
                     name: true

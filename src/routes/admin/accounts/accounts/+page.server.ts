@@ -20,7 +20,7 @@ export const load: PageServerLoad = async ({ url, locals }: RequestEvent) => {
         const take = perPage;
 
         // Build the where clause for filtering
-        const where: any = {};
+        const where: any = { isSystem: false };
         
         // Add search filter if provided
         if (search) {

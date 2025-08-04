@@ -340,7 +340,8 @@ export function restrictAccountRole<T>(
     const currentUserMembership = await event.locals.prisma.accountMembership.findFirst({
       where: {
         userId: auth.user.id,
-        accountId: currentAccountId
+        accountId: currentAccountId,
+        role: { not: 'SYSTEM' }
       }
     });
 

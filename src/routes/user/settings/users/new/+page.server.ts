@@ -31,7 +31,8 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
     const currentUserMembership = await prisma.accountMembership.findFirst({
       where: {
         accountId: currentAccountId,
-        userId: auth.user.id
+        userId: auth.user.id,
+        role: { not: 'SYSTEM' }
       }
     });
 
@@ -88,7 +89,8 @@ export const actions: Actions = {
       const currentUserMembership = await prisma.accountMembership.findFirst({
         where: {
           accountId: currentAccountId,
-          userId: auth.user.id
+          userId: auth.user.id,
+          role: { not: 'SYSTEM' }
         }
       });
 

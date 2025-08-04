@@ -23,6 +23,7 @@ model Account {
   name          String
   slug          String    @unique // URL-friendly identifier
   status        String    @default("ACTIVE")
+  isSystem      Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   description   String?
