@@ -320,7 +320,7 @@
                                         name="accountId"
                                         bind:value={$form.accountId}
                                         placeholder="Select account"
-                                        aria-invalid={$errors.accountId ? 'true' : undefined}
+                                        aria-invalid={$errors.accountId ? 'true' : ''}
                                         options={data.accountOptions}
                                     />
                                     <p class="text-xs text-muted-foreground mt-1">

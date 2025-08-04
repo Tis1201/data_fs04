@@ -124,39 +124,35 @@ export const actions: Actions = {
             }
             
             // Get the account ID from the form
-            const accountId = form.data.accountId;
-            
-            // Check if accountId is empty or undefined
-            if (!accountId) {
-                logger.error('Account ID is missing in form submission');
-                return message(
-                    form,
-                    createErrorResponse('Missing account', {
-                        details: 'Please select an account for this resource.'
-                    })
-                );
-            }
-            
-            logger.debug(`Processing resource creation for account ID: ${accountId}`);
-            
-            // Verify that the account exists
+            let accountId = form.data.accountId;
+            let account;
             let accountName = 'Unknown Account';
+            // Verify that the account exists
             try {
-                const account = await locals.prisma.account.findUnique({
-                    where: { id: accountId },
-                    select: { name: true }
-                });
+                if (accountId) {
+                    logger.debug(`Processing resource creation for account ID: ${accountId}`);
+                    account = await locals.prisma.account.findUnique({
+                        where: { id: accountId }
+                    });
+                } else {
+                    logger.debug(`Processing resource creation for system account`);
+                    account = await locals.prisma.account.findUnique({
+                        where: { isSystem: true }
+                    });
+                    
+                }
                 
                 if (!account) {
                     return message(
                         form,
                         createErrorResponse('Invalid account', {
-                            details: 'The selected account does not exist.'
+                            details: `The ${accountId ? 'selected' : 'system'} account does not exist.`
                         })
                     );
                 }
                 
                 accountName = account.name;
+                accountId = account.id
             } catch (err) {
                 logger.error(`Error verifying account: ${JSON.stringify(err)}`);
                 return message(
