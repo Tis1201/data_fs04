@@ -180,24 +180,54 @@ async function registerDevice(
 }
 
 /****************************************************************************************
- *  unregisterDevice – removes from ConnectionManager & DB
+ *
+ *  unregisterDevice   (enhanced cleanup)
+ *
+ *  Removes device from ConnectionManager,
+ *  clears all subscriptions,
+ *  and updates database with disconnectedAt timestamp.
+ *
  ***************************************************************************************/
 async function unregisterDevice(deviceId: string): Promise<void> {
-    if (ConnectionManager.getConnection(deviceId)) {
+    const conn = ConnectionManager.getConnection(deviceId);
+
+    // 1️⃣ Remove from ConnectionManager
+    if (conn) {
         ConnectionManager.unregisterConnection(deviceId);
+        logger.info(`[Pushpin] Connection ${deviceId} unregistered`);
+    } else {
+        logger.warn(`[Pushpin] Attempted to unregister non-existent connection ${deviceId}`);
     }
 
+    // 2️⃣ Remove all subscriptions scoped to this connection
+    const connectionScope = `subscriber:connection:${deviceId}`;
+    const subscriptions = await subscriptionRegistry.getByScope(connectionScope);
+
+    logger.debug(`[Pushpin] Found ${subscriptions.length} subscriptions for ${deviceId}`);
+    for (const sub of subscriptions) {
+        try {
+            await subscriptionRegistry.removeSubscription(sub.key, connectionScope);
+            logger.debug(`[Pushpin] Removed subscription: ${sub.key}`);
+        } catch (err) {
+            logger.error(`[Pushpin] Failed to remove subscription ${sub.key}: ${String(err)}`);
+        }
+    }
+
+    // 3️⃣ Update DB to mark device as offline
     try {
         await adminPrisma.device.update({
             where: { id: deviceId },
-            data: { connected: false }
+            data: {
+                connected: false,
+                disconnectedAt: new Date()
+            }
         });
-    } catch (err: any) {
-        logger.error(`[Pushpin] DB update failed for ${deviceId}: ${err.message}`);
+        logger.debug(`[Pushpin] Updated device ${deviceId} status to disconnected`);
+    } catch (updateError) {
+        logger.error(`[Pushpin] Failed to update device ${deviceId} status: ${String(updateError)}`);
     }
-
-    logger.info(`[Pushpin] Device ${deviceId} unregistered`);
 }
+
 
 /****************************************************************************************
  *  Utility helpers
