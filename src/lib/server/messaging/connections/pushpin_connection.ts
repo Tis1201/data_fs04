@@ -12,7 +12,7 @@ import {
   type BaseResponse
 } from '$lib/shared/response_format';
 
-export class SSEConnection implements Connection {
+export class PushPinConnection implements Connection {
   private static readonly PING_INTERVAL_MS = 30000; // 30 seconds
   private pingInterval: NodeJS.Timeout | null = null;
   private isAlive = true;

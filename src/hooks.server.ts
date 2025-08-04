@@ -1,11 +1,9 @@
-import { lucia } from "$lib/server/auth/lucia";
 import type { Handle } from "@sveltejs/kit";
-import prisma from "$lib/server/prisma";
 import redis from "$lib/server/redis";
 import { building } from "$app/environment";
 import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
-import { DeviceManager } from "$lib/server/device/deviceManager";
 import { authMiddleware } from "$lib/server/auth/middleware";
+import { pushpinMiddleware } from "$lib/server/pushpin/middleware";
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
 
@@ -13,15 +11,15 @@ import { ensureActiveSetting } from "$lib/server/settings";
 // Use a self-executing async function to avoid blocking the main thread
 if (!building) {
     logger.info('STARTING WHATSAPP CLIENT INITIALIZATION FROM HOOKS');
-    
+
     // Use a non-blocking approach with Promise
     (async () => {
         try {
             // Delay initialization without blocking
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
-            
+
             // Initialize WhatsApp clients from database
             logger.info('Loading WhatsApp clients from database...');
             await whatsAppAccountManager.initializeClientsFromDatabase();
@@ -32,13 +30,13 @@ if (!building) {
             logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
         }
     })();
-} 
+}
 
 // Device manager middleware to add deviceManager to locals
 // const deviceManagerMiddleware: Handle = async ({ event, resolve }) => {
 //     // Add deviceManager to locals
 //     event.locals.deviceManager = DeviceManager;
-    
+
 //     return resolve(event);
 // };
 
@@ -55,12 +53,25 @@ export const handle: Handle = async ({ event, resolve }) => {
             }
         });
     }
-    
-        // Add redis client to locals if available
+
+    // Add redis client to locals if available
     if (redis) {
         event.locals.redis = redis;
     }
-    
-    // Use auth middleware
-    return await authMiddleware({ event, resolve });
+
+    // Chain the middleware functions properly
+    // First apply auth middleware, then pushpin middleware if needed
+    return await authMiddleware({
+        event,
+        resolve: async (authEvent) => {
+            // After auth middleware, apply pushpin middleware if Redis is available
+            if (redis) {
+                return await pushpinMiddleware({
+                    event: authEvent,
+                    resolve
+                });
+            }
+            return await resolve(authEvent);
+        }
+    });
 };
