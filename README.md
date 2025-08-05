@@ -748,3 +748,13 @@ Notes
 - When signing keys are rotated, factory tokens has to be regenerated as well
 
 
+ToDos
+- Devices will still use sse for registration/claim
+- Devices will connect in using JWT and sse/pushpin by switching URL, switch is transparent
+- Add Pre-claim
+- Add Account_ID to connections (hydrate during connection creation in meta)
+  - Users will be logging in with current chosen account
+  - Devices will ever only belong to a account
+
+
+

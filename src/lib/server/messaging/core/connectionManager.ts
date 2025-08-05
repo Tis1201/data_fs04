@@ -29,6 +29,9 @@ class DefaultConnectionManager {
   }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
+
+    logger.debug(`Registering connection: ${JSON.stringify(connection.meta)}`)
+
     // Set a UUID in connection.meta if not present
     if (!('id' in connection.meta)) {
       (connection.meta as any).id = uuidv4();

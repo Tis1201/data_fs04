@@ -155,5 +155,7 @@ export class SSEConnection implements Connection {
 
     ConnectionManager.unregisterConnection(this.meta.id);
     logger.debug(`[SSEConnection] Connection closed: ${this.meta.id}`);
+
+    //Todo: Need to clean up its own subscriptions
   }
 }

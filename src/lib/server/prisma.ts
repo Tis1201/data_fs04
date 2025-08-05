@@ -19,6 +19,16 @@ if (dev) {
     global.prisma = prisma;
 }
 
+// Convenience function to get a \"sudo\" (system/root) enhanced Prisma client
+export function getAdminPrisma() {
+    return getEnhancedPrisma(
+        {
+            id: 'system',
+            systemRole: 'ADMIN', // Or use your SystemRole.SUDO if you have an enum
+        }
+    );
+}
+
 // Create enhanced client with user context
 export function getEnhancedPrisma(user?: { 
     id: string; 
