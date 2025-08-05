@@ -59,30 +59,28 @@ export const handle: Handle = async ({ event, resolve }) => {
         event.locals.redis = redis;
     }
 
+    const forwardedFor = event.request.headers.get('x-forwarded-for');
+    const ip = forwardedFor?.split(',')[0]?.trim() || event.getClientAddress();
+    event.locals.ipAddress = ip;
+
     // Chain the middleware functions properly
     // First apply auth middleware, then pushpin middleware if needed
-    return await authMiddleware({
+    return authMiddleware({
         event,
         resolve: async (authEvent) => {
             // After auth middleware, apply pushpin middleware if Redis is available
             if (redis) {
-                return await pushpinMiddleware({
+                return pushpinMiddleware({
                     event: authEvent,
                     resolve
                 });
             }
-            return await resolve(authEvent);
+            return resolve(authEvent);
         }
     });
 
-    const forwardedFor = event.request.headers.get('x-forwarded-for');
-    const ip = forwardedFor?.split(',')[0]?.trim() || event.getClientAddress();
-    event.locals.ipAddress = ip;
 
-    const forwardedFor = event.request.headers.get('x-forwarded-for');
-    const ip = forwardedFor?.split(',')[0]?.trim() || event.getClientAddress();
-    event.locals.ipAddress = ip;
 
     // Use auth middleware
-    return await authMiddleware({ event, resolve });
+    return authMiddleware({event, resolve});
 };
