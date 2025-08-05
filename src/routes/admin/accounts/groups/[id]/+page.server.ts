@@ -53,7 +53,7 @@ export const load = restrict(
             
             // Get all accounts for the dropdown
             const accounts = await locals.prisma.account.findMany({
-                where: { status: 'ACTIVE' },
+                where: { status: 'ACTIVE', isSystem: false },
                 select: {
                     id: true,
                     name: true
@@ -67,6 +67,7 @@ export const load = restrict(
             const accountMembers = await locals.prisma.accountMembership.findMany({
                 where: {
                     accountId: group.accountId,
+                    role: { not: 'SYSTEM' }
                     // No filter for group membership to show all users
                 },
                 include: {
@@ -254,7 +255,7 @@ export const actions: Actions = {
                 
                 // Check if the membership exists
                 const membership = await locals.prisma.accountMembership.findUnique({
-                    where: { id: membershipId },
+                    where: { id: membershipId, role: { not: 'SYSTEM' } },
                     include: {
                         user: {
                             select: {

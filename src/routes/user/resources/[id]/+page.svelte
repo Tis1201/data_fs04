@@ -1,6 +1,6 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
-    import { ArrowLeft, Download, Trash2, FileText, File, Image, Video, Archive, FileSpreadsheet, Code, Music } from 'lucide-svelte';
+    import { ArrowLeft, Download, Trash, Trash2, FileText, File, Image, Video, Archive, FileSpreadsheet, Code, Music } from 'lucide-svelte';
     import { format } from 'date-fns';
     import { toast } from 'svelte-sonner';
     
@@ -8,9 +8,11 @@
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
+    import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
+    import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     
     export let data;
-    const { resource } = data;
+    const { resource, form } = data;
     const title = resource.name;
     
     // Define breadcrumbs for this page
@@ -19,6 +21,11 @@
         ["Resources", "/user/resources"],
         resource.name
     ];
+
+    const { form: formStore, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(form, {
+        successRedirect: '/user/resources',
+        validateOnInput: true
+    });
     
     // Format file size to human readable format
     function formatFileSize(bytes: number): string {
@@ -53,6 +60,7 @@
     
     // Determine if resource is an image that can be previewed
     const isImage = resource.type.toLowerCase() === 'image';
+    const filePath = resource.path.startsWith('http') ? resource.path : `/api/resources/${resource.id}`;
     
     // Get the appropriate icon component
     const ResourceIcon = getResourceIcon(resource.type);
@@ -63,12 +71,12 @@
         toast.loading('Preparing download...');
         
         // Attempt to download the file
-        fetch(`/api/resources/${resource.id}`, { method: 'HEAD' })
+        fetch(filePath, { method: 'HEAD' })
             .then(response => {
                 toast.dismiss();
                 if (response.ok) {
                     // If the file exists, open it in a new tab
-                    window.open(`/api/resources/${resource.id}`, '_blank');
+                    window.open(filePath, '_blank');
                 } else {
                     // If the file doesn't exist, show an error
                     toast.error('File not found or inaccessible');
@@ -80,19 +88,18 @@
                 console.error('Download error:', error);
             });
     }
-
-    import { enhance } from '$app/forms';
-    
-    // Handle delete
-    function deleteResource() {
-        if (confirm('Are you sure you want to delete this resource? This action cannot be undone.')) {
-            // The actual deletion will be handled by the form submission with enhance
-            document.getElementById('deleteForm').submit();
-        }
-    }
     
     // Determine if the current user can edit this resource
     const canEdit = resource.createdBy === data.userId;
+
+    let deleteState = {
+        selectedRecord: resource,
+        confirmationOpen: false
+    };
+    function openDeleteDialog() {
+        deleteState.selectedRecord = resource;
+        deleteState.confirmationOpen = true;
+    }
 </script>
 
 <AdminPageLayout
@@ -112,14 +119,7 @@
         onClick: downloadFile,
         variant: "outline",
         class: "h-9" // Fixed height for consistency
-      },
-      canEdit ? {
-        label: "Delete",
-        icon: Trash2,
-        onClick: deleteResource,
-        variant: "destructive",
-        class: "h-9" // Fixed height for consistency
-      } : null
+      }
     ].filter(Boolean)}
     compact={true}
     contentSpacing="space-y-6"
@@ -177,7 +177,7 @@
                             <div class="relative w-full h-full flex items-center justify-center">
                                 {#if resource.path && resource.path.endsWith('.png') || resource.path.endsWith('.jpg') || resource.path.endsWith('.jpeg') || resource.path.endsWith('.gif')}
                                     <img 
-                                        src={`/api/resources/${resource.id}`} 
+                                        src={filePath} 
                                         alt={resource.name} 
                                         class="max-h-full max-w-full object-contain" 
                                         on:error={(e) => {
@@ -202,7 +202,7 @@
                                     </div>
                                 {/if}
                                 <div class="absolute bottom-2 right-2 bg-background/80 text-xs px-2 py-1 rounded shadow-sm">
-                                    <a href={`/api/resources/${resource.id}`} target="_blank" class="text-primary hover:underline">View full size</a>
+                                    <a href={filePath} target="_blank" class="text-primary hover:underline">View full size</a>
                                 </div>
                             </div>
                         {:else}
@@ -249,29 +249,36 @@
                 </pre>
             </AdminCard>
         {/if}
+
+        <AdminCard title="Danger Zone" description="Permanent actions for this resource" icon={Trash} compact={true}>
+            <div class="space-y-4">
+                <div>
+                    <h4 class="text-sm font-medium text-destructive">Delete Resource</h4>
+                    <p class="text-sm text-muted-foreground mt-1">
+                        Once you delete a resource, there is no going back. Please be certain.
+                    </p>
+                </div>
+
+                <div>
+                    <button
+                            type="button"
+                            class="inline-flex items-center rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white"
+                            disabled={$submitting}
+                            on:click={openDeleteDialog}
+                    >
+                        <Trash class="h-4 w-4 mr-2" />
+                        Delete Resource
+                    </button>
+                </div>
+            </div>
+        </AdminCard>
+
+        <!-- RecordDeleteDialog (kept as requested) -->
+        <RecordDeleteDialog
+            state={deleteState}
+            action="?/deleteResource"
+            actionName="deleteResource"
+            onConfirm={() => {goto('/user/resources')}}
+        />
     </div>
 </AdminPageLayout>
-
-<!-- Hidden form for resource deletion -->
-<form 
-    id="deleteForm" 
-    method="POST" 
-    action="?/deleteResource" 
-    use:enhance={{
-        onSubmit: () => {
-            // Show loading state
-            return ({ result }) => {
-                // Handle the result
-                if (result.type === 'success') {
-                    toast.success('Resource deleted successfully');
-                    goto('/user/resources');
-                } else if (result.type === 'failure') {
-                    toast.error(result.data?.message || 'Failed to delete resource');
-                }
-            };
-        }
-    }}
-    class="hidden"
->
-    <!-- No additional form fields needed since we're using the ID from the URL params -->
-</form>

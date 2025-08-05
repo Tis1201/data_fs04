@@ -1,37 +1,30 @@
 <script lang="ts">
     // Import components and dependencies
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
-    import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
-    import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordActions, {
+        type ActionItem
+    } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
-    import Badge from "$lib/components/ui/badge/badge.svelte";
-    import { Pencil, Trash, Download, Package } from "lucide-svelte";
-    import type { Resource } from "@prisma/client";
-    import { goto } from "$app/navigation";
-    import { page } from "$app/stores";
-    import { writable } from "svelte/store";
-    import { toast } from "svelte-sonner";
-    import { api_post } from "$lib/utils/ApiUtils";
-    import { browser } from "$app/environment";
-    import { onMount } from "svelte";
-    import { handleTableSort as originalHandleTableSort, handleTablePagination as originalHandleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-    
+    import {Download, Pencil, Trash} from "lucide-svelte";
+    import type {Resource} from "@prisma/client";
+    import {goto} from "$app/navigation";
+    import {
+        handleTablePagination as originalHandleTablePagination,
+        handleTableSort as originalHandleTableSort
+    } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import {formatBytes} from "$lib/utils/format";
+
     // Wrapper functions to ensure events are properly formatted
     function handleTableSort(event: CustomEvent) {
-        // Make sure we're passing a properly formatted CustomEvent
         originalHandleTableSort(event);
     }
-    
+
     function handleTablePagination(event: CustomEvent) {
-        // Make sure we're passing a properly formatted CustomEvent
         originalHandleTablePagination(event);
     }
-    import { enhance } from "$app/forms";
-    import { formatBytes } from "$lib/utils/format";
 
     // Props for DataTable component
     export let props = {
@@ -48,7 +41,7 @@
         },
         loading: false
     };
-    
+
     // State for confirmation dialog
     let state = {
         selectedRecord: null as Resource | null,
@@ -60,46 +53,50 @@
         state.selectedRecord = resource;
         state.confirmationOpen = true;
     }
-    
+
     // Handle delete confirmation
     function handleDeleteConfirm() {
-        // This would be implemented if not using form submission
-        // For now, we're using the form submission approach
+        if (!state.selectedRecord) return;
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = "?/delete";
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "id";
+        input.value = state.selectedRecord.id;
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.requestSubmit();
+    }
+
+    // Normalization helper to treat "undefined" / empty as absent
+    function normalizeField(value: string | null | undefined) {
+        if (!value || value === "undefined") return undefined;
+        return value;
     }
 
     // Get resource type display name
-    function getResourceTypeDisplay(type: string) {
-        const typeMap = {
-            'file': 'File',
-            'image': 'Image',
-            'video': 'Video',
-            'document': 'Document',
-            'binary': 'Binary'
+    function getResourceTypeDisplay(type: string | undefined) {
+        const typeMap: Record<string, string> = {
+            file: "File",
+            image: "Image",
+            video: "Video",
+            document: "Document",
+            binary: "Binary"
         };
+        if (!type) return "-";
         return typeMap[type] || type;
     }
 
     // Get resource target display name
-    function getResourceTargetDisplay(target: string) {
-        const targetMap = {
-            'user': 'User',
-            'device': 'Device',
-            'account': 'Account'
+    function getResourceTargetDisplay(target: string | undefined) {
+        const targetMap: Record<string, string> = {
+            user: "User",
+            device: "Device",
+            account: "Account"
         };
+        if (!target) return "-";
         return targetMap[target] || target;
-    }
-
-    // Get resource format badge variant
-    function getFormatBadgeVariant(format: string | null) {
-        if (!format) return 'outline';
-        
-        const formatVariants = {
-            'apk': 'default',
-            'bin': 'secondary',
-            'exe': 'destructive',
-            'sh': 'warning'
-        };
-        return formatVariants[format] || 'outline';
     }
 
     // Table columns definition
@@ -125,14 +122,8 @@
             label: "Type",
             sortable: true,
             render: (resource: Resource) => {
-                return {
-                    component: Badge,
-                    props: {
-                        variant: 'outline',
-                        class: "whitespace-nowrap"
-                    },
-                    children: getResourceTypeDisplay(resource.type)
-                };
+                const raw = normalizeField(resource.type);
+                return getResourceTypeDisplay(raw);
             }
         },
         {
@@ -140,14 +131,8 @@
             label: "Target",
             sortable: true,
             render: (resource: Resource) => {
-                return {
-                    component: Badge,
-                    props: {
-                        variant: 'secondary',
-                        class: "whitespace-nowrap"
-                    },
-                    children: getResourceTargetDisplay(resource.target)
-                };
+                const raw = normalizeField(resource.target);
+                return getResourceTargetDisplay(raw);
             }
         },
         {
@@ -161,15 +146,8 @@
             label: "Format",
             sortable: true,
             render: (resource: Resource) => {
-                if (!resource.format) return '-';
-                return {
-                    component: Badge,
-                    props: {
-                        variant: getFormatBadgeVariant(resource.format),
-                        class: "whitespace-nowrap"
-                    },
-                    children: resource.format.toUpperCase()
-                };
+                const raw = normalizeField(resource.format);
+                return raw ? raw.toUpperCase() : '-';
             }
         },
         {
@@ -198,9 +176,9 @@
             render: (resource: Resource) => {
                 const actions: ActionItem[] = [
                     {
-                        label: "Edit",
+                        label: "View",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/iot/resources/${resource.id}/edit`)
+                        onClick: () => goto(`/admin/iot/resources/${resource.id}`)
                     },
                     {
                         label: "Delete",
@@ -210,7 +188,6 @@
                     }
                 ];
 
-                // Add download action if it's a downloadable resource
                 if (resource.path) {
                     actions.splice(1, 0, {
                         label: "Download",
@@ -234,15 +211,15 @@
 <div class="space-y-4">
     <!-- Delete Confirmation Dialog -->
     <RecordDeleteDialog
-        state={{
+            state={{
             selectedRecord: state.selectedRecord,
             confirmationOpen: state.confirmationOpen
         }}
-        onConfirm={handleDeleteConfirm}
-        title="Delete Resource"
-        getDescription={(resource) => `Are you sure you want to delete this resource? This action cannot be undone.`}
-        actionName="delete"
-        action="?/delete"
+            onConfirm={handleDeleteConfirm}
+            title="Delete Resource"
+            getDescription={(resource) => `Are you sure you want to delete this resource? This action cannot be undone.`}
+            actionName="delete"
+            action="?/delete"
     />
 
     <!-- Data Table -->
@@ -250,14 +227,14 @@
         <LoadingSkeleton />
     {:else}
         <DataTable
-            props={{
+                props={{
                 records: props.records,
                 pagination: props.pagination,
                 sort: props.sort
             }}
-            columns={columns}
-            on:sort={handleTableSort}
-            on:pagination={handleTablePagination}
+                columns={columns}
+                on:sort={handleTableSort}
+                on:pagination={handleTablePagination}
         />
     {/if}
 </div>

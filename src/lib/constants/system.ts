@@ -1,6 +1,7 @@
 /**
  * System-wide constants and enums
  */
+export const SYSTEM_ACCOUNT = 'SYSTEM_ACCOUNT'
 
 /**
  * System roles for access control

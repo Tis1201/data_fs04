@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { hash } from '@node-rs/argon2';
 import { randomBytes } from 'crypto';
+import { SYSTEM_ACCOUNT } from '../src/lib/constants/system';
 
 const prisma = new PrismaClient();
 
@@ -9,10 +10,10 @@ function generateApiKey(length = 32): string {
     return randomBytes(length).toString('hex');
 }
 
-async function main() {
-    // Create admin user
+async function initAdminUser(systemAccount) {
+// Create admin user
     const hashedPassword = await hash('admin0823'); // You should change this password
-    
+
     const admin = await prisma.user.upsert({
         where: { email: 'admin@admin.com' },
         update: {},
@@ -25,6 +26,16 @@ async function main() {
     });
 
     console.log('Created admin user:', admin.email);
+
+    await prisma.accountMembership.upsert({
+        where: { userId_accountId: { accountId: systemAccount.id, userId: admin.id } },
+        update: {},
+        create: {
+            accountId: systemAccount.id,
+            userId: admin.id,
+            role: 'SYSTEM'
+        }
+    })
 
     // Create API key for the admin user
     const apiKey = generateApiKey();
@@ -51,6 +62,23 @@ async function main() {
     console.log(`Name: ${adminApiKey.name}`);
     console.log(`Key: ${apiKey}`);
     console.log('⚠️  Store this API key securely as it will not be displayed again!');
+}
+
+async function initSystemAccount() {
+    const account = await prisma.account.upsert({
+        where: { name: SYSTEM_ACCOUNT, slug: SYSTEM_ACCOUNT },
+        update: {},
+        create: { name: SYSTEM_ACCOUNT, slug: SYSTEM_ACCOUNT, isSystem: true }
+    });
+
+    console.log('Created system account:', account.id);
+
+    return account;
+}
+
+async function main() {
+    const systemAccount = await initSystemAccount();
+    await initAdminUser(systemAccount);
 }
 
 main()

@@ -1,273 +1,344 @@
 <script lang="ts">
-    import { goto } from "$app/navigation";
     import { ArrowLeft, Save, FileText, File, Upload } from "lucide-svelte";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
-    
-    // Import the correct layout components
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
-    
-    // Import form components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import EnhancedFileUpload from "$lib/components/ui_components_sveltekit/form/EnhancedFileUpload.svelte";
-    
     import type { PageData } from "./$types";
+    import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+    import { fileProxy } from 'sveltekit-superforms/client';
+    import { browser } from '$app/environment';
     
     export let data: PageData;
     const title = "Add Resource";
-
-    // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Home", "/"],
         ["Resources", "/user/resources"],
         "Add Resource"
     ];
     
-    // Import the reusable form handler and superform tools
-    import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
-    import { fileProxy } from 'sveltekit-superforms/client';
-    
-    // Create a form handler with standardized error handling
-    const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
+    const {
+        form,
+        errors,
+        enhance,
+        submitting,
+        constraints,
+        errorMessage
+    } = createFormHandler(data.form, {
         successRedirect: '/user/resources',
         validateOnInput: true,
         onSuccess: () => {
-            // Toast is handled by the redirect
+            fileField.set(null);
         }
     });
-    
-    // File upload handling with Superform
-    let uploadError = '';
-    
-    // Create a file proxy for the file field
+
     const fileField = fileProxy(form, 'file');
     
-    // Track uploaded files for display
     let uploadedFiles: File[] = [];
+    let uploadError = '';
+    let uploadSuccess = '';
     
-    import { browser } from '$app/environment';
+    let nameError = '';
+
+    let nativeFileInput: HTMLInputElement | null = null;
+    let containerRef: HTMLDivElement;
+
+    const targetOptions = [
+        { value: 'user', label: 'User' },
+        { value: 'device', label: 'Device' },
+        { value: 'account', label: 'Account' }
+    ];
     
-    // Initialize uploadedFiles if fileField already has a value
-    $: {
-        if (browser && $fileField && typeof File !== 'undefined' && $fileField instanceof File) {
-            // Only update if the arrays don't match to avoid infinite loops
-            if (uploadedFiles.length === 0 || uploadedFiles[0] !== $fileField) {
+    // Reactive clear of errors
+    $: if ($form.name) nameError = '';
+
+    function syncToNativeInput(file: File) {
+        if (nativeFileInput) {
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            nativeFileInput.files = dt.files;
+        }
+    }
+    
+    function handleFileUpload(event: CustomEvent<{ files: File[] }>) {
+        const files = event.detail.files;
+        if (files.length === 0) return;
+
+        const file = files[0];
+        $fileField = file;
+        syncToNativeInput(file);
+        uploadSuccess = `File "${file.name}" selected successfully!`;
+        uploadError = '';
+
+        if (!$form.name || $form.name === '') {
+            $form.name = file.name.split('.')[0];
+        }
+
+        $form.size = file.size;
+        $form.path = `Auto-generated from: ${file.name}`;
+
+        nameError = '';
+    }
+    
+    function handleFileRemove() {
+        $fileField = null;
+        uploadSuccess = '';
+        if (['image', 'video', 'document', 'file'].includes($form.type)) {
+            $form.path = '';
+        }
+        $form.size = 0;
+        uploadedFiles = [];
+        if (nativeFileInput) {
+            nativeFileInput.value = '';
+        }
+    }
+
+    $: if (browser) {
+        if ($fileField && typeof File !== 'undefined' && $fileField instanceof File) {
+            if (!uploadedFiles.length || uploadedFiles[0] !== $fileField) {
                 uploadedFiles = [$fileField];
             }
         } else if (uploadedFiles.length > 0 && $fileField === null) {
             uploadedFiles = [];
         }
     }
-    
-    // Handle file upload from EnhancedFileUpload component
-    function handleFileUpload(event: CustomEvent<{files: File[]}>) {
-        const files = event.detail.files;
-        if (files.length > 0) {
-            const file = files[0]; // Take only the first file
-            
-            // Update both the form field and the display array
-            $fileField = file;
-            uploadedFiles = [file];
-            
-            // Auto-fill form fields based on the file
-            if (!$form.name || $form.name === '') {
-                $form.name = file.name.split('.')[0]; // Use filename without extension
-            }
-            
-            // Set file type based on MIME type
-            const mimeType = file.type;
-            if (mimeType.startsWith('image/')) {
-                $form.type = 'image';
-            } else if (mimeType.startsWith('video/')) {
-                $form.type = 'video';
-            } else if (mimeType.startsWith('text/') || 
-                      mimeType.includes('pdf') || 
-                      mimeType.includes('document') || 
-                      mimeType.includes('spreadsheet') || 
-                      mimeType.includes('presentation')) {
-                $form.type = 'document';
-            } else {
-                $form.type = 'file';
-            }
-            
-            // Set file size
-            $form.size = file.size;
-            
-            // Set path to the filename for now
-            $form.path = file.name;
+
+    function submitForm() {
+        nameError = $form.name ? '' : 'Resource name is required.';
+        if (!$form.file) {
+            uploadError = 'File is required.';
+        } else {
+            uploadError = '';
+        }
+
+        if (nameError || uploadError) return;
+
+        if (!containerRef) {
+            console.error("Form container missing");
+            return;
+        }
+
+        const realForm = containerRef.querySelector('form') as HTMLFormElement | null;
+        if (!realForm) {
+            console.error("Underlying form element not found");
+            return;
+        }
+
+        if ($fileField && nativeFileInput && (!nativeFileInput.files || nativeFileInput.files.length === 0)) {
+            syncToNativeInput($fileField);
+        }
+
+        if (typeof realForm.reportValidity === 'function' && !realForm.reportValidity()) {
+            return;
+        }
+
+        if (typeof realForm.requestSubmit === 'function') {
+            realForm.requestSubmit();
+        } else if (typeof realForm.submit === 'function') {
+            realForm.submit();
+        } else {
+            console.error("No submit method available on form");
         }
     }
-    
-    // Handle file removal
-    function handleFileRemove() {
-        $fileField = null;
-        uploadedFiles = [];
-        
-        // Clear related form fields
-        if ($form.type === 'image' || $form.type === 'video' || $form.type === 'document' || $form.type === 'file') {
-            $form.path = '';
+
+    const actionButtons = [
+        {
+            label: "Back",
+            icon: ArrowLeft,
+            href: "/user/resources",
+            variant: "outline",
+            class: "h-9"
+        },
+        {
+            label: "Save",
+            icon: Save,
+            class: "h-9 btn-primary",
+            disabled: submitting,
+            onClick: submitForm
         }
-    }
+    ];
 </script>
 
 <AdminPageLayout
     {title}
     crumbs={pageCrumbs}
-    actionButtons={[
-      {
-        label: "Cancel",
-        icon: ArrowLeft,
-        onClick: () => goto('/user/resources'),
-        variant: "outline",
-        class: "h-9" // Fixed height for consistency
-      },
-      {
-        label: "Save",
-        icon: Save,
-        onClick: () => {
-          const form = document.querySelector('form[action="?/create"]');
-          if (form) form.requestSubmit();
-        },
-        class: "h-9" // Fixed height for consistency
-      }
-    ]}
+    {actionButtons},
     loading={$submitting}
     compact={true}
     contentSpacing="space-y-4"
 >
-    <div class="w-full space-y-6">
-    <FormContainer
-        method="POST"
-        action="?/create"
-        enctype="multipart/form-data"
-        {enhance}
-        novalidate
-        errorMessage={$errorMessage}
-    >
-        <AdminCard
-            title="Upload Resource"
-            description="Drag and drop a file or paste an image"
-            icon={Upload}
-            compact={true}
+    <div class="w-full space-y-6" bind:this={containerRef}>
+        <FormContainer
+                method="POST"
+                action="?/create"
+                enctype="multipart/form-data"
+                {enhance}
+                novalidate
+                errorMessage={$errorMessage}
         >
-            <div class="space-y-6">
-                <FormRow columns={1}>
-                    <FormField id="file" label="File Upload" error={uploadError}>
-                        <EnhancedFileUpload
-                            id="file"
-                            name="file"
-                            accept="image/*,video/*,application/*,text/*"
-                            bind:value={uploadedFiles}
-                            error={uploadError}
-                            on:change={handleFileUpload}
-                            on:drop={handleFileUpload}
-                            on:paste={handleFileUpload}
-                            on:remove={handleFileRemove}
-                            on:error={(e) => uploadError = e.detail.message}
-                            preview={true}
-                            multiple={false}
-                        />
-                        <p class="text-xs text-muted-foreground mt-1">
-                            Upload a file by dragging and dropping, or paste an image directly from clipboard.
-                        </p>
-                    </FormField>
-                </FormRow>
-            </div>
-        </AdminCard>
-        
-        <AdminCard
-            title="Resource Information"
-            description="Add a new resource to your account"
-            icon={File}
-            compact={true}
-        >
-            <div class="space-y-6">
-                <FormRow columns={2}>
-                    <FormField id="name" label="Resource Name" error={$errors.name}>
-                        <Input
-                            id="name"
-                            name="name"
-                            type="text"
-                            bind:value={$form.name}
-                            placeholder="Enter resource name"
-                            aria-invalid={$errors.name ? 'true' : undefined}
-                            {...$constraints.name}
-                        />
-                    </FormField>
-                    
-                    <FormField id="type" label="Resource Type" error={$errors.type}>
-                        <EnhancedSelect
-                            id="type"
-                            name="type"
-                            bind:value={$form.type}
-                            placeholder="Select resource type"
-                            aria-invalid={$errors.type ? 'true' : undefined}
-                            {...$constraints.type}
-                            options={data.resourceTypes}
-                        />
-                    </FormField>
-                </FormRow>
+            <input type="file" name="file" class="sr-only" aria-hidden="true" bind:this={nativeFileInput} />
 
-                <FormRow columns={2}>
-                    <FormField id="accountId" label="Account">
-                        <div class="flex items-center space-x-2 h-10 px-3 py-2 text-sm border rounded-md border-input bg-background">
-                            <input type="hidden" name="accountId" value={$form.accountId} />
-                            {#if data.userAccount}
-                                <span>{data.userAccount.name}</span>
-                            {:else}
-                                <span class="text-muted-foreground">Default account</span>
+            <AdminCard
+                    title="Upload Resource"
+                    description="Drag and drop a file or paste an image"
+                    icon={Upload}
+                    compact={true}
+            >
+                <div class="space-y-6">
+                    <FormRow columns={1}>
+                        <FormField id="file" label="File Upload" required={true} error={uploadError || ''}>
+                            <EnhancedFileUpload
+                                    id="file"
+                                    name="file"
+                                    accept="image/*,video/*,application/*,text/*"
+                                    bind:value={uploadedFiles}
+                                    error={uploadError}
+                                    on:change={handleFileUpload}
+                                    on:drop={handleFileUpload}
+                                    on:paste={handleFileUpload}
+                                    on:remove={handleFileRemove}
+                                    on:error={(e) => (uploadError = e.detail?.message || 'Upload error')}
+                                    preview={true}
+                                    multiple={false}
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                Upload a file by dragging and dropping, or paste an image directly from clipboard.
+                            </p>
+                            {#if uploadSuccess}
+                                <p class="text-xs text-green-600 font-medium mt-1">
+                                    ✓ {uploadSuccess}
+                                </p>
                             {/if}
-                        </div>
-                        <p class="text-xs text-muted-foreground mt-1">
-                            Resources will be created in your current account
-                        </p>
-                    </FormField>
+                        </FormField>
+                    </FormRow>
+                </div>
+            </AdminCard>
 
-                    <FormField id="size" label="Size (bytes)" error={$errors.size}>
-                        <Input
-                            id="size"
-                            name="size"
-                            type="number"
-                            bind:value={$form.size}
-                            placeholder="Enter size in bytes"
-                            min="0"
-                            aria-invalid={$errors.size ? 'true' : undefined}
-                            {...$constraints.size}
-                        />
-                    </FormField>
-                </FormRow>
-            </div>
-        </AdminCard>
-        
-        <AdminCard
-            title="Resource Path"
-            description="Specify the path or URL for this resource"
-            icon={FileText}
-            compact={true}
-        >
-            <div class="space-y-6">
-                <FormRow columns={1}>
-                    <FormField id="path" label="Path or URL" error={$errors.path}>
-                        <Textarea
-                            id="path"
-                            name="path"
-                            bind:value={$form.path}
-                            placeholder="Enter resource path or URL"
-                            rows="3"
-                            aria-invalid={$errors.path ? 'true' : undefined}
-                            {...$constraints.path}
-                        />
-                        <p class="text-xs text-muted-foreground mt-1">
-                            Enter the file path or URL where this resource can be accessed.
-                        </p>
-                    </FormField>
-                </FormRow>
-            </div>
-        </AdminCard>
-    </FormContainer>
+            <AdminCard
+                    title="Resource Information"
+                    description="Add a new IoT resource"
+                    icon={File}
+                    compact={true}
+            >
+                <div class="space-y-6">
+                    <FormRow columns={2}>
+                        <FormField
+                                id="name"
+                                label="Resource Name"
+                                required={true}
+                                error={nameError || $errors.name}
+                        >
+                            <Input
+                                    id="name"
+                                    name="name"
+                                    type="text"
+                                    bind:value={$form.name}
+                                    placeholder="Enter resource name"
+                                    aria-invalid={(nameError || $errors.name) ? 'true' : undefined}
+                                    {...$constraints.name}
+                            />
+                        </FormField>
+
+                        <!-- Target selection remains -->
+                        <FormField id="target" label="Target" error={$errors.target}>
+                            <EnhancedSelect
+                                    id="target"
+                                    name="target"
+                                    bind:value={$form.target}
+                                    placeholder="Select target"
+                                    aria-invalid={$errors.target ? 'true' : undefined}
+                                    {...$constraints.target}
+                                    options={targetOptions}
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                Select the target type for this resource
+                            </p>
+                        </FormField>
+                    </FormRow>
+
+                    <FormRow columns={2}>
+                        <FormField id="version" label="Version" error={$errors.version}>
+                            <Input
+                                    id="version"
+                                    name="version"
+                                    bind:value={$form.version}
+                                    placeholder="1.0.0"
+                                    aria-invalid={$errors.version ? 'true' : undefined}
+                                    {...$constraints.version}
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                Version number for binary resources
+                            </p>
+                        </FormField>
+
+                        <FormField id="packageName" label="Package Name" error={$errors.packageName}>
+                            <Input
+                                    id="packageName"
+                                    name="packageName"
+                                    bind:value={$form.packageName}
+                                    placeholder="com.example.app"
+                                    aria-invalid={$errors.packageName ? 'true' : undefined}
+                                    {...$constraints.packageName}
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                Package name for binary resources
+                            </p>
+                        </FormField>
+                    </FormRow>
+
+                    <FormRow columns={1}>
+                        <FormField id="size" label="Size (bytes)" required={true} error={$errors.size}>
+                            <Input
+                                    id="size"
+                                    name="size"
+                                    type="number"
+                                    bind:value={$form.size}
+                                    placeholder="Auto-calculated from file"
+                                    min="0"
+                                    readonly
+                                    class="bg-muted cursor-not-allowed"
+                                    aria-invalid={$errors.size ? 'true' : undefined}
+                                    {...$constraints.size}
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                Size is automatically calculated from the uploaded file
+                            </p>
+                        </FormField>
+                    </FormRow>
+                </div>
+            </AdminCard>
+
+            <AdminCard
+                    title="Resource Path"
+                    description="Path is automatically generated from uploaded file"
+                    icon={FileText}
+                    compact={true}
+            >
+                <div class="space-y-6">
+                    <FormRow columns={1}>
+                        <FormField id="path" label="Path or URL" required={true} error={$errors.path}>
+                            <Input
+                                    id="path"
+                                    name="path"
+                                    bind:value={$form.path}
+                                    placeholder="Auto-generated from file"
+                                    readonly
+                                    class="bg-muted cursor-not-allowed"
+                                    aria-invalid={$errors.path ? 'true' : undefined}
+                                    {...$constraints.path}
+                            />
+                            <p class="text-xs text-muted-foreground mt-1">
+                                Path is automatically generated when file is uploaded
+                            </p>
+                        </FormField>
+                    </FormRow>
+                </div>
+            </AdminCard>
+        </FormContainer>
     </div>
 </AdminPageLayout>

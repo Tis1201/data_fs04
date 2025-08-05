@@ -46,6 +46,7 @@ export const load = restrict(
 
             // Get all accounts for the dropdown
             const accounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
                 select: {
                     id: true,
                     name: true

@@ -21,7 +21,7 @@ export const resourceSchema = z.object({
         .optional()
         .default('1.0.0'),
     format: z.string()
-        .optional(),
+        .min(1, { message: 'Format is required' }),
     packageName: z.string()
         .optional(),
     path: z.string()
@@ -32,7 +32,9 @@ export const resourceSchema = z.object({
         .min(0, { message: 'Size must be a positive number' }),
     accountId: z.string()
         .optional()
-        .default(''),
+        .default('')
+        .nullable()
+        .transform(val => val === 'undefined' || val === undefined ? '' : val),
     // File field properly defined for Superform
     // Using custom validation to handle both browser and server environments
     file: z.custom<File | null>(

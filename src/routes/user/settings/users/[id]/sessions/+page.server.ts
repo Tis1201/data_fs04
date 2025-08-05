@@ -28,7 +28,8 @@ export const load: PageServerLoad = restrict(
         const targetUserMembership = await prisma.accountMembership.findFirst({
             where: {
                 accountId: currentAccountId,
-                userId: userId
+                userId: userId,
+                role: { not: 'SYSTEM' }
             },
             include: {
                 user: {
@@ -51,7 +52,8 @@ export const load: PageServerLoad = restrict(
         const currentUserMembership = await prisma.accountMembership.findFirst({
             where: {
                 accountId: currentAccountId,
-                userId: auth.user.id
+                userId: auth.user.id,
+                role: { not: 'SYSTEM' }
             }
         });
 
@@ -143,7 +145,8 @@ export const actions: Actions = {
             const currentUserMembership = await prisma.accountMembership.findFirst({
                 where: {
                     accountId: currentAccountId,
-                    userId: auth.user.id
+                    userId: auth.user.id,
+                    role: { not: 'SYSTEM' }
                 }
             });
 
@@ -220,7 +223,8 @@ export const actions: Actions = {
             const currentUserMembership = await prisma.accountMembership.findFirst({
                 where: {
                     accountId: currentAccountId,
-                    userId: auth.user.id
+                    userId: auth.user.id,
+                    role: { not: 'SYSTEM' }
                 }
             });
 
