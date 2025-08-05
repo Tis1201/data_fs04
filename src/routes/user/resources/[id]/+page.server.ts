@@ -5,6 +5,9 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { superValidate } from 'sveltekit-superforms';
+import { zod } from 'sveltekit-superforms/adapters';
+import { resourceSchema } from '../../../admin/iot/resources/new/resource';
 
 // Define actions for this route
 export const actions: Actions = {
@@ -134,8 +137,29 @@ export const load = restrict(
                     code: 'FORBIDDEN'
                 });
             }
+
+            const form = await superValidate(zod(resourceSchema), {
+                id: 'resource-form',
+                dataType: 'json'
+            });
+
+            // Populate form with existing resource data
+            form.data = {
+                name: resource.name,
+                description: resource.description || '',
+                type: resource.type,
+                target: resource.target,
+                version: resource.version || '1.0.0',
+                format: resource.format || '',
+                packageName: resource.packageName || '',
+                path: resource.path,
+                size: resource.size,
+                accountId: resource.accountId || '',
+                file: null // Don't populate file field for editing
+            };
             
             return {
+                form,
                 resource: {
                     ...resource,
                     creator // Add the creator information to the resource
