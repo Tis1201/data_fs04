@@ -74,10 +74,7 @@
             goto(url.toString(), { replaceState: true, noScroll: true });
         }
     });
-</script>
 
-<!-- Column definitions for the resources table -->
-<script lang="ts" context="module">
     // Define columns for the resources table
     const columns = [
         {

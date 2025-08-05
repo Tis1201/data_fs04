@@ -1,5 +1,5 @@
 // utils/s3.ts
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ObjectCannedACL } from '@aws-sdk/client-s3';
 import { env } from '$env/dynamic/private';
 
 const s3 = new S3Client({
@@ -19,6 +19,7 @@ export async function uploadToS3(key: string, body: Buffer | Uint8Array | Blob |
     Key: key,
     Body: body,
     ContentType: contentType,
+    ACL: ObjectCannedACL.public_read,  // Can be dynamic selected by creator in the future
   });
 
   await s3.send(command);
@@ -32,7 +33,7 @@ export async function deleteFromS3(key: string) {
 
   await s3.send(command);
 }
-// https://meikocn.s3.ap-southeast-1.amazonaws.com/resource/3_52100847_BM03
+
 export function getObjectUrl(key: string) {
     return `https://${BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${key}`;
 }
