@@ -4,6 +4,7 @@ import { building } from "$app/environment";
 import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
 import { authMiddleware } from "$lib/server/auth/middleware";
 import { pushpinMiddleware } from "$lib/server/pushpin/middleware";
+import { websocketMiddleware } from "$lib/server/websocket/middleware";
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
 
@@ -72,10 +73,20 @@ export const handle: Handle = async ({ event, resolve }) => {
             if (redis) {
                 return pushpinMiddleware({
                     event: authEvent,
-                    resolve
+                    resolve: async (pushpinEvent) => {
+                        // After pushpin middleware, apply WebSocket middleware
+                        return websocketMiddleware({
+                            event: pushpinEvent,
+                            resolve
+                        });
+                    }
                 });
             }
-            return resolve(authEvent);
+            // If no Redis, apply WebSocket middleware directly after auth
+            return websocketMiddleware({
+                event: authEvent,
+                resolve
+            });
         }
     });
 

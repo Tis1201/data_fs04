@@ -18,6 +18,17 @@ import type {
 import { get } from 'svelte/store';
 
 /* -------------------------------------------------------------------------- */
+/*  Types                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export interface RDPOptions {
+  frameRate?: number;
+  quality?: number;
+  captureMode?: 'test' | 'screen';
+  resolution?: { width: number; height: number };
+}
+
+/* -------------------------------------------------------------------------- */
 /*  WebRTC client                                                              */
 /* -------------------------------------------------------------------------- */
 
@@ -68,7 +79,7 @@ export class WebRTCClient {
       },
       scope: `subscription:device:${this.deviceId}`
     };
-
+    console.log(`Coming socket store :${JSON.stringify(message)}`);
     socketStore.send(message);
 
     // No terminal message needed for connect request
@@ -289,6 +300,182 @@ export class WebRTCClient {
       console.log('[WebRTC] Sent ping');
     } catch (error) {
       console.error('[WebRTC] Error sending ping:', error);
+    }
+  }
+
+  /******************************************************************************
+   * 
+   *  Input Methods
+   * 
+   ******************************************************************************/
+
+  /**
+   * Send mouse movement to the device
+   */
+  sendMouseMove(x: number, y: number) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send mouse move: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'mouse:move',
+      x: x,
+      y: y,
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log(`[WebRTC] Sent mouse move: (${x}, ${y})`);
+    } catch (error: unknown) {
+      console.error('[WebRTC] Error sending mouse move:', error);
+    }
+  }
+
+  /**
+   * Send mouse click to the device
+   */
+  sendMouseClick(button: string, x: number, y: number) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send mouse click: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'mouse:click',
+      button: button, // 'left', 'right', 'middle'
+      x: x,
+      y: y,
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log(`[WebRTC] Sent mouse click: ${button} at (${x}, ${y})`);
+    } catch (error: unknown) {
+      console.error('[WebRTC] Error sending mouse click:', error);
+    }
+  }
+
+  /**
+   * Send mouse scroll to the device
+   */
+  sendMouseScroll(direction: string, amount: number) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send mouse scroll: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'mouse:scroll',
+      direction: direction, // 'up', 'down', 'left', 'right'
+      amount: amount,
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log(`[WebRTC] Sent mouse scroll: ${direction} by ${amount}`);
+    } catch (error: unknown) {
+      console.error('[WebRTC] Error sending mouse scroll:', error);
+    }
+  }
+
+  /**
+   * Send key press to the device
+   */
+  sendKeyPress(key: string, modifiers: string[] = []) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send key press: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'key:press',
+      key: key,
+      modifiers: modifiers, // ['ctrl', 'shift', 'alt', 'meta']
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log(`[WebRTC] Sent key press: ${key} with modifiers: ${modifiers.join(', ')}`);
+    } catch (error) {
+      console.error('[WebRTC] Error sending key press:', error);
+    }
+  }
+
+  /**
+   * Send text input to the device
+   */
+  sendTextInput(text: string) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send text input: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'text:input',
+      text: text,
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log(`[WebRTC] Sent text input: ${text}`);
+    } catch (error) {
+      console.error('[WebRTC] Error sending text input:', error);
+    }
+  }
+
+  /**
+   * Send RDP start request to the device
+   */
+  sendRDPStart(options: RDPOptions = {}) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send RDP start: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'rdp:start',
+      options: {
+        frameRate: options.frameRate || 15,
+        quality: options.quality || 80,
+        captureMode: options.captureMode || 'screen',
+        ...options
+      },
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log('[WebRTC] Sent RDP start request:', options);
+    } catch (error) {
+      console.error('[WebRTC] Error sending RDP start:', error);
+    }
+  }
+
+  /**
+   * Send RDP stop request to the device
+   */
+  sendRDPStop() {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      console.error('[WebRTC] Cannot send RDP stop: data channel not open');
+      return;
+    }
+
+    const message = {
+      type: 'rdp:stop',
+      timestamp: Date.now()
+    };
+
+    try {
+      this.dataChannel.send(JSON.stringify(message));
+      console.log('[WebRTC] Sent RDP stop request');
+    } catch (error) {
+      console.error('[WebRTC] Error sending RDP stop:', error);
     }
   }
 

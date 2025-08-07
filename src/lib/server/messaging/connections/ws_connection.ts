@@ -41,6 +41,7 @@ export class WSConnection implements Connection {
 
     try {
       parsed = JSON.parse(raw.toString());
+      console.log(`[WSConnection] Received message: ${JSON.stringify(parsed)}`);
     } catch (e) {
       console.warn(`[WSConnection] Invalid JSON from ${this.meta.id}:`, raw);
       return;
@@ -58,11 +59,14 @@ export class WSConnection implements Connection {
       requestId: parsed.requestId,
     };
 
+    console.log(`[WSConnection] Composed message: ${JSON.stringify(message)}`);
+
     if(parsed.type === 'ping') {
       this.send({ type: 'pong' });
       return;
     }
 
+    console.log(`[WSConnection] Dispatching message to MessageDispatcher`);
     const { MessageDispatcher } = await import("../core/dispatcher");
     await MessageDispatcher.dispatch(message);
 

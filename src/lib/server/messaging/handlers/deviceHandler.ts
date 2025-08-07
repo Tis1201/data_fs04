@@ -15,7 +15,6 @@ export const deviceHandler: Handler = {
     const { type, payload, scope } = message;
     const { action } = payload;
 
-
     logger.debug(`[DeviceHandler] Received message: ${JSON.stringify(message)}, ${action}`);
 
     switch (action) {
@@ -29,7 +28,17 @@ export const deviceHandler: Handler = {
         await handleStatusUpdate(message);
         break;
       case 'message':
-        await messageHandler.handle(message);
+        logger.info(`[DeviceHandler] Processing message action, payload type: ${payload.type}`);
+        // Check if this is a WebRTC message
+        if (payload.type && typeof payload.type === 'string' && payload.type.startsWith('webrtc:')) {
+          logger.info(`[DeviceHandler] Handling WebRTC message: ${payload.type}`);
+          // Forward WebRTC messages directly to the publisher for device routing
+          const routingMessage = MessageFactory.toRoutingMessage(message);
+          await publisher.publish(routingMessage);
+        } else {
+          logger.info(`[DeviceHandler] Delegating to messageHandler for non-WebRTC message`);
+          await messageHandler.handle(message);
+        }
         break;
       default:
         logger.warn(`[DeviceHandler] Unhandled device action: ${action}`);
