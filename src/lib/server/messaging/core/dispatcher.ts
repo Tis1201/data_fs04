@@ -16,6 +16,8 @@ export const MessageDispatcher: MessageDispatcher = {
   async dispatch(message: InMessage): Promise<void> {
     const { type, payload, scope } = message;
     
+    console.log(`[Dispatcher] Received message type: ${type}, action: ${payload?.action}`);
+    
     // Log the received message for auditing
     AuditLogger.logReceived(message);
 
@@ -41,6 +43,7 @@ export const MessageDispatcher: MessageDispatcher = {
     }
 
     if ( type === 'device'){
+      console.log(`[Dispatcher] Routing device message to deviceHandler`);
       return deviceHandler.handle(message);
     }
 

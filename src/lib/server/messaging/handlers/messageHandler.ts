@@ -6,10 +6,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const messageHandler: Handler = {
   supports(type: string): boolean {
+    console.log("come in handllerr")
     return type.startsWith('message:');
   },
 
   async handle(message: InMessage): Promise<void> {
+    console.log("come in handllerr")
     // await publisher.publish(message);
 
     //{

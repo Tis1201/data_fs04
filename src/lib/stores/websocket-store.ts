@@ -435,12 +435,14 @@ const createSocketStore = () => {
    *      { type: eventOrMessage, scope: 'system', payload: data || {}, timestamp: now }
    */
   const send = (eventOrMessage: string | ClientMessage, data?: any) => {
+    console.log('[WebSocket] Send', eventOrMessage);
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       if (!socket || socket.readyState === WebSocket.CLOSED) {
         // Force a reconnect, then retry after 1 second
         connect('');
         setTimeout(() => send(eventOrMessage, data), 1000);
       }
+      console.log("[WebSocket] Sending data", data);
       return;
     }
 
@@ -454,6 +456,7 @@ const createSocketStore = () => {
         };
 
     try {
+      console.log("[WebSocket] Sending data", message);
       socket.send(JSON.stringify(message));
       addMessage({
         type: message.type,
