@@ -222,11 +222,23 @@
 
             console.log("Screenshot response:", responsePayload);
 
-            // Check if we have an image in the response
-            if (responsePayload.payload && responsePayload.payload.image) {
-                // Create a modal or display the image
-                const imageData = responsePayload.payload.image;
-                const format = responsePayload.format || "jpeg";
+            // Check for explicit device error first
+            const payloadType = responsePayload?.payload?.type;
+            if (payloadType === 'screenshot:error') {
+                const errMsg = responsePayload?.payload?.error || 'Device reported screenshot error';
+                throw new Error(errMsg);
+            }
+
+            // Try multiple shapes for image + format
+            const imageData = responsePayload?.image
+                || responsePayload?.payload?.image
+                || responsePayload?.data?.image;
+            const format = responsePayload?.format
+                || responsePayload?.payload?.format
+                || responsePayload?.data?.format
+                || 'jpeg';
+
+            if (imageData) {
 
                 // Create an image element to display the screenshot
                 const img = document.createElement("img");

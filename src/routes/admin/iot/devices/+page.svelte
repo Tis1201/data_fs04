@@ -7,12 +7,15 @@
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import { sseStore } from "$lib/stores/sse-store";
+    import { onMount } from 'svelte';
 
     export let data: PageData;
 
     $: ({ devices: records, meta } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
+    $: props = { records: records as any, pagination, sort, loading };
     
     let loading = false;
     
@@ -20,11 +23,20 @@
     initPagination('preferredPageSize', true);
     
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string | null][] = [
         ["Admin", "/admin"],
-        "IOT",
-        "Devices"
+        ["IOT", "/admin/iot"],
+        ["Devices", null]
     ];
+
+    // Establish SSE connection once for the list page (DeviceTable will subscribe per-record)
+    onMount(() => {
+        try {
+            sseStore.connect(`/api/sse`, { withCredentials: true });
+        } catch (e) {
+            // ignore if already connected
+        }
+    });
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -38,12 +50,5 @@
         </svelte:fragment>
     </PageHeader>
 
-    <DeviceTable
-        props={{
-            records,
-            pagination,
-            sort,
-            loading
-        }}
-    />
+    <DeviceTable {props} />
 </PageContainer>

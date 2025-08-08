@@ -26,7 +26,7 @@ export const messageHandler: Handler = {
 
     // payload.content = "echo: " + content;
 
-    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message);
+    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message, { sudo: true });
       
     publisher.publish(routingMessage);
 

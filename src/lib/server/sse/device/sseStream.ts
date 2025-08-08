@@ -4,6 +4,8 @@ import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 import {
     ResponseStatus,
     ResponseCategory,
@@ -73,7 +75,26 @@ export function createSSEStream({
                 
                 // Notify that connection is established
                 await onConnectionEstablished(connectionId);
-                
+
+                // Broadcast connection status to subscribers (real-time UI update)
+                try {
+                    const routing = MessageFactory.createSystemMessage(
+                        'device:connection',
+                        `subscription:device:${device.id}`,
+                        {
+                            action: 'device:connection',
+                            deviceId: device.id,
+                            connected: true,
+                            connectedAt: new Date().toISOString()
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
+                    await publisher.publish(routing);
+                } catch (e) {
+                    logger.warn(`Failed to broadcast device connection for ${device.id}: ${String(e)}`);
+                }
+
                 logger.info(`SSE connection established for device ${device.id}`);
                 
             } catch (error) {
@@ -167,6 +188,24 @@ async function cleanupConnection(connectionId: string, deviceId: string, locals:
                     }
                 });
                 logger.debug(`Updated device ${deviceId} status to disconnected`);
+                // Broadcast disconnection status to subscribers
+                try {
+                    const routing = MessageFactory.createSystemMessage(
+                        'device:connection',
+                        `subscription:device:${deviceId}`,
+                        {
+                            action: 'device:connection',
+                            deviceId,
+                            connected: false,
+                            disconnectedAt: new Date().toISOString()
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
+                    await publisher.publish(routing);
+                } catch (e) {
+                    logger.warn(`Failed to broadcast device disconnection for ${deviceId}: ${String(e)}`);
+                }
             } catch (updateError) {
                 logger.error(`Failed to update device ${deviceId} status: ${updateError}`);
             }

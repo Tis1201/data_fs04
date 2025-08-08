@@ -32,20 +32,72 @@
         Monitor,
     } from "lucide-svelte";
     import { AdminPageLayout, AdminCard } from "$lib/components/admin";
-    import {
-        CompactInfoGrid,
-        CompactInfoItem,
-    } from "$lib/components/ui_components_sveltekit/layout";
+    import ActionHistory from "$lib/components/ui_components_sveltekit/devices/ActionHistory.svelte";
+    import DeviceActions from "$lib/components/ui_components_sveltekit/devices/DeviceActions.svelte";
+    import FirmwareModal from "$lib/components/ui_components_sveltekit/devices/FirmwareModal.svelte";
+    import StatusBanner from "$lib/components/ui_components_sveltekit/devices/StatusBanner.svelte";
+    import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
+    import { CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_sveltekit/layout";
+    import DeviceInformationContent from "$lib/components/ui_components_sveltekit/devices/DeviceInformationContent.svelte";
+    import ConnectionStatusCard from "$lib/components/ui_components_sveltekit/devices/ConnectionStatusCard.svelte";
+    import SecurityCard from "$lib/components/ui_components_sveltekit/devices/SecurityCard.svelte";
+    import TechnicalDetailsContent from "$lib/components/ui_components_sveltekit/devices/TechnicalDetailsContent.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
     import { sseStore } from "$lib/stores/sse-store";
+    import { subscribeDeviceDetailEvents } from "$lib/client/deviceDetailRealtime";
+    import { onMount, onDestroy } from 'svelte';
     
     export let data: PageData;
-    const { device } = data;
+    const { device, deviceActionLogs } = data as any;
+    const MAX_ACTION_LOGS = 15;
+    let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
+    // Track a temporary optimistic log row for firmware update initiation
+    let pendingFirmwareTempId: string | null = null;
     const title = device.name || "Device Details";
 
+    // Helpers
+    const formatDeviceStatus = (s: string | null | undefined) => (s ? s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—');
+
+    // UX-friendly labels for action types and statuses
+    const ACTION_LABELS: Record<string, string> = {
+        firmware_update: 'Firmware update',
+        screenshot: 'Screenshot',
+        snapshot: 'Snapshot',
+        restart: 'Restart',
+        remote_desktop: 'Remote desktop',
+        terminal: 'Terminal',
+        install: 'Install',
+        ping: 'Ping',
+        status_check: 'Status check',
+        config_update: 'Configuration update'
+    };
+
+    const STATUS_LABELS: Record<string, string> = {
+        initiated: 'Initiated',
+        in_progress: 'In progress',
+        success: 'Completed',
+        failed: 'Failed',
+        cancelled: 'Cancelled',
+        timeout: 'Timed out'
+    };
+
+    function toTitleCaseFromSnake(input: string): string {
+        return (input || '')
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    function getActionLabel(actionType: string): string {
+        return ACTION_LABELS[actionType] ?? toTitleCaseFromSnake(actionType);
+    }
+
+    function getStatusLabel(status: string): string {
+        return STATUS_LABELS[status] ?? toTitleCaseFromSnake(status);
+    }
+
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
         ["IoT", "/admin/iot"],
         ["Devices", "/admin/iot/devices"],
@@ -57,6 +109,9 @@
     // Terminal state is now managed in the terminal page
     const isLoading = writable(false);
     const actionStatus = writable({ action: "", status: "", message: "" });
+    let screenshotOpen = false;
+    let screenshotData: string | null = null;
+    let screenshotFormat: string = 'jpeg';
 
     // Setup the form for API key generation
     const {
@@ -67,9 +122,10 @@
         id: "api-key-form", // Add a unique ID to avoid duplicate form ID errors
         resetForm: false,
         taintedMessage: null,
-        onSubmit: ({ action }) => {
+        onSubmit: ({ action }: { action: URL } | any) => {
             // Only handle the generateApiKey action
-            if (action !== "?/generateApiKey") {
+            const actionStr = typeof action === 'string' ? action : (action as URL)?.toString();
+            if (actionStr !== "?/generateApiKey") {
                 return;
             }
         },
@@ -96,11 +152,106 @@
             : { label: "Disconnected", variant: "destructive" as const };
     }
 
-    const connectionStatus = getConnectionStatusBadge(device.connected);
+    let connectionStatus = getConnectionStatusBadge(device.connected);
+    $: connectionStatus = getConnectionStatusBadge(device.connected);
+    // Realtime updates subscription handles
+    let unsubscribeDeviceRealtime: (() => void) | null = null;
+    let unsubConnectionLight: (() => void) | null = null;
+    onMount(() => {
+        try {
+            sseStore.connect(`/api/sse`, { withCredentials: true });
+        } catch (e) {
+            console.warn('SSE connect failed (may already be connected):', e);
+        }
+        // After connectionId is known, call subscribe endpoint to bind this connection to device channel
+        const unsubConnected = sseStore.on('connected', (msg: any) => {
+            const connId = msg?.data?.connectionId;
+            if (!connId) return;
+            fetch(`/api/sse/subscribe/device/${device.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ connectionId: connId })
+            }).then(() => {
+                console.log('[DeviceDetail] Subscribed to device channel');
+            }).catch((err) => console.warn('Subscribe failed', err));
+            unsubConnected();
+        });
+
+        // Use centralized realtime updater for action history
+        if (!unsubscribeDeviceRealtime) {
+            unsubscribeDeviceRealtime = subscribeDeviceDetailEvents(
+                device.id,
+                () => actionLogs,
+                (logs) => { actionLogs = logs; }
+            );
+        }
+
+        // Lightweight connection status updates remain inline
+        unsubConnectionLight = sseStore.on('*', (msg: any) => {
+            const evt = msg?.data ?? msg;
+            const evtType = evt?.type || msg?.event || evt?.payload?.type;
+            const data = evt?.payload?.action === 'connection' ? { ...evt.payload, type: 'device:connection' } : evt;
+            if (evtType === 'device:connection' || data?.type === 'device:connection') {
+                const c = data;
+                if (c?.deviceId !== device.id) return;
+                device.connected = !!c.connected;
+                if (c.connected && c.connectedAt) device.connectedAt = c.connectedAt;
+                if (!c.connected && c.disconnectedAt) device.disconnectedAt = c.disconnectedAt;
+            }
+        });
+    });
+
+    onDestroy(() => {
+        if (unsubscribeDeviceRealtime) {
+            try { unsubscribeDeviceRealtime(); } catch {}
+            unsubscribeDeviceRealtime = null;
+        }
+        if (unsubConnectionLight) {
+            try { unsubConnectionLight(); } catch {}
+            unsubConnectionLight = null;
+        }
+    });
 
     // Device action handlers
+    function addActionLogRow(actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed' = 'initiated') {
+        const tempId = `temp-${actionType}-${Date.now()}`;
+        actionLogs = [
+            {
+                id: tempId,
+                deviceId: device.id,
+                actionType,
+                status,
+                progress: null,
+                initiatedAt: new Date().toISOString(),
+                completedAt: null,
+                durationMs: null,
+                message,
+                user: null
+            },
+            ...actionLogs
+        ].slice(0, MAX_ACTION_LOGS);
+        return tempId;
+    }
+
+    function updateTempActionLog(tempId: string | null, status: 'success' | 'failed', message?: string) {
+        if (!tempId) return;
+        const idx = actionLogs.findIndex((l) => l.id === tempId);
+        if (idx >= 0) {
+            const existing = actionLogs[idx];
+            actionLogs[idx] = {
+                ...existing,
+                status,
+                message: message ?? existing.message,
+                completedAt: new Date().toISOString()
+            };
+            actionLogs = [...actionLogs];
+        }
+    }
+
     function accessRemoteTerminal() {
-        // Navigate to the terminal page
+        // Log and navigate to the terminal page
+        addActionLogRow('terminal', 'Opening terminal', 'initiated');
         goto(`/admin/iot/devices/${device.id}/terminal`);
     }
 
@@ -111,6 +262,7 @@
             status: "loading",
             message: "Taking screenshot...",
         });
+        const tempId = addActionLogRow('snapshot', 'Taking screenshot…', 'in_progress');
 
         try {
             // Call the screenshot handler on the device
@@ -125,83 +277,35 @@
                         quality: 80 // JPEG quality (1-100)
                     }
                 },
-                /* timeoutMs = */ 10000, // Screenshots might take longer than pings
+                /* timeoutMs = */ 30000, // Screenshots might take longer; allow up to 30s
                 /* requestIdPrefix = */ 'screenshot'
             );
 
-            // Check if we have an image in the response
-            // The image data could be at the top level or nested in the payload
-            if (responsePayload?.image || responsePayload?.payload?.image) {
-                const imageData = responsePayload.image || responsePayload.payload.image;
-                const format = responsePayload.format || responsePayload.payload?.format || 'jpeg';
-                
-                console.log('[Screenshot] Received image data with format:', format);
-                
-                // Create a modal to display the image
-                const img = document.createElement('img');
-                img.src = `data:image/${format};base64,${imageData}`;
-                img.style.maxWidth = '100%';
-                img.style.height = 'auto';
-                img.style.borderRadius = '8px';
-                img.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-                
-                // Create a modal to display the image
-                const modal = document.createElement('div');
-                modal.style.position = 'fixed';
-                modal.style.top = '0';
-                modal.style.left = '0';
-                modal.style.width = '100%';
-                modal.style.height = '100%';
-                modal.style.backgroundColor = 'rgba(0, 0, 0, 0.75)';
-                modal.style.display = 'flex';
-                modal.style.justifyContent = 'center';
-                modal.style.alignItems = 'center';
-                modal.style.zIndex = '9999';
-                modal.style.padding = '20px';
-                
-                // Create a container for the image
-                const container = document.createElement('div');
-                container.style.position = 'relative';
-                container.style.maxWidth = '90%';
-                container.style.maxHeight = '90%';
-                container.style.overflow = 'auto';
-                container.style.backgroundColor = 'white';
-                container.style.borderRadius = '8px';
-                container.style.padding = '20px';
-                
-                // Create a close button
-                const closeButton = document.createElement('button');
-                closeButton.textContent = '×';
-                closeButton.style.position = 'absolute';
-                closeButton.style.top = '10px';
-                closeButton.style.right = '10px';
-                closeButton.style.fontSize = '24px';
-                closeButton.style.fontWeight = 'bold';
-                closeButton.style.border = 'none';
-                closeButton.style.background = 'none';
-                closeButton.style.cursor = 'pointer';
-                closeButton.style.color = '#333';
-                closeButton.onclick = () => document.body.removeChild(modal);
-                
-                // Add elements to the DOM
-                container.appendChild(img);
-                container.appendChild(closeButton);
-                modal.appendChild(container);
-                document.body.appendChild(modal);
-                
-                // Close modal when clicking outside the image
-                modal.addEventListener('click', (e) => {
-                    if (e.target === modal) {
-                        document.body.removeChild(modal);
-                    }
-                });
-                
-                actionStatus.set({
-                    action: "snapshot",
-                    status: "success",
-                    message: "Screenshot captured"
-                });
+            // Check for explicit error from device first
+            const payloadType = responsePayload?.payload?.type;
+            if (payloadType === 'screenshot:error') {
+                const errMsg = responsePayload?.payload?.error || 'Device reported screenshot error';
+                throw new Error(errMsg);
+            }
+
+            // Check if we have an image in the response (support multiple shapes)
+            const imageData = responsePayload?.image
+                || responsePayload?.payload?.image
+                || responsePayload?.data?.image;
+            const format = responsePayload?.format
+                || responsePayload?.payload?.format
+                || responsePayload?.data?.format
+                || 'jpeg';
+
+            if (imageData) {
+                // Show in reusable modal
+                screenshotData = imageData;
+                screenshotFormat = format;
+                screenshotOpen = true;
+
+                actionStatus.set({ action: "snapshot", status: "success", message: "Screenshot captured" });
                 toast.success("Device screenshot captured successfully");
+                updateTempActionLog(tempId, 'success', 'Screenshot captured');
             } else {
                 throw new Error("No image data received from device");
             }
@@ -213,6 +317,7 @@
             });
             toast.error("Failed to capture device screenshot");
             console.error("Error capturing screenshot:", error);
+            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to capture screenshot');
         } finally {
             isLoading.set(false);
         }
@@ -225,6 +330,7 @@
             status: "loading",
             message: "Sending restart command...",
         });
+        const tempId = addActionLogRow('restart', 'Sending restart command…', 'in_progress');
 
         try {
             // Send restart command to the device via SSE
@@ -237,7 +343,7 @@
                         deviceId: device.id
                     }
                 },
-                /* timeoutMs = */ 5000,
+                /* timeoutMs = */ 30000,
                 /* requestIdPrefix = */ 'restart'
             );
 
@@ -248,6 +354,7 @@
                     message: responsePayload.message || "Restart command sent",
                 });
                 toast.success("Device restart initiated");
+                updateTempActionLog(tempId, 'success', 'Restart command sent');
             } else {
                 throw new Error(responsePayload?.message || "Failed to restart device");
             }
@@ -259,55 +366,19 @@
             });
             toast.error("Failed to restart device");
             console.error("Error restarting device:", error);
+            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to restart device');
         } finally {
             isLoading.set(false);
         }
     }
 
     async function updateFirmware() {
-        isLoading.set(true);
-        actionStatus.set({
-            action: "firmware",
-            status: "loading",
-            message: "Initiating firmware update...",
-        });
-
-        try {
-            // Send firmware update command to the device via SSE
-            const responsePayload = await sseStore.sendRequest(
-                {
-                    type: 'device',
-                    scope: `subscription:device:${device.id}`,
-                    payload: {
-                        action: 'updateFirmware',
-                        deviceId: device.id
-                    }
-                },
-                /* timeoutMs = */ 10000, // Firmware updates might take longer to initiate
-                /* requestIdPrefix = */ 'firmware'
-            );
-
-            if (responsePayload?.success) {
-                actionStatus.set({
-                    action: "firmware",
-                    status: "success",
-                    message: responsePayload.message || "Firmware update initiated",
-                });
-                toast.success("Firmware update has been initiated");
-            } else {
-                throw new Error(responsePayload?.message || "Failed to update firmware");
-            }
-        } catch (error) {
-            actionStatus.set({
-                action: "firmware",
-                status: "error",
-                message: error instanceof Error ? error.message : "Failed to update firmware",
-            });
-            toast.error("Failed to initiate firmware update");
-            console.error("Error updating firmware:", error);
-        } finally {
-            isLoading.set(false);
+        // If no firmware selected, open the modal to select one first
+        if (!selectedFirmware) {
+            await openFirmwareModal();
+            return;
         }
+        await confirmFirmwareUpdate();
     }
 
     async function viewLogs() {
@@ -427,6 +498,160 @@
         }
     }
 
+    // -------------------- Firmware selection modal (Part 2 UI) --------------------
+    let showFirmwareModal = false;
+    let firmwareItems: any[] = [];
+    let selectedFirmwareId: string | null = null;
+    let selectedFirmware: any | null = null;
+    let loadingFirmware = false;
+    let firmwarePage = 1;
+    let firmwareTotalPages = 1;
+    let firmwareSearch = '';
+
+    async function loadFirmwareResources(page = 1) {
+        loadingFirmware = true;
+        try {
+            const params = new URLSearchParams({
+                page: String(page),
+                pageSize: '20'
+            });
+            if (firmwareSearch && firmwareSearch.trim().length > 0) {
+                params.set('search', firmwareSearch.trim());
+            }
+            const res = await fetch(`/api/admin/resources/firmware?${params.toString()}`, { credentials: 'include' });
+            if (!res.ok) {
+                throw new Error('Failed to load firmware resources');
+            }
+            const data = await res.json();
+            firmwareItems = data.items || [];
+            firmwarePage = data.meta?.page || 1;
+            firmwareTotalPages = data.meta?.totalPages || 1;
+        } catch (err) {
+            console.error('Firmware list error:', err);
+            toast.error('Failed to load firmware resources');
+        } finally {
+            loadingFirmware = false;
+        }
+    }
+
+    async function openFirmwareModal() {
+        showFirmwareModal = true;
+        selectedFirmwareId = selectedFirmware?.id || null;
+        await loadFirmwareResources(1);
+    }
+
+    function onSelectFirmware(id: string) {
+        selectedFirmwareId = id;
+        selectedFirmware = firmwareItems.find((it) => it.id === id) || null;
+    }
+
+    // Typed wrappers for modal callbacks (avoid TS types in markup)
+    function handleModalSearch(p?: number) {
+        loadFirmwareResources(p ?? 1);
+    }
+
+    function handleModalSelect(id: string) {
+        onSelectFirmware(id);
+    }
+
+    async function confirmFirmwareUpdate() {
+        if (!selectedFirmware) {
+            toast.error('Please select a firmware');
+            return;
+        }
+
+        isLoading.set(true);
+        actionStatus.set({
+            action: 'firmware',
+            status: 'loading',
+            message: 'Initiating firmware update...'
+        });
+
+        // Optimistically add an action log row so the user sees it immediately
+        try {
+            const tempId = `temp-${Date.now()}`;
+            pendingFirmwareTempId = tempId;
+            actionLogs = [
+                {
+                    id: tempId,
+                    deviceId: device.id,
+                    actionType: 'firmware_update',
+                    status: 'in_progress',
+                    progress: null,
+                    initiatedAt: new Date().toISOString(),
+                    completedAt: null,
+                    durationMs: null,
+                    message: 'Initiating firmware update…',
+                    user: null
+                },
+                ...actionLogs
+            ].slice(0, MAX_ACTION_LOGS);
+        } catch {}
+
+        try {
+            const responsePayload = await sseStore.sendRequest(
+                {
+                    type: 'device',
+                    scope: `subscription:device:${device.id}`,
+                    payload: {
+                        action: 'updateFirmware',
+                        deviceId: device.id,
+                        firmware: {
+                            resourceId: selectedFirmware.id,
+                            resourceName: selectedFirmware.name,
+                            packageName: selectedFirmware.packageName ?? null,
+                            size: selectedFirmware.size,
+                            path: selectedFirmware.path,
+                            version: selectedFirmware.version ?? null,
+                            format: selectedFirmware.format ?? null
+                        }
+                    }
+                },
+                /* timeoutMs = */ 30000,
+                /* requestIdPrefix = */ 'firmware'
+            );
+
+            const ok = responsePayload?.success ?? responsePayload?.payload?.success ?? false;
+            if (ok) {
+                actionStatus.set({
+                    action: 'firmware',
+                    status: 'success',
+                    message: responsePayload.message || responsePayload?.payload?.message || 'Firmware update initiated'
+                });
+                toast.success('Firmware update has been initiated');
+                showFirmwareModal = false;
+            } else {
+                const errMsg = responsePayload?.message || responsePayload?.payload?.message || 'Failed to update firmware';
+                throw new Error(errMsg);
+            }
+        } catch (error) {
+            actionStatus.set({
+                action: 'firmware',
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Failed to update firmware'
+            });
+            toast.error('Failed to initiate firmware update');
+            console.error('Error updating firmware:', error);
+            // Mark the optimistic row as failed so the user still sees an entry
+            if (pendingFirmwareTempId) {
+                const idx = actionLogs.findIndex((l) => l.id === pendingFirmwareTempId);
+                if (idx >= 0) {
+                    const existing = actionLogs[idx];
+                    actionLogs[idx] = {
+                        ...existing,
+                        status: 'failed',
+                        message: existing.message || (error instanceof Error ? error.message : 'Failed to update firmware'),
+                        completedAt: new Date().toISOString()
+                    };
+                    actionLogs = [...actionLogs];
+                }
+                pendingFirmwareTempId = null;
+            }
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
     // Navigate to edit page
     function navigateToEdit() {
         goto(`/admin/iot/devices/${device.id}/edit`);
@@ -450,129 +675,37 @@
         class_name="mb-4"
         compact={true}
     >
-        <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-            <!-- Define a consistent button style -->
-            {#if false}
-                <!-- This is just a template, not rendered -->
-                <div class="btn-template hidden">
-                    <Button
-                        variant="outline"
-                        class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                    >
-                        <div class="h-5 w-5" />
-                        <span class="text-xs">Label</span>
-                    </Button>
-                </div>
-            {/if}
-            <!-- Remote Terminal -->
-            <Button
-                variant="outline"
-                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                on:click={accessRemoteTerminal}
-            >
-                <Terminal class="h-5 w-5" />
-                <span class="text-xs">Terminal</span>
-            </Button>
-
-            <!-- Remote Desktop -->
-            <Button
-                variant="outline"
-                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                on:click={() => goto(`/admin/iot/devices/${device.id}/rdp`)}
-            >
-                <Monitor class="h-5 w-5" />
-                <span class="text-xs">Remote Desktop</span>
-            </Button>
-
-            <!-- Snapshot -->
-            <Button
-                variant="outline"
-                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                on:click={retrieveSnapshot}
-                disabled={$isLoading && $actionStatus.action === "snapshot"}
-            >
-                {#if $isLoading && $actionStatus.action === "snapshot"}
-                    <Loader2 class="h-5 w-5 animate-spin" />
-                {:else}
-                    <Camera class="h-5 w-5" />
-                {/if}
-                <span class="text-xs">Snapshot</span>
-            </Button>
-
-            <!-- Restart -->
-            <Button
-                variant="outline"
-                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                on:click={restartDevice}
-                disabled={$isLoading && $actionStatus.action === "restart"}
-            >
-                {#if $isLoading && $actionStatus.action === "restart"}
-                    <Loader2 class="h-5 w-5 animate-spin" />
-                {:else}
-                    <RotateCcw class="h-5 w-5" />
-                {/if}
-                <span class="text-xs">Restart</span>
-            </Button>
-
-            <!-- Update Firmware -->
-            <Button
-                variant="outline"
-                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                on:click={updateFirmware}
-                disabled={$isLoading && $actionStatus.action === "firmware"}
-            >
-                {#if $isLoading && $actionStatus.action === "firmware"}
-                    <Loader2 class="h-5 w-5 animate-spin" />
-                {:else}
-                    <Upload class="h-5 w-5" />
-                {/if}
-                <span class="text-xs">Update Firmware</span>
-            </Button>
-
-            <!-- View Logs -->
-            <Button
-                variant="outline"
-                class="flex flex-col items-center justify-center h-16 w-full space-y-1 p-2"
-                on:click={viewLogs}
-                disabled={$isLoading && $actionStatus.action === "logs"}
-            >
-                {#if $isLoading && $actionStatus.action === "logs"}
-                    <Loader2 class="h-5 w-5 animate-spin" />
-                {:else}
-                    <FileText class="h-5 w-5" />
-                {/if}
-                <span class="text-xs">View Logs</span>
-            </Button>
-        </div>
+        <DeviceActions
+            {device}
+            {isLoading}
+            {actionStatus}
+            onSnapshot={retrieveSnapshot}
+            onRestart={restartDevice}
+            onOpenFirmwareModal={openFirmwareModal}
+            onViewLogs={viewLogs}
+            onTerminal={accessRemoteTerminal}
+            onRemoteDesktop={() => { addActionLogRow('remote_desktop', 'Opening remote desktop', 'initiated'); goto(`/admin/iot/devices/${device.id}/rdp`); }}
+        />
 
         <!-- Status message for actions -->
-        {#if $actionStatus.status}
-            <div
-                class="mt-4 p-3 rounded-md text-sm flex items-center"
-                class:bg-muted={$actionStatus.status === "loading"}
-                class:bg-green-50={$actionStatus.status === "success"}
-                class:bg-red-50={$actionStatus.status === "error"}
-            >
-                {#if $actionStatus.status === "loading"}
-                    <Loader2
-                        class="mr-2 h-4 w-4 animate-spin text-muted-foreground"
-                    />
-                {:else if $actionStatus.status === "success"}
-                    <CheckCircle class="mr-2 h-4 w-4 text-green-500" />
-                {:else if $actionStatus.status === "error"}
-                    <AlertCircle class="mr-2 h-4 w-4 text-red-500" />
-                {/if}
-                <span
-                    class:text-muted-foreground={$actionStatus.status ===
-                        "loading"}
-                    class:text-green-700={$actionStatus.status === "success"}
-                    class:text-red-700={$actionStatus.status === "error"}
-                >
-                    {$actionStatus.message}
-                </span>
-            </div>
-        {/if}
+        <StatusBanner status={$actionStatus} />
     </AdminCard>
+
+<FirmwareModal
+    show={showFirmwareModal}
+    items={firmwareItems}
+    loading={loadingFirmware}
+    page={firmwarePage}
+    totalPages={firmwareTotalPages}
+    search={firmwareSearch}
+    selectedId={selectedFirmwareId}
+    searchFn={handleModalSearch}
+    selectFn={handleModalSelect}
+    onClose={() => (showFirmwareModal = false)}
+    onConfirm={confirmFirmwareUpdate}
+/>
+
+<ScreenshotModal open={screenshotOpen} imageData={screenshotData} format={screenshotFormat} onClose={() => { screenshotOpen = false; screenshotData = null; }} />
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Device Info Card -->
@@ -588,35 +721,7 @@
                 <!-- Basic Info -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="md:col-span-2">
-                        <CompactInfoGrid columns={2} gap="gap-4">
-                            <!-- Name -->
-                            <CompactInfoItem label="Device Name">
-                                <div class="font-medium">{device.name}</div>
-                            </CompactInfoItem>
-
-                            <!-- Status -->
-                            <CompactInfoItem label="Status">
-                                <Badge
-                                    variant={device.status === "ACTIVE"
-                                        ? "default"
-                                        : device.status === "INACTIVE"
-                                          ? "secondary"
-                                          : device.status === "PENDING"
-                                            ? "warning"
-                                            : "outline"}
-                                >
-                                    {device.status}
-                                </Badge>
-                            </CompactInfoItem>
-
-                            <!-- Description -->
-                            <CompactInfoItem
-                                label="Description"
-                                class_name="col-span-2"
-                            >
-                                {device.description || "—"}
-                            </CompactInfoItem>
-                        </CompactInfoGrid>
+                        <DeviceInformationContent {device} />
                     </div>
 
                     <!-- Metadata Section -->
@@ -710,75 +815,13 @@
         >
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <!-- Connection Status Section -->
-                <div>
-                    <h3 class="text-sm font-medium mb-2 flex items-center">
-                        <Server class="mr-1.5 h-4 w-4" />
-                        Connection Status
-                    </h3>
-
-                    <div class="flex items-center space-x-2 mb-2">
-                        <Badge
-                            variant={connectionStatus.variant}
-                            class="px-3 py-1"
-                        >
-                            {connectionStatus.label}
-                        </Badge>
-                    </div>
-
-                    {#if device.connected && device.connectedAt}
-                        <CompactInfoItem label="Connected since" icon={Clock}>
-                            <RelativeDate date={device.connectedAt} />
-                        </CompactInfoItem>
-                    {:else if device.disconnectedAt}
-                        <CompactInfoItem label="Last seen" icon={Clock}>
-                            <RelativeDate date={device.disconnectedAt} />
-                        </CompactInfoItem>
-                    {/if}
-                </div>
+                    <ConnectionStatusCard {device} />
 
                 <!-- Security Section -->
                 <div
                     class="border-t md:border-t-0 md:border-l border-muted pt-4 md:pt-0 md:pl-4"
                 >
-                    <h3 class="text-sm font-medium mb-2 flex items-center">
-                        <Shield class="mr-1.5 h-4 w-4" />
-                        Security
-                    </h3>
-
-                    <div>
-                        <div class="flex items-center justify-between mb-2">
-                            <div class="font-medium flex items-center text-sm">
-                                <Key class="mr-1.5 h-3.5 w-3.5" />
-                                API Key
-                            </div>
-                            <form
-                                id="api-key-form"
-                                action="?/generateApiKey"
-                                method="POST"
-                                use:apiKeyEnhance
-                            >
-                                <Button
-                                    type="submit"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={$apiKeySubmitting}
-                                    class="flex items-center"
-                                >
-                                    <RefreshCw class="mr-2 h-3 w-3" />
-                                    {$apiKeySubmitting
-                                        ? "Generating..."
-                                        : "Generate New Key"}
-                                </Button>
-                            </form>
-                        </div>
-
-                        <SecureKeyDisplay
-                            apiKey={device.apiKey || ""}
-                            createdAt={device.apiKeyCreatedAt}
-                            rotatedAt={device.apiKeyRotatedAt}
-                            loading={$apiKeySubmitting}
-                        />
-                    </div>
+                    <SecurityCard {device} apiKeyEnhance={apiKeyEnhance} apiKeySubmitting={apiKeySubmitting} />
                 </div>
             </div>
         </AdminCard>
@@ -791,74 +834,24 @@
             compact={true}
             class_name="md:col-span-2"
         >
-            <div class="space-y-4">
-                <!-- Device Type & Model -->
-                <CompactInfoGrid columns={4} gap="gap-4">
-                    <CompactInfoItem label="Device Type" icon={Tag}>
-                        {device.deviceType || "—"}
-                    </CompactInfoItem>
-
-                    <CompactInfoItem label="Model">
-                        {device.model || "—"}
-                    </CompactInfoItem>
-
-                    <!-- Manufacturer & Hardware ID -->
-                    <CompactInfoItem label="Manufacturer">
-                        {device.manufacturer || "—"}
-                    </CompactInfoItem>
-
-                    <CompactInfoItem label="Hardware ID">
-                        <span class="font-mono">{device.hardwareId || "—"}</span
-                        >
-                    </CompactInfoItem>
-                </CompactInfoGrid>
-
-                <!-- Firmware & OS Version -->
-                <CompactInfoGrid columns={4} gap="gap-4">
-                    <CompactInfoItem label="Firmware Version">
-                        {device.firmwareVersion || "—"}
-                    </CompactInfoItem>
-
-                    <CompactInfoItem label="OS Version">
-                        {device.osVersion || "—"}
-                    </CompactInfoItem>
-
-                    <!-- IP Address & MAC Address -->
-                    <CompactInfoItem label="IP Address">
-                        <span class="font-mono">{device.ipAddress || "—"}</span>
-                    </CompactInfoItem>
-
-                    <CompactInfoItem label="MAC Address">
-                        <span class="font-mono">{device.macAddress || "—"}</span
-                        >
-                    </CompactInfoItem>
-                </CompactInfoGrid>
-
-                <!-- Network Information -->
-                <div>
-                    <h3 class="text-sm font-medium mb-2 flex items-center">
-                        <Wifi class="mr-1.5 h-4 w-4" />
-                        Network Information
-                    </h3>
-
-                    <CompactInfoGrid columns={3} gap="gap-4">
-                        <!-- WiFi MAC -->
-                        <CompactInfoItem label="WiFi MAC">
-                            <span class="font-mono"
-                                >{device.wifiMac || "—"}</span
-                            >
-                        </CompactInfoItem>
-
-                        <!-- LAN MAC -->
-                        <CompactInfoItem label="LAN MAC">
-                            <span class="font-mono">{device.lanMac || "—"}</span
-                            >
-                        </CompactInfoItem>
-                    </CompactInfoGrid>
-                </div>
-            </div>
+            <TechnicalDetailsContent {device} />
         </AdminCard>
     </div>
+
+    <!-- Device Action History -->
+    <AdminCard
+        title="Action History"
+        description="Recent actions performed on this device"
+        icon={FileText}
+        class_name="mt-4"
+        compact={true}
+    >
+        {#if actionLogs && actionLogs.length > 0}
+            <ActionHistory {actionLogs} />
+        {:else}
+            <div class="text-sm text-neutral-500">No recent actions.</div>
+        {/if}
+    </AdminCard>
 </AdminPageLayout>
 
 <!-- Terminal Dialog has been replaced with a dedicated terminal page -->
