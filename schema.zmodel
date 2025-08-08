@@ -215,6 +215,9 @@ model User {
   tokenUsageLogs TokenUsageLog[]
   refreshTokens  RefreshToken[]
 
+  // Relations to action logs (user as initiator)
+  actionLogs     DeviceActionLog[] @relation("UserToActionLogs")
+
 
 
   // Authorization rules
@@ -478,6 +481,7 @@ model Device {
 
   // Relationships
   // logs          Log[]?    // Uncomment if you have a Log model
+  actionLogs   DeviceActionLog[] @relation("DeviceToActionLogs")
 
   // Connection status
   connected     Boolean  @default(false)
@@ -494,6 +498,42 @@ model Device {
   @@index([accountId])
   @@index([companyId])
 }   
+
+// Generic device action log for all operations (firmware update, screenshot, etc.)
+model DeviceActionLog {
+  id           String   @id @default(cuid())
+  deviceId     String
+  actionType   String   // 'screenshot', 'terminal', 'remote_desktop', 'install', 'firmware_update', 'restart', 'snapshot', 'ping', 'status_check', 'config_update'
+  status       String   // 'initiated', 'in_progress', 'success', 'failed', 'cancelled', 'timeout'
+  initiatedBy  String
+  initiatedAt  DateTime @default(now())
+  completedAt  DateTime?
+  durationMs   Int?
+  progress     Int?
+  message      String?
+  error        String?
+  metadata     Json?
+  requestId    String?
+  connectionId String?
+  protocol     String?  // 'sse', 'pushpin', 'websocket', ...
+
+  // Relations
+  device       Device   @relation("DeviceToActionLogs", fields: [deviceId], references: [id], onDelete: Cascade)
+  user         User     @relation("UserToActionLogs", fields: [initiatedBy], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([deviceId])
+  @@index([actionType])
+  @@index([status])
+  @@index([initiatedBy])
+  @@index([initiatedAt])
+
+  // Access policies
+  // Admins can do everything
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // The user who initiated can read
+  @@allow('read', auth() != null && initiatedBy == auth().id)
+}
 
 model Setting {
   id          String   @id @default(cuid())
