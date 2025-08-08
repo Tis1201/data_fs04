@@ -152,6 +152,7 @@ model User {
   jwtSigningKeys     JwtSigningKey[]
   tokenUsageLogs     TokenUsageLog[]
   refreshTokens      RefreshToken[]
+  actionLogs         DeviceActionLog[]   @relation("UserToActionLogs")
 
   @@index([primaryAccountId])
 }
@@ -307,21 +308,21 @@ model WhatsAppAuthData {
 }
 
 model Device {
-  id              String         @id() @default(cuid())
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt()
+  id              String            @id() @default(cuid())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt()
   name            String
   factoryTokens   FactoryToken[]
   description     String?
-  status          String         @default("ACTIVE")
+  status          String            @default("ACTIVE")
   expiresAt       DateTime?
   lastUsedAt      DateTime?
   createdBy       String
-  user            User           @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   accountId       String?
-  account         Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  account         Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
   companyId       String?
-  company         Company?       @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
   deviceType      String?
   model           String?
   manufacturer    String?
@@ -331,12 +332,13 @@ model Device {
   wifiMac         String?
   lanMac          String?
   ipAddress       String?
-  apiKey          String?        @unique()
+  apiKey          String?           @unique()
   apiKeyCreatedAt DateTime?
   apiKeyRotatedAt DateTime?
   claimedAt       DateTime?
   claimedBy       String?
-  connected       Boolean        @default(false)
+  actionLogs      DeviceActionLog[] @relation("DeviceToActionLogs")
+  connected       Boolean           @default(false)
   connectedAt     DateTime?
   disconnectedAt  DateTime?
 
@@ -345,6 +347,32 @@ model Device {
   @@index([status])
   @@index([accountId])
   @@index([companyId])
+}
+
+model DeviceActionLog {
+  id           String    @id() @default(cuid())
+  deviceId     String
+  actionType   String
+  status       String
+  initiatedBy  String
+  initiatedAt  DateTime  @default(now())
+  completedAt  DateTime?
+  durationMs   Int?
+  progress     Int?
+  message      String?
+  error        String?
+  metadata     Json?
+  requestId    String?
+  connectionId String?
+  protocol     String?
+  device       Device    @relation("DeviceToActionLogs", fields: [deviceId], references: [id], onDelete: Cascade)
+  user         User      @relation("UserToActionLogs", fields: [initiatedBy], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([actionType])
+  @@index([status])
+  @@index([initiatedBy])
+  @@index([initiatedAt])
 }
 
 model Setting {
