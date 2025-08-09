@@ -37,7 +37,7 @@ export const POST: RequestHandler = restrict(
             }
             
             const userInfo = await locals.prisma.user.findUnique({
-                where: { id: auth.user.userId },
+                where: { id: auth.user.id },
                 select: { id: true }
             });
             
