@@ -33,6 +33,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       return json({ success: false, error: 'Bundle not found' }, { status: 404 });
     }
 
+    // Enforce DRAFT-only modifications
+    if (bundle.status !== 'DRAFT') {
+      return json({ success: false, error: 'Bundle is not editable (must be DRAFT)' }, { status: 403 });
+    }
+
     // Check if device exists
     const device = await locals.prisma.device.findUnique({
       where: { id: deviceId }

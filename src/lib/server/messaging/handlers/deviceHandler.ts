@@ -8,6 +8,7 @@ import { messageHandler } from './messageHandler';
 import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
 import { SystemUser } from '../interfaces/message';
+import { sseService } from '$lib/server/sse/sseService';
 
 export const deviceHandler: Handler = {
   supports(type: string): boolean {
@@ -41,6 +42,9 @@ export const deviceHandler: Handler = {
       case 'updateFirmware':
         await handleFirmwareUpdate(message);
         break;
+    case 'bundleStatus':
+      await handleBundleStatus(message);
+      break;
       case 'message':
         await handleDeviceMessage(message);
         break;
@@ -87,7 +91,11 @@ async function handleDeviceMessage(message: InMessage): Promise<void> {
 
   const isResponse = type.endsWith(':response');
   const isConnScoped = String((message as any)?.scope || '').startsWith('connection:') && type.startsWith('webrtc:');
-  const overrides: any = { systemGenerated: true, sudo: true, ...computeEchoSettings(message, isResponse, isConnScoped) };
+  // Ensure outgoing message has a valid scope. Default to this device's subscription channel if missing.
+  const deviceIdForScope = (payload as any)?.deviceId as string | undefined;
+  const defaultScope = (message as any)?.scope
+    || (deviceIdForScope ? `subscription:device:${deviceIdForScope}` : `user:${message.userInfo.id}`);
+  const overrides: any = { systemGenerated: true, sudo: true, scope: defaultScope, ...computeEchoSettings(message, isResponse, isConnScoped) };
 
   // Terminal: begin action on connect, handle offline + timeout
   if (type === 'webrtc:connect') {
@@ -424,6 +432,127 @@ async function handleStatusUpdate(message: InMessage): Promise<void> {
 
   // TODO: Update device status in database
   // TODO: Notify relevant users about status change
+}
+
+async function handleBundleStatus(message: InMessage): Promise<void> {
+  try {
+    const p = (message.payload || {}) as any;
+    const deviceId: string | undefined = p.deviceId;
+    const status: string | undefined = p.status;
+    const progress: number | undefined = typeof p.progress === 'number' ? p.progress : undefined;
+    const sessionId: string | undefined = p.sessionId || p.batchId; // wave:<waveId>
+    const batchId: string | undefined = p.batchId || p.sessionId;
+    if (!deviceId || !status || !sessionId) {
+      logger.warn(`[DeviceHandler] bundleStatus missing required fields`, { deviceId, status, sessionId });
+      return;
+    }
+
+    // sessionId/batchId are encoded as wave:<waveId>
+    const waveId = String(sessionId).startsWith('wave:') ? String(sessionId).slice(5) : sessionId;
+
+    // Find the BundleDeviceProgress record for this device in the wave
+    const bdp = await (prisma as any).bundleDeviceProgress.findFirst({
+      where: { waveId, bundle: { id: (message as any).bundleId || undefined } },
+      include: { bundleDevice: true }
+    });
+
+    // If not found by relation, try by joining bundleDevice via deviceId
+    let targetProgress = bdp;
+    if (!targetProgress) {
+      targetProgress = await (prisma as any).bundleDeviceProgress.findFirst({
+        where: { waveId, bundleDevice: { deviceId } },
+        include: { bundleDevice: true }
+      });
+    }
+
+    if (!targetProgress) {
+      logger.warn(`[DeviceHandler] bundleStatus: No progress row found for wave ${waveId} and device ${deviceId}`);
+      // Still broadcast to UI so users see something
+      await sseService.broadcast({
+        type: 'device:bundleStatus',
+        scope: `subscription:device:${deviceId}`,
+        payload: { deviceId, waveId, status, progress }
+      } as any);
+      return;
+    }
+
+    const newStatus = status === 'COMPLETED' ? 'COMPLETED' : status === 'FAILED' ? 'FAILED' : 'IN_PROGRESS';
+    const update: any = { status: newStatus };
+    if (newStatus === 'IN_PROGRESS' && typeof progress === 'number') {
+      update.progress = progress;
+      if (!targetProgress.startedAt) update.startedAt = new Date();
+    }
+    if (newStatus === 'COMPLETED' || newStatus === 'FAILED') {
+      update.completedAt = new Date();
+    }
+    await (prisma as any).bundleDeviceProgress.update({ where: { id: targetProgress.id }, data: update });
+
+    // Recompute wave aggregates
+    const allForWave = await (prisma as any).bundleDeviceProgress.findMany({ where: { waveId } });
+    const devicesTotal = allForWave.length;
+    const devicesCompleted = allForWave.filter((r: any) => r.status === 'COMPLETED').length;
+    const devicesFailed = allForWave.filter((r: any) => r.status === 'FAILED').length;
+    // Progress represents successful completion percentage (exclude failures)
+    const waveProgress = devicesTotal > 0 ? Math.round((devicesCompleted / devicesTotal) * 100) : 0;
+    const waveStatus = devicesCompleted + devicesFailed >= devicesTotal && devicesTotal > 0
+      ? (devicesFailed > 0 ? 'FAILED' : 'COMPLETED')
+      : 'IN_PROGRESS';
+
+    await (prisma as any).bundleWave.update({
+      where: { id: waveId },
+      data: { status: waveStatus, endTime: waveStatus !== 'IN_PROGRESS' ? new Date() : undefined }
+    });
+
+    // Recompute bundle-level status based on all waves in the bundle
+    try {
+      const bundleId: string = (targetProgress as any).bundleId;
+      const waves = await (prisma as any).bundleWave.findMany({ where: { bundleId }, select: { status: true } });
+      if (Array.isArray(waves) && waves.length > 0) {
+        const anyInProgress = waves.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
+        const anyFailed = waves.some((w: any) => w.status === 'FAILED');
+        const allDone = waves.every((w: any) => ['COMPLETED', 'FAILED'].includes(w.status));
+        const bundleStatus = anyInProgress ? 'IN_PROGRESS' : (allDone ? (anyFailed ? 'FAILED' : 'COMPLETED') : 'PUBLISHED');
+        await (prisma as any).bundle.update({ where: { id: bundleId }, data: { status: bundleStatus } });
+        // If bundle reached a terminal state, broadcast an update to invalidate detail/list pages client-side if needed
+        if (bundleStatus === 'COMPLETED' || bundleStatus === 'FAILED') {
+          try {
+            const routing = MessageFactory.createSystemMessage(
+              'bundle:status',
+              `subscription:bundle:${bundleId}`,
+              { action: 'bundleStatus', bundleId, status: bundleStatus },
+              SystemUser,
+              { echoToSender: false }
+            );
+            await publisher.publish(routing);
+          } catch {}
+        }
+      }
+    } catch (e) {
+      logger.warn(`[DeviceHandler] Failed to recompute bundle status after wave update: ${String(e)}`);
+    }
+
+    // Broadcast to UI via messaging pipeline
+    const routing = MessageFactory.createSystemMessage(
+      'device:bundleStatus',
+      `subscription:device:${deviceId}`,
+      {
+        action: 'bundleStatus',
+        deviceId,
+        waveId,
+        status: newStatus,
+        // Always send wave-level progress so UI aggregates are correct even for per-device updates
+        progress: waveProgress,
+        devicesTotal,
+        devicesCompleted,
+        devicesFailed
+      },
+      SystemUser,
+      { echoToSender: false }
+    );
+    await publisher.publish(routing);
+  } catch (e: any) {
+    logger.warn(`[DeviceHandler] Failed to process bundleStatus: ${String(e?.message || e)}`);
+  }
 }
 
 async function handleFirmwareUpdate(message: InMessage): Promise<void> {

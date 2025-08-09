@@ -1,4 +1,4 @@
-import { fail, error } from '@sveltejs/kit';
+import { fail, error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
@@ -122,6 +122,8 @@ export const actions: Actions = {
                             description: form.data.description || '',
                             os: form.data.os || 'ANDROID',
                             reboot: form.data.reboot || false,
+                            forceUpdate: form.data.forceUpdate || false,
+                            autoOpen: (form.data as any).autoOpen || false,
                             status: 'DRAFT', // Always start as draft
                             version: form.data.version || '1.0.0',
                             waveSize: form.data.waveSize || 500,
@@ -147,20 +149,13 @@ export const actions: Actions = {
                         prisma: locals.prisma
                     })
                     
-                    // Return success message with bundle details
-                    return message(
-                        form,
-                        createSuccessResponse('Bundle created successfully!', {
-                            details: `Bundle '${bundle.name}' has been created.`,
-                            data: {
-                                id: bundle.id,
-                                name: bundle.name,
-                                os: bundle.os,
-                                version: bundle.version
-                            }
-                        })
-                    );
+                    // Redirect directly to the newly created bundle detail page
+                    throw redirect(303, `/admin/iot/bundles/${bundle.id}`);
                 } catch (err) {
+                    // Allow redirects to pass through
+                    if (err instanceof Response || (err as any)?.status === 303) {
+                        throw err;
+                    }
                     // Use the handleFormError utility to simplify error handling
                     return handleFormError({
                         error: err,

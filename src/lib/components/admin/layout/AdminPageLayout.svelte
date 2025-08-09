@@ -22,6 +22,8 @@
 		href?: string;
 		onClick?: (() => void) | null;
 		variant?: string;
+		disabled?: boolean;
+		title?: string;
 	}[] = [];
 	
 	// Layout options
@@ -49,6 +51,8 @@
 							href={button.href || undefined}
 							onClick={button.onClick || undefined}
 							variant={button.variant || 'default'}
+							disabled={button.disabled || false}
+							title={button.title}
 						/>
 					{/each}
 				</div>

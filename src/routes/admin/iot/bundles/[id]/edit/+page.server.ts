@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import type { PageServerLoad, Actions } from '../components/edit/$types';
+import type { PageServerLoad, Actions } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
@@ -30,12 +30,6 @@ export const load = restrict(
                         orderBy: {
                             createdAt: 'desc'
                         }
-                    },
-                    account: {
-                        select: {
-                            id: true,
-                            name: true
-                        }
                     }
                 }
             });
@@ -56,26 +50,27 @@ export const load = restrict(
                 }
             });
 
+            // Disallow editing if not DRAFT
+            if (bundle.status !== 'DRAFT') {
+                throw error(403, 'Bundle is not editable after publish');
+            }
+
             // Prepare form data from the bundle
-            const form = await superValidate(
-                {
-                    id: bundle.id,
-                    name: bundle.name,
-                    description: bundle.description || "",
-                    accountId: bundle.accountId || "",
-                    os: bundle.os,
-                    version: bundle.version || "",
-                    waveSize: bundle.waveSize || 0,
-                    scheduledAt: bundle.scheduledAt ? new Date(bundle.scheduledAt) : undefined,
-                    updateStrategy: bundle.updateStrategy,
-                    reboot: bundle.reboot || false,
-                    forceUpdate: bundle.forceUpdate || false,
-                    notifyUser: bundle.notifyUser || false,
-                    notificationTitle: bundle.notificationTitle || "",
-                    notificationMessage: bundle.notificationMessage || "",
-                },
-                zod(bundleSchema)
-            );
+            const form = await superValidate({
+                id: bundle.id,
+                name: bundle.name,
+                description: bundle.description || "",
+                accountId: bundle.accountId || "",
+                os: bundle.os,
+                version: bundle.version || "",
+                waveSize: bundle.waveSize || 0,
+                scheduledAt: bundle.scheduledAt ? bundle.scheduledAt.toISOString() : null,
+                // Let client compute local HH:mm from scheduledAt to avoid timezone mismatch
+                scheduledTime: null,
+                reboot: bundle.reboot || false,
+                forceUpdate: (bundle as any).forceUpdate || false,
+                autoOpen: (bundle as any).autoOpen || false,
+            }, zod(bundleSchema));
 
             return {
                 form,
@@ -107,11 +102,9 @@ export const actions: Actions = {
 
             try {
                 // Start a transaction to ensure data consistency
-                return await locals.prisma.$transaction(async (tx) => {
-                    // First check if bundle exists
-                    const existingBundle = await tx.bundle.findUnique({
-                        where: { id }
-                    });
+                await locals.prisma.$transaction(async (tx) => {
+                    // First check if bundle exists and is DRAFT
+                    const existingBundle = await tx.bundle.findUnique({ where: { id } });
 
                     if (!existingBundle) {
                         return fail(404, {
@@ -119,8 +112,27 @@ export const actions: Actions = {
                             error: 'Bundle not found'
                         });
                     }
+                    if (existingBundle.status !== 'DRAFT') {
+                        return fail(403, { form, error: 'Bundle is not editable after publish' });
+                    }
 
                     // Prepare update data
+                    // Combine scheduledAt (date) and scheduledTime (HH:mm) into a single Date if both provided
+                    const combineDateTime = (dateVal: any, timeStr: any): Date | null => {
+                        try {
+                            if (!dateVal) return null;
+                            const d = new Date(dateVal);
+                            if (!timeStr || typeof timeStr !== 'string') return d;
+                            const [hh, mm] = timeStr.split(':').map((v: string) => parseInt(v, 10));
+                            if (!isNaN(hh)) d.setHours(hh);
+                            if (!isNaN(mm)) d.setMinutes(mm);
+                            d.setSeconds(0, 0);
+                            return d;
+                        } catch {
+                            return dateVal ? new Date(dateVal) : null;
+                        }
+                    };
+
                     const updateData = {
                         name: form.data.name,
                         description: form.data.description || null,
@@ -128,13 +140,10 @@ export const actions: Actions = {
                         os: form.data.os,
                         version: form.data.version || null,
                         waveSize: form.data.waveSize || null,
-                        scheduledAt: form.data.scheduledAt || null,
-                        updateStrategy: form.data.updateStrategy,
+                        scheduledAt: combineDateTime(form.data.scheduledAt, (form.data as any).scheduledTime) || null,
                         reboot: form.data.reboot,
                         forceUpdate: form.data.forceUpdate,
-                        notifyUser: form.data.notifyUser,
-                        notificationTitle: form.data.notificationTitle || null,
-                        notificationMessage: form.data.notificationMessage || null,
+                        autoOpen: (form.data as any).autoOpen ?? false,
                     };
 
                     // Update bundle
@@ -152,13 +161,13 @@ export const actions: Actions = {
                         userId: locals.user.id,
                         ipAddress: locals.ipAddress,
                         prisma: tx
-                    })
-
-                    // Redirect back to the bundle detail page after successful update
-                    throw redirect(303, `/admin/iot/bundles/${id}`);
+                    });
                 });
+
+                // Redirect back to the bundle detail page after successful update
+                throw redirect(303, `/admin/iot/bundles/${id}`);
             } catch (e) {
-                if (e instanceof Response) {
+                if (e instanceof Response || (e as any)?.status === 303) {
                     throw e; // This is the redirect
                 }
                 

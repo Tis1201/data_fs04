@@ -1,318 +1,166 @@
 <script lang="ts">
-    // Import components and dependencies
     import { createEventDispatcher } from 'svelte';
-    import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
-    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
-    import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import Badge from "$lib/components/ui/badge/badge.svelte";
-    import { Pencil, Trash, Download, Package } from "lucide-svelte";
+    import { Checkbox } from '$lib/components/ui/checkbox';
     import type { Resource } from "@prisma/client";
-    import { goto } from "$app/navigation";
-    import { page } from "$app/stores";
     import { writable } from "svelte/store";
-    
-    // Create stores for filters
-    const selectedTypes = writable<string[]>($page.url.searchParams.get('types')?.split(',').filter(Boolean) || []);
-    import { toast } from "svelte-sonner";
-    import { api_post } from "$lib/utils/ApiUtils";
-    import { browser } from "$app/environment";
-    import { onMount } from "svelte";
-    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-    
-    // Create event dispatcher
-    const dispatch = createEventDispatcher();
-    
-    // Forward events to parent component
-    function tableSort(event: CustomEvent) {
-        dispatch('sort', event.detail);
-    }
-    
-    function tablePagination(event: CustomEvent) {
-        // Always use 5 per page
-        const modifiedEvent = { ...event.detail, per_page: 5 };
-        dispatch('pagination', modifiedEvent);
-    }
-    import { enhance } from "$app/forms";
-    import { formatBytes } from "$lib/utils/format";
+    import Pagination from "$lib/components/ui_components_sveltekit/table/pagination/Pagination.svelte";
 
-    // Props for DataTable component
-    export let props = {
-        records: [] as Resource[],
-        pagination: {
-            page: 1,
-            per_page: 10,
-            total_records: 0,
-            total_pages: 0
-        },
-        sort: {
-            field: "createdAt",
-            order: "desc" as "asc" | "desc"
-        },
-        loading: false
-    };
-    
-    // State for confirmation dialog
-    let state = {
-        selectedRecord: null as Resource | null,
-        confirmationOpen: false
-    };
+    // Filters
+    const selectedFormats = writable<string[]>([]);
+    const formatOptions = [
+        { label: 'APK', value: 'apk' },
+        { label: 'BIN', value: 'bin' },
+        { label: 'HEX', value: 'hex' },
+        { label: 'FIRMWARE', value: 'firmware' },
+        { label: 'FW', value: 'fw' },
+        { label: 'CPK', value: 'cpk' },
+        { label: 'ZIP', value: 'zip' }
+    ];
 
-    // Function to open delete confirmation dialog
-    function confirmDelete(resource: Resource) {
-        state.selectedRecord = resource;
-        state.confirmationOpen = true;
+    // Props
+    interface TableProps {
+        records: Resource[];
+        pagination: { page: number; per_page: number; total_records: number; total_pages: number };
+        sort: { field: string; order: 'asc' | 'desc' };
+        loading: boolean;
+        selectedResourceIds?: string[];
     }
-    
-    // Handle delete confirmation
-    function handleDeleteConfirm() {
-        // This would be implemented if not using form submission
-        // For now, we're using the form submission approach
+    export let props: TableProps;
+
+    const dispatch = createEventDispatcher<{
+        rowClick: Resource;
+        sort: { field: string; order: 'asc' | 'desc' };
+        pagination: { page: number; per_page: number };
+        filter: { search?: string; formats?: string[] };
+    }>();
+
+    // Internal filter state; emit to parent
+    let localSearch = '';
+    let localFormats: string[] = [];
+    function emitFilter() {
+        dispatch('filter', { search: localSearch, formats: localFormats });
     }
 
-    // Get resource type display name
+    function handleSearchChange(event: CustomEvent) {
+        const detail: any = (event as any).detail;
+        localSearch = typeof detail === 'string' ? detail : '';
+        emitFilter();
+    }
+
+    function handleSortClick(field: string) {
+        const order = props.sort.field === field && props.sort.order === 'asc' ? 'desc' : 'asc';
+        dispatch('sort', { field, order });
+    }
+
+    function handlePaginationChange(event: CustomEvent) {
+        dispatch('pagination', event.detail);
+    }
+
     function getResourceTypeDisplay(type: string) {
-        const typeMap = {
-            'file': 'File',
-            'image': 'Image',
-            'video': 'Video',
-            'document': 'Document',
-            'binary': 'Binary'
-        };
+        const typeMap: Record<string, string> = { file: 'File', image: 'Image', video: 'Video', document: 'Document', binary: 'Binary' };
         return typeMap[type] || type;
     }
-
-    // Get resource target display name
     function getResourceTargetDisplay(target: string) {
-        const targetMap = {
-            'user': 'User',
-            'device': 'Device',
-            'account': 'Account'
-        };
+        const targetMap: Record<string, string> = { user: 'User', device: 'Device', account: 'Account' };
         return targetMap[target] || target;
     }
-
-    // Get resource format badge variant
     function getFormatBadgeVariant(format: string | null) {
         if (!format) return 'outline';
-        
-        const formatVariants = {
-            'apk': 'default',
-            'bin': 'secondary',
-            'exe': 'destructive',
-            'sh': 'warning'
+        const formatVariants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+            apk: 'default', bin: 'secondary', exe: 'destructive', sh: 'secondary'
         };
         return formatVariants[format] || 'outline';
     }
-
-    // Table columns definition
-    const columns = [
-        {
-            id: "name",
-            label: "Name",
-            sortable: true,
-            render: (resource: Resource) => {
-                return {
-                    component: NameWithIdLink,
-                    props: {
-                        record: resource,
-                        baseUrl: "/admin/iot/resources",
-                        idField: "id",
-                        nameField: "name"
-                    }
-                };
-            }
-        },
-        {
-            id: "type",
-            label: "Type",
-            sortable: true,
-            render: (resource: Resource) => {
-                return {
-                    component: Badge,
-                    props: {
-                        variant: 'outline',
-                        class: "whitespace-nowrap"
-                    },
-                    children: getResourceTypeDisplay(resource.type)
-                };
-            }
-        },
-        {
-            id: "target",
-            label: "Target",
-            sortable: true,
-            render: (resource: Resource) => {
-                return {
-                    component: Badge,
-                    props: {
-                        variant: 'secondary',
-                        class: "whitespace-nowrap"
-                    },
-                    children: getResourceTargetDisplay(resource.target)
-                };
-            }
-        },
-        {
-            id: "version",
-            label: "Version",
-            sortable: true,
-            render: (resource: Resource) => resource.version || '-'
-        },
-        {
-            id: "format",
-            label: "Format",
-            sortable: true,
-            render: (resource: Resource) => {
-                if (!resource.format) return '-';
-                return {
-                    component: Badge,
-                    props: {
-                        variant: getFormatBadgeVariant(resource.format),
-                        class: "whitespace-nowrap"
-                    },
-                    children: resource.format.toUpperCase()
-                };
-            }
-        },
-        {
-            id: "size",
-            label: "Size",
-            sortable: true,
-            render: (resource: Resource) => formatBytes(resource.size)
-        },
-        {
-            id: "createdAt",
-            label: "Created",
-            sortable: true,
-            render: (resource: Resource) => {
-                return {
-                    component: RelativeDate,
-                    props: {
-                        date: resource.createdAt
-                    }
-                };
-            }
-        },
-        {
-            id: "actions",
-            label: "",
-            sortable: false,
-            render: (resource: Resource) => {
-                const actions: ActionItem[] = [
-                    {
-                        label: "Edit",
-                        icon: Pencil,
-                        onClick: () => goto(`/admin/iot/resources/${resource.id}/edit`)
-                    },
-                    {
-                        label: "Delete",
-                        icon: Trash,
-                        onClick: () => confirmDelete(resource),
-                        variant: "destructive"
-                    }
-                ];
-
-                // Add download action if it's a downloadable resource
-                if (resource.path) {
-                    actions.splice(1, 0, {
-                        label: "Download",
-                        icon: Download,
-                        onClick: () => window.open(resource.path, '_blank'),
-                        variant: "outline"
-                    });
-                }
-
-                return {
-                    component: RecordActions,
-                    props: {
-                        items: actions
-                    }
-                };
-            }
-        }
-    ];
 </script>
 
-<div class="space-y-4">
-    <!-- Delete Confirmation Dialog -->
-    <RecordDeleteDialog
-        state={{
-            selectedRecord: state.selectedRecord,
-            confirmationOpen: state.confirmationOpen
-        }}
-        on:confirm={handleDeleteConfirm}
-        title="Delete Resource"
-        getDescription={(resource) => `Are you sure you want to delete this resource? This action cannot be undone.`}
-        actionName="delete"
-        action="?/delete"
-    />
-
+<div class="w-full">
     <!-- Filters -->
-    <div class="flex flex-wrap gap-2 mb-4">
-        <div class="w-1/3">
+    <div class="p-4 border-b flex flex-wrap gap-2">
+        <div class="w-1/3 min-w-[240px]">
             <DebouncedTextFilter
                 placeholder="Search by app name..."
-                paramName="search"
-                value={$page.url.searchParams.get('search') || ''}
-                on:change={(e) => {
-                    const url = new URL(window.location.href);
-                    if (e.detail) {
-                        url.searchParams.set('search', e.detail);
-                    } else {
-                        url.searchParams.delete('search');
-                    }
-                    url.searchParams.set('page', '1');
-                    goto(url.toString(), { replaceState: true, noScroll: true });
-                }}
+                value={localSearch}
+                emitOnly={true}
+                delay={0}
+                on:change={handleSearchChange}
             />
         </div>
-        
-        <!-- Type filter -->
         <PopoverFilter
-            label="Type"
-            options={[
-                { label: "File", value: "file" },
-                { label: "Image", value: "image" },
-                { label: "Video", value: "video" },
-                { label: "Document", value: "document" },
-                { label: "Binary", value: "binary" }
-            ]}
-            selectedValues={$selectedTypes}
+            label="Format"
+            options={formatOptions}
+            selectedValues={$selectedFormats}
             onChange={(values) => {
-                selectedTypes.set(values);
-                const url = new URL(window.location.href);
-                url.searchParams.set('types', values.join(','));
-                if (!values.length) url.searchParams.delete('types');
-                url.searchParams.set('page', '1');
-                goto(url.toString(), { replaceState: true, noScroll: true });
+                selectedFormats.set(values);
+                localFormats = values;
+                emitFilter();
             }}
         />
     </div>
 
-    <!-- Data Table -->
-    {#if props.loading}
-        <LoadingSkeleton />
-    {:else}
-        <DataTable
-            props={{
-                records: props.records,
-                pagination: {
-                    ...props.pagination,
-                    per_page: 5 // Force 5 per page
-                },
-                sort: props.sort,
-                perPageOptions: [5], // Only allow 5 per page
-                defaultPerPage: 5
-            }}
-            columns={columns}
-            on:sort={tableSort}
-            on:pagination={tablePagination}
-            on:rowClick={(event) => dispatch('rowClick', event.detail)}
-        />
-    {/if}
+    <!-- Table -->
+    <table class="w-full">
+        <thead>
+            <tr class="border-b">
+                <th class="w-10 p-3"></th>
+                <th class="text-left p-3">
+                    <button class="p-0 font-medium text-sm flex items-center" on:click={() => handleSortClick('name')}>
+                        Name
+                    </button>
+                </th>
+                <th class="text-left p-3">Type</th>
+                <th class="text-left p-3">Target</th>
+                <th class="text-left p-3">Version</th>
+                <th class="text-left p-3">Format</th>
+                <th class="text-left p-3">Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {#if props.records.length === 0}
+                <tr>
+                    <td colspan="7" class="text-center p-4 text-muted-foreground">No apps found</td>
+                </tr>
+            {:else}
+                {#each props.records as resource}
+                    <tr class="border-b hover:bg-muted/50 cursor-pointer" on:click={() => dispatch('rowClick', resource)}>
+                        <td class="p-3">
+                            <button type="button" class="inline-flex" on:click|stopPropagation={() => dispatch('rowClick', resource)} aria-label={`Select ${resource.name}`}>
+                                <Checkbox checked={props.selectedResourceIds?.includes(resource.id)} />
+                            </button>
+                        </td>
+                        <td class="p-3">
+                            <div class="flex flex-col">
+                                <span>{resource.name}</span>
+                                <span class="text-xs text-muted-foreground">ID: {resource.id}</span>
+                            </div>
+                        </td>
+                        <td class="p-3">
+                            <Badge variant="outline">{getResourceTypeDisplay(resource.type)}</Badge>
+                        </td>
+                        <td class="p-3">
+                            <Badge variant="secondary">{getResourceTargetDisplay(resource.target)}</Badge>
+                        </td>
+                        <td class="p-3">{resource.version || '-'}</td>
+                        <td class="p-3">
+                            {#if resource.format}
+                                <Badge variant={getFormatBadgeVariant(resource.format)} class="whitespace-nowrap">{resource.format.toUpperCase()}</Badge>
+                            {:else}
+                                -
+                            {/if}
+                        </td>
+                        <td class="p-3">
+                            <RelativeDate date={resource.createdAt} />
+                        </td>
+                    </tr>
+                {/each}
+            {/if}
+        </tbody>
+    </table>
+    <!-- Pagination -->
+    <div class="p-4 border-t">
+        <Pagination pagination={props.pagination} emitOnly={true} on:change={handlePaginationChange} />
+    </div>
 </div>

@@ -217,6 +217,7 @@ model User {
 
   // Relations to action logs (user as initiator)
   actionLogs     DeviceActionLog[] @relation("UserToActionLogs")
+  bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
 
 
 
@@ -482,6 +483,7 @@ model Device {
   // Relationships
   // logs          Log[]?    // Uncomment if you have a Log model
   actionLogs   DeviceActionLog[] @relation("DeviceToActionLogs")
+  bundleInstallDevices BundleInstallDevice[]
 
   // Connection status
   connected     Boolean  @default(false)
@@ -869,6 +871,8 @@ model Bundle {
   description String?
   os          String       // e.g., "ANDROID"
   reboot      Boolean      @default(false)
+  autoOpen    Boolean      @default(false)
+  forceUpdate Boolean      @default(false)
   status      String       // "DRAFT", "PUBLISHED", "CANCELLED" "COMPLETED", "FAILED"
   version     String
   createdAt   DateTime     @default(now())
@@ -881,13 +885,13 @@ model Bundle {
   scheduledAt DateTime?
   scheduledAtTimezone String?
   scheduledAtStartIfMissed Boolean @default(false) 
-  updateStrategy String? @default("IMMEDIATE") // "IMMEDIATE", "ON_REBOOT"
 
   // Relationships
   apps        BundleApp[]
   waves       BundleWave[]
   devices     BundleDevice[]  // Add this line
   progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
+  bundleInstallBundles     BundleInstallBundle[]
 
   
 
@@ -1007,5 +1011,160 @@ model BundleWave {
 
   @@index([bundleId])
   @@index([status])
+}
+
+// Bundle Install System Models
+model BundleInstallSession {
+  id                String                 @id @default(cuid())
+  name              String
+  description       String?
+  status            String                 @default("PENDING")
+  totalDevices      Int
+  totalBundles      Int
+  totalBatches      Int
+  completedBatches  Int                    @default(0)
+  successfulDevices Int                    @default(0)
+  failedDevices     Int                    @default(0)
+  pendingDevices    Int                    @default(0)
+  initiatedBy       String
+  initiatedAt       DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  estimatedDuration Int?
+  actualDuration    Int?
+  metadata          Json?
+  batches           BundleInstallBatch[]
+  devices           BundleInstallDevice[]
+  bundles           BundleInstallBundle[]
+  errors            BundleInstallError[]
+  user              User                   @relation("UserToBundleInstallSession", fields: [initiatedBy], references: [id], onDelete: Cascade)
+
+  @@index([initiatedBy])
+  @@index([status])
+  @@index([initiatedAt])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,create,update', auth() != null && initiatedBy == auth().id)
+}
+
+model BundleInstallBatch {
+  id                String                 @id @default(cuid())
+  sessionId         String
+  batchNumber       Int
+  status            String                 @default("PENDING")
+  deviceCount       Int
+  successfulDevices Int                    @default(0)
+  failedDevices     Int                    @default(0)
+  pendingDevices    Int                    @default(0)
+  initiatedAt       DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  duration          Int?
+  error             String?
+  metadata          Json?
+  session           BundleInstallSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  devices           BundleInstallDevice[]
+  bundles           BundleInstallBundle[]
+
+  @@index([sessionId])
+  @@index([batchNumber])
+  @@index([status])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+model BundleInstallDevice {
+  id                String                 @id @default(cuid())
+  sessionId         String
+  batchId           String
+  deviceId          String
+  status            String                 @default("PENDING")
+  progress          Int                    @default(0)
+  currentBundle     String?
+  currentBundleIdx  Int                    @default(0)
+  totalBundles      Int
+  successfulBundles Int                    @default(0)
+  failedBundles     Int                    @default(0)
+  initiatedAt       DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  duration          Int?
+  error             String?
+  metadata          Json?
+  session           BundleInstallSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch             BundleInstallBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device            Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bundles           BundleInstallBundle[]
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([status])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+model BundleInstallBundle {
+  id         String               @id @default(cuid())
+  sessionId  String
+  batchId    String
+  deviceId   String
+  bundleId   String
+  status     String               @default("PENDING")
+  progress   Int                  @default(0)
+  message    String?
+  error      String?
+  initiatedAt DateTime             @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?
+  metadata    Json?
+  session    BundleInstallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch      BundleInstallBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device     BundleInstallDevice  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bundle     Bundle               @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([bundleId])
+  @@index([status])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+// Bundle Install Error Logging
+model BundleInstallError {
+  id           String   @id @default(cuid())
+  sessionId    String
+  batchId      String?
+  deviceId     String?
+  bundleId     String?
+  errorType    String   // DEVICE, BATCH, SESSION, NETWORK, TIMEOUT, VALIDATION
+  errorCode    String
+  errorMessage String
+  retryCount   Int      @default(0)
+  maxRetries   Int      @default(3)
+  timestamp    DateTime @default(now())
+  metadata     Json?
+  session      BundleInstallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([bundleId])
+  @@index([errorType])
+  @@index([timestamp])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
 }
 

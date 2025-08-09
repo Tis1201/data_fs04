@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
-  import { page } from '$app/stores';
+  // Remove URL-coupled stores; keep selector state internal
   import { Button } from '$lib/components/ui/button';
   import { X } from 'lucide-svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import { writable } from 'svelte/store';
   import { browser } from '$app/environment';
-  import { goto } from "$app/navigation";
+  // No navigation side-effects for internal pagination
   import { toast } from 'svelte-sonner';
   import DeviceTable from "./table.svelte";
-  import { handleTableSort as utilHandleTableSort, handleTablePagination as utilHandleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+  // Remove URL-mutating utilities; handle sort/pagination locally
   import { Skeleton } from '$lib/components/ui/skeleton';
   
   interface TableMeta {
@@ -43,7 +43,10 @@
     id: string;
     name: string;
     status: string;
-    lastSeen?: string;
+    model?: string;
+    description?: string;
+    createdAt?: string;
+    lastUsedAt?: string;
   }
 
   export let bundleId: string;
@@ -64,7 +67,16 @@
     loading: false
   };
   
-  // Single reactive statement to handle all loading conditions
+  // Local table state (decoupled from URL)
+  let currentPage = 1;
+  const perPage = 5;
+  let sortField: keyof Device | 'lastUsedAt' | 'name' | 'status' = 'name';
+  let sortOrder: 'asc' | 'desc' = 'asc';
+  let filterSearch: string = '';
+  let filterStatus: string | null = null;
+  let controller: AbortController | null = null;
+
+  // Load when dialog opens
   $: if (browser && open) {
     loadDevices();
   }
@@ -78,51 +90,37 @@
   
   async function loadDevices() {
     try {
+      console.log('[DeviceSelector] Loading devices...');
+      
       // Set loading state
       tableData = {
         ...tableData,
         loading: true
       };
       
-      // Get current URL params from the page URL
-      const currentUrl = $page.url;
+      // Build params from local state only
       const params = new URLSearchParams();
-      
-      // Add pagination parameters - always use 5 per page
-      const urlPage = currentUrl.searchParams.get('page');
-      
-      const page = urlPage ? parseInt(urlPage) : tableData.pagination?.page || 1;
-      // Always use 5 per page
-      const perPage = 5;
-      
-      params.append('page', page.toString());
-      params.append('per_page', '5');
-      
-      // Add sort parameters - prefer URL values over state values
-      const urlSort = currentUrl.searchParams.get('sort');
-      const urlOrder = currentUrl.searchParams.get('order');
-      
-      const sortField = urlSort || tableData.sort?.field || 'name';
-      const sortOrder = urlOrder || tableData.sort?.order || 'asc';
-      
+      params.append('page', String(currentPage));
+      params.append('per_page', String(perPage));
       params.append('sort', sortField);
       params.append('order', sortOrder);
-      
-      // Add filter parameters if they exist
-      const search = currentUrl.searchParams.get('search');
-      if (search) params.append('search', search);
-      
-      const status = currentUrl.searchParams.get('status');
-      if (status) params.append('status', status);
+      if (filterSearch) params.append('search', filterSearch);
+      if (filterStatus) params.append('status', filterStatus);
       
       // Make the API request
-      const response = await fetch(`/admin/iot/bundles/${bundleId}/components/device_select?${params}`);
+      const apiUrl = `/api/admin/iot/bundles/${bundleId}/components/device_select?${params}`;
+      console.log('[DeviceSelector] Fetching from:', apiUrl);
+      // Abort previous in-flight request to keep UI responsive
+      if (controller) controller.abort();
+      controller = new AbortController();
+      const response = await fetch(apiUrl, { signal: controller.signal });
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data: ApiResponse = await response.json();
+      console.log('[DeviceSelector] API response meta:', data?.meta, 'count:', data?.devices?.length);
       
       // Update table data with the response following standard pattern
       tableData = {
@@ -130,19 +128,20 @@
         loading: false,
         records: data.devices || [],
         pagination: {
-          page: data.meta?.current_page || 1,
-          per_page: data.meta?.per_page || 5,
+          page: data.meta?.current_page || currentPage,
+          per_page: data.meta?.per_page || perPage,
           total_records: data.meta?.total || 0,
           total_pages: data.meta?.last_page || 1
         },
         sort: {
-          field: $page.url.searchParams.get('sort') || 'name',
-          order: ($page.url.searchParams.get('order') as 'asc' | 'desc') || 'asc'
+          field: sortField,
+          order: sortOrder
         }
       };
       
     } catch (error) {
-      console.error('Failed to load devices:', error);
+      if ((error as any)?.name === 'AbortError') return;
+      console.error('[DeviceSelector] Failed to load devices:', error);
       toast.error('Failed to load devices. Please try again.');
       tableData = {
         ...tableData,
@@ -154,64 +153,70 @@
   export let open = false;
   
   let loading = false;
-  let selectedDevice: Device | null = null;
+  let selectedDevices: Device[] = [];
   
   // Define events
   const dispatch = createEventDispatcher<{
-    select: { id: string; name: string };
+    select: { id: string; name: string }[];
     close: void;
   }>();
   
   // Close the dialog
   function closeDialog() {
     open = false;
-    selectedDevice = null;
+    selectedDevices = [];
     dispatch('close');
+    // No URL cleanup necessary; state is internal
   }
   
-  // Handle row click
+  // Handle row click - toggle selection
   function handleRowClick(device: Device) {
-    selectedDevice = device;
-    // Dispatch select event with the selected device
-    dispatch('select', { 
-      id: device.id, 
-      name: device.name
-    });
-    // Close the dialog
-    closeDialog();
+    console.log('[DeviceSelector] row clicked', device?.id, device?.name);
+    const existingIndex = selectedDevices.findIndex(d => d.id === device.id);
+    if (existingIndex >= 0) {
+      console.log('[DeviceSelector] unselect device', device?.id);
+      selectedDevices = selectedDevices.filter(d => d.id !== device.id);
+    } else {
+      console.log('[DeviceSelector] select device', device?.id);
+      selectedDevices = [...selectedDevices, device];
+    }
+    console.log('[DeviceSelector] selected count:', selectedDevices.length);
   }
   
   // Use standard table sort handler
-  function handleTableSort(event: CustomEvent) {
-    // Use standard utility function for URL update and navigation
-    utilHandleTableSort(event, true);
-    
-    // Reload data after URL update
+  function handleTableSort(event: CustomEvent<{ field: string; order: 'asc'|'desc' }>) {
+    console.log('[DeviceSelector] sort event', event.detail);
+    sortField = event.detail.field as any;
+    sortOrder = event.detail.order;
+    currentPage = 1;
     loadDevices();
   }
   
   // Use standard table pagination handler
-  function handleTablePagination(event: CustomEvent) {
-    // Override the per_page in the event detail to always use 5
-    const modifiedEvent = new CustomEvent('pagination', {
-      detail: { ...event.detail, per_page: 5 }
-    });
-    
-    // Use standard utility function for URL update and navigation
-    utilHandleTablePagination(modifiedEvent, 'deviceSelectorPageSize', true);
-    
-    // Reload data after URL update
+  function handleTablePagination(event: CustomEvent<{ page: number; per_page: number }>) {
+    console.log('[DeviceSelector] pagination event', event.detail);
+    currentPage = event.detail.page;
+    // Force perPage to 5 regardless
+    loadDevices();
+  }
+
+  function handleTableFilter(event: CustomEvent<{ search?: string; status?: string | null }>) {
+    console.log('[DeviceSelector] filter event', event.detail);
+    filterSearch = event.detail.search ?? '';
+    filterStatus = event.detail.status ?? null;
+    currentPage = 1;
     loadDevices();
   }
   
   // Handle confirm button click
   function handleConfirm() {
-    if (selectedDevice) {
-      // Dispatch select event with the selected device
-      dispatch('select', { 
-        id: selectedDevice.id,
-        name: selectedDevice.name
-      });
+    console.log('[DeviceSelector] confirm clicked, selected:', selectedDevices.map(d => d.id));
+    if (selectedDevices.length > 0) {
+      // Dispatch select event with the selected devices
+      dispatch('select', selectedDevices.map(device => ({ 
+        id: device.id,
+        name: device.name
+      })));
       // Close the dialog
       closeDialog();
     }
@@ -219,53 +224,76 @@
   
   // Handle cancel button click
   function handleCancel() {
-    closeDialog();
+    open = false;
+    selectedDevices = [];
+    dispatch('close');
   }
   
   // Handle dialog close
   function handleClose() {
-    closeDialog();
+    open = false;
+    selectedDevices = [];
+    dispatch('close');
+    // Reset filters when closing modal
+    filterSearch = '';
+    filterStatus = null;
+    currentPage = 1;
   }
 </script>
 
 <Dialog.Root bind:open onOpenChange={(isOpen) => !isOpen && handleClose()}>
   <Dialog.Content class="sm:max-w-4xl">
     <Dialog.Header>
-      <Dialog.Title>Select a Device</Dialog.Title>
+      <Dialog.Title>Select Devices</Dialog.Title>
       <Dialog.Description>
-        Choose a device to add to the bundle
+        Choose devices to add to the bundle (click to select/deselect)
       </Dialog.Description>
     </Dialog.Header>
 
     <div class="space-y-4 py-4">
-      <!-- Table Container - Following standard pattern from factory tokens -->
-      <div class="mt-4 border rounded-md overflow-hidden">
-        {#if tableData.loading}
-          <div class="p-4 space-y-4">
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-4 w-3/4" />
-            <Skeleton class="h-4 w-1/2" />
-            <Skeleton class="h-4 w-2/3" />
-            <Skeleton class="h-4 w-3/4" />
+      <!-- Selected Devices Review Section -->
+      {#if selectedDevices.length > 0}
+        <div class="border rounded-md p-4 bg-muted/30">
+          <h4 class="font-medium mb-3">Selected Devices ({selectedDevices.length})</h4>
+          <div class="flex flex-wrap gap-2">
+            {#each selectedDevices as device}
+              <div class="flex items-center gap-2 bg-background border rounded-md px-3 py-1 text-sm">
+                <span>{device.name}</span>
+                <button 
+                  type="button"
+                  class="text-muted-foreground hover:text-destructive"
+                  on:click={() => handleRowClick(device)}
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
           </div>
-        {:else}
-          <DeviceTable
-            props={{
-              records: tableData.records,
-              pagination: tableData.pagination,
-              sort: tableData.sort,
-              loading: tableData.loading,
-              selectedDeviceId: selectedDevice?.id
-            }}
-            on:rowClick={({ detail }) => {
-              if (detail) {
-                handleRowClick(detail);
-              }
-            }}
-            on:sort={handleTableSort}
-            on:pagination={handleTablePagination}
-          />
-        {/if}
+        </div>
+      {/if}
+
+      <!-- Available Devices Section -->
+      <div>
+        <h4 class="font-medium mb-3">Available Devices</h4>
+        <div class="border rounded-md overflow-hidden">
+            <DeviceTable
+              props={{
+                records: tableData.records,
+                pagination: tableData.pagination,
+                sort: tableData.sort,
+                loading: tableData.loading,
+                selectedDeviceIds: selectedDevices.map(d => d.id)
+              }}
+              on:rowClick={({ detail }) => {
+                if (detail) {
+                  handleRowClick(detail);
+                }
+              }}
+              on:sort={handleTableSort}
+              on:pagination={handleTablePagination}
+              on:filter={handleTableFilter}
+            />
+        </div>
       </div>
     </div>
 
@@ -275,7 +303,7 @@
       </Button>
       <Button 
         on:click={handleConfirm} 
-        disabled={!selectedDevice}
+        disabled={selectedDevices.length === 0}
         class="ml-2"
       >
         Select

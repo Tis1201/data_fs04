@@ -6,13 +6,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const messageHandler: Handler = {
   supports(type: string): boolean {
-    console.log("come in handllerr")
+    // We route generic device messages that don't match specialized handlers
     return type.startsWith('message:');
   },
 
   async handle(message: InMessage): Promise<void> {
-    console.log("come in handllerr")
-    // await publisher.publish(message);
+    // Ensure scope exists; if missing, fallback to device or user scope
+    const deviceId = (message as any)?.payload?.deviceId as string | undefined;
+    const scope = (message as any)?.scope || (deviceId ? `subscription:device:${deviceId}` : `user:${message.userInfo.id}`);
 
     //{
     // "payload":{"type":"message","content":"test"},
@@ -26,9 +27,8 @@ export const messageHandler: Handler = {
 
     // payload.content = "echo: " + content;
 
-    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message, { sudo: true });
-      
-    publisher.publish(routingMessage);
+    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message, { sudo: true, scope });
+    await publisher.publish(routingMessage);
 
     // logger.debug(`[MessageHandler] Routing message: ${JSON.stringify(routingMessage)}`);
   }
