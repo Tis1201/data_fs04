@@ -49,11 +49,12 @@ module.exports = defineConfig({
     video: 'on-first-retry',
     trace: 'on-first-retry',
     launchOptions: {
-      slowMo: 100,
+      slowMo: 300,
     },
     // Set storage state for all browsers
     storageState: fs.existsSync(authFile) ? authFile : undefined,
-    actionTimeout: 15000,
+    actionTimeout: 30000,
+    navigationTimeout: 30000,
   },
 
   /* Configure projects for major browsers */

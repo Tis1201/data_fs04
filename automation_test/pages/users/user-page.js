@@ -34,7 +34,8 @@ class UserPage extends BasePage {
 
     async goToUserPage() {
         await this.page.goto(config.pageURL.users.url);
-        await this.userListName;
+        await this.userListName.waitFor({ state: 'visible' });
+        await this.addUserButton.waitFor({ state: 'visible' });
     }
 
     /*
@@ -45,6 +46,7 @@ class UserPage extends BasePage {
     async createUser(email, name, options = {}) {
         await this.goToUserPage();
 
+        await expect(this.addUserButton).toBeEnabled();
         await this.addUserButton.click();
 
         // Fill required fields
