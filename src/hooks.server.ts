@@ -7,6 +7,9 @@ import { pushpinMiddleware } from "$lib/server/pushpin/middleware";
 import { websocketMiddleware } from "$lib/server/websocket/middleware";
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
+import prisma from "$lib/server/prisma";
+import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
+import { _publishBundleDirect } from "./routes/api/admin/iot/bundles/[id]/publish/+server";
 
 // Initialize WhatsApp clients on server startup (not during build)
 // Use a self-executing async function to avoid blocking the main thread
@@ -27,8 +30,17 @@ if (!building) {
 
             await ensureActiveSetting();
             logger.info('WhatsAppAccountManager is ready');
-        } catch (error) {
-            logger.error('Error in WhatsApp initialization process', { error: error.message, stack: error.stack });
+
+            // Start bundle auto-publish scheduler
+            try {
+                startBundleAutoPublishScheduler(prisma as any, async (bundleId: string) => _publishBundleDirect(prisma as any, bundleId));
+                logger.info('Bundle auto-publish scheduler started');
+            } catch (e:any) {
+                logger.warn(`Failed to start auto-publish scheduler: ${e?.message || String(e)}`);
+            }
+        } catch (error: unknown) {
+            const e = error as any;
+            logger.error('Error in WhatsApp initialization process', { error: e?.message, stack: e?.stack });
         }
     })();
 }
@@ -62,7 +74,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
     const forwardedFor = event.request.headers.get('x-forwarded-for');
     const ip = forwardedFor?.split(',')[0]?.trim() || event.getClientAddress();
-    event.locals.ipAddress = ip;
+    (event.locals as any).ipAddress = ip;
 
     // Chain the middleware functions properly
     // First apply auth middleware, then pushpin middleware if needed

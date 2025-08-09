@@ -35,7 +35,8 @@ class CompanyPage extends BasePage {
 
     async goToCompanyPage() {
         await this.page.goto(config.pageURL.companies.url);
-        await this.companyListName;
+        await this.companyListName.waitFor({ state: 'visible' });
+        await this.addCompanyButton.waitFor({ state: 'visible' });
     }
 
     /*
@@ -46,6 +47,7 @@ class CompanyPage extends BasePage {
     async createCompany(companyName, accountName, contactEmail, options = {}) {
         await this.goToCompanyPage();
 
+        await expect(this.addCompanyButton).toBeEnabled();
         await this.addCompanyButton.click();
 
         // Fill required fields

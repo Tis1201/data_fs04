@@ -10,93 +10,49 @@
     import { createEventDispatcher } from "svelte";
     
     // Props
+    // Keep prop for API consistency (no local use)
     export let bundleId: string;
     export let loading = false;
     export let empty = false;
-    export let selectedWaveId = null;
+    export let selectedWaveId: string | null = null;
+    export let waves: Array<{
+        id: string;
+        name: string;
+        status: string;
+        startTime?: string | null;
+        endTime?: string | null;
+        progress?: number | null;
+        devicesTotal?: number | null;
+        devicesCompleted?: number | null;
+        devicesFailed?: number | null;
+    }> = [];
     
     // Event dispatcher
     const dispatch = createEventDispatcher();
     
-    // Simplified mock data for waves
-    const mockWaves = [
-        {
-            id: "wave1",
-            name: "Wave 1",
-            status: "COMPLETED",
-            startTime: new Date(2025, 5, 1, 10, 0).toISOString(),
-            endTime: new Date(2025, 5, 1, 14, 30).toISOString(),
-            progress: 100,
-            devicesTotal: 2,
-            devicesCompleted: 2,
-            devicesFailed: 0
-        },
-        {
-            id: "wave2",
-            name: "Wave 2",
-            status: "IN_PROGRESS",
-            startTime: new Date(2025, 5, 2, 10, 0).toISOString(),
-            endTime: null,
-            progress: 65,
-            devicesTotal: 1,
-            devicesCompleted: 0,
-            devicesFailed: 0
-        },
-        {
-            id: "wave3",
-            name: "Wave 3",
-            status: "PENDING",
-            startTime: null,
-            endTime: null,
-            progress: 0,
-            devicesTotal: 1,
-            devicesCompleted: 0,
-            devicesFailed: 0
-        },
-        {
-            id: "wave4",
-            name: "Wave 4",
-            status: "FAILED",
-            startTime: new Date(2025, 5, 3, 10, 0).toISOString(),
-            endTime: new Date(2025, 5, 3, 10, 15).toISOString(),
-            progress: 45,
-            devicesTotal: 1,
-            devicesCompleted: 0,
-            devicesFailed: 1
-        },
-        {
-            id: "wave5",
-            name: "Wave 5",
-            status: "ROLLED_BACK",
-            startTime: new Date(2025, 5, 2, 14, 0).toISOString(),
-            endTime: new Date(2025, 5, 2, 18, 0).toISOString(),
-            progress: 80,
-            devicesTotal: 1,
-            devicesCompleted: 0,
-            devicesFailed: 1
-        }
-    ];
+    // Derive waves list to display
+    $: displayWaves = Array.isArray(waves) && waves.length > 0 ? waves : [];
     
     // Format date for display
-    function formatDate(date) {
+    function formatDate(date: string | null | undefined) {
         return date ? new Date(date).toLocaleString() : '-';
     }
     
     // Get status badge variant
-    function getStatusVariant(status) {
-        const variantMap = {
+    function getStatusVariant(status: string): 'success' | 'default' | 'secondary' | 'destructive' | 'outline' {
+        const variantMap: Record<string, 'success' | 'default' | 'secondary' | 'destructive' | 'outline'> = {
             'COMPLETED': 'success',
             'IN_PROGRESS': 'default',
             'PENDING': 'secondary',
             'FAILED': 'destructive',
-            'ROLLED_BACK': 'warning'
+            'ROLLED_BACK': 'secondary'
         };
         return variantMap[status] || 'outline';
     }
     
     // Get status display text
-    function getStatusDisplay(status) {
-        const statusMap = {
+    function getStatusDisplay(status: string) {
+        const statusMap: Record<string, string> = {
             'COMPLETED': 'Completed',
             'IN_PROGRESS': 'In Progress',
             'PENDING': 'Pending',
@@ -106,30 +62,34 @@
         return statusMap[status] || status;
     }
     
-    // Mock action handlers
-    function viewWaveDetails(waveId) {
-        console.log(`View wave details ${waveId}`);
+    // Action handler: select wave and emit event
+    function viewWaveDetails(waveId: string) {
+        selectWave(waveId);
     }
     
-    function startWave(waveId) {
+    function startWave(waveId: string) {
         console.log(`Start wave ${waveId}`);
     }
     
-    function pauseWave(waveId) {
+    function pauseWave(waveId: string) {
         console.log(`Pause wave ${waveId}`);
     }
     
     // Select a wave and emit the event
-    function selectWave(waveId) {
+    function selectWave(waveId: string) {
         selectedWaveId = waveId;
-        const selectedWave = mockWaves.find(wave => wave.id === waveId);
+        const selectedWave = displayWaves.find((wave) => wave.id === waveId);
         dispatch('selectWave', { wave: selectedWave });
     }
 </script>
 
 <AdminCard>
-    <svelte:fragment slot="title">Deployment Waves</svelte:fragment>
-    <svelte:fragment slot="description">Manage deployment waves for this bundle</svelte:fragment>
+    <svelte:fragment slot="header">
+        <div>
+            <h3 class="text-lg font-medium">Deployment Waves</h3>
+            <p class="text-sm text-muted-foreground">Manage deployment waves for this bundle</p>
+        </div>
+    </svelte:fragment>
     {#if loading}
         <div class="space-y-4">
             <div class="flex justify-between">
@@ -159,35 +119,35 @@
                 <Card>
                     <CardContent class="p-4 text-center">
                         <p class="text-xs font-medium uppercase text-muted-foreground">Total</p>
-                        <p class="text-2xl font-bold">{mockWaves.length}</p>
+                        <p class="text-2xl font-bold">{displayWaves.length}</p>
                     </CardContent>
                 </Card>
                 
                 <Card>
                     <CardContent class="p-4 text-center">
                         <p class="text-xs font-medium uppercase text-muted-foreground">Completed</p>
-                        <p class="text-2xl font-bold text-green-600">{mockWaves.filter(w => w.status === 'COMPLETED').length}</p>
+                        <p class="text-2xl font-bold text-green-600">{displayWaves.filter(w => w.status === 'COMPLETED').length}</p>
                     </CardContent>
                 </Card>
                 
                 <Card>
                     <CardContent class="p-4 text-center">
                         <p class="text-xs font-medium uppercase text-muted-foreground">In Progress</p>
-                        <p class="text-2xl font-bold text-blue-600">{mockWaves.filter(w => w.status === 'IN_PROGRESS').length}</p>
+                        <p class="text-2xl font-bold text-blue-600">{displayWaves.filter(w => w.status === 'IN_PROGRESS').length}</p>
                     </CardContent>
                 </Card>
                 
                 <Card>
                     <CardContent class="p-4 text-center">
                         <p class="text-xs font-medium uppercase text-muted-foreground">Failed</p>
-                        <p class="text-2xl font-bold text-red-600">{mockWaves.filter(w => w.status === 'FAILED').length}</p>
+                        <p class="text-2xl font-bold text-red-600">{displayWaves.filter(w => w.status === 'FAILED').length}</p>
                     </CardContent>
                 </Card>
                 
                 <Card>
                     <CardContent class="p-4 text-center">
                         <p class="text-xs font-medium uppercase text-muted-foreground">Rolled Back</p>
-                        <p class="text-2xl font-bold text-yellow-600">{mockWaves.filter(w => w.status === 'ROLLED_BACK').length}</p>
+                        <p class="text-2xl font-bold text-yellow-600">{displayWaves.filter(w => w.status === 'ROLLED_BACK').length}</p>
                     </CardContent>
                 </Card>
             </div>
@@ -207,7 +167,7 @@
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {#each mockWaves as wave (wave.id)}
+                        {#each displayWaves as wave (wave.id)}
                             <TableRow 
                                 class="cursor-pointer {selectedWaveId === wave.id ? 'bg-muted/70' : ''}"
                                 on:click={() => selectWave(wave.id)}
@@ -222,18 +182,18 @@
                                 </TableCell>
                                 <TableCell>
                                     <div>
-                                        {wave.devicesCompleted}/{wave.devicesTotal}
-                                        {#if wave.devicesFailed > 0}
+                                        {(wave.devicesCompleted ?? 0)}/{(wave.devicesTotal ?? 0)}
+                                        {#if (wave.devicesFailed ?? 0) > 0}
                                             <span class="text-destructive ml-1">
-                                                ({wave.devicesFailed} failed)
+                                                ({wave.devicesFailed ?? 0} failed)
                                             </span>
                                         {/if}
                                     </div>
                                 </TableCell>
                                 <TableCell>
                                     <div class="w-[100px] space-y-1">
-                                        <Progress value={wave.progress} />
-                                        <div class="text-xs text-muted-foreground text-right">{wave.progress}%</div>
+                                        <Progress value={wave.progress ?? 0} />
+                                        <div class="text-xs text-muted-foreground text-right">{wave.progress ?? 0}%</div>
                                     </div>
                                 </TableCell>
                                 <TableCell>
@@ -246,7 +206,7 @@
                                     <div class="flex justify-end space-x-2">
                                         <button 
                                             class="text-sm text-blue-600 hover:underline" 
-                                            on:click|stopPropagation={() => viewWaveDetails(wave.id)}
+                                            on:click={() => viewWaveDetails(wave.id)}
                                         >
                                             View
                                         </button>

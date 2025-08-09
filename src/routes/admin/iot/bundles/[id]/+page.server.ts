@@ -13,7 +13,9 @@ import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
-  async ({ params, locals }) => {
+  async ({ params, locals, depends }) => {
+    // Mark this load for client-side invalidation when devices are added/removed
+    depends('app:bundle');
     const { id } = params;
 
     try {
@@ -36,6 +38,62 @@ export const load = restrict(
           }
         }
       });
+      
+      // Enrich waves with aggregate device counts and progress
+      if (bundle && Array.isArray((bundle as any).waves) && (bundle as any).waves.length) {
+        const enrichedWaves = [] as any[];
+        for (const w of (bundle as any).waves) {
+          try {
+            const [total, completed, failed] = await Promise.all([
+              (locals.prisma as any).bundleDeviceProgress.count({ where: { waveId: w.id } }),
+              (locals.prisma as any).bundleDeviceProgress.count({ where: { waveId: w.id, status: 'COMPLETED' } }),
+              (locals.prisma as any).bundleDeviceProgress.count({ where: { waveId: w.id, status: 'FAILED' } })
+            ]);
+            // Progress is percentage of successful devices only
+            const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+            enrichedWaves.push({ ...w, devicesTotal: total, devicesCompleted: completed, devicesFailed: failed, progress });
+          } catch {
+            enrichedWaves.push({ ...w, devicesTotal: 0, devicesCompleted: 0, devicesFailed: 0, progress: 0 });
+          }
+        }
+        (bundle as any).waves = enrichedWaves;
+      }
+      
+      // Fetch bundle devices with device information
+      const bundleDevices = await locals.prisma.bundleDevice.findMany({
+        where: { bundleId: id },
+        include: {
+          bundle: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      // Fetch device information for each bundle device
+      const bundleDevicesWithDeviceInfo = await Promise.all(
+        bundleDevices.map(async (bundleDevice) => {
+          const device = await locals.prisma.device.findUnique({
+            where: { id: bundleDevice.deviceId },
+            select: {
+              id: true,
+              name: true,
+              model: true,
+              status: true
+            }
+          });
+          
+          return {
+            ...bundleDevice,
+            device: device || {
+              id: bundleDevice.deviceId,
+              name: 'Unknown Device',
+              model: 'Unknown',
+              status: 'UNKNOWN'
+            }
+          };
+        })
+      );
       
       // Fetch account info separately if accountId is present
       let account = null;
@@ -101,6 +159,7 @@ export const load = restrict(
       
       return {
         bundle: bundleWithAccount,
+        bundleDevices: bundleDevicesWithDeviceInfo,
         accounts,
         resources,
         form,
@@ -182,7 +241,7 @@ export const actions: Actions = {
           scheduledAt: data.scheduledAt,
           scheduledAtTimezone: data.scheduledAtTimezone || 'UTC',
           scheduledAtStartIfMissed: data.scheduledAtStartIfMissed || false,
-          updateStrategy: data.updateStrategy || 'IMMEDIATE',
+          // updateStrategy removed
           accountId: data.accountId,
           updatedBy: userInfo.id
         };

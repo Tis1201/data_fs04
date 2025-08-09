@@ -54,6 +54,11 @@ export const POST: RequestHandler = restrict(
                 return json(createErrorResponse('Bundle not found', {}), { status: 404 });
             }
             
+            // Enforce DRAFT-only modifications
+            if (bundle.status !== 'DRAFT') {
+                return json(createErrorResponse('Bundle is not editable (must be DRAFT)', {}), { status: 403 });
+            }
+
             // Check if resource exists
             const resource = await locals.prisma.resource.findUnique({
                 where: { id: resourceId }

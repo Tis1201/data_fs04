@@ -1,18 +1,18 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
-  import { page } from '$app/stores';
+  // Remove URL-coupled store usage; internalize state
   import { Button } from '$lib/components/ui/button';
   import { X } from 'lucide-svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import { writable } from 'svelte/store';
   import { browser } from '$app/environment';
-  import { goto } from "$app/navigation";
+  // No navigation side-effects for internal pagination
   import { toast } from 'svelte-sonner';
   import AppTable from "./table.svelte";
   import { Switch } from '$lib/components/ui/switch';
   import { Label } from '$lib/components/ui/label';
   import type { Resource } from "@prisma/client";
-  import { handleTableSort as utilHandleTableSort, handleTablePagination as utilHandleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+  // Remove URL-mutating utilities; handle sort/pagination locally
   import { Skeleton } from '$lib/components/ui/skeleton';
   
   interface TableMeta {
@@ -61,7 +61,16 @@
     loading: false
   };
   
-  // Single reactive statement to handle all loading conditions
+  // Local table state (decoupled from URL)
+  let currentPage = 1;
+  const perPage = 5;
+  let sortField: keyof Resource | 'name' = 'name';
+  let sortOrder: 'asc' | 'desc' = 'asc';
+  let filterSearch: string = '';
+  let filterFormats: string[] = [];
+  let controller: AbortController | null = null;
+
+  // Load when dialog opens
   $: if (browser && open) {
     loadApps();
   }
@@ -81,39 +90,20 @@
         loading: true
       };
       
-      // Get current URL params from the page URL
-      const currentUrl = $page.url;
+      // Build params from local state only
       const params = new URLSearchParams();
-      
-      // Add pagination parameters - always use 5 per page
-      const urlPage = currentUrl.searchParams.get('page');
-      
-      const page = urlPage ? parseInt(urlPage) : tableData.pagination?.page || 1;
-      // Always use 5 per page
-      const perPage = 5;
-      
-      params.append('page', page.toString());
-      params.append('per_page', '5');
-      
-      // Add sort parameters - prefer URL values over state values
-      const urlSort = currentUrl.searchParams.get('sort');
-      const urlOrder = currentUrl.searchParams.get('order');
-      
-      const sortField = urlSort || tableData.sort?.field || 'name';
-      const sortOrder = urlOrder || tableData.sort?.order || 'asc';
-      
+      params.append('page', String(currentPage));
+      params.append('per_page', String(perPage));
       params.append('sort', sortField);
       params.append('order', sortOrder);
-      
-      // Add filter parameters if they exist
-      const search = currentUrl.searchParams.get('search');
-      if (search) params.append('search', search);
-      
-      const types = currentUrl.searchParams.get('types');
-      if (types) params.append('types', types);
+      if (filterSearch) params.append('search', filterSearch);
+      if (filterFormats.length > 0) params.append('formats', filterFormats.join(','));
       
       // Make the API request
-      const response = await fetch(`/admin/iot/bundles/${bundleId}/components/app_select?${params}`);
+      // Abort previous in-flight request to keep UI responsive
+      if (controller) controller.abort();
+      controller = new AbortController();
+      const response = await fetch(`/admin/iot/bundles/${bundleId}/components/app_select?${params}`, { signal: controller.signal });
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -122,23 +112,30 @@
       const data: ApiResponse = await response.json();
       
       // Update table data with the response following standard pattern
+      const metaPag = (data as any)?.meta?.pagination ?? {
+        page: currentPage,
+        per_page: perPage,
+        total_records: 0,
+        total_pages: 1
+      };
       tableData = {
         ...tableData,
         loading: false,
         records: data.resources || [],
         pagination: {
-          page: data.meta?.current_page || 1,
-          per_page: data.meta?.per_page || 5,
-          total_records: data.meta?.total || 0,
-          total_pages: data.meta?.last_page || 1
+          page: metaPag.page,
+          per_page: metaPag.per_page,
+          total_records: metaPag.total_records,
+          total_pages: metaPag.total_pages
         },
         sort: {
-          field: $page.url.searchParams.get('sort') || 'name',
-          order: ($page.url.searchParams.get('order') as 'asc' | 'desc') || 'asc'
+          field: sortField,
+          order: sortOrder
         }
       };
       
     } catch (error) {
+      if ((error as any)?.name === 'AbortError') return;
       console.error('Failed to load apps:', error);
       toast.error('Failed to load apps. Please try again.');
       tableData = {
@@ -150,11 +147,11 @@
   export let open = false;
   
   let loading = false;
-  let selectedResource: Resource | null = null;
+  let selectedResources: Resource[] = [];
   
   // Define events
   const dispatch = createEventDispatcher<{
-    select: { id: string; name: string; autoOpen: boolean };
+    select: { id: string; name: string; autoOpen: boolean }[];
     close: void;
     autoOpenChange: boolean;
   }>();
@@ -162,56 +159,49 @@
   // Close the dialog
   function closeDialog() {
     open = false;
-    selectedResource = null;
+    selectedResources = [];
     dispatch('close');
+    // No URL cleanup necessary; state is internal
   }
   
-  // Handle row click
+  // Handle row click - toggle selection
   function handleRowClick(resource: Resource) {
-    selectedResource = resource;
-    // Dispatch select event with the selected resource
-    dispatch('select', { 
-      id: resource.id, 
-      name: resource.name, 
-      autoOpen 
-    });
-    // Close the dialog
-    closeDialog();
+    const idx = selectedResources.findIndex(r => r.id === resource.id);
+    if (idx >= 0) {
+      selectedResources = selectedResources.filter(r => r.id !== resource.id);
+    } else {
+      selectedResources = [...selectedResources, resource];
+    }
   }
   
   // Use standard table sort handler
-  function handleTableSort(event: CustomEvent) {
-    // Use standard utility function for URL update and navigation
-    utilHandleTableSort(event, true);
-    
-    // Reload data after URL update
+  function handleTableSort(event: CustomEvent<{ field: string; order: 'asc'|'desc' }>) {
+    sortField = event.detail.field as any;
+    sortOrder = event.detail.order;
+    currentPage = 1;
     loadApps();
   }
   
   // Use standard table pagination handler
-  function handleTablePagination(event: CustomEvent) {
-    // Override the per_page in the event detail to always use 5
-    const modifiedEvent = new CustomEvent('pagination', {
-      detail: { ...event.detail, per_page: 5 }
-    });
-    
-    // Use standard utility function for URL update and navigation
-    utilHandleTablePagination(modifiedEvent, 'appSelectorPageSize', true);
-    
-    // Reload data after URL update
+  function handleTablePagination(event: CustomEvent<{ page: number; per_page: number }>) {
+    currentPage = event.detail.page;
+    loadApps();
+  }
+
+  function handleTableFilter(event: CustomEvent<{ search?: string; formats?: string[] }>) {
+    filterSearch = event.detail.search ?? '';
+    filterFormats = event.detail.formats ?? [];
+    currentPage = 1;
     loadApps();
   }
   
   // Handle confirm button click
   function handleConfirm() {
-    if (selectedResource) {
-      // Dispatch select event with the selected resource and autoOpen setting
-      dispatch('select', { 
-        id: selectedResource.id,
-        name: selectedResource.name,
-        autoOpen 
-      });
-      // Close the dialog
+    if (selectedResources.length > 0) {
+      dispatch('select', selectedResources.map(r => ({ id: r.id, name: r.name, autoOpen })));
+      // Optimistically clear local selection and reload list so selected items disappear
+      selectedResources = [];
+      loadApps();
       closeDialog();
     }
   }
@@ -229,6 +219,10 @@
   
   // Handle dialog close
   function handleClose() {
+    // Reset filters when closing modal
+    filterSearch = '';
+    filterFormats = [];
+    currentPage = 1;
     closeDialog();
   }
 </script>
@@ -245,32 +239,40 @@
     <div class="space-y-4 py-4">
       <!-- Auto Open Toggle -->
       <div class="flex items-center space-x-2 px-4">
-        <Switch
-          id="autoOpen"
-          checked={autoOpen}
-          on:change={handleAutoOpenChange}
-        />
+        <Switch id="autoOpen" bind:checked={autoOpen} />
         <Label for="autoOpen">Automatically open app after installation</Label>
       </div>
 
-      <!-- Table Container - Following standard pattern from factory tokens -->
-      <div class="mt-4 border rounded-md overflow-hidden">
-        {#if tableData.loading}
-          <div class="p-4 space-y-4">
-            <Skeleton class="h-8 w-full" />
-            <Skeleton class="h-4 w-3/4" />
-            <Skeleton class="h-4 w-1/2" />
-            <Skeleton class="h-4 w-2/3" />
-            <Skeleton class="h-4 w-3/4" />
+      <!-- Selected Apps Review Section -->
+      {#if selectedResources.length > 0}
+        <div class="border rounded-md p-4 bg-muted/30">
+          <h4 class="font-medium mb-3">Selected Apps ({selectedResources.length})</h4>
+          <div class="flex flex-wrap gap-2">
+            {#each selectedResources as res}
+              <div class="flex items-center gap-2 bg-background border rounded-md px-3 py-1 text-sm">
+                <span>{res.name}</span>
+                <button 
+                  type="button"
+                  class="text-muted-foreground hover:text-destructive"
+                  on:click={() => handleRowClick(res)}
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
           </div>
-        {:else}
+        </div>
+      {/if}
+
+      <!-- Table Container - Following standard selector pattern -->
+      <div class="mt-4 border rounded-md overflow-hidden">
           <AppTable
             props={{
               records: tableData.records,
               pagination: tableData.pagination,
               sort: tableData.sort,
               loading: tableData.loading,
-              selectedResourceId: selectedResource?.id
+              selectedResourceIds: selectedResources.map(r => r.id)
             }}
             on:rowClick={({ detail }) => {
               if (detail) {
@@ -279,8 +281,8 @@
             }}
             on:sort={handleTableSort}
             on:pagination={handleTablePagination}
+            on:filter={handleTableFilter}
           />
-        {/if}
       </div>
     </div>
 
@@ -290,10 +292,10 @@
       </Button>
       <Button 
         on:click={handleConfirm} 
-        disabled={!selectedResource}
+        disabled={selectedResources.length === 0}
         class="ml-2"
       >
-        Select
+        Select {selectedResources.length > 0 ? `(${selectedResources.length})` : ''}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

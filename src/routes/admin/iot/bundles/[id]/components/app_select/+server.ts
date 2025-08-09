@@ -28,17 +28,45 @@ const tableOptions = {
 
 // Handle GET requests to fetch resources for app selection
 export const GET = restrict(
-  async ({ url, locals }) => {
+  async ({ url, locals, params }: any) => {
     try {
-      // Use the reusable fetchTableData function with our table options
-      const result = await fetchTableData(locals, url, tableOptions);
-      
-      return json({
-        resources: result.records,
-        meta: result.meta
+      // Exclude already-added resources for this bundle
+      const bundleId = params.id as string;
+      const existing = await (locals.prisma as any).bundleApp.findMany({
+        where: { bundleId },
+        select: { resourceId: true }
       });
-    } catch (e) {
-      logger.error(`Error loading resources for app select: ${JSON.stringify(e)}`);
+      const excludeIds = new Set(existing.map((e: { resourceId: string }) => e.resourceId));
+
+      // Use the reusable fetchTableData function
+      const result = await fetchTableData(locals, url, tableOptions as any);
+
+      // Filter out already-in-bundle resources
+      const filteredRecords = (result.records || []).filter((r: any) => !excludeIds.has(r.id));
+
+      // Adjust meta for filtered-out records and ensure client-friendly pagination shape
+      const baseTotal = Number(((result as any)?.meta?.pagination?.total_records) ?? ((result as any)?.meta?.total) ?? 0);
+      const perPage = Number(url.searchParams.get('per_page') || (result as any)?.meta?.pagination?.per_page || tableOptions.defaultPerPage);
+      const current_page = Number(url.searchParams.get('page') || (result as any)?.meta?.pagination?.page || 1);
+      const total = Math.max(0, baseTotal - excludeIds.size);
+      const last_page = Math.max(1, Math.ceil(total / perPage));
+
+      return json({
+        resources: filteredRecords,
+        meta: {
+          ...result.meta,
+          total,
+          last_page,
+          pagination: {
+            page: current_page,
+            per_page: perPage,
+            total_records: total,
+            total_pages: last_page
+          }
+        }
+      });
+    } catch (e: unknown) {
+      logger.error(`Error loading resources for app select: ${typeof e === 'object' ? JSON.stringify(e) : String(e)}`);
       throw error(500, 'Failed to load resources');
     }
   },
@@ -47,7 +75,7 @@ export const GET = restrict(
 
 // Handle POST requests for adding an app to a bundle
 export const POST = restrict(
-  async ({ request, locals, params }) => {
+  async ({ request, locals, params }: any) => {
     try {
       const { prisma } = locals;
       const data = await request.json();
@@ -81,7 +109,7 @@ export const POST = restrict(
       }
       
       // Check if the resource is already in the bundle
-      const existingBundleResource = await prisma.bundleResource.findFirst({
+      const existingBundleResource = await (prisma as any).bundleResource.findFirst({
         where: {
           bundleId,
           resourceId
@@ -93,7 +121,7 @@ export const POST = restrict(
       }
       
       // Add the resource to the bundle
-      const bundleResource = await prisma.bundleResource.create({
+      const bundleResource = await (prisma as any).bundleResource.create({
         data: {
           bundle: { connect: { id: bundleId } },
           resource: { connect: { id: resourceId } },
@@ -112,7 +140,7 @@ export const POST = restrict(
             recordId: bundleResource.id,
             oldData: null,
             newData: bundleResource,
-            userId: locals.user.id,
+            userId: locals.user?.id,
             ipAddress: locals.ipAddress,
             prisma: prisma
         })
@@ -121,13 +149,11 @@ export const POST = restrict(
         success: true,
         data: bundleResource
       });
-    } catch (e) {
-      logger.error(`Error adding resource to bundle: ${JSON.stringify(e)}`);
-      
-      if (e.status) {
+    } catch (e: any) {
+      logger.error(`Error adding resource to bundle: ${typeof e === 'object' ? JSON.stringify(e) : String(e)}`);
+      if (e?.status) {
         throw error(e.status, e.message);
       }
-      
       throw error(500, 'Failed to add resource to bundle');
     }
   },
@@ -136,7 +162,7 @@ export const POST = restrict(
 
 // Handle DELETE requests for removing an app from a bundle
 export const DELETE = restrict(
-  async ({ request, locals, params }) => {
+  async ({ request, locals, params }: any) => {
     try {
       const { prisma } = locals;
       const data = await request.json();
@@ -152,7 +178,7 @@ export const DELETE = restrict(
       }
       
       // Check if the bundle resource exists
-      const bundleResource = await prisma.bundleResource.findFirst({
+      const bundleResource = await (prisma as any).bundleResource.findFirst({
         where: {
           bundleId,
           resourceId
@@ -164,7 +190,7 @@ export const DELETE = restrict(
       }
       
       // Remove the resource from the bundle
-      await prisma.bundleResource.delete({
+      await (prisma as any).bundleResource.delete({
         where: {
           id: bundleResource.id
         }
@@ -178,7 +204,7 @@ export const DELETE = restrict(
             recordId: bundleResource.id,
             oldData: bundleResource,
             newData: null,
-            userId: locals.user.id,
+            userId: locals.user?.id,
             ipAddress: locals.ipAddress,
             prisma: prisma
         })
@@ -186,13 +212,11 @@ export const DELETE = restrict(
       return json({
         success: true
       });
-    } catch (e) {
-      logger.error(`Error removing resource from bundle: ${JSON.stringify(e)}`);
-      
-      if (e.status) {
+    } catch (e: any) {
+      logger.error(`Error removing resource from bundle: ${typeof e === 'object' ? JSON.stringify(e) : String(e)}`);
+      if (e?.status) {
         throw error(e.status, e.message);
       }
-      
       throw error(500, 'Failed to remove resource from bundle');
     }
   },

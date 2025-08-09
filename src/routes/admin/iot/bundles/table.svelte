@@ -3,15 +3,13 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
-    import Badge from "$lib/components/ui/badge/badge.svelte";
-import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
     import { Pencil, Trash, Play, Package } from "lucide-svelte";
-    import type { Bundle, BundleStatus } from "@prisma/client";
+    import type { Bundle } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
@@ -63,29 +61,48 @@ import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusB
         await invalidate('app:bundles');
     }
 
-    // Get lowercase status for StatusBadge
-    function getLowercaseStatus(status: BundleStatus | null | undefined): string {
-        if (status === null || status === undefined) return 'default';
-        return status.toLowerCase();
-    }
-    
-    // Get bundle status display text
-    function getBundleStatusDisplay(status: BundleStatus | null | undefined): string {
-        if (status === null || status === undefined) return 'Unknown';
-        
-        const statusMap: Record<string, string> = {
+    // Status label and variant mapping for bundles (pretty text and colored badge)
+    function getBundleStatusLabel(status: string | null | undefined): string {
+        if (!status) return 'Unknown';
+        const map: Record<string, string> = {
             'DRAFT': 'Draft',
             'PUBLISHED': 'Published',
+            'IN_PROGRESS': 'In Progress',
             'CANCELLED': 'Cancelled',
             'COMPLETED': 'Completed',
             'FAILED': 'Failed'
         };
-        
-        if (!(status in statusMap)) {
-            console.warn(`Unmapped bundle status: ${status}`);
-        }
-        
-        return statusMap[status] || String(status);
+        return map[status] || String(status);
+    }
+    import { Badge } from "$lib/components/ui/badge";
+
+    // List view: plain span with colored text and border (no Badge component)
+    function getStatusTextBorderClasses(status: string | null | undefined): string {
+        if (!status) return 'text-zinc-700 border-zinc-200';
+        const map: Record<string, string> = {
+            DRAFT: 'text-zinc-900 border-zinc-200',
+            // Published = neutral gray; In Progress = blue
+            PUBLISHED: 'text-zinc-700 border-zinc-300',
+            IN_PROGRESS: 'text-blue-700 border-blue-300',
+            CANCELLED: 'text-red-700 border-red-200',
+            COMPLETED: 'text-green-700 border-green-200',
+            FAILED: 'text-red-700 border-red-200'
+        };
+        return map[status] || 'text-zinc-800 border-zinc-200';
+    }
+
+    // Subtle text color for list view (no pill/background)
+    function getBundleStatusTextClass(status: string | null | undefined): string {
+        if (!status) return 'text-muted-foreground';
+        const map: Record<string, string> = {
+            DRAFT: 'text-muted-foreground',
+            PUBLISHED: 'text-blue-600',
+            IN_PROGRESS: 'text-blue-600',
+            CANCELLED: 'text-red-600',
+            COMPLETED: 'text-green-600',
+            FAILED: 'text-red-600'
+        };
+        return map[status] || 'text-muted-foreground';
     }
 
     // Table columns definition
@@ -131,13 +148,11 @@ import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusB
             id: "status",
             label: "Status",
             sortable: true,
-            render: (bundle: Bundle) => ({
-                component: StatusBadge,
-                props: {
-                    status: getLowercaseStatus(bundle.status),
-                    className: "whitespace-nowrap"
-                }
-            })
+            render: (bundle: Bundle) => {
+                const text = getBundleStatusLabel(bundle.status);
+                const cls = getStatusTextBorderClasses(bundle.status);
+                return `<span class=\"inline-block whitespace-nowrap text-xs font-medium rounded-full px-2 py-0.5 border ${cls}\">${text}</span>`;
+            }
         },
         {
             id: "scheduledAt",
@@ -171,7 +186,7 @@ import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusB
             label: "",
             sortable: false,
             render: (bundle: Bundle) => {
-                const actions: ActionItem[] = [
+                const actions = [
                     {
                         label: "Edit",
                         icon: Pencil,
@@ -254,7 +269,7 @@ import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusB
 
 <div class="space-y-4">
     <!-- Delete Confirmation Dialog -->
-    <RecordDeleteDialog
+        <RecordDeleteDialog
         state={{
             selectedRecord: state.selectedRecord,
             confirmationOpen: state.confirmationOpen,
@@ -265,6 +280,7 @@ import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusB
         }}
         useFormSubmission={true}
         action="?/delete"
+            onConfirm={() => {}}
         on:close={() => {
             state.confirmationOpen = false;
             state.selectedRecord = null;
@@ -288,7 +304,7 @@ import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusB
             <PopoverFilter
                 label="Status"
                 options={statusOptions.filter(opt => opt.value !== '')}
-                selectedValues={$page.url.searchParams.get('status') ? [$page.url.searchParams.get('status')] : []}
+                selectedValues={$page.url.searchParams.get('status') ? [$page.url.searchParams.get('status') || ''] : []}
                 onChange={(values) => {
                     const url = new URL(window.location.href);
                     if (values.length && values[0]) {

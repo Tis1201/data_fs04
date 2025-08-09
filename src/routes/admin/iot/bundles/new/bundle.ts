@@ -5,6 +5,8 @@ export const bundleSchema = z.object({
     description: z.string().optional(),
     os: z.string().default('ANDROID'),
     reboot: z.boolean().default(false),
+    autoOpen: z.boolean().default(false),
+    forceUpdate: z.boolean().default(false),
     version: z.string().default('1.0.0'),
     waveSize: z.coerce.number().int().min(1, 'Wave size must be at least 1').default(500),
     scheduledAt: z.string().optional().nullable(),

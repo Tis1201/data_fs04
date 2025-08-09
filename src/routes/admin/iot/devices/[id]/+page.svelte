@@ -166,8 +166,6 @@
         } catch (e) {
             console.warn('SSE connect failed (may already be connected):', e);
         }
-        // After connectionId is known, call subscribe endpoint to bind this connection to device channel
-        // Persistently re-subscribe on every SSE (re)connect because connectionId changes
         let lastSubscribedConnectionId: string | null = null;
         sseStore.on('connected', (msg: any) => {
             const connId = msg?.data?.connectionId;

@@ -25,7 +25,7 @@
     const title = `Edit ${bundle.name || "Bundle"}`;
 
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
         ["IoT", "/admin/iot"],
         ["Bundles", "/admin/iot/bundles"],
@@ -36,13 +36,38 @@
     // Setup the form
     const { form, errors, enhance, submitting } = superForm(data.form, {
         onUpdated: ({ form }) => {
-            if (form.data.success) {
+            if (form.data?.success) {
                 toast.success(form.data.message || "Bundle updated successfully");
             }
+        },
+        onResult: ({ result }) => {
+            try {
+                if (result?.type === 'success') {
+                    goto(`/admin/iot/bundles/${bundle.id}`);
+                    return;
+                }
+            } catch {}
         },
         resetForm: false,
         taintedMessage: null
     });
+
+    // When loading existing record, derive local time input from scheduledAt (ISO string)
+    $: if ($form?.scheduledAt && !$form?.scheduledTime) {
+        try {
+            const d = new Date($form.scheduledAt);
+            if (!isNaN(d.getTime())) {
+                const hh = String(d.getHours()).padStart(2, '0');
+                const mm = String(d.getMinutes()).padStart(2, '0');
+                $form.scheduledTime = `${hh}:${mm}`;
+            }
+        } catch {}
+    }
+
+    // Helper to normalize error shapes to a single string or null
+    function err(val: unknown): string | null {
+        return Array.isArray(val) ? (val[0] ?? null) : (typeof val === 'string' ? val : null);
+    }
 
     // OS options for the dropdown
     const osOptions = [
@@ -102,11 +127,11 @@
                     novalidate
                 >
                     <div class="space-y-6">
-                        <FormRow columns={2}>
+                            <FormRow columns={2}>
                             <FormField 
                                 id="name" 
                                 label="Bundle Name" 
-                                error={$errors.name} 
+                                error={err($errors.name)}
                                 required={true}
                             >
                                 <Input 
@@ -121,7 +146,7 @@
                             <FormField 
                                 id="accountId" 
                                 label="Account"
-                                error={$errors.accountId}
+                                error={err($errors.accountId)}
                             >
                                 <EnhancedSelect
                                     id="accountId"
@@ -138,11 +163,11 @@
                             </FormField>
                         </FormRow>
 
-                        <FormField 
-                            id="description" 
-                            label="Description"
-                            error={$errors.description}
-                        >
+                            <FormField 
+                                id="description" 
+                                label="Description"
+                                error={err($errors.description)}
+                            >
                             <Textarea
                                 id="description"
                                 name="description"
@@ -153,11 +178,11 @@
                             />
                         </FormField>
 
-                        <FormRow columns={3}>
+                        <FormRow columns={2}>
                             <FormField 
                                 id="os" 
                                 label="Operating System"
-                                error={$errors.os}
+                                error={err($errors.os)}
                                 required={true}
                             >
                                 <EnhancedSelect
@@ -176,7 +201,7 @@
                             <FormField 
                                 id="version" 
                                 label="Version"
-                                error={$errors.version}
+                                error={err($errors.version)}
                             >
                                 <Input
                                     id="version"
@@ -186,11 +211,13 @@
                                     disabled={$submitting}
                                 />
                             </FormField>
-                            
+                        </FormRow>
+
+                        <FormRow columns={3}>
                             <FormField 
                                 id="waveSize" 
                                 label="Wave Size"
-                                error={$errors.waveSize}
+                                error={err($errors.waveSize)}
                             >
                                 <Input
                                     id="waveSize"
@@ -202,116 +229,66 @@
                                     disabled={$submitting}
                                 />
                             </FormField>
-                        </FormRow>
-
-                        <FormRow columns={2}>
-                            <FormField 
-                                id="scheduledAt" 
-                                label="Scheduled Date"
-                                error={$errors.scheduledAt}
-                            >
+                            <FormField id="scheduledAt" label="Scheduled Date" error={err($errors.scheduledAt)}>
                                 <EnhancedDatePicker
                                     id="scheduledAt"
                                     name="scheduledAt"
-                                    bind:value={$form.scheduledAt}
+                                    form={$form}
+                                    field="scheduledAt"
                                     disabled={$submitting}
                                 />
                             </FormField>
-                            
-                            <FormField 
-                                id="updateStrategy" 
-                                label="Update Strategy"
-                                error={$errors.updateStrategy}
-                                required={true}
-                            >
-                                <EnhancedSelect
-                                    id="updateStrategy"
-                                    name="updateStrategy"
-                                    placeholder="Select strategy"
-                                    bind:value={$form.updateStrategy}
+                            <FormField id="scheduledTime" label="Scheduled Time (HH:mm)" error={err($errors.scheduledTime)}>
+                                <Input
+                                    id="scheduledTime"
+                                    name="scheduledTime"
+                                    type="time"
+                                    step="60"
+                                    bind:value={(($form).scheduledTime)}
                                     disabled={$submitting}
-                                >
-                                    {#each updateStrategyOptions as option}
-                                        <option value={option.value}>{option.label}</option>
-                                    {/each}
-                                </EnhancedSelect>
+                                />
                             </FormField>
                         </FormRow>
 
                         <div class="p-3 rounded-md bg-muted/50">
                             <h4 class="text-sm font-medium mb-2">Device Behavior</h4>
                             <div class="space-y-3">
-                                <FormField id="reboot" label="Reboot Device" error={$errors.reboot}>
+                                <FormField id="reboot" label="Reboot Device" error={err($errors.reboot)}>
                                     <div class="flex items-center space-x-2">
                                         <Switch
                                             id="reboot"
                                             name="reboot"
-                                            checked={$form.reboot}
-                                            onchange={(e) => $form.reboot = e.currentTarget.checked}
+                                            bind:checked={$form.reboot}
                                             disabled={$submitting}
                                         />
                                         <Label for="reboot">Reboot device after update</Label>
                                     </div>
                                 </FormField>
                                 
-                                <FormField id="forceUpdate" label="Force Update" error={$errors.forceUpdate}>
+                                <FormField id="forceUpdate" label="Force Update" error={err($errors.forceUpdate)}>
                                     <div class="flex items-center space-x-2">
                                         <Switch
                                             id="forceUpdate"
                                             name="forceUpdate"
-                                            checked={$form.forceUpdate}
-                                            onchange={(e) => $form.forceUpdate = e.currentTarget.checked}
+                                            bind:checked={$form.forceUpdate}
                                             disabled={$submitting}
                                         />
                                         <Label for="forceUpdate">Force update installation</Label>
                                     </div>
                                 </FormField>
-                                
-                                <FormField id="notifyUser" label="Notify User" error={$errors.notifyUser}>
+                                <FormField id="autoOpen" label="Auto Open" error={err($errors.autoOpen)}>
                                     <div class="flex items-center space-x-2">
                                         <Switch
-                                            id="notifyUser"
-                                            name="notifyUser"
-                                            checked={$form.notifyUser}
-                                            onchange={(e) => $form.notifyUser = e.currentTarget.checked}
+                                            id="autoOpen"
+                                            name="autoOpen"
+                                            bind:checked={$form.autoOpen}
                                             disabled={$submitting}
                                         />
-                                        <Label for="notifyUser">Show notification to user</Label>
+                                        <Label for="autoOpen">Open app automatically after installation</Label>
                                     </div>
                                 </FormField>
                                 
-                                {#if $form.notifyUser}
-                                    <div class="pl-6 pt-2 space-y-3">
-                                        <FormField 
-                                            id="notificationTitle" 
-                                            label="Notification Title"
-                                            error={$errors.notificationTitle}
-                                        >
-                                            <Input
-                                                id="notificationTitle"
-                                                name="notificationTitle"
-                                                placeholder="Enter notification title"
-                                                bind:value={$form.notificationTitle}
-                                                disabled={$submitting}
-                                            />
-                                        </FormField>
-                                        
-                                        <FormField 
-                                            id="notificationMessage" 
-                                            label="Notification Message"
-                                            error={$errors.notificationMessage}
-                                        >
-                                            <Textarea
-                                                id="notificationMessage"
-                                                name="notificationMessage"
-                                                placeholder="Enter notification message"
-                                                bind:value={$form.notificationMessage}
-                                                rows={2}
-                                                disabled={$submitting}
-                                            />
-                                        </FormField>
-                                    </div>
-                                {/if}
+                                <!-- Notify User fields removed per product decision -->
                             </div>
                         </div>
 

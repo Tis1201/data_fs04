@@ -31,7 +31,8 @@ class AccountPage extends BasePage {
 
     async goToAccountPage() {
         await this.page.goto(config.pageURL.accounts.url);
-        await this.accountListName;
+        await this.accountListName.waitFor({ state: 'visible' });
+        await this.addAccountButton.waitFor({ state: 'visible' });
     }
 
     /*
@@ -42,6 +43,7 @@ class AccountPage extends BasePage {
     async createAccount(accountName, description) {
         await this.goToAccountPage();
 
+        await expect(this.addAccountButton).toBeEnabled();
         await this.addAccountButton.click();
 
         await this.accountNameInput.waitFor({ state: 'visible' });
@@ -221,7 +223,7 @@ class AccountPage extends BasePage {
 
     async getRowByName(accountName) {
         await this.goToAccountPage();
-        console.log(this.tableRows)
+        // Ensure table is present before querying
         const row = this.tableRows.filter({ hasText: accountName }).first();
         if (!(await row.count())) {
             throw new Error(`Account row with name "${accountName}" not found`);

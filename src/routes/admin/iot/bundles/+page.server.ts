@@ -78,17 +78,41 @@ export const actions = {
                     return fail(404, { error: 'Bundle not found' });
                 }
                 
-                // Check if bundle can be deleted (e.g., not in progress)
+                // If bundle is PUBLISHED/IN_PROGRESS, recompute status from waves to see if it's actually finished
                 if (bundle.status === 'PUBLISHED' || bundle.status === 'IN_PROGRESS') {
-                    return fail(400, { error: 'Cannot delete a published or in-progress bundle' });
+                    try {
+                        const waves = await locals.prisma.bundleWave.findMany({
+                            where: { bundleId: id },
+                            select: { status: true }
+                        });
+                        if (Array.isArray(waves) && waves.length > 0) {
+                            const anyInProgress = waves.some((w) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
+                            const anyFailed = waves.some((w) => w.status === 'FAILED');
+                            const allDone = waves.every((w) => ['COMPLETED', 'FAILED'].includes(w.status));
+                            if (!anyInProgress && allDone) {
+                                const computedStatus = anyFailed ? 'FAILED' : 'COMPLETED';
+                                await locals.prisma.bundle.update({ where: { id }, data: { status: computedStatus } });
+                                bundle.status = computedStatus as any;
+                            }
+                        }
+                    } catch (e) {
+                        // Ignore recompute errors; fall back to guard
+                    }
+                    // Guard again after recompute
+                    if (bundle.status === 'PUBLISHED' || bundle.status === 'IN_PROGRESS') {
+                        return fail(400, { error: 'Cannot delete a published or in-progress bundle' });
+                    }
                 }
 
                 // Delete related records first using transaction
-                await locals.prisma.$transaction([
-                    locals.prisma.bundleApp.deleteMany({ where: { bundleId: id } }),
-                    locals.prisma.bundleWave.deleteMany({ where: { bundleId: id } }),
-                    locals.prisma.bundle.delete({ where: { id } }),
-                    logAudit({
+                await locals.prisma.$transaction(async (tx) => {
+                    // Remove dependent rows; cascades also cover most relations, but delete explicitly for clarity
+                    await tx.bundleApp.deleteMany({ where: { bundleId: id } });
+                    await tx.bundleDeviceProgress.deleteMany({ where: { bundleId: id } });
+                    await tx.bundleWave.deleteMany({ where: { bundleId: id } });
+                    await tx.bundleDevice.deleteMany({ where: { bundleId: id } });
+                    await tx.bundle.delete({ where: { id } });
+                    await logAudit({
                         actionType: AuditActionType.DELETE,
                         tableName: 'Bundle',
                         recordId: id,
@@ -96,13 +120,13 @@ export const actions = {
                         newData: null,
                         userId: locals.user.id,
                         ipAddress: locals.ipAddress,
-                        prisma: locals.prisma
-                    })
-                ]);
+                        prisma: tx
+                    });
+                });
                 
                 return { success: true };
-            } catch (e) {
-                logger.error(`Error deleting bundle: ${JSON.stringify(e)}`);
+            } catch (e: any) {
+                logger.error(`Error deleting bundle: ${e?.message || String(e)}`);
                 return fail(500, { error: 'Failed to delete bundle' });
             }
         },

@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
     import { Badge } from "$lib/components/ui/badge";
     import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
     import { Progress } from "$lib/components/ui/progress";
@@ -9,104 +9,62 @@
     import * as Sheet from "$lib/components/ui/sheet";
     import { Button } from "$lib/components/ui/button";
     import { Separator } from "$lib/components/ui/separator";
+    import { onDestroy } from 'svelte';
 
     // Props
-    export let selectedWave = null;
+    export let bundleId: string;
+    export let selectedWave: any = null;
+    export let reloadToken: number = 0;
     export let loading = false;
 
-    // Hardcoded device progress for wave1
-    const wave1Devices = [
-        {
-            deviceName: "Factory Floor Sensor 1",
-            status: "COMPLETED",
-            progress: 100,
-            startedAt: new Date(2025, 5, 1, 10, 5).toISOString(),
-            completedAt: new Date(2025, 5, 1, 10, 15).toISOString(),
-            errorDetails: null,
-            retryCount: 0
-        },
-        {
-            deviceName: "Factory Floor Sensor 2",
-            status: "COMPLETED",
-            progress: 100,
-            startedAt: new Date(2025, 5, 1, 10, 10).toISOString(),
-            completedAt: new Date(2025, 5, 1, 10, 18).toISOString(),
-            errorDetails: null,
-            retryCount: 0
-        }
-    ];
-
-    // Hardcoded device progress for wave2
-    const wave2Devices = [
-        {
-            deviceName: "Factory Floor Sensor 3",
-            status: "IN_PROGRESS",
-            progress: 65,
-            startedAt: new Date(2025, 5, 1, 10, 15).toISOString(),
-            completedAt: null,
-            errorDetails: null,
-            retryCount: 0
-        }
-    ];
-
-    // Hardcoded device progress for wave3
-    const wave3Devices = [
-        {
-            deviceName: "Factory Floor Sensor 4",
-            status: "PENDING",
-            progress: 0,
-            startedAt: null,
-            completedAt: null,
-            errorDetails: null,
-            retryCount: 0
-        }
-    ];
-
-    // Hardcoded device progress for wave4
-    const wave4Devices = [
-        {
-            deviceName: "Factory Floor Sensor 5",
-            status: "FAILED",
-            progress: 45,
-            startedAt: new Date(2025, 5, 1, 10, 20).toISOString(),
-            completedAt: new Date(2025, 5, 1, 10, 22).toISOString(),
-            errorDetails: "Connection timeout during package download",
-            retryCount: 2
-        }
-    ];
-
-    // Hardcoded device progress for wave5
-    const wave5Devices = [
-        {
-            deviceName: "Factory Floor Sensor 6",
-            status: "ROLLED_BACK",
-            progress: 80,
-            startedAt: new Date(2025, 5, 1, 10, 25).toISOString(),
-            completedAt: new Date(2025, 5, 1, 10, 55).toISOString(),
-            errorDetails: "Installation exceeded time limit",
-            retryCount: 1
-        }
-    ];
-
-    // Map of wave IDs to their device lists
-    const devicesByWave = {
-        "wave1": wave1Devices,
-        "wave2": wave2Devices,
-        "wave3": wave3Devices,
-        "wave4": wave4Devices,
-        "wave5": wave5Devices
+    type DeviceProgress = {
+        id: string;
+        deviceId: string;
+        deviceName: string;
+        status: string;
+        progress: number;
+        startedAt: string | null;
+        completedAt: string | null;
+        errorDetails: string | null;
+        retryCount: number;
     };
 
-    // Get devices for the selected wave
-    $: devices = selectedWave ? devicesByWave[selectedWave.id] || [] : [];
+    let devices: DeviceProgress[] = [];
+    let loadingDevices = false;
+    let abortController: AbortController | null = null;
+
+    async function loadDevicesForWave() {
+        if (!bundleId || !selectedWave?.id) {
+            devices = [];
+            return;
+        }
+        loadingDevices = true;
+        try {
+            if (abortController) abortController.abort();
+            abortController = new AbortController();
+            const res = await fetch(`/api/admin/iot/bundles/${bundleId}/waves/${selectedWave.id}/progress`, { signal: abortController.signal });
+            const json = await res.json();
+            if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load device progress');
+            devices = (json.data || []) as DeviceProgress[];
+        } catch (e) {
+            devices = [];
+            // optionally log error
+        } finally {
+            loadingDevices = false;
+        }
+    }
+
+    $: selectedWave && loadDevicesForWave();
+    $: reloadToken, selectedWave && loadDevicesForWave();
+    onDestroy(() => { if (abortController) abortController.abort(); });
 
     // Format date for display
-    function formatDate(date) {
+    function formatDate(date: string | null | undefined) {
         return date ? new Date(date).toLocaleString() : '-';
     }
 
     // Get status badge variant
-    function getStatusVariant(status) {
+    function getStatusVariant(status: string) {
         const statusBadgeVariant = {
             "COMPLETED": "success",
             "IN_PROGRESS": "default",
@@ -114,11 +72,11 @@
             "FAILED": "destructive",
             "ROLLED_BACK": "warning"
         };
-        return statusBadgeVariant[status] || 'outline';
+        return (statusBadgeVariant as any)[status] || 'outline';
     }
 
     // Get status display text
-    function getStatusDisplayText(status) {
+    function getStatusDisplayText(status: string) {
         const statusDisplayText = {
             "COMPLETED": "Completed",
             "IN_PROGRESS": "In Progress",
@@ -126,11 +84,11 @@
             "FAILED": "Failed",
             "ROLLED_BACK": "Rolled Back"
         };
-        return statusDisplayText[status] || status;
+        return (statusDisplayText as any)[status] || status;
     }
 
     // Get status icon
-    function getStatusIcon(status) {
+    function getStatusIcon(status: string) {
         switch (status) {
             case 'COMPLETED':
                 return CheckCircle2;
@@ -157,16 +115,17 @@
     };
 
     // Calculate overall progress
-    $: overallProgress = devices.length > 0 
-        ? Math.round(devices.reduce((sum, device) => sum + device.progress, 0) / devices.length)
+    // Overall progress = percent successfully completed
+    $: overallProgress = devices.length > 0
+        ? Math.round((metrics.completed / devices.length) * 100)
         : 0;
         
     // Selected device for detail view
-    let selectedDevice = null;
+    let selectedDevice: DeviceProgress | null = null;
     let sheetOpen = false;
     
     // Open device detail sheet
-    function openDeviceDetails(device) {
+    function openDeviceDetails(device: DeviceProgress) {
         selectedDevice = device;
         sheetOpen = true;
     }
@@ -178,13 +137,17 @@
 </script>
 
 <AdminCard>
-    <svelte:fragment slot="title">Device Progress</svelte:fragment>
-    <svelte:fragment slot="description">
+    <svelte:fragment slot="header">
+        <div>
+            <h3 class="text-lg font-medium">Device Progress</h3>
+            <p class="text-sm text-muted-foreground">
         {#if selectedWave}
-            Showing progress for devices in wave: {selectedWave.name}
+                Showing progress for devices in wave: {selectedWave.name}
         {:else}
-            Select a wave to view device progress
+                Select a wave to view device progress
         {/if}
+            </p>
+        </div>
     </svelte:fragment>
 
     {#if loading}
@@ -268,7 +231,7 @@
                             <TableHead>Status</TableHead>
                             <TableHead>Started</TableHead>
                             <TableHead>Completed</TableHead>
-                            <TableHead>Progress</TableHead>
+                            <!-- Per-device progress is optional; hide for now to avoid confusion -->
                             <TableHead>Issues</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -284,11 +247,6 @@
                                 </TableCell>
                                 <TableCell>{formatDate(device.startedAt)}</TableCell>
                                 <TableCell>{formatDate(device.completedAt)}</TableCell>
-                                <TableCell>
-                                    <div class="w-[100px]">
-                                        <Progress value={device.progress} />
-                                    </div>
-                                </TableCell>
                                 <TableCell>
                                     {#if device.errorDetails}
                                         <span class="text-red-600 text-sm">{device.errorDetails}</span>
