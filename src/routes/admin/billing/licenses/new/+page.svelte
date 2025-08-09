@@ -35,11 +35,24 @@
   
   // Create a form handler with standardized error handling
   const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
-    successRedirect: '/admin/billing/licenses',
     validateOnInput: true,
-    onSuccess: () => {
-      toast.success("License created successfully!");
-    },
+    dataType: 'json', // Use JSON data type for consistency with server-side
+    onSuccess: (result) => {
+      toast.success('License created successfully!');
+      
+      // Check if we have a redirect URL in the response
+      if (result.data?.redirect) {
+        // Wait a moment for the toast to be visible before redirecting
+        setTimeout(() => {
+          goto(result.data.redirect);
+        }, 1000);
+      } else {
+        // Fallback to default redirect
+        setTimeout(() => {
+          goto('/admin/billing/licenses');
+        }, 1000);
+      }
+    }
   });
 
   // Algorithm options
@@ -114,12 +127,13 @@
       action="?/create"
       {enhance}
       novalidate
+      enctype="application/json"
       errorMessage={$errorMessage}
     >
       <!-- License Information -->
       <AdminCard
         title="License Details"
-        description="Issue a new license"
+        description="Issue a new license (technical details are handled automatically)"
         icon={ShieldCheck}
         compact={true}
       >
@@ -157,7 +171,7 @@
             </FormField>
           </FormRow>
 
-          <FormRow columns={2}>
+          <FormRow columns={1}>
             <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt} required={true}>
               <EnhancedDatePicker
                 form={$form}
@@ -168,69 +182,18 @@
                 timelineOptions="future"
                 defaultTimeline="future"
                 placeholder="Select expiration date"
+                valueAsString={true}
               />
               <p class="text-xs text-muted-foreground mt-1">
                 Date when this license will expire
               </p>
             </FormField>
-            
-            <FormField id="algorithm" label="Algorithm" error={$errors.algorithm} required={true}>
-              <EnhancedSelect
-                id="algorithm"
-                name="algorithm"
-                bind:value={$form.algorithm}
-                aria-invalid={$errors.algorithm ? 'true' : undefined}
-                options={algoOptions}
-                disabled={$submitting}
-              />
-            </FormField>
           </FormRow>
-
-          <FormRow columns={2}>
-            <FormField id="keyId" label="Key ID (kid)" error={$errors.keyId} required={true}>
-              {#if data.signingKeys && data.signingKeys.length > 1}
-                <EnhancedSelect
-                  id="keyId"
-                  name="keyId"
-                  bind:value={$form.keyId}
-                  placeholder="Select key ID"
-                  aria-invalid={$errors.keyId ? 'true' : undefined}
-                  options={data.signingKeys.map(key => ({ value: key.keyId, label: `${key.keyId}${key.isPrimary ? ' (Primary)' : ''}` }))}
-                  disabled={$submitting}
-                />
-              {:else}
-                <Input
-                  id="keyId"
-                  name="keyId"
-                  type="text"
-                  bind:value={$form.keyId}
-                  placeholder="Key identifier"
-                  aria-invalid={$errors.keyId ? 'true' : undefined}
-                  disabled={$submitting}
-                />
-              {/if}
-              <p class="text-xs text-muted-foreground mt-1">
-                Identifier for the key used to sign the license
-              </p>
-            </FormField>
-          </FormRow>
-
-          <FormRow columns={1}>
-            <FormField id="jwt" label="JWT" error={$errors.jwt} required={false}>
-              <Textarea
-                id="jwt"
-                name="jwt"
-                bind:value={$form.jwt}
-                rows={4}
-                placeholder="Leave empty for server-generated JWT"
-                aria-invalid={$errors.jwt ? 'true' : undefined}
-                disabled={$submitting}
-              />
-              <p class="text-xs text-muted-foreground mt-1">
-                Optional: Provide a pre-signed JWT or leave empty to generate server-side
-              </p>
-            </FormField>
-          </FormRow>
+          
+          <!-- Hidden fields for server-side generation -->
+          <input type="hidden" name="algorithm" bind:value={$form.algorithm} />
+          <input type="hidden" name="keyId" bind:value={$form.keyId} />
+          <!-- JWT is optional in the schema now -->
         </div>
       </AdminCard>
     </FormContainer>

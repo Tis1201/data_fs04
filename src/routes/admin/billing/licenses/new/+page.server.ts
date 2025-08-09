@@ -93,9 +93,11 @@ export const actions: Actions = {
     create: restrict(
         async (event) => {
             const { request, locals, auth } = event;
+            // Move form declaration outside try-catch to make it available in the catch block
+            // Use JSON data type for superForm to handle complex data types
+            const form = await superValidate(request, zod(licenseSchema), { dataType: 'json' });
+            
             try {
-                const form = await superValidate(request, zod(licenseSchema));
-
                 if (!form.valid) {
                     logger.debug(`License form validation failed: ${JSON.stringify(form.errors)}`);
                     return fail(400, { form });
@@ -145,58 +147,117 @@ export const actions: Actions = {
 
                 const deviceId = form.data.deviceId && form.data.deviceId.trim() !== '' ? form.data.deviceId.trim() : null;
                 
-                // Check if we need to generate a JWT server-side
-                let jwt = form.data.jwt;
+                // Always generate JWT server-side
+                // Get the primary signing key if not already set
+                let keyId = form.data.keyId;
+                let algorithm = form.data.algorithm || 'RS256';
                 
-                if (!jwt) {
-                    // TODO: In a real implementation, this would call a service to generate the JWT
-                    // For now, we'll just create a placeholder
-                    logger.debug(`Generating server-side JWT for license with keyId: ${form.data.keyId}`);
+                if (!keyId) {
+                    // Find the primary signing key
+                    const primaryKey = await locals.prisma.jwtSigningKey.findFirst({
+                        where: {
+                            keyType: 'LICENSE',
+                            isActive: true,
+                            isPrimary: true
+                        },
+                        select: {
+                            keyId: true
+                        }
+                    });
                     
-                    // This is just a placeholder - in production, this would call a proper JWT generation service
-                    const payload = {
-                        iss: 'fs04_system',
-                        sub: deviceId || 'any_device',
-                        iat: Math.floor(Date.now() / 1000),
-                        exp: Math.floor(form.data.expiresAt.getTime() / 1000),
-                        accountId: accountId
-                    };
-                    
-                    // In a real implementation, this would be signed with the proper key
-                    jwt = `server_generated_jwt_${Date.now()}_placeholder`;
-                    logger.debug(`Generated placeholder JWT for testing purposes`);
+                    if (primaryKey) {
+                        keyId = primaryKey.keyId;
+                        logger.debug(`Using primary signing key: ${keyId}`);
+                    } else {
+                        // Fallback to any active key
+                        const anyKey = await locals.prisma.jwtSigningKey.findFirst({
+                            where: {
+                                keyType: 'LICENSE',
+                                isActive: true
+                            },
+                            select: {
+                                keyId: true
+                            }
+                        });
+                        
+                        if (anyKey) {
+                            keyId = anyKey.keyId;
+                            logger.debug(`Using fallback signing key: ${keyId}`);
+                        } else {
+                            keyId = 'default_key';
+                            logger.warn('No active signing keys found, using default key');
+                        }
+                    }
                 }
+                
+                // Generate JWT
+                logger.debug(`Generating server-side JWT for license with keyId: ${keyId}`);
+                
+                // Create JWT payload
+                const expiresAtDate = new Date(form.data.expiresAt);
+                
+                const payload = {
+                    iss: 'fs04_system',
+                    iat: Math.floor(Date.now() / 1000),
+                    exp: Math.floor(expiresAtDate.getTime() / 1000),
+                    sub: deviceId || 'any_device',
+                    accountId: accountId,
+                    kid: keyId,
+                    alg: algorithm
+                };
+                
+                // In a real implementation, this would be signed with the proper key
+                const jwt = `server_generated_jwt_${Date.now()}_${keyId}_${algorithm}`;
+                logger.debug(`Generated placeholder JWT for testing purposes`);
 
                 // Create the license
                 const license = await locals.prisma.license.create({
                     data: {
                         accountId,
-                        deviceId,
-                        expiresAt: form.data.expiresAt,
-                        keyId: form.data.keyId,
-                        algorithm: form.data.algorithm,
+                        deviceId: deviceId || null,
+                        // Convert expiresAt to Date object for database storage
+                        expiresAt: new Date(form.data.expiresAt),
+                        keyId,
+                        algorithm,
                         jwt,
                         createdBy: auth.user.id,
                         updatedBy: auth.user.id
                     }
                 });
-
+                
+                // Get device name for the message if a device was selected
+                let deviceName = '';
+                if (deviceId) {
+                    const device = await locals.prisma.device.findUnique({
+                        where: { id: deviceId },
+                        select: { name: true }
+                    });
+                    deviceName = device?.name || 'Unknown Device';
+                }
+                
+                // Log the audit
                 await logAudit({
                     actionType: AuditActionType.INSERT,
                     tableName: 'License',
                     recordId: license.id,
                     oldData: null,
                     newData: license,
-                    userId: locals.user.id,
+                    userId: auth.user.id,
                     ipAddress: locals.ipAddress,
                     prisma: locals.prisma
                 });
-
+                
+                logger.info(`License created: ${license.id} for account ${accountId}${deviceId ? ` and device ${deviceId}` : ''}`);
+                
+                // Return success with message and form
                 return message(
                     form,
-                    createSuccessResponse('License created successfully', {
-                        details: `License has been issued for ${accountName}.`,
-                        data: { licenseId: license.id, accountId }
+                    createSuccessResponse('License created successfully!', {
+                        details: `License has been created for account ${accountName}${deviceName ? ` and device ${deviceName}` : ''}.`,
+                        data: {
+                            id: license.id,
+                            redirect: '/admin/billing/licenses'
+                        }
                     })
                 );
             } catch (err) {
@@ -204,7 +265,6 @@ export const actions: Actions = {
                     error: err,
                     form,
                     prisma: locals.prisma,
-                    accountId: undefined,
                     defaultMessage: 'Failed to create license. Please try again.',
                     action: 'admin license creation'
                 });
