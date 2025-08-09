@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Link, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
+    import { Link, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw, LinkIcon } from 'lucide-svelte';
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
