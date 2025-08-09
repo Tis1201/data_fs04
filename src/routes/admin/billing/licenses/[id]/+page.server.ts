@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, json } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -24,6 +24,48 @@ const licenseRenewalSchema = z.object({
 });
 
 export const actions: Actions = {
+    download: restrict(
+        async ({ params, locals }) => {
+            const { id } = params;
+            
+            try {
+                // Fetch the license by ID
+                const license = await locals.prisma.license.findUnique({
+                    where: { id },
+                    select: {
+                        jwt: true,
+                        account: {
+                            select: {
+                                name: true
+                            }
+                        }
+                    }
+                });
+                
+                if (!license) {
+                    throw error(404, {
+                        message: 'License not found',
+                        code: 'LICENSE_NOT_FOUND'
+                    });
+                }
+                
+                // Return the JWT as a downloadable file
+                return new Response(license.jwt, {
+                    headers: {
+                        'Content-Type': 'application/jwt',
+                        'Content-Disposition': `attachment; filename="license-${license.account.name.replace(/\s+/g, '-').toLowerCase()}.jwt"`
+                    }
+                });
+            } catch (err) {
+                logger.error(`Error downloading license ${id}: ${err}`);
+                throw error(500, {
+                    message: 'Failed to download license',
+                    code: 'LICENSE_DOWNLOAD_ERROR'
+                });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
     renew: restrict(
         async ({ params, locals, request, auth }) => {
             const { id } = params;

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
-    import { ArrowLeft, Save, Key, Calendar, RefreshCw, Building, Cpu } from 'lucide-svelte';
+    import { ArrowLeft, Save, Key, Calendar, RefreshCw, Building, Cpu, Download } from 'lucide-svelte';
+    import LicenseExpiryDate from "$lib/components/ui_components_sveltekit/date/LicenseExpiryDate.svelte";
     import { toast } from 'svelte-sonner';
     
     // Import layout components
@@ -19,6 +20,7 @@
     import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
     import * as Dialog from "$lib/components/ui/dialog";
     import { Button } from "$lib/components/ui/button";
+    import * as Card from "$lib/components/ui/card";
     
     export let data;
     const { license } = data;
@@ -35,8 +37,12 @@
     
     // Format date for display
     function formatDate(date) {
-        return date ? new Date(date).toLocaleString() : 'Not available';
+        if (!date) return 'Not available';
+        return new Date(date).toLocaleString();
     }
+    
+    // We're now using the ExpiresDate component instead of this function
+    // Keeping the formatDate function for other date displays
     
     // Format date for datetime-local input
     function formatDateForInput(date) {
@@ -77,6 +83,34 @@
     // Renewal dialog state
     let isRenewDialogOpen = false;
     
+    // Date preset options for renewal
+    function setExpiryDate(option) {
+        const now = new Date();
+        let newDate;
+        
+        switch(option) {
+            case 'tomorrow':
+                newDate = new Date(now.setDate(now.getDate() + 1));
+                break;
+            case 'nextWeek':
+                newDate = new Date(now.setDate(now.getDate() + 7));
+                break;
+            case 'nextMonth':
+                newDate = new Date(now.setMonth(now.getMonth() + 1));
+                break;
+            case 'nextYear':
+                newDate = new Date(now.setFullYear(now.getFullYear() + 1));
+                break;
+            case 'twoYears':
+                newDate = new Date(now.setFullYear(now.getFullYear() + 2));
+                break;
+            default:
+                newDate = new Date(now.setFullYear(now.getFullYear() + 1));
+        }
+        
+        $form.newExpiresAt = newDate;
+    }
+    
     // Set default expiration date for renewal (current expiration + 1 year)
     $: {
         if (license) {
@@ -101,6 +135,13 @@
         class: "h-9"
       },
       {
+        label: "Download",
+        icon: Download,
+        href: `?/download`,
+        variant: "outline",
+        class: "h-9"
+      },
+      {
         label: "Renew",
         icon: RefreshCw,
         onClick: () => isRenewDialogOpen = true,
@@ -108,88 +149,96 @@
       }
     ]}
     compact={true}
-    contentSpacing="space-y-6"
+    contentSpacing="space-y-4"
 >
-    <div class="w-full space-y-6">
+    <div class="w-full space-y-4">
+        <!-- Combined info card with status, account and device -->
+        <Card.Root class="w-full">
+            <Card.Content class="p-4">
+                <div class="flex flex-wrap items-center gap-6">
+                    <!-- Status -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium">Status:</span>
+                        <Badge variant={getStatusBadgeVariant(license.status)}>
+                            {license.status}
+                        </Badge>
+                    </div>
+                    
+                    <!-- Account -->
+                    <div class="flex items-center gap-2">
+                        <Building class="h-4 w-4 text-muted-foreground" />
+                        <span class="text-sm font-medium">Account:</span>
+                        <a href="/admin/accounts/{license.accountId}" class="text-primary hover:underline">
+                            {license.account.name}
+                        </a>
+                    </div>
+                    
+                    <!-- Device (if exists) -->
+                    {#if license.device}
+                        <div class="flex items-center gap-2">
+                            <Cpu class="h-4 w-4 text-muted-foreground" />
+                            <span class="text-sm font-medium">Device:</span>
+                            <a href="/admin/iot/devices/{license.deviceId}" class="text-primary hover:underline">
+                                {license.device.name || license.device.id.substring(0, 8) + '...'}
+                            </a>
+                        </div>
+                    {/if}
+                </div>
+            </Card.Content>
+        </Card.Root>
+        
+        <!-- License Details Card -->
         <AdminCard
             title="License Details"
-            description="View license information"
             icon={Key}
             compact={true}
         >
-            <!-- License Information -->
-            <div class="space-y-6">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-medium">Status</h3>
-                    <Badge variant={getStatusBadgeVariant(license.status)}>
-                        {license.status}
-                    </Badge>
+            <!-- Key details in a clean grid -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                <div>
+                    <div class="text-xs font-medium text-muted-foreground">Issued At</div>
+                    <div class="text-sm mt-1">{formatDate(license.issuedAt)}</div>
                 </div>
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="p-4 bg-muted/50 rounded-md">
-                        <div class="text-sm font-medium text-muted-foreground mb-1">Account</div>
-                        <div class="flex items-center">
-                            <Building class="h-4 w-4 mr-2 text-muted-foreground" />
-                            <a href="/admin/accounts/{license.accountId}" class="text-primary hover:underline">
-                                {license.account.name}
-                            </a>
-                        </div>
-                    </div>
-                    
-                    {#if license.device}
-                        <div class="p-4 bg-muted/50 rounded-md">
-                            <div class="text-sm font-medium text-muted-foreground mb-1">Device</div>
-                            <div class="flex items-center">
-                                <Cpu class="h-4 w-4 mr-2 text-muted-foreground" />
-                                <a href="/admin/iot/devices/{license.deviceId}" class="text-primary hover:underline">
-                                    {license.device.name || license.device.id.substring(0, 8) + '...'}
-                                </a>
-                            </div>
-                        </div>
-                    {/if}
-                    
-                    <div class="p-4 bg-muted/50 rounded-md">
-                        <div class="text-sm font-medium text-muted-foreground mb-1">Issued At</div>
-                        <div>{formatDate(license.issuedAt)}</div>
-                    </div>
-                    
-                    <div class="p-4 bg-muted/50 rounded-md">
-                        <div class="text-sm font-medium text-muted-foreground mb-1">Expires At</div>
-                        <div>{formatDate(license.expiresAt)}</div>
-                    </div>
-                    
-                    <div class="p-4 bg-muted/50 rounded-md">
-                        <div class="text-sm font-medium text-muted-foreground mb-1">Key ID</div>
-                        <div>{license.keyId}</div>
-                    </div>
-                    
-                    <div class="p-4 bg-muted/50 rounded-md">
-                        <div class="text-sm font-medium text-muted-foreground mb-1">Algorithm</div>
-                        <div>{license.algorithm}</div>
+                <div>
+                    <div class="text-xs font-medium text-muted-foreground">Expires At</div>
+                    <div class="text-sm mt-1">
+                        <LicenseExpiryDate date={license.expiresAt} showTooltip={true} />
                     </div>
                 </div>
                 
-                {#if license.description}
-                    <div class="p-4 bg-muted/50 rounded-md">
-                        <div class="text-sm font-medium text-muted-foreground mb-1">Description</div>
-                        <div>{license.description}</div>
-                    </div>
-                {/if}
+                <div>
+                    <div class="text-xs font-medium text-muted-foreground">Key ID</div>
+                    <div class="text-sm mt-1">{license.keyId}</div>
+                </div>
                 
-                {#if license.entitlements && license.entitlements.length > 0}
-                    <div class="mt-6">
-                        <h3 class="text-lg font-medium mb-4">Entitlements</h3>
-                        <div class="flex flex-wrap gap-2">
-                            {#each license.entitlements as entitlement}
-                                <Badge variant="secondary">
-                                    {entitlement.name || entitlement.id.substring(0, 8)}
-                                </Badge>
-                            {/each}
-                        </div>
-                    </div>
-                {/if}
+                <div>
+                    <div class="text-xs font-medium text-muted-foreground">Algorithm</div>
+                    <div class="text-sm mt-1">{license.algorithm}</div>
+                </div>
             </div>
+            
+            <!-- Description if available -->
+            {#if license.description}
+                <div class="mt-4 border-t pt-4">
+                    <div class="text-xs font-medium text-muted-foreground mb-1">Description</div>
+                    <div class="text-sm">{license.description}</div>
+                </div>
+            {/if}
+            
+            <!-- Entitlements if available -->
+            {#if license.entitlements && license.entitlements.length > 0}
+                <div class="mt-4 border-t pt-4">
+                    <div class="text-xs font-medium text-muted-foreground mb-2">Entitlements</div>
+                    <div class="flex flex-wrap gap-2">
+                        {#each license.entitlements as entitlement}
+                            <Badge variant="secondary">
+                                {entitlement.name || entitlement.id.substring(0, 8)}
+                            </Badge>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
             
             <svelte:fragment slot="footer">
                 <MetadataFooter
@@ -225,8 +274,12 @@
                         {#each license.renewals as renewal}
                             <TableRow>
                                 <TableCell>{formatDate(renewal.createdAt)}</TableCell>
-                                <TableCell>{formatDate(renewal.oldExpiresAt)}</TableCell>
-                                <TableCell>{formatDate(renewal.newExpiresAt)}</TableCell>
+                                <TableCell>
+                                    <LicenseExpiryDate date={renewal.oldExpiresAt} showTooltip={true} />
+                                </TableCell>
+                                <TableCell>
+                                    <LicenseExpiryDate date={renewal.newExpiresAt} showTooltip={true} />
+                                </TableCell>
                                 <TableCell>
                                     <Badge variant="outline">
                                         {renewal.source}
@@ -263,10 +316,62 @@
             novalidate
             errorMessage={$errorMessage}
         >
-            <div class="space-y-4 py-4">
+            <div class="space-y-4 py-2">
+                <!-- Quick date selection options -->
+                <div>
+                    <div class="text-sm font-medium mb-2">Quick Select</div>
+                    <div class="flex flex-wrap gap-2">
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            on:click={() => setExpiryDate('tomorrow')}
+                            disabled={$submitting}
+                        >
+                            Tomorrow
+                        </Button>
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            on:click={() => setExpiryDate('nextWeek')}
+                            disabled={$submitting}
+                        >
+                            Next Week
+                        </Button>
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            on:click={() => setExpiryDate('nextMonth')}
+                            disabled={$submitting}
+                        >
+                            Next Month
+                        </Button>
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            on:click={() => setExpiryDate('nextYear')}
+                            disabled={$submitting}
+                        >
+                            Next Year
+                        </Button>
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            on:click={() => setExpiryDate('twoYears')}
+                            disabled={$submitting}
+                        >
+                            2 Years
+                        </Button>
+                    </div>
+                </div>
+                
                 <FormField 
                     id="newExpiresAt" 
-                    label="New Expiration Date"
+                    label="Expiration Date"
                     error={$errors.newExpiresAt}
                     required={true}
                 >
@@ -284,15 +389,15 @@
                     id="metadata" 
                     label="Notes"
                     error={$errors.metadata}
-                    description="Additional information about this renewal"
                 >
                     <Textarea 
                         id="metadata" 
                         name="metadata" 
                         bind:value={$form.metadata}
-                        placeholder="Enter notes"
+                        placeholder="Enter notes about this renewal"
                         disabled={$submitting}
-                        rows={3}
+                        rows={2}
+                        class="resize-none"
                     />
                 </FormField>
             </div>
