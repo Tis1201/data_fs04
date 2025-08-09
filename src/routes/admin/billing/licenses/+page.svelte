@@ -1,68 +1,43 @@
 <script lang="ts">
-    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
-    import { goto } from "$app/navigation";
-    import { onMount } from "svelte";
-    import { browser } from "$app/environment";
+    import LicensesTable from "./table.svelte";
+    import type { PageData } from "./$types";
+    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
+    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
+    import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
+    import { Plus } from "lucide-svelte";
+    import { initPagination, getDefaultPagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
-    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
-    import { Button } from "$lib/components/ui/button";
-    import { Input } from "$lib/components/ui/input";
-    import { Label } from "$lib/components/ui/label";
-    import {
-        Database,
-        RefreshCw,
-        Plus,
-        Search,
-        Trash,
-        Wifi,
-        WifiOff,
-        Send,
-        MessageSquare,
-    } from "lucide-svelte";
-    import { Alert, AlertDescription } from "$lib/components/ui/alert";
-    import { Badge } from "$lib/components/ui/badge";
-    import { Separator } from "$lib/components/ui/separator";
-    import { Skeleton } from "$lib/components/ui/skeleton";
-    import { toast } from "svelte-sonner";
-    import {
-        Dialog,
-        DialogContent,
-        DialogDescription,
-        DialogFooter,
-        DialogHeader,
-        DialogTitle,
-    } from "$lib/components/ui/dialog";
-    import { Textarea } from "$lib/components/ui/textarea";
+    export let data: PageData;
 
-    const title = `Redis Debug`;
+    $: ({ licenses: records, meta } = data);
+    $: pagination = getDefaultPagination(meta, 10);
+    $: sort = meta?.sort || { field: "issuedAt", order: "desc" };
+    let loading = false;
+
+    // Initialize pagination with stored preferences
+    initPagination('preferredPageSize', true);
+
+    // Breadcrumbs
     const pageCrumbs = [
-        ["Admin", "/admin/dashboard"],
-        ["Debug"],
-        ["Redis"],
-    ] as [string, string][];
-
-    const actionButtons = [
-        {
-            label: "Back",
-            onClick: () => {
-                goto("/admin/dashboard");
-            },
-        },
+        ["Admin", "/admin"],
+        "Billing",
+        "Licenses"
     ];
 </script>
 
-<AdminPageLayout
-    {title}
-    crumbs={pageCrumbs}
-    {actionButtons}
-    showCreateButton={false}
-    compact={true}
-    contentSpacing="space-y-4"
->
-    <AdminCard
-        title="Redis Operations"
-        description="Interact with Redis for debugging purposes"
-        icon={Database}
-        compact={true}
-    ></AdminCard>
-</AdminPageLayout>
+<PageContainer crumbs={pageCrumbs}>
+    <PageHeader title="Licenses">
+        <svelte:fragment slot="action">
+            <ActionButton label="Add License" icon={Plus} href="/admin/billing/licenses/new" />
+        </svelte:fragment>
+    </PageHeader>
+
+    <LicensesTable
+        props={{
+            records,
+            pagination,
+            sort,
+            loading
+        }}
+    />
+</PageContainer>
