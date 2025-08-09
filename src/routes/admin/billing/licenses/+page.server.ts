@@ -10,7 +10,15 @@ const table_options = {
     allowedFilters: ['status', 'accountId'],
     defaultSortField: 'issuedAt',
     defaultSortOrder: 'desc' as const,
-    defaultPerPage: 10
+    defaultPerPage: 10,
+    include: {
+        account: {
+            select: {
+                id: true,
+                name: true
+            }
+        }
+    }
 };
 
 export const load = restrict(

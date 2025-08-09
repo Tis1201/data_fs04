@@ -57,7 +57,7 @@
             label: "Account",
             sortable: true,
             width: "16%",
-            render: (record: License) => record.accountId
+            render: (record: License) => (record as any)?.account?.name ?? record.accountId
         },
         {
             id: "deviceId",
@@ -95,13 +95,13 @@
                 props: { date: record.expiresAt, format: 'relative', showTooltip: true, useHoverCard: true, iconSize: 12 }
             })
         },
-        {
-            id: "algorithm",
-            label: "Alg",
-            sortable: true,
-            width: "10%",
-            render: (record: License) => record.algorithm
-        },
+        // {
+        //     id: "algorithm",
+        //     label: "Alg",
+        //     sortable: true,
+        //     width: "10%",
+        //     render: (record: License) => record.algorithm
+        // },
         {
             id: "actions",
             label: "",
