@@ -18,6 +18,12 @@ export const licenseSchema = z.object({
         z.string({ required_error: 'Expiry date/time is required' })
             .min(1, 'Expiry date/time is required')
     ),
+    // Optional description field
+    description: z
+        .string()
+        .optional()
+        .nullable()
+        .transform((v) => (v === 'undefined' || v == null ? '' : v)),
     keyId: z.string().optional().default(''),
     algorithm: z.enum(['RS256', 'HS256']).optional().default('RS256'),
     jwt: z

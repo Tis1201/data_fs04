@@ -33,6 +33,10 @@
     "Add License",
   ];
   
+  // State for storing JWT after successful submission
+  let createdLicense = null;
+  let showDownloadSection = false;
+
   // Create a form handler with standardized error handling
   const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
     validateOnInput: true,
@@ -40,20 +44,31 @@
     onSuccess: (result) => {
       toast.success('License created successfully!');
       
-      // Check if we have a redirect URL in the response
-      if (result.data?.redirect) {
-        // Wait a moment for the toast to be visible before redirecting
-        setTimeout(() => {
-          goto(result.data.redirect);
-        }, 1000);
+      // Store the license data if available
+      if (result.data?.license) {
+        createdLicense = result.data.license;
+        showDownloadSection = true;
       } else {
-        // Fallback to default redirect
+        // If no license data, redirect after a delay
         setTimeout(() => {
           goto('/admin/billing/licenses');
         }, 1000);
       }
     }
   });
+  
+  // Function to download JWT as a file
+  function downloadJWT() {
+    if (!createdLicense?.jwt) return;
+    
+    const element = document.createElement('a');
+    const file = new Blob([createdLicense.jwt], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `license_${createdLicense.id}.jwt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  }
 
   // Algorithm options
   const algoOptions = [
@@ -122,39 +137,114 @@
   contentSpacing="space-y-4"
 >
   <div class="w-full space-y-6">
-    <FormContainer
-      method="POST"
-      action="?/create"
-      {enhance}
-      novalidate
-      enctype="application/json"
-      errorMessage={$errorMessage}
-    >
-      <!-- License Information -->
-      <AdminCard
-        title="License Details"
-        description="Issue a new license (technical details are handled automatically)"
-        icon={ShieldCheck}
-        compact={true}
-      >
-        <div class="space-y-6">
-          <FormRow columns={2}>
-            <FormField id="accountId" label="Account" error={$errors.accountId}>
-              <EnhancedSelect
-                id="accountId"
-                name="accountId"
-                bind:value={$form.accountId}
-                placeholder="Select account (optional - defaults to system account)"
-                aria-invalid={$errors.accountId ? 'true' : undefined}
-                options={[{ value: '', label: 'System Account (Default)' }, ...data.accountOptions]}
-                disabled={$submitting}
-              />
-              <p class="text-xs text-muted-foreground mt-1">
-                Select the account for this license
-              </p>
-            </FormField>
+    {#if showDownloadSection && createdLicense}
+      <AdminCard title="License Created Successfully" description="Your license has been created and is ready for download" icon={ShieldCheck}>
+        <div class="space-y-4">
+          <div class="p-4 bg-green-50 border border-green-200 rounded-md text-green-700">
+            <div class="flex items-center">
+              <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+              <p class="font-medium">License created successfully!</p>
+            </div>
+            <p class="mt-1 ml-7 text-sm">You can download the JWT token below or copy it directly.</p>
+          </div>
+          <div class="p-4 border rounded-md bg-muted/50">
+            <div class="mb-2">
+              <span class="font-semibold">License ID:</span> {createdLicense.id}
+            </div>
+            {#if createdLicense.description}
+              <div class="mb-2">
+                <span class="font-semibold">Description:</span> {createdLicense.description}
+              </div>
+            {/if}
+            <div class="mb-2">
+              <span class="font-semibold">Account:</span> {createdLicense.accountId || 'None'}
+            </div>
+            <div class="mb-2">
+              <span class="font-semibold">Device:</span> {createdLicense.deviceId || 'Any device'}
+            </div>
+            <div class="mb-2">
+              <span class="font-semibold">Expires:</span> {new Date(createdLicense.expiresAt).toLocaleString()}
+            </div>
+            <div class="mb-4">
+              <span class="font-semibold">Algorithm:</span> {createdLicense.algorithm}
+            </div>
             
-            <FormField id="deviceId" label="Device ID" error={$errors.deviceId}>
+            <div class="flex flex-col space-y-2">
+              <div class="font-semibold">JWT Token:</div>
+              <div class="p-2 bg-muted rounded-md overflow-x-auto">
+                <code class="text-xs break-all">{createdLicense.jwt}</code>
+              </div>
+              <button 
+                type="button" 
+                class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 w-fit"
+                on:click={downloadJWT}
+              >
+                <KeyRound class="mr-2 h-4 w-4" />
+                Download JWT
+              </button>
+            </div>
+          </div>
+          
+          <div class="flex justify-between mt-6">
+            <button 
+              type="button" 
+              class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2"
+              on:click={() => goto('/admin/billing/licenses')}
+            >
+              <ArrowLeft class="mr-2 h-4 w-4" />
+              Back to Licenses
+            </button>
+            <button 
+              type="button" 
+              class="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+              on:click={() => {
+                createdLicense = null;
+                showDownloadSection = false;
+                $form = data.form.data;
+              }}
+            >
+              Create Another License
+            </button>
+          </div>
+        </div>
+      </AdminCard>
+    {:else}
+      <FormContainer
+        method="POST"
+        action="?/create"
+        enhance={enhance}
+        novalidate
+        enctype="application/json"
+        errorMessage={$errorMessage}
+        successMessage={createdLicense ? { text: 'License created successfully!' } : null}
+      >
+        <!-- License Information -->
+        <AdminCard
+          title="License Details"
+          description="Issue a new license (technical details are handled automatically)"
+          icon={ShieldCheck}
+          compact={true}
+        >
+          <div class="space-y-6">
+            <FormRow columns={2}>
+              <FormField id="accountId" label="Account" error={$errors.accountId}>
+                <EnhancedSelect
+                  id="accountId"
+                  name="accountId"
+                  bind:value={$form.accountId}
+                  placeholder="Select account (optional - defaults to system account)"
+                  aria-invalid={$errors.accountId ? 'true' : undefined}
+                  options={[{ value: '', label: 'System Account (Default)' }, ...data.accountOptions]}
+                  disabled={$submitting}
+                />
+                <p class="text-xs text-muted-foreground mt-1">
+                  Select the account for this license
+                </p>
+              </FormField>
+              
+              <FormField id="deviceId" label="Device ID" error={$errors.deviceId}>
               <EnhancedSelect
                 id="deviceId"
                 name="deviceId"
@@ -189,6 +279,22 @@
               </p>
             </FormField>
           </FormRow>
+
+          <FormRow columns={1}>
+            <FormField id="description" label="Description" error={$errors.description}>
+              <Textarea
+                id="description"
+                name="description"
+                bind:value={$form.description}
+                placeholder="Optional description for this license"
+                rows={4}
+                aria-invalid={$errors.description ? 'true' : undefined}
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                Provide an optional description for this license
+              </p>
+            </FormField>
+          </FormRow>
           
           <!-- Hidden fields for server-side generation -->
           <input type="hidden" name="algorithm" bind:value={$form.algorithm} />
@@ -197,5 +303,6 @@
         </div>
       </AdminCard>
     </FormContainer>
+    {/if}
   </div>
 </AdminPageLayout>

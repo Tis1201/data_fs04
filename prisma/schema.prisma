@@ -668,6 +668,7 @@ model License {
   updatedAt    DateTime         @updatedAt()
   createdBy    String
   updatedBy    String
+  description  String?
   accountId    String
   account      Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
   deviceId     String?

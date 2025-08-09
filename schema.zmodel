@@ -981,6 +981,7 @@ model License{
 	updatedAt     DateTime @updatedAt
 	createdBy     String
 	updatedBy     String
+  description   String?
 
 	// Ownership
 	accountId     String

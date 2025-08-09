@@ -217,6 +217,8 @@ export const actions: Actions = {
                         deviceId: deviceId || null,
                         // Convert expiresAt to Date object for database storage
                         expiresAt: new Date(form.data.expiresAt),
+                        // Add description field
+                        description: form.data.description || null,
                         keyId,
                         algorithm,
                         jwt,
@@ -255,8 +257,17 @@ export const actions: Actions = {
                     createSuccessResponse('License created successfully!', {
                         details: `License has been created for account ${accountName}${deviceName ? ` and device ${deviceName}` : ''}.`,
                         data: {
-                            id: license.id,
-                            redirect: '/admin/billing/licenses'
+                            // Return the full license object for download
+                            license: {
+                                id: license.id,
+                                accountId: license.accountId,
+                                deviceId: license.deviceId,
+                                expiresAt: license.expiresAt,
+                                description: license.description,
+                                algorithm: license.algorithm,
+                                keyId: license.keyId,
+                                jwt: license.jwt
+                            }
                         }
                     })
                 );
