@@ -49,7 +49,9 @@
     import { onMount, onDestroy } from 'svelte';
     
     export let data: PageData;
-    const { device, deviceActionLogs } = data as any;
+    // Use let bindings so we can reassign and trigger Svelte reactivity on updates
+    let device = (data as any).device;
+    let deviceActionLogs = (data as any).deviceActionLogs;
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
     // Track a temporary optimistic log row for firmware update initiation
@@ -159,23 +161,31 @@
     let unsubConnectionLight: (() => void) | null = null;
     onMount(() => {
         try {
+            console.debug('[DeviceDetail] Connecting SSE to /api/sse ...');
             sseStore.connect(`/api/sse`, { withCredentials: true });
         } catch (e) {
             console.warn('SSE connect failed (may already be connected):', e);
         }
         // After connectionId is known, call subscribe endpoint to bind this connection to device channel
-        const unsubConnected = sseStore.on('connected', (msg: any) => {
+        // Persistently re-subscribe on every SSE (re)connect because connectionId changes
+        let lastSubscribedConnectionId: string | null = null;
+        sseStore.on('connected', (msg: any) => {
             const connId = msg?.data?.connectionId;
             if (!connId) return;
+            if (connId === lastSubscribedConnectionId) {
+                console.debug('[DeviceDetail] SSE connected event but already subscribed for', connId);
+                return;
+            }
+            console.debug('[DeviceDetail] SSE (re)connected. Subscribing device channel', { deviceId: device.id, connId });
             fetch(`/api/sse/subscribe/device/${device.id}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({ connectionId: connId })
             }).then(() => {
-                console.log('[DeviceDetail] Subscribed to device channel');
+                lastSubscribedConnectionId = connId;
+                console.log('[DeviceDetail] Subscribed to device channel for', connId);
             }).catch((err) => console.warn('Subscribe failed', err));
-            unsubConnected();
         });
 
         // Use centralized realtime updater for action history
@@ -189,15 +199,46 @@
 
         // Lightweight connection status updates remain inline
         unsubConnectionLight = sseStore.on('*', (msg: any) => {
-            const evt = msg?.data ?? msg;
-            const evtType = evt?.type || msg?.event || evt?.payload?.type;
-            const data = evt?.payload?.action === 'connection' ? { ...evt.payload, type: 'device:connection' } : evt;
-            if (evtType === 'device:connection' || data?.type === 'device:connection') {
-                const c = data;
-                if (c?.deviceId !== device.id) return;
-                device.connected = !!c.connected;
-                if (c.connected && c.connectedAt) device.connectedAt = c.connectedAt;
-                if (!c.connected && c.disconnectedAt) device.disconnectedAt = c.disconnectedAt;
+            try {
+                const evt = msg?.data ?? msg;
+                const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                // Normalize payloads that carry action in payload
+                const normalized = evt?.payload?.action === 'device:connection' ? { ...evt.payload, type: 'device:connection' }
+                                  : evt;
+
+                // Debug incoming messages minimally to avoid spam
+                if (evtType || normalized?.type) {
+                    console.debug('[DeviceDetail:SSE] Incoming', {
+                        evtType,
+                        normalizedType: normalized?.type,
+                        forDevice: normalized?.deviceId,
+                        currentDevice: device?.id
+                    });
+                }
+
+                const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
+                if (!isConnectionEvent) return;
+
+                const c = normalized;
+                if (!c?.deviceId || c.deviceId !== device.id) {
+                    // Not for this device; ignore
+                    return;
+                }
+
+                const prev = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
+
+                // Reassign the whole object to trigger reactive updates in Svelte
+                device = {
+                    ...device,
+                    connected: !!c.connected,
+                    connectedAt: c.connected ? (c.connectedAt ?? device.connectedAt) : device.connectedAt,
+                    disconnectedAt: !c.connected ? (c.disconnectedAt ?? device.disconnectedAt) : device.disconnectedAt
+                };
+
+                const next = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
+                console.debug('[DeviceDetail:SSE] Applied connection update', { prev, next });
+            } catch (e) {
+                console.warn('[DeviceDetail:SSE] Error processing message', e);
             }
         });
     });
