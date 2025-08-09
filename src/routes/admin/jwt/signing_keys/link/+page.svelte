@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { Link, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
+    import { Link, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw, LinkIcon } from 'lucide-svelte';
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
@@ -187,7 +187,7 @@
             
             <svelte:fragment slot="actions">
                 {#if primaryKey}
-                    <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
+                    <form id="rotate-key-form" method="POST" action="/admin/jwt/signing_keys/link?/rotateKey" use:rotateEnhance>
                         <input type="hidden" name="keyId" value={primaryKey.id} />
                     </form>
                 {/if}
@@ -205,7 +205,7 @@
             
             <svelte:fragment slot="create-form">
                 <p class="text-muted-foreground mb-4">No active link key found. Create a new key to get started.</p>
-                <form method="POST" action="?/createKey" use:createEnhance>
+                <form method="POST" action="/admin/jwt/signing_keys/link?/createKey" use:createEnhance>
                     <input type="hidden" name="keyType" value="LINK" />
                     <Button type="submit" disabled={$createSubmitting}>
                         <LinkIcon class="mr-2 h-4 w-4" />
