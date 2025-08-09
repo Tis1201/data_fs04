@@ -6,6 +6,9 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
+    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
+    import { Download, Pencil, Trash, KeyRound } from "lucide-svelte";
 
     import type { License } from "@prisma/client";
     import { page } from "$app/stores";
@@ -98,11 +101,87 @@
             sortable: true,
             width: "10%",
             render: (record: License) => record.algorithm
+        },
+        {
+            id: "actions",
+            label: "",
+            sortable: false,
+            width: "10%",
+            render: (license: License) => {
+                const actions: ActionItem[] = [
+                    {
+                        label: "View",
+                        icon: Pencil,
+                        onClick: () => goto(`/admin/billing/licenses/${license.id}`)
+                    },
+                    {
+                        label: "Delete",
+                        icon: Trash,
+                        onClick: () => confirmDelete(license),
+                        variant: "destructive"
+                    }
+                ];
+
+                // Add download action if JWT is available
+                if (license.jwt) {
+                    actions.splice(1, 0, {
+                        label: "Download JWT",
+                        icon: KeyRound,
+                        onClick: () => {
+                            const element = document.createElement('a');
+                            const file = new Blob([license.jwt], {type: 'text/plain'});
+                            element.href = URL.createObjectURL(file);
+                            element.download = `license_${license.id}.jwt`;
+                            document.body.appendChild(element);
+                            element.click();
+                            document.body.removeChild(element);
+                        },
+                        variant: "outline"
+                    });
+                }
+
+                return {
+                    component: RecordActions,
+                    props: {
+                        items: actions
+                    }
+                };
+            }
         }
     ];
 
     // Filters state pulled from URL
     $: selectedStatus = ($page.url.searchParams.get("status")?.split(',').filter(Boolean)) ?? [];
+
+    // State for confirmation dialog
+    let state = {
+        selectedRecord: null as License | null,
+        confirmationOpen: false,
+        title: "Delete License",
+        message: "Are you sure you want to delete this license? This action cannot be undone.",
+        confirmButtonText: "Delete",
+        cancelButtonText: "Cancel"
+    };
+
+    // Function to open delete confirmation dialog
+    function confirmDelete(license: License) {
+        state.selectedRecord = license;
+        state.confirmationOpen = true;
+    }
+
+    // Handle delete confirmation
+    function handleDeleteConfirm() {
+        if (!state.selectedRecord) return;
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = "?/delete";
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "id";
+        input.value = state.selectedRecord.id;
+        document.body.appendChild(form);
+        form.requestSubmit();
+    }
 
     onMount(() => {
         if (!browser) return;
@@ -143,5 +222,19 @@
         </div>
 
         <DataTable {columns} props={props} />
+
+        <!-- Delete Confirmation Dialog -->
+        <RecordDeleteDialog
+            state={{
+                selectedRecord: state.selectedRecord,
+                confirmationOpen: state.confirmationOpen
+            }}
+            onConfirm={handleDeleteConfirm}
+            title="Delete License"
+            getDescription={(license) => `Are you sure you want to delete this license? This action cannot be undone.`}
+            actionName="delete"
+            action="?/delete"
+            useFormSubmission={false}
+        />
     {/if}
 </div>
