@@ -13,14 +13,41 @@ import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
     async (event) => {
-        const { locals } = event;
+        const { locals, url } = event;
         try {
+            // Get the selected account ID from URL query parameter if available
+            const selectedAccountId = url.searchParams.get('accountId') || '';
+            
+            // Initialize form with defaults
             const form = await superValidate(zod(licenseSchema), { id: 'license-form' });
-
-            if (!form.data.accountId || form.data.accountId === 'undefined') {
-                form.data.accountId = '';
+            
+            // Set default values
+            form.data.accountId = selectedAccountId || '';
+            form.data.algorithm = 'RS256'; // Set default algorithm
+            
+            // Get signing keys to set default keyId
+            const signingKeys = await locals.prisma.jwtSigningKey.findMany({
+                where: {
+                    keyType: 'LICENSE',
+                    isActive: true
+                },
+                select: {
+                    id: true,
+                    keyId: true,
+                    isPrimary: true
+                },
+                orderBy: [
+                    { isPrimary: 'desc' },
+                    { createdAt: 'desc' }
+                ]
+            });
+            
+            // Set default keyId if available
+            if (signingKeys.length > 0) {
+                form.data.keyId = signingKeys[0].keyId;
             }
 
+            // Load accounts for dropdown
             const accounts = await locals.prisma.account.findMany({
                 where: { isSystem: false },
                 select: { id: true, name: true },
@@ -28,8 +55,32 @@ export const load = restrict(
             });
 
             const accountOptions = accounts.map((a) => ({ value: a.id, label: a.name }));
+            
+            // Load devices for the selected account if an account is selected
+            let deviceOptions: { value: string; label: string }[] = [];
+            
+            if (selectedAccountId) {
+                const devices = await locals.prisma.device.findMany({
+                    where: { 
+                        accountId: selectedAccountId,
+                        status: 'ACTIVE'
+                    },
+                    select: { 
+                        id: true, 
+                        name: true,
+                        hardwareId: true,
+                        deviceType: true
+                    },
+                    orderBy: { name: 'asc' }
+                });
+                
+                deviceOptions = devices.map((d) => ({
+                    value: d.id,
+                    label: `${d.name}${d.hardwareId ? ` (${d.hardwareId})` : ''}${d.deviceType ? ` - ${d.deviceType}` : ''}`
+                }));
+            }
 
-            return { form, accountOptions };
+            return { form, accountOptions, deviceOptions, signingKeys };
         } catch (err) {
             logger.error(`Error loading add license form: ${String(err)}`);
             throw error(500, 'Failed to load license form');
@@ -93,6 +144,28 @@ export const actions: Actions = {
                 }
 
                 const deviceId = form.data.deviceId && form.data.deviceId.trim() !== '' ? form.data.deviceId.trim() : null;
+                
+                // Check if we need to generate a JWT server-side
+                let jwt = form.data.jwt;
+                
+                if (!jwt) {
+                    // TODO: In a real implementation, this would call a service to generate the JWT
+                    // For now, we'll just create a placeholder
+                    logger.debug(`Generating server-side JWT for license with keyId: ${form.data.keyId}`);
+                    
+                    // This is just a placeholder - in production, this would call a proper JWT generation service
+                    const payload = {
+                        iss: 'fs04_system',
+                        sub: deviceId || 'any_device',
+                        iat: Math.floor(Date.now() / 1000),
+                        exp: Math.floor(form.data.expiresAt.getTime() / 1000),
+                        accountId: accountId
+                    };
+                    
+                    // In a real implementation, this would be signed with the proper key
+                    jwt = `server_generated_jwt_${Date.now()}_placeholder`;
+                    logger.debug(`Generated placeholder JWT for testing purposes`);
+                }
 
                 // Create the license
                 const license = await locals.prisma.license.create({
@@ -102,7 +175,7 @@ export const actions: Actions = {
                         expiresAt: form.data.expiresAt,
                         keyId: form.data.keyId,
                         algorithm: form.data.algorithm,
-                        jwt: form.data.jwt,
+                        jwt,
                         createdBy: auth.user.id,
                         updatedBy: auth.user.id
                     }

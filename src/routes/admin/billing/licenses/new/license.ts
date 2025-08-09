@@ -18,7 +18,11 @@ export const licenseSchema = z.object({
         .pipe(z.coerce.date()),
     keyId: z.string().min(1, 'Key ID is required'),
     algorithm: z.enum(['RS256', 'HS256'], { required_error: 'Algorithm is required' }),
-    jwt: z.string().min(1, 'JWT is required')
+    jwt: z
+        .string()
+        .optional()
+        .nullable()
+        .transform((v) => (v === 'undefined' || v == null || v === '' ? null : v))
 });
 
 export type LicenseForm = z.infer<typeof licenseSchema>;
