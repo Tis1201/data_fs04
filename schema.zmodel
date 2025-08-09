@@ -41,6 +41,9 @@ model Account {
   refreshTokens RefreshToken[]
   tokenUsageLogs TokenUsageLog[]
   whatsappAccounts WhatsAppAccount[]
+  // Licensing & entitlements
+  licenses      License[]
+  entitlements  Entitlement[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -483,6 +486,9 @@ model Device {
   connected     Boolean  @default(false)
   connectedAt   DateTime?
   disconnectedAt DateTime?
+
+  // Licensing
+  licenses      License[]
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
@@ -969,3 +975,112 @@ model BundleWave {
   @@index([status])
 }
 
+model License{
+	id            String   @id @default(cuid())
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+	createdBy     String
+	updatedBy     String
+
+	// Ownership
+	accountId     String
+	account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+	deviceId      String?
+	device        Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+	// Status & validity
+	status        String   @default("ACTIVE") // ACTIVE, REVOKED, EXPIRED, SUSPENDED
+	issuedAt      DateTime @default(now())
+	expiresAt     DateTime
+
+	// JWT snapshot (current)
+	jwt           String   // Current JWT blob
+	keyId         String   // kid
+	algorithm     String   @default("RS256") // alg
+
+	// Relations
+	renewals      LicenseRenewal[]
+	entitlements  Entitlement[]
+
+	// Authorization rules
+	@@allow('all', auth().systemRole == 'ADMIN')
+	@@allow('read', account.members?[userId == auth().id])
+	//@@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+	// Indexes & constraints
+	@@index([accountId])
+	@@index([deviceId])
+	@@index([status])
+	// Best-effort constraint to allow only one ACTIVE license per (accountId, deviceId)
+	// Note: partial unique index (status='ACTIVE') is not supported here; enforce strictly in service if needed
+	@@unique([accountId, deviceId, status])
+}
+
+model LicenseRenewal{
+	id             String   @id @default(cuid())
+	createdAt      DateTime @default(now())
+	updatedAt      DateTime @updatedAt
+	createdBy      String
+	updatedBy      String
+
+	// Relation to license
+	licenseId      String
+	license        License  @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+	// Old/new validity windows
+	oldIssuedAt    DateTime?
+	oldExpiresAt   DateTime?
+	newIssuedAt    DateTime
+	newExpiresAt   DateTime
+
+	// Snapshot & provenance
+	jwtSnapshot    String   // JWT at time of renewal/reissue
+	source         String   // billing | manual | api
+	transactionId  String?
+	metadata       String?  // JSON string for extra details
+	performedBy    String?  // User ID if applicable
+
+	// Authorization via owning account
+	@@allow('all', auth().systemRole == 'ADMIN')
+	@@allow('read', license.account.members?[userId == auth().id])
+	//@@allow('create,update,delete', license.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+	@@index([licenseId])
+	@@index([transactionId])
+}
+
+model Entitlement{
+	id            String   @id @default(cuid())
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+	createdBy     String
+	updatedBy     String
+
+  // Entitlement definition
+	code          String   // e.g., max_devices, feature_x, throughput_cap
+	value         String?  // e.g., "100", "true", "basic"
+	metadata      String?  // JSON string for additional info
+	status        String   @default("ACTIVE")
+	startsAt      DateTime?
+	endsAt        DateTime?
+
+	// Scope (either account-wide or bound to a license)
+	accountId     String?
+	account       Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+	licenseId     String?
+	license       License? @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+	// Authorization rules
+	@@allow('all', auth().systemRole == 'ADMIN')
+	@@allow('read', account != null && account.members?[userId == auth().id])
+	@@allow('read', license != null && license.account.members?[userId == auth().id])
+	//@@allow('create,update,delete', account != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+	//@@allow('create,update,delete', license != null && license.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+	// Indexes & constraints
+	@@index([accountId])
+	@@index([licenseId])
+	@@index([status])
+	@@unique([licenseId, code])
+	@@unique([accountId, code])
+}

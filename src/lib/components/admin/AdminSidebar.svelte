@@ -50,7 +50,13 @@
 
         PackagePlus,
 
-        Database
+        Database,
+
+        CreditCard,
+
+        IdCard
+
+
 
 
 
@@ -114,6 +120,14 @@
                 { href: "/admin/accounts/companies", label: "Companies", icon: Briefcase },
                 { href: "/admin/users", label: "Users", icon: Users },
                 { href: "/admin/accounts/groups", label: "Groups", icon: UserCog2 }
+            ]
+        },
+        {
+            label: "Billing",
+            icon: CreditCard,
+            initialExpanded: false,
+            subItems: [
+                { href: "/admin/billing/licenses", label: "Licenses", icon: IdCard },
             ]
         },
         { 
