@@ -130,29 +130,30 @@ model Permission {
 }
 
 model User {
-  id                 String              @id() @default(cuid())
-  name               String?
-  status             String              @default("ACTIVE")
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt()
-  email              String              @unique()
-  password           String
-  rolesString        String              @default("")
-  systemRole         String              @default("USER")
-  primaryAccountId   String?
-  sessions           Session[]
-  keys               Key[]
-  apiKeys            ApiKey[]
-  whatsappAccounts   WhatsAppAccount[]
-  listeners          ListenerEndpoint[]
-  devices            Device[]
-  accountMemberships AccountMembership[]
-  primaryAccount     Account?            @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
-  invitationTokens   InvitationToken[]
-  jwtSigningKeys     JwtSigningKey[]
-  tokenUsageLogs     TokenUsageLog[]
-  refreshTokens      RefreshToken[]
-  actionLogs         DeviceActionLog[]   @relation("UserToActionLogs")
+  id                    String                 @id() @default(cuid())
+  name                  String?
+  status                String                 @default("ACTIVE")
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt()
+  email                 String                 @unique()
+  password              String
+  rolesString           String                 @default("")
+  systemRole            String                 @default("USER")
+  primaryAccountId      String?
+  sessions              Session[]
+  keys                  Key[]
+  apiKeys               ApiKey[]
+  whatsappAccounts      WhatsAppAccount[]
+  listeners             ListenerEndpoint[]
+  devices               Device[]
+  accountMemberships    AccountMembership[]
+  primaryAccount        Account?               @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  invitationTokens      InvitationToken[]
+  jwtSigningKeys        JwtSigningKey[]
+  tokenUsageLogs        TokenUsageLog[]
+  refreshTokens         RefreshToken[]
+  actionLogs            DeviceActionLog[]      @relation("UserToActionLogs")
+  bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
 
   @@index([primaryAccountId])
 }
@@ -308,39 +309,40 @@ model WhatsAppAuthData {
 }
 
 model Device {
-  id              String            @id() @default(cuid())
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt()
-  name            String
-  factoryTokens   FactoryToken[]
-  description     String?
-  status          String            @default("ACTIVE")
-  expiresAt       DateTime?
-  lastUsedAt      DateTime?
-  createdBy       String
-  user            User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  accountId       String?
-  account         Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  companyId       String?
-  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  deviceType      String?
-  model           String?
-  manufacturer    String?
-  osVersion       String?
-  firmwareVersion String?
-  hardwareId      String?
-  wifiMac         String?
-  lanMac          String?
-  ipAddress       String?
-  apiKey          String?           @unique()
-  apiKeyCreatedAt DateTime?
-  apiKeyRotatedAt DateTime?
-  claimedAt       DateTime?
-  claimedBy       String?
-  actionLogs      DeviceActionLog[] @relation("DeviceToActionLogs")
-  connected       Boolean           @default(false)
-  connectedAt     DateTime?
-  disconnectedAt  DateTime?
+  id                   String                @id() @default(cuid())
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt()
+  name                 String
+  factoryTokens        FactoryToken[]
+  description          String?
+  status               String                @default("ACTIVE")
+  expiresAt            DateTime?
+  lastUsedAt           DateTime?
+  createdBy            String
+  user                 User                  @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  accountId            String?
+  account              Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  companyId            String?
+  company              Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  deviceType           String?
+  model                String?
+  manufacturer         String?
+  osVersion            String?
+  firmwareVersion      String?
+  hardwareId           String?
+  wifiMac              String?
+  lanMac               String?
+  ipAddress            String?
+  apiKey               String?               @unique()
+  apiKeyCreatedAt      DateTime?
+  apiKeyRotatedAt      DateTime?
+  claimedAt            DateTime?
+  claimedBy            String?
+  actionLogs           DeviceActionLog[]     @relation("DeviceToActionLogs")
+  bundleInstallDevices BundleInstallDevice[]
+  connected            Boolean               @default(false)
+  connectedAt          DateTime?
+  disconnectedAt       DateTime?
 
   @@index([createdBy])
   @@index([hardwareId])
@@ -581,6 +583,8 @@ model Bundle {
   description              String?
   os                       String
   reboot                   Boolean                @default(false)
+  autoOpen                 Boolean                @default(false)
+  forceUpdate              Boolean                @default(false)
   status                   String
   version                  String
   createdAt                DateTime               @default(now())
@@ -593,11 +597,11 @@ model Bundle {
   scheduledAt              DateTime?
   scheduledAtTimezone      String?
   scheduledAtStartIfMissed Boolean                @default(false)
-  updateStrategy           String?                @default("IMMEDIATE")
   apps                     BundleApp[]
   waves                    BundleWave[]
   devices                  BundleDevice[]
   progress                 BundleDeviceProgress[]
+  bundleInstallBundles     BundleInstallBundle[]
 
   @@index([name])
   @@index([version])
@@ -685,4 +689,137 @@ model BundleWave {
 
   @@index([bundleId])
   @@index([status])
+}
+
+model BundleInstallSession {
+  id                String                @id() @default(cuid())
+  name              String
+  description       String?
+  status            String                @default("PENDING")
+  totalDevices      Int
+  totalBundles      Int
+  totalBatches      Int
+  completedBatches  Int                   @default(0)
+  successfulDevices Int                   @default(0)
+  failedDevices     Int                   @default(0)
+  pendingDevices    Int                   @default(0)
+  initiatedBy       String
+  initiatedAt       DateTime              @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  estimatedDuration Int?
+  actualDuration    Int?
+  metadata          Json?
+  batches           BundleInstallBatch[]
+  devices           BundleInstallDevice[]
+  bundles           BundleInstallBundle[]
+  errors            BundleInstallError[]
+  user              User                  @relation("UserToBundleInstallSession", fields: [initiatedBy], references: [id], onDelete: Cascade)
+
+  @@index([initiatedBy])
+  @@index([status])
+  @@index([initiatedAt])
+}
+
+model BundleInstallBatch {
+  id                String                @id() @default(cuid())
+  sessionId         String
+  batchNumber       Int
+  status            String                @default("PENDING")
+  deviceCount       Int
+  successfulDevices Int                   @default(0)
+  failedDevices     Int                   @default(0)
+  pendingDevices    Int                   @default(0)
+  initiatedAt       DateTime              @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  duration          Int?
+  error             String?
+  metadata          Json?
+  session           BundleInstallSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  devices           BundleInstallDevice[]
+  bundles           BundleInstallBundle[]
+
+  @@index([sessionId])
+  @@index([batchNumber])
+  @@index([status])
+}
+
+model BundleInstallDevice {
+  id                String                @id() @default(cuid())
+  sessionId         String
+  batchId           String
+  deviceId          String
+  status            String                @default("PENDING")
+  progress          Int                   @default(0)
+  currentBundle     String?
+  currentBundleIdx  Int                   @default(0)
+  totalBundles      Int
+  successfulBundles Int                   @default(0)
+  failedBundles     Int                   @default(0)
+  initiatedAt       DateTime              @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  duration          Int?
+  error             String?
+  metadata          Json?
+  session           BundleInstallSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch             BundleInstallBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device            Device                @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bundles           BundleInstallBundle[]
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+model BundleInstallBundle {
+  id          String               @id() @default(cuid())
+  sessionId   String
+  batchId     String
+  deviceId    String
+  bundleId    String
+  status      String               @default("PENDING")
+  progress    Int                  @default(0)
+  message     String?
+  error       String?
+  initiatedAt DateTime             @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?
+  metadata    Json?
+  session     BundleInstallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch       BundleInstallBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device      BundleInstallDevice  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bundle      Bundle               @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([bundleId])
+  @@index([status])
+}
+
+model BundleInstallError {
+  id           String               @id() @default(cuid())
+  sessionId    String
+  batchId      String?
+  deviceId     String?
+  bundleId     String?
+  errorType    String
+  errorCode    String
+  errorMessage String
+  retryCount   Int                  @default(0)
+  maxRetries   Int                  @default(3)
+  timestamp    DateTime             @default(now())
+  metadata     Json?
+  session      BundleInstallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([bundleId])
+  @@index([errorType])
+  @@index([timestamp])
 }
