@@ -1,5 +1,4 @@
 import { error, fail } from '@sveltejs/kit';
-import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { deviceEditSchema } from './schema';
