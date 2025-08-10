@@ -1,9 +1,15 @@
 # Build stage
-FROM node:18-alpine AS build
+FROM node:20-bookworm-slim AS build
 WORKDIR /app
+ENV ROLLUP_SKIP_NODE_NATIVE=1
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
-# Install OpenSSL and other dependencies
-RUN apk add --no-cache openssl bash
+# Install build tools and native deps for node-canvas and prisma
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates bash git python3 make g++ pkg-config \
+  libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev libpixman-1-dev libfreetype6-dev \
+  openssl \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY package*.json ./
@@ -12,8 +18,9 @@ COPY package*.json ./
 COPY package.json ./package.json.original
 RUN grep -v '"preview": "vite preview",' ./package.json.original | grep -v '"start": "NODE_ENV=production node build",' > ./package.json
 
-# Install dependencies
-RUN npm ci
+# Install dependencies with a clean, platform-appropriate resolution
+# Remove macOS-generated lockfile to avoid npm optional-deps platform mismatch (rollup native)
+RUN rm -f package-lock.json && npm cache clean --force && npm install
 
 # Copy only necessary files for build
 COPY src ./src
@@ -29,6 +36,8 @@ COPY scripts ./scripts
 COPY prodServer.js ./
 COPY postcss.config.js ./
 COPY tailwind.config.js ./
+ # Optionally copy prebuilt client/server bundle from host to avoid building inside Docker
+COPY build ./build
 
 # Create .svelte-kit directory with empty tsconfig.json
 RUN mkdir -p .svelte-kit
@@ -38,15 +47,26 @@ RUN echo '{"compilerOptions":{}}' > .svelte-kit/tsconfig.json
 RUN npx zenstack generate
 RUN npx prisma generate
 
-# Build the application
-RUN npm run build
+# Copy entrypoint into build stage so it's available for later stages
+COPY docker/entrypoint.sh ./entrypoint.sh
+
+# Build the application unless a prebuilt ./build exists (allows host build to avoid high memory usage in Docker)
+RUN [ -d build ] || npm run build
+
+# Keep dev dependencies so prisma CLI and tsx are available at runtime
+# (Do NOT prune dev deps; entrypoint runs migrations/seed using prisma/tsx)
 
 # Production stage
-FROM node:18-alpine
+FROM node:20-bookworm-slim
 WORKDIR /app
+ENV ROLLUP_SKIP_NODE_NATIVE=1
 
-# Install OpenSSL and other dependencies
-RUN apk add --no-cache openssl bash
+# Install runtime libraries for node-canvas and system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates bash \
+  libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 libfreetype6 \
+  openssl \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy built app and necessary files from build stage
 COPY --from=build /app/build ./build
@@ -54,31 +74,22 @@ COPY --from=build /app/static ./static
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/schema.zmodel ./
 
-# Copy Prisma schema and migrations but not the database
+# Copy Prisma schema and migrations
 COPY --from=build /app/prisma/schema.prisma ./prisma/
 COPY --from=build /app/prisma/migrations ./prisma/migrations
 
 
-# Copy startup scripts
-COPY --from=build /app/scripts/build/start.sh ./start.sh
-COPY --from=build /app/prodServer.js ./
+# Copy entrypoint script from build stage
+COPY --from=build /app/entrypoint.sh ./entrypoint.sh
 
-# Make start.sh executable
-RUN chmod +x ./start.sh
+# Ensure seed file exists at expected path for Prisma
+COPY --from=build /app/prisma/seed.ts ./prisma/seed.ts
 
-# Install all dependencies (not just production) to ensure all packages are available
-RUN npm ci
+# Copy node_modules from build stage (includes dev deps for prisma/tsx)
+COPY --from=build /app/node_modules ./node_modules
 
-# Install tsx globally for running TypeScript files directly
-RUN npm install -g tsx
-
-# Generate Prisma client and ZenStack files in the production environment
-RUN npx zenstack generate
-RUN npx prisma generate
-
-
-COPY --from=build /app/prisma/seed.ts ./seed.ts
-
+# Make entrypoint executable
+RUN chmod +x ./entrypoint.sh
 
 # Expose the port the app runs on
 EXPOSE 3000
@@ -87,5 +98,5 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Start the server
-CMD ["/bin/bash", "-c", "./start.sh"]
+# Start using entrypoint that runs migrations/seed then launches server
+CMD ["/bin/bash", "-c", "./entrypoint.sh"]

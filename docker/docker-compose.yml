@@ -2,21 +2,23 @@
 version: '3.8'
 services:
   fs04-web-app:
+    platform: linux/amd64
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    container_name: fs04-web-app
     restart: unless-stopped
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - SEED=true
-    volumes:
-      # Mount .env file for environment variables
-      - ../.env:/app/.env:ro
-      # Mount the entire prisma directory for development
-      - ../docker/prisma:/app/prisma
-    expose:
-      - "3000"
+      # Set SEED=true on first run if you want to auto-seed admin user
+      # - SEED=true
+    env_file:
+      - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "3000:3000"
     logging:
       driver: "json-file"
       options:
@@ -41,8 +43,4 @@ services:
         max-size: "10m"
         max-file: "3"
 
-volumes:
-  prisma:
-    external: true
-  db_data:
-    external: true
+

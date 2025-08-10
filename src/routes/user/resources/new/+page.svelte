@@ -146,7 +146,7 @@
         }
     }
 
-    const actionButtons = [
+    $: actionButtons = [
         {
             label: "Back",
             icon: ArrowLeft,
@@ -158,7 +158,7 @@
             label: "Save",
             icon: Save,
             class: "h-9 btn-primary",
-            disabled: submitting,
+            disabled: $submitting,
             onClick: submitForm
         }
     ];
