@@ -9,6 +9,9 @@ import { SystemRole } from '$lib/types/roles';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { v4 as uuidv4 } from 'uuid';
+import { deviceEditSchema } from '../../../../admin/iot/devices/[id]/schema';
+import { AuditActionType } from '$lib/constants/system';
+import { logAudit } from '$lib/server/audit-logger';
 
 
 const apiKeySchema = z.object({
@@ -22,14 +25,8 @@ export const load = restrict(
             console.log('Device detail load user:', locals.user);
 
             // Load existing device
-            const device = await locals.prisma.device.findFirst({
-                where: {
-                    id: params.id,
-                    OR: [
-                        { createdBy: locals.user?.id },
-                        { accountId: locals.user?.currentAccountId }
-                    ]
-                },
+            const device = await locals.prisma.device.findUnique({
+                where: { id: params.id },
                 select: {
                     id: true,
                     name: true,
@@ -72,20 +69,55 @@ export const load = restrict(
                 }
             });
 
-            console.log('Device detail load device result:', device);
-
             if (!device) {
-                throw error(404, "Device not found or you don't have access to it");
+                throw error(404, "Device not found");
             }
 
-            console.log('About to create form...');
-            // Create form for API key generation
-            const form = await superValidate({ deviceId: device.id }, zod(apiKeySchema));
-            console.log('Form created successfully:', form);
+            const form = await superValidate(
+                {
+                    id: device.id,
+                    name: device.name,
+                    description: device.description || "",
+                    status: device.status,
+                    deviceType: device.deviceType || "",
+                    model: device.model || "",
+                    manufacturer: device.manufacturer || "",
+                    osVersion: device.osVersion || "",
+                    firmwareVersion: device.firmwareVersion || "",
+                    hardwareId: device.hardwareId || "",
+                    wifiMac: device.wifiMac || "",
+                    lanMac: device.lanMac || "",
+                    ipAddress: device.ipAddress || "",
+                    apiKey: device.apiKey || "",
+                },
+                zod(deviceEditSchema)
+            );
+
+            // Fetch recent device action logs (last 50)
+            const deviceActionLogs = await locals.prisma.deviceActionLog.findMany({
+                where: { deviceId: params.id },
+                orderBy: { initiatedAt: 'desc' },
+                take: 50,
+                select: {
+                    id: true,
+                    actionType: true,
+                    status: true,
+                    initiatedBy: true,
+                    initiatedAt: true,
+                    completedAt: true,
+                    durationMs: true,
+                    progress: true,
+                    message: true,
+                    error: true,
+                    requestId: true,
+                    protocol: true
+                }
+            });
 
             return {
+                form,
                 device,
-                form
+                deviceActionLogs
             };
         } catch (e) {
             // @ts-ignore
@@ -97,6 +129,86 @@ export const load = restrict(
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
+    /**
+     * Update device data
+     */
+    save: restrict(
+        async ({ request, params, locals }) => {
+            
+            const id = params.id;
+
+            const form = await superValidate(request, zod(deviceEditSchema));
+            logger.debug('Update device form data:', form);
+
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+
+            try {
+                // Start a transaction to ensure data consistency
+                return await locals.prisma.$transaction(async (tx) => {
+                    // First check if device exists
+                    const existingDevice = await tx.device.findUnique({
+                        where: { id }
+                    });
+
+                    if (!existingDevice) {
+                        return fail(404, {
+                            form,
+                            error: 'Device not found'
+                        });
+                    }
+
+                    // Prepare update data
+                    const updateData = {
+                        name: form.data.name,
+                        description: form.data.description || null,
+                        status: form.data.status,
+                        deviceType: form.data.deviceType || null,
+                        model: form.data.model || null,
+                        manufacturer: form.data.manufacturer || null,
+                        osVersion: form.data.osVersion || null,
+                        firmwareVersion: form.data.firmwareVersion || null,
+                        hardwareId: form.data.hardwareId || null,
+                        wifiMac: form.data.wifiMac || null,
+                        lanMac: form.data.lanMac || null,
+                        ipAddress: form.data.ipAddress || null,
+                    };
+
+                    // Update device
+                    const updatedDevice = await tx.device.update({
+                        where: { id },
+                        data: updateData
+                    });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'Device',
+                        recordId: id,
+                        oldData: existingDevice,
+                        newData: updatedDevice,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    })
+
+                    return {
+                        form,
+                        success: true,
+                        message: 'Device updated successfully'
+                    };
+                });
+            } catch (e) {
+                logger.error('Error updating device:', e);
+                return fail(500, {
+                    form,
+                    error: 'Failed to update device'
+                });
+            }
+        },
+        [SystemRole.USER] // Only allow admin role to access this action
+    ),
+    
     /**
      * Generate new API key for the device
      */
