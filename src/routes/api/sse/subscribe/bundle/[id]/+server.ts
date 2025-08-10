@@ -4,6 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { logger } from '$lib/server/logger';
+import { SystemRole } from '$lib/types/roles';
 
 // Subscribe a web SSE connection to a bundle channel so it can receive bundle:status events
 export const POST: RequestHandler = restrict(async ({ params, request, auth }: any) => {
@@ -20,8 +21,13 @@ export const POST: RequestHandler = restrict(async ({ params, request, auth }: a
     return json({ success: false, error: 'Connection not found' }, { status: 404 });
   }
   const connUserId = conn?.meta?.userInfo?.id;
+  console.log('COMEEEEEE');
+  
+  console.log({connUserId});
+  console.log(auth.user.id);
+  
   if (!connUserId || connUserId !== auth.user.id) {
-    return json({ success: false, error: 'Forbidden' }, { status: 403 });
+    return json({ success: false, error: 'Forbidden123' }, { status: 403 });
   }
 
   // Correct order: key = channel (subscription:*), scope = subscriber (subscriber:connection:*)
@@ -31,6 +37,6 @@ export const POST: RequestHandler = restrict(async ({ params, request, auth }: a
   );
   logger.debug(`Subscribed user ${auth.user.id} connection ${connectionId} to subscription:bundle:${bundleId}`);
   return json({ success: true });
-});
+}, [SystemRole.ADMIN, SystemRole.USER, SystemRole.SUPER_ADMIN]);
 
 

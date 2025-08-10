@@ -38,6 +38,7 @@ model Account {
   apiKeys       ApiKey[] // API keys associated with this account
   primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
   resources     Resource[] // Resources owned by this account
+  bunles     Bundle[] // Bundles owned by this account
   refreshTokens RefreshToken[]
   tokenUsageLogs TokenUsageLog[]
   whatsappAccounts WhatsAppAccount[]
@@ -892,12 +893,21 @@ model Bundle {
   devices     BundleDevice[]  // Add this line
   progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
   bundleInstallBundles     BundleInstallBundle[]
-
+  account     Account? @relation(fields: [accountId], references: [id])
   
 
   // Permission rules
   // Admin has full access to all bundles
   @@allow('all', auth().systemRole == 'ADMIN')
+
+  // Allow users to create resources if they are the creator
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  // Allow users to read, update, delete resources if they created them
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow users to read if they are members of the account
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
 
   @@index([name])
   @@index([version])
@@ -923,6 +933,10 @@ model BundleApp {
   // Permission rules
   @@allow('all', auth().systemRole == 'ADMIN')
 
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
   @@index([bundleId])
   @@index([resourceId])
 }
@@ -945,7 +959,9 @@ model BundleDevice {
 
   // Permission rules
   @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read', auth().systemRole == 'USER')
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
   
   @@unique([bundleId, deviceId])  // A device can only be in a bundle once
   @@index([bundleId])
@@ -978,7 +994,9 @@ model BundleDeviceProgress {
 
   // Permission rules
   @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read', auth().systemRole == 'USER')
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
   
   @@index([bundleId])
   @@index([waveId])
@@ -1008,6 +1026,9 @@ model BundleWave {
   
   // Permission rules
   @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
 
   @@index([bundleId])
   @@index([status])

@@ -30,6 +30,7 @@ model Account {
   apiKeys          ApiKey[]
   primaryUsers     User[]              @relation("UserPrimaryAccount")
   resources        Resource[]
+  bunles           Bundle[]
   refreshTokens    RefreshToken[]
   tokenUsageLogs   TokenUsageLog[]
   whatsappAccounts WhatsAppAccount[]
@@ -602,6 +603,7 @@ model Bundle {
   devices                  BundleDevice[]
   progress                 BundleDeviceProgress[]
   bundleInstallBundles     BundleInstallBundle[]
+  account                  Account?               @relation(fields: [accountId], references: [id])
 
   @@index([name])
   @@index([version])
