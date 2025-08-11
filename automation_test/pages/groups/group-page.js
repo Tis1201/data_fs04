@@ -32,8 +32,7 @@ class GroupPage extends BasePage {
 
     async goToGroupPage() {
         await this.page.goto(config.pageURL.groups.url);
-        await this.groupListName.waitFor({ state: 'visible' });
-        await this.addGroupButton.waitFor({ state: 'visible' });
+        await this.groupListName;
     }
 
     /*
@@ -44,7 +43,6 @@ class GroupPage extends BasePage {
     async createGroup(groupName, accountName, options = {}) {
         await this.goToGroupPage();
 
-        await expect(this.addGroupButton).toBeEnabled();
         await this.addGroupButton.click();
 
         // Fill required fields

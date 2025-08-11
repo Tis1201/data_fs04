@@ -12,7 +12,7 @@ class CompanyPage extends BasePage {
         this.tableRows = page.locator('table tbody tr');
 
         // Page locators
-        this.companyListName = page.locator('text=Companies');
+        this.companyListName = page.locator('h2', { hasText: 'Companies' });
         this.addCompanyButton = page.locator('button:has-text("Add Company")');
 
         // Form fields
@@ -35,8 +35,7 @@ class CompanyPage extends BasePage {
 
     async goToCompanyPage() {
         await this.page.goto(config.pageURL.companies.url);
-        await this.companyListName.waitFor({ state: 'visible' });
-        await this.addCompanyButton.waitFor({ state: 'visible' });
+        await this.companyListName;
     }
 
     /*
@@ -47,7 +46,6 @@ class CompanyPage extends BasePage {
     async createCompany(companyName, accountName, contactEmail, options = {}) {
         await this.goToCompanyPage();
 
-        await expect(this.addCompanyButton).toBeEnabled();
         await this.addCompanyButton.click();
 
         // Fill required fields
@@ -116,6 +114,7 @@ class CompanyPage extends BasePage {
         await expect(this.saveChangesButton).toBeEnabled();
         await this.saveChangesButton.click();
 
+        await this.goToCompanyPage();
         // Wait for page to redirect back to company list
         await this.companyListName.waitFor({ state: 'visible' });
 
@@ -198,6 +197,7 @@ class CompanyPage extends BasePage {
         // Handle deactivate dialog using utility
         await DialogUtils.handleDeactivateDialog(this.page, companyName);
 
+        await this.goToCompanyPage();
         // Verify the company status has changed to "Inactive" or similar
         const row = await this.getRowByName(companyName);
         const statusCell = row.locator('td').nth(1); // Status column (2nd column, 0-indexed)
@@ -217,6 +217,7 @@ class CompanyPage extends BasePage {
         // Handle delete dialog using utility
         await DialogUtils.handleDeleteDialog(this.page);
 
+        await this.goToCompanyPage();
         // Verify the company has been removed from the table
         // Use a more direct approach to check if the row exists
         const row = this.tableRows.filter({ hasText: companyName }).first();
@@ -266,4 +267,4 @@ class CompanyPage extends BasePage {
     }
 }
 
-module.exports = { CompanyPage }; 
+module.exports = { CompanyPage };

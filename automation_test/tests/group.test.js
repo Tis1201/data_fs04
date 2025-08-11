@@ -5,6 +5,7 @@ const AssetLoader = require('../utils/asset-loader');
 const { GroupPage } = require('../pages/groups/group-page');
 
 const groupName = config.pageURL.groups?.name || `Test Group ${Date.now()}`;
+const editGroupName = groupName + "1";
 const accountName = config.pageURL.groups?.accountName || 'Test Account';
 
 test.describe('Group Management', () => {
@@ -22,7 +23,7 @@ test.describe('Group Management', () => {
     });
 
     test('Given a group name, when editing the group name, then it should be updated successfully', async () => {
-        await groupPage.editGroupNameViaName(groupName, groupName + "1");
+        await groupPage.editGroupNameViaName(groupName, editGroupName);
     });
 
     test('Given a group name, when deleting the group via dialog, then it should be deleted successfully', async () => {
