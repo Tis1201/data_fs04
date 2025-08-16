@@ -12,10 +12,10 @@
     },
     {
       "name": "auth_session",
-      "value": "yk4rvko3nnerbrenmb37ohmmth53i5tkqjuj3tjq",
+      "value": "wszmgnqg33trlvr6gc6mpd6kwnbszdc6diasbhhc",
       "domain": "localhost",
       "path": "/",
-      "expires": 1756644233.354292,
+      "expires": 1757511164.543315,
       "httpOnly": true,
       "secure": false,
       "sameSite": "Lax"

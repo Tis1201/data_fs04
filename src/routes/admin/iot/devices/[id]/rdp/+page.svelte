@@ -19,7 +19,7 @@
 	const deviceId = $page.params.id;
 
 	// Page breadcrumbs
-	const pageCrumbs = [
+	const pageCrumbs: [string, string][] = [
 		["Admin", "/admin"],
 		["IoT", "/admin/iot"],
 		["Devices", "/admin/iot/devices"],
@@ -41,8 +41,7 @@
 	let currentVideoStreamId: string | null = null;
 	
 	// Track resources for cleanup
-	let pingInterval: ReturnType<typeof setInterval>;
-	let unsubscribeWebRTC: () => void;
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
 	let unsubscribeDevice: () => void;
 	let previousWebRTCMessage: WebRTCMessage | null = null;
 	
@@ -171,9 +170,14 @@
 			console.log(`WebRTC connection state changed to: ${state}`);
 			
 			// Update WebRTC store with the new connection state
+			// Map raw RTCPeerConnectionState to our limited store states
+			const mapped: 'connected' | 'disconnected' | 'error' =
+				state === 'connected' ? 'connected' :
+				state === 'failed' || state === 'closed' ? 'error' :
+				'disconnected';
 			webRTCStore.update(currentState => ({
 				...currentState,
-				connectionState: state
+				connectionStatus: mapped
 			}));
 			
 			// Update UI based on connection state
@@ -234,32 +238,26 @@
 	// Request RDP stream
 	function requestRDP() {
 		if (!webrtcClient) return;
-		
+
 		// Check if data channel is open
 		if ($webRTCStore.dataChannelStatus !== 'open') {
 			console.warn('Data channel not open, cannot request video stream');
 			return;
 		}
-		
-		// Send request to device to start video stream
-		// const message = {
-		// 	type: 'device',
-		// 	payload: {
-		// 		action: 'message',
-		// 		type: 'webrtc:video-request',
-		// 		deviceId: deviceId
-		// 	},
-		// 	scope: `subscription:device:${deviceId}`
-		// };
-		
-		// socketStore.send(message);
-		// console.log('Sent RDP request');
-		
+
+		// Request device to start RDP video over the data channel
+		webrtcClient.sendRDPStart({
+			frameRate: 60,
+			quality: 80,
+			captureMode: 'screen'
+		});
+		console.log('Sent RDP start request');
+
 		// If no video appears after a timeout, try requesting again
 		setTimeout(() => {
 			if (!connected && videoElement && !videoElement.srcObject) {
 				console.log('No video received, requesting again...');
-				socketStore.send(message);
+				webrtcClient.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'screen' });
 			}
 		}, 5000);
 	}
@@ -301,17 +299,15 @@
 	}
 	
 	// Handle WebRTC connection state changes
-	$: {
-		if ($webRTCStore.connectionState === 'connected') {
-			connecting = false;
-			connected = true;
-		} else if ($webRTCStore.connectionState === 'disconnected' || 
-				  $webRTCStore.connectionState === 'failed' || 
-				  $webRTCStore.connectionState === 'closed') {
-			connecting = false;
-			connected = false;
-		}
-	}
+    $: {
+        if ($webRTCStore.connectionStatus === 'connected') {
+            connecting = false;
+            connected = true;
+        } else {
+            connecting = false;
+            connected = false;
+        }
+    }
 	
 	// Monitor video play/pause state
 	function updateVideoState() {
@@ -334,7 +330,7 @@
 	}
 	
 	// Set up interval and initialize on mount
-	let videoStateInterval;
+	let videoStateInterval: ReturnType<typeof setInterval> | null = null;
 	onMount(() => {
 		if (browser) {
 			// Initialize WebRTC client first
@@ -371,11 +367,7 @@
 			unsubscribeDevice();
 		}
 		
-		// We don't need to unsubscribe from WebRTC store anymore since we're using callbacks
-		// but we'll keep the variable check for backward compatibility
-		if (unsubscribeWebRTC) {
-			unsubscribeWebRTC();
-		}
+        // No WebRTC store unsubscribe needed (callbacks used)
 		
 		// Clean up video stream
 		if (videoStream) {
@@ -489,19 +481,17 @@
 								></video>
 								
 								<!-- Play button overlay that shows only if video is not playing -->
-								{#if isVideoPaused && videoStream}
-								<div 
-									class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 cursor-pointer"
-									on:click={() => {
-										// Use our safe play function
-										safePlayVideo();
-									}}
-								>
-									<Button size="lg" variant="default">
-										Play Video
-									</Button>
-								</div>
-								{/if}
+			{#if isVideoPaused && videoStream}
+			<button 
+				class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 cursor-pointer"
+				type="button"
+				on:click={safePlayVideo}
+			>
+				<Button size="lg" variant="default">
+					Play Video
+				</Button>
+			</button>
+			{/if}
 							</div>
 						{/if}
 					</div>
@@ -511,7 +501,7 @@
 							Device ID: {deviceId}
 						</p>
 						<p class="text-sm text-muted-foreground mt-1">
-							Connection State: {$webRTCStore.connectionState}
+                            Connection State: {$webRTCStore.connectionStatus}
 						</p>
 					</div>
 				</div>

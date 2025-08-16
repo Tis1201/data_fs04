@@ -24,7 +24,12 @@ export const publisher: Publisher = {
       return;
     }
 
-    const isAllowed = await ScopeAuthorizer.isAllowed(scope, userInfo, type, connectionIds, sudo);
+    // Allow system-generated messages to publish to subscription scopes
+    let isAllowed = await ScopeAuthorizer.isAllowed(scope, userInfo, type, connectionIds, sudo);
+    if (!isAllowed && message.systemGenerated && scope.startsWith('subscription:')) {
+      logger.debug(`[Publisher] Overriding allow for system message to ${scope}`);
+      isAllowed = true;
+    }
     
     logger.debug(`[Publisher] ${isAllowed ? 'Allowed' : 'Not allowed'}: (${scope})`);
 
@@ -52,9 +57,17 @@ export const publisher: Publisher = {
 
     const outMessage: OutMessage = MessageFactory.toOutMessage(message);
 
+    // By default, do not echo a message back to the exact sender connection
+    // unless explicitly requested via echoToSender.
+    const filteredRecipients = connectionIds.filter(connId => {
+      if (message.echoToSender === true) return true;
+      // Skip sending to the originating connection for request messages
+      return connId !== (message.senderConnectionId || message.connectionId);
+    });
+
     // Deliver to each connection
     await Promise.all(
-      connectionIds.map((connId) => {
+      filteredRecipients.map((connId) => {
         // Get recipient connection info for logging
         const recipientConn = ConnectionManager.getConnection(connId);
         const recipientEmail = recipientConn?.meta.userInfo?.email;

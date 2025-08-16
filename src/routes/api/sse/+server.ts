@@ -53,6 +53,23 @@ export const GET: RequestHandler = restrict(
                 // await subscriptionRegistry.addSubscription(userSubscriptionKey, connectionScope);
                 // logger.debug(`User subscription added successfully: ${userSubscriptionKey}`);
 
+                // Register this connection to receive device updates for this user's devices
+                try {
+                    const userId = auth.user?.id;
+                    if (userId) {
+                        const urlObj = new URL(request.url);
+                        const deviceIdFromQuery = urlObj.searchParams.get('deviceId');
+                        const currentDeviceId = deviceIdFromQuery || request.headers.get('x-device-id') || undefined;
+                        if (currentDeviceId) {
+                            // Correct order: key = channel, scope = subscriber
+                            await subscriptionRegistry.addSubscription(`subscription:device:${currentDeviceId}`, `subscriber:connection:${connectionId}`);
+                            logger.debug(`Subscribed connection ${connectionId} to subscription:device:${currentDeviceId}`);
+                        }
+                    }
+                } catch (e) {
+                    logger.warn(`Failed to auto-subscribe connection to device channel: ${String(e)}`);
+                }
+
                 // Send initial connected event
                 controller.enqueue(`event: connected\ndata: ${JSON.stringify({
                     connectionId,

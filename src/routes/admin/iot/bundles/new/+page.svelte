@@ -88,44 +88,20 @@
     
     // Create a form handler with standardized error handling
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-        // No redirect, we'll handle it manually
         validateOnInput: true,
         onSuccess: (result) => {
-            // Show success view instead of redirecting
-            console.log('Form success result:', JSON.stringify(result));
-            
-            // Based on the logs, we know exactly where the bundle data is
-            // Direct access to the bundle data at data.form.message.data
-            if (result?.data?.form?.message?.data) {
-                showSuccess = true;
-                createdBundle = result.data.form.message.data;
-                console.log('Bundle data found:', createdBundle);
-                toast.success("Bundle created successfully!");
-                return;
-            }
-            
-            // Try fallback methods if the direct path fails
-            const bundleData = extractBundleData(result);
-            console.log('Extracted bundle data via fallback:', bundleData);
-            
-            // Always show success view
-            showSuccess = true;
-            
-            // Use extracted data or form data as fallback
-            if (bundleData) {
-                createdBundle = bundleData;
-            } else {
-                // Use form data as fallback
-                createdBundle = {
-                    id: $form.id || 'N/A',
-                    name: $form.name || 'N/A',
-                    os: $form.os || 'N/A',
-                    version: $form.version || '1.0.0'
-                };
-                console.warn('Using form data as fallback:', createdBundle);
-            }
-            
-            toast.success("Bundle created successfully!");
+            try {
+                const id = result?.data?.form?.message?.data?.id
+                    ?? result?.data?.data?.id
+                    ?? result?.form?.message?.data?.id
+                    ?? $form?.id;
+                if (id) {
+                    toast.success('Bundle created successfully');
+                    goto(`/admin/iot/bundles/${id}`);
+                    return;
+                }
+            } catch {}
+            goto('/admin/iot/bundles');
         }
     });
 
@@ -299,12 +275,36 @@
                             </FormField>
                         </FormRow>
 
-                    <!-- Hidden fields for OS and accountId with default values -->
-                    <input type="hidden" name="os" bind:value={$form.os} />
-                    <input type="hidden" name="version" bind:value={$form.version} />
+                    <!-- Hidden field for accountId with default value -->
                     <input type="hidden" name="accountId" bind:value={$form.accountId} />
 
                     <FormRow columns={2}>
+                        <FormField id="os" label="Operating System" error={$errors.os} required={true}>
+                            <EnhancedSelect
+                                id="os"
+                                name="os"
+                                placeholder="Select OS"
+                                bind:value={$form.os}
+                                aria-invalid={$errors.os ? 'true' : undefined}
+                                {...$constraints.os}
+                            >
+                                {#each osOptions as option}
+                                    <option value={option.value}>{option.label}</option>
+                                {/each}
+                            </EnhancedSelect>
+                        </FormField>
+                        <FormField id="version" label="Version" error={$errors.version}>
+                            <Input
+                                id="version"
+                                name="version"
+                                type="text"
+                                bind:value={$form.version}
+                                placeholder="1.0.0"
+                            />
+                        </FormField>
+                    </FormRow>
+
+                    <FormRow columns={3}>
                         <FormField id="waveSize" label="Wave Size" error={$errors.waveSize} required={true}>
                             <Input
                                 id="waveSize"
@@ -317,21 +317,6 @@
                                 {...$constraints.waveSize}
                             />
                         </FormField>
-
-                        <FormField id="reboot" label="Reboot Device" error={$errors.reboot}>
-                            <div class="flex items-center space-x-2">
-                                <Switch
-                                    id="reboot"
-                                    name="reboot"
-                                    checked={$form.reboot}
-                                    onCheckedChange={(checked) => $form.reboot = checked}
-                                />
-                                <Label for="reboot">Reboot device after installation</Label>
-                            </div>
-                        </FormField>
-                    </FormRow>
-
-                    <FormRow columns={2}>
                         <FormField id="scheduledAt" label="Schedule Date" error={$errors.scheduledAt}>
                             <EnhancedDatePicker
                                 id="scheduledAt"
@@ -357,21 +342,49 @@
                         <input type="hidden" name="scheduledAtTimezone" bind:value={$form.scheduledAtTimezone} />
                     </FormRow>
 
+                    <div class="p-3 rounded-md bg-muted/50">
+                        <h4 class="text-sm font-medium mb-2">Device Behavior</h4>
+                        <div class="space-y-3">
+                            <FormField id="reboot" label="Reboot Device" error={$errors.reboot}>
+                                <div class="flex items-center space-x-2">
+                                    <Switch
+                                        id="reboot"
+                                        name="reboot"
+                                        checked={$form.reboot}
+                                        onCheckedChange={(checked) => $form.reboot = checked}
+                                    />
+                                    <Label for="reboot">Reboot device after installation</Label>
+                                </div>
+                            </FormField>
+                            <FormField id="forceUpdate" label="Force Update" error={$errors.forceUpdate}>
+                                <div class="flex items-center space-x-2">
+                                    <Switch
+                                        id="forceUpdate"
+                                        name="forceUpdate"
+                                        checked={$form.forceUpdate}
+                                        onCheckedChange={(checked) => $form.forceUpdate = checked}
+                                    />
+                                    <Label for="forceUpdate">Force update installation</Label>
+                                </div>
+                            </FormField>
+                            <FormField id="autoOpen" label="Auto Open" error={$errors.autoOpen}>
+                                <div class="flex items-center space-x-2">
+                                    <Switch
+                                        id="autoOpen"
+                                        name="autoOpen"
+                                        checked={$form.autoOpen}
+                                        onCheckedChange={(checked) => $form.autoOpen = checked}
+                                    />
+                                    <Label for="autoOpen">Open app automatically after installation</Label>
+                                </div>
+                            </FormField>
+                        </div>
+                    </div>
+
                     <FormRow columns={1}>
-                        <FormField id="scheduledAtStartIfMissed" label="Start if Missed" error={$errors.scheduledAtStartIfMissed}>
-                            <div class="flex items-center space-x-2">
-                                <Checkbox
-                                    id="scheduledAtStartIfMissed"
-                                    name="scheduledAtStartIfMissed"
-                                    checked={$form.scheduledAtStartIfMissed}
-                                    onCheckedChange={(checked) => $form.scheduledAtStartIfMissed = !!checked}
-                                    disabled={!$form.scheduledAt}
-                                />
-                                <Label for="scheduledAtStartIfMissed">
-                                    Start immediately if scheduled time is missed
-                                </Label>
-                            </div>
-                        </FormField>
+                        <div class="text-sm text-muted-foreground">
+                            If the scheduled time is missed, you will need to publish manually.
+                        </div>
                     </FormRow>
                 </div>
             </AdminCard>

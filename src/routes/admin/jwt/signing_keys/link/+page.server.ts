@@ -297,22 +297,22 @@ export const load = restrict(
         }
       };
     } catch (err) {
-      logger.error(`Error loading factory JWT signing keys: ${err}`);
+      logger.error(`Error loading link JWT signing keys: ${err}`);
       return {
         keys: [],
         createForm: await superValidate(zod(createKeySchema), {
-          id: 'factory-create-form'
+          id: 'link-create-form'
         }),
         rotateForm: await superValidate(zod(rotateKeySchema), {
-          id: 'factory-rotate-form'
+          id: 'link-rotate-form'
         }),
         error: {
-          message: 'Failed to load factory JWT signing keys',
+          message: 'Failed to load link JWT signing keys',
           details: err instanceof Error ? err.message : String(err),
         },
         meta: {
-          title: 'Factory JWT Signing Keys',
-          description: 'Manage factory JWT signing keys'
+          title: 'Link JWT Signing Keys',
+          description: 'Manage link JWT signing keys'
         }
       };
     }
@@ -324,9 +324,16 @@ export const actions: Actions = {
   // Create a new key
   createKey: restrict(
     async ({ request, locals }) => {
-      const form = await superValidate(request, zod(createKeySchema), {
-        id: 'factory-create-form'
+      // Accept both JSON and form submissions; default keyType to LINK if missing
+      let form = await superValidate(request, zod(createKeySchema), {
+        id: 'link-create-form'
       });
+
+      if (!form.data?.keyType) {
+        form = await superValidate({ keyType: 'LINK' }, zod(createKeySchema), {
+          id: 'link-create-form'
+        });
+      }
 
       if (!form.valid) {
         return fail(400, { form });
@@ -345,7 +352,7 @@ export const actions: Actions = {
             form,
             success: false,
             error: {
-              message: `A factory key already exists. Please use the rotate function instead.`,
+              message: `A link key already exists. Please use the rotate function instead.`,
             },
           });
         }
@@ -354,12 +361,12 @@ export const actions: Actions = {
         const result = await createKey(locals.prisma, keyType, locals.user.id);
         
         if (!result.success) {
-          logger.error('Failed to create factory key:', result.error);
+          logger.error('Failed to create link key:', result.error);
           return fail(400, {
             form,
             success: false,
             error: {
-              message: result.error.message || 'Failed to create factory key',
+              message: result.error.message || 'Failed to create link key',
               details: result.error.details,
               code: result.error.code,
               meta: result.error.meta
@@ -368,11 +375,11 @@ export const actions: Actions = {
         }
 
         // Return a success message with the key data
-        logger.info(`Factory key created successfully`);
+        logger.info(`Link key created successfully`);
         return message(
           form,
-          createSuccessResponse(`Factory key created successfully`, {
-            details: `A new factory key has been created.`,
+          createSuccessResponse(`Link key created successfully`, {
+            details: `A new link key has been created.`,
             data: { 
               keyType,
               key: result.key ? {
@@ -391,11 +398,11 @@ export const actions: Actions = {
           })
         );
       } catch (err) {
-        logger.error('Error creating factory JWT key:', err);
+        logger.error('Error creating link JWT key:', err);
         return handleFormError({
           error: err,
           form,
-          defaultMessage: 'An unexpected error occurred while creating the factory key',
+          defaultMessage: 'An unexpected error occurred while creating the link key',
           prisma: locals.prisma,
           requestId: locals.requestId
         });
@@ -423,7 +430,7 @@ export const actions: Actions = {
 
       try {
         const { keyId } = form.data;
-        logger.info('Rotating factory key with ID:', keyId);
+        logger.info('Rotating link key with ID:', keyId);
         
         // Find the existing key to verify it exists
         const existingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -463,12 +470,12 @@ export const actions: Actions = {
         const result = await rotateKey(locals.prisma, keyId, locals.user.id);
 
         if (!result.success) {
-          logger.error(`Failed to rotate factory key: ${JSON.stringify(result.error)}`);
+          logger.error(`Failed to rotate link key: ${JSON.stringify(result.error)}`);
           return fail(400, {
             form,
             success: false,
             error: {
-              message: result.error?.message || 'Failed to rotate factory key',
+              message: result.error?.message || 'Failed to rotate link key',
               details: result.error?.details,
               code: result.error?.code || 'UNKNOWN_ERROR',
               meta: result.error?.meta
@@ -477,13 +484,13 @@ export const actions: Actions = {
         }
 
         // Return a success message with the new key data
-        logger.info(`Factory key rotated successfully`);
+        logger.info(`Link key rotated successfully`);
         return message(
           form,
-          createSuccessResponse(`Factory key rotated successfully`, {
-            details: `The factory key has been rotated. The old key will remain active for a grace period.`,
+          createSuccessResponse(`Link key rotated successfully`, {
+            details: `The link key has been rotated. The old key will remain active for a grace period.`,
             data: { 
-              keyType: 'FACTORY',
+              keyType: 'LINK',
               key: result.key ? {
                 id: result.key.id,
                 keyId: result.key.keyId,
@@ -500,11 +507,11 @@ export const actions: Actions = {
           })
         );
       } catch (err) {
-        logger.error('Error rotating factory JWT key:', err);
+        logger.error('Error rotating link JWT key:', err);
         return handleFormError({
           error: err,
           form,
-          defaultMessage: 'An unexpected error occurred while rotating the factory key',
+          defaultMessage: 'An unexpected error occurred while rotating the link key',
           prisma: locals.prisma,
           requestId: locals.requestId
         });

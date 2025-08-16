@@ -1,9 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { restrict } from '$lib/server/security/guards';
-import pkg from '@prisma/client';
-const { SystemRole } = pkg;
-import { createMessage } from '$lib/server/messaging/interfaces/message';
+import { SystemRole } from '$lib/types/roles';
+import type { RoutingMessage } from '$lib/server/messaging/interfaces/message';
 import { logger } from '$lib/server/logger';
 
 /**
@@ -21,30 +20,24 @@ export const POST = restrict(
             
             logger.debug(`Admin sending test message: type=${type}, scope=${scope}`);
             
-            // Create a message with the provided type and payload
-            const message = createMessage({
+            // Build a routing message compatible with the current publisher
+            const message: RoutingMessage = {
+                id: crypto.randomUUID(),
                 type,
-                payload,
-                meta: {
-                    source: 'admin-debug',
-                    adminId: auth.user.id,
-                    adminName: auth.user.name,
-                    timestamp: Date.now()
-                }
-            });
-            
-            // Publish the message to the specified scope
-            const result = await publisher.publish({
-                message,
-                scope
-            });
-            
-            return json({
-                success: true,
-                recipientCount: result.recipientCount,
                 scope,
-                type
-            });
+                payload,
+                userInfo: auth.user,
+                connectionId: `debug-${crypto.randomUUID()}`,
+                protocol: 'debug' as any,
+                systemGenerated: false,
+                echoToSender: false,
+                sudo: false
+            };
+
+            // Publish the message
+            await publisher.publish(message);
+
+            return json({ success: true, scope, type });
         } catch (err) {
             logger.error(`Error sending test message: ${err.message}`, { error: err });
             return json({ success: false, error: err.message }, { status: 500 });

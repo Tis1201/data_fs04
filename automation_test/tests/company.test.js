@@ -5,6 +5,7 @@ const AssetLoader = require('../utils/asset-loader');
 const { CompanyPage } = require('../pages/companies/company-page');
 
 const companyName = config.pageURL.companies?.name || `Test Company ${Date.now()}`;
+const editCompanyName = companyName + "1"
 const accountName = config.pageURL.companies?.accountName || 'Test Account';
 const contactEmail = config.pageURL.companies?.contactEmail || `test@company${Date.now()}.com`;
 
@@ -28,19 +29,19 @@ test.describe('Company Management', () => {
     });
 
     test('Given a company name, when canceling deactivate dialog, then the company should remain active', async () => {
-        await companyPage.cancelDeactivateCompany(companyName);
+        await companyPage.cancelDeactivateCompany(editCompanyName);
     });
 
     test('Given a company name, when deactivating the company via dialog, then it should be deactivated successfully', async () => {
-        await companyPage.deactivateCompany(companyName);
+        await companyPage.deactivateCompany(editCompanyName);
     });
 
     test('Given a company name, when canceling delete dialog, then the company should remain in the list', async () => {
-        await companyPage.cancelDeleteCompany(companyName);
+        await companyPage.cancelDeleteCompany(editCompanyName);
     });
 
     test('Given a company name, when deleting the company via dialog, then it should be deleted successfully', async () => {
-        await companyPage.deleteCompany(companyName);
+        await companyPage.deleteCompany(editCompanyName);
     });
 
     test('Given companies list, when sorting by different columns, then sorting should work correctly', async () => {

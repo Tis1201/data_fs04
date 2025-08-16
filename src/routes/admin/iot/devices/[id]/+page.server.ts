@@ -84,9 +84,31 @@ export const load = restrict(
                 zod(deviceEditSchema)
             );
 
+            // Fetch recent device action logs (last 50)
+            const deviceActionLogs = await locals.prisma.deviceActionLog.findMany({
+                where: { deviceId: params.id },
+                orderBy: { initiatedAt: 'desc' },
+                take: 50,
+                select: {
+                    id: true,
+                    actionType: true,
+                    status: true,
+                    initiatedBy: true,
+                    initiatedAt: true,
+                    completedAt: true,
+                    durationMs: true,
+                    progress: true,
+                    message: true,
+                    error: true,
+                    requestId: true,
+                    protocol: true
+                }
+            });
+
             return {
                 form,
-                device
+                device,
+                deviceActionLogs
             };
         } catch (e) {
             logger.error('Error loading device:', e);

@@ -161,6 +161,7 @@ class AccountPage extends BasePage {
         // Handle deactivate dialog using utility
         await DialogUtils.handleDeactivateDialog(this.page, accountName);
 
+        await this.goToAccountPage();
         // Verify the account status has changed to "Inactive" or similar
         const row = await this.getRowByName(accountName);
         const statusCell = row.locator('td').nth(2); // Status column (3rd column, 0-indexed)
@@ -180,6 +181,7 @@ class AccountPage extends BasePage {
         // Handle delete dialog using utility
         await DialogUtils.handleDeleteDialog(this.page);
 
+        await this.goToAccountPage();
         // Verify the account has been removed from the table
         // Use a more direct approach to check if the row exists
         const row = this.tableRows.filter({ hasText: accountName }).first();

@@ -21,90 +21,44 @@
     
     import type { BundleDevice } from "@prisma/client";
     import DeviceSelector from "../device_select/DeviceSelector.svelte";
+    import { page } from "$app/stores";
     
     export let bundleId: string;
     export let devices: (BundleDevice & { device: { name: string, id: string, model?: string, status?: string } })[] = [];
     export let loading = false;
     
-    // Sample data for demonstration (will be replaced with real data in production)
-    const sampleDevices = [
-        {
-            id: "cln1a2b3c4d5e6f7g8h9i0",
-            bundleId: bundleId,
-            deviceId: "dev1",
-            status: "INCLUDED",
-            createdAt: new Date(Date.now() - 86400000 * 3), // 3 days ago
-            updatedAt: new Date(),
-            createdBy: "admin",
-            updatedBy: "admin",
-            device: {
-                id: "dev1",
-                name: "Reception Tablet",
-                model: "Samsung Galaxy Tab S7",
-                status: "ONLINE"
-            }
-        },
-        {
-            id: "cln2a2b3c4d5e6f7g8h9i0",
-            bundleId: bundleId,
-            deviceId: "dev2",
-            status: "PENDING",
-            createdAt: new Date(Date.now() - 86400000 * 2), // 2 days ago
-            updatedAt: new Date(),
-            createdBy: "admin",
-            updatedBy: "admin",
-            device: {
-                id: "dev2",
-                name: "Meeting Room Display",
-                model: "LG WebOS Display",
-                status: "OFFLINE"
-            }
-        },
-        {
-            id: "cln3a2b3c4d5e6f7g8h9i0",
-            bundleId: bundleId,
-            deviceId: "dev3",
-            status: "EXCLUDED",
-            createdAt: new Date(Date.now() - 86400000), // 1 day ago
-            updatedAt: new Date(),
-            createdBy: "admin",
-            updatedBy: "admin",
-            device: {
-                id: "dev3",
-                name: "Lobby Kiosk",
-                model: "iPad Pro 12.9",
-                status: "ONLINE"
-            }
-        }
-    ];
+
     
-    // Use sample data for demonstration
-    $: displayDevices = devices.length > 0 ? devices : sampleDevices;
+    // Use real data from API
+    $: displayDevices = devices;
     
     // Filter state
     let searchTerm = '';
     let filterOpen = false;
-    let filters = {
-        status: {
-            PENDING: false,
-            INCLUDED: false,
-            EXCLUDED: false
-        },
-        deviceStatus: {
-            ONLINE: false,
-            OFFLINE: false
-        },
+    type BundleStatus = 'PENDING' | 'INCLUDED' | 'EXCLUDED';
+    type OnlineStatus = 'ONLINE' | 'OFFLINE';
+    type FilterState = {
+        status: Record<BundleStatus, boolean>;
+        deviceStatus: Record<OnlineStatus, boolean>;
+        model: Record<string, boolean>;
+    };
+    const bundleStatusKeys: BundleStatus[] = ['PENDING', 'INCLUDED', 'EXCLUDED'];
+    const onlineStatusKeys: OnlineStatus[] = ['ONLINE', 'OFFLINE'];
+    let filters: FilterState = {
+        status: { PENDING: false, INCLUDED: false, EXCLUDED: false },
+        deviceStatus: { ONLINE: false, OFFLINE: false },
         model: {}
     };
     
     // Extract unique models for filtering
     $: {
-        const modelSet = new Set();
+        const modelSet: Set<string> = new Set();
         displayDevices.forEach(d => {
             if (d.device.model) {
                 modelSet.add(d.device.model);
-                if (filters.model[d.device.model] === undefined) {
-                    filters.model[d.device.model] = false;
+                const model = d.device.model;
+                if (filters.model[model] === undefined) {
+                    filters.model[model] = false;
                 }
             }
         });
@@ -130,12 +84,12 @@
         
         // Status filter
         const statusFiltersActive = Object.values(filters.status).some(v => v);
-        const matchesStatus = !statusFiltersActive || filters.status[d.status];
+        const matchesStatus = !statusFiltersActive || filters.status[d.status as BundleStatus];
         
         // Device status filter
         const deviceStatusFiltersActive = Object.values(filters.deviceStatus).some(v => v);
         const matchesDeviceStatus = !deviceStatusFiltersActive || 
-            (d.device.status && filters.deviceStatus[d.device.status]);
+            (d.device.status && filters.deviceStatus[d.device.status as OnlineStatus]);
         
         // Model filter
         const modelFiltersActive = Object.values(filters.model).some(v => v);
@@ -147,8 +101,8 @@
     
     // Reset all filters
     function resetFilters() {
-        Object.keys(filters.status).forEach(key => filters.status[key] = false);
-        Object.keys(filters.deviceStatus).forEach(key => filters.deviceStatus[key] = false);
+        (Object.keys(filters.status) as BundleStatus[]).forEach(key => filters.status[key] = false);
+        (Object.keys(filters.deviceStatus) as OnlineStatus[]).forEach(key => filters.deviceStatus[key] = false);
         Object.keys(filters.model).forEach(key => filters.model[key] = false);
         filterOpen = false;
     }
@@ -203,6 +157,45 @@
     // State for add device dialog
     let addDialogOpen = false;
     let addingDevice = false;
+
+  // Selection state for batch actions
+  let selectedIds: string[] = [];
+  $: allSelected = sortedDevices.length > 0 && sortedDevices.every((d) => selectedIds.includes(d.id));
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      selectedIds = [];
+    } else {
+      selectedIds = sortedDevices.map((d) => d.id);
+    }
+  }
+
+  function toggleRowSelection(bundleDeviceId: string) {
+    if (selectedIds.includes(bundleDeviceId)) {
+      selectedIds = selectedIds.filter((id) => id !== bundleDeviceId);
+    } else {
+      selectedIds = [...selectedIds, bundleDeviceId];
+    }
+  }
+
+  async function batchRemoveSelected() {
+    if (selectedIds.length === 0) return;
+    const confirmed = window.confirm(`Remove ${selectedIds.length} device(s) from this bundle?`);
+    if (!confirmed) return;
+
+    try {
+      const promises = selectedIds.map((bundleDeviceId) =>
+        api_delete(`/api/admin/iot/bundles/${bundleId}/devices/${bundleDeviceId}`, bundleDeviceId)
+      );
+      await Promise.all(promises);
+      toast.success(`Removed ${selectedIds.length} device(s) from bundle`);
+      selectedIds = [];
+      await invalidate('app:bundle');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to remove selected devices');
+    }
+  }
     
     // State for delete confirmation dialog
     let deleteDialogState = {
@@ -225,7 +218,8 @@
         if (!deleteDialogState.selectedRecord) return;
         
         try {
-            await api_delete(`/api/admin/iot/bundles/${bundleId}/devices/${deleteDialogState.selectedRecord.id}`);
+            await api_delete(`/api/admin/iot/bundles/${bundleId}/devices/${deleteDialogState.selectedRecord.id}`,
+                deleteDialogState.selectedRecord.id);
             toast.success("Device removed from bundle successfully");
             await invalidate('app:bundle');
         } catch (error) {
@@ -238,26 +232,31 @@
     }
     
     // Handle device selection from DeviceSelector
-    async function handleDeviceSelect(event: CustomEvent<{ detail: { id: string; name: string } }>) {
-        const device = event.detail;
-        if (!device) return;
+    async function handleDeviceSelect(event: CustomEvent<{ id: string; name: string }[]>) {
+        const devices = event.detail;
+        if (!devices || devices.length === 0) return;
         
         addingDevice = true;
         
         try {
-            await api_post(`/api/admin/iot/bundles/${bundleId}/devices`, {
-                deviceId: device.id,
-                status: "PENDING"
-            });
+            // Add multiple devices
+            const promises = devices.map(device => 
+                api_post(`/api/admin/iot/bundles/${bundleId}/devices`, {
+                    deviceId: device.id,
+                    status: "PENDING"
+                })
+            );
             
-            toast.success(`Added ${device.name} to bundle`);
+            await Promise.all(promises);
+            
+            toast.success(`Added ${devices.length} device${devices.length !== 1 ? 's' : ''} to bundle`);
             await invalidate('app:bundle');
             
             // Reset form and close dialog
             addDialogOpen = false;
             
         } catch (error) {
-            toast.error("Failed to add device to bundle");
+            toast.error("Failed to add devices to bundle");
             console.error(error);
         } finally {
             addingDevice = false;
@@ -265,37 +264,43 @@
     }
     
     // Function to get badge variant based on status
-    function getStatusVariant(status: string) {
-        const statusMap = {
-            'PENDING': 'outline',
-            'INCLUDED': 'success',
-            'EXCLUDED': 'destructive'
+    type BundleBadgeVariant = 'default' | 'destructive' | 'outline' | 'secondary' | 'success';
+    function getStatusVariant(status: string): BundleBadgeVariant {
+        const statusMap: Record<string, BundleBadgeVariant> = {
+            PENDING: 'outline',
+            INCLUDED: 'success',
+            EXCLUDED: 'destructive'
         };
         return statusMap[status] || 'outline';
     }
     
     // Function to get device status badge variant
-    function getDeviceStatusVariant(status: string) {
-        const statusMap = {
-            'ONLINE': 'success',
-            'OFFLINE': 'destructive',
-            'IDLE': 'warning'
+    type DeviceBadgeVariant = 'default' | 'destructive' | 'outline' | 'secondary' | 'success';
+    function getDeviceStatusVariant(status: string): DeviceBadgeVariant {
+        const statusMap: Record<string, DeviceBadgeVariant> = {
+            ONLINE: 'success',
+            OFFLINE: 'destructive',
+            IDLE: 'secondary'
         };
         return statusMap[status] || 'secondary';
     }
 </script>
 
-<!-- Bundle Devices Header and Add Button -->
+<!-- Bundle Devices Controls (count + add) -->
 <div class="flex justify-between items-center mb-2">
     <div>
-        <h3 class="text-lg font-medium">Bundle Devices</h3>
         <p class="text-sm text-muted-foreground">{filteredDevices.length} device{filteredDevices.length !== 1 ? 's' : ''} in this bundle</p>
     </div>
-    <!-- <Button variant="outline" size="sm" on:click={() => addDialogOpen = true}>
-        <Plus class="h-4 w-4 mr-2" />
-        Add Device
-    </Button> -->
 </div>
+
+  {#if selectedIds.length > 0}
+    <div class="flex items-center justify-between mb-3 p-2 border rounded-md bg-muted/40">
+      <div class="text-sm">{selectedIds.length} selected</div>
+      <div class="flex items-center gap-2">
+        <Button variant="destructive" size="sm" on:click={batchRemoveSelected}>Remove Selected</Button>
+      </div>
+    </div>
+  {/if}
 
 <!-- Search and Filter Bar -->
 <!-- <div class="flex items-center space-x-2 mb-4">
@@ -375,7 +380,7 @@
                         <div class="p-4">
                     <h5 class="text-sm font-medium mb-2">Bundle Status</h5>
                     <div class="grid grid-cols-1 gap-2">
-                        {#each Object.keys(filters.status) as status}
+                        {#each bundleStatusKeys as status}
                             <div class="flex items-center space-x-2">
                                 <Checkbox 
                                     id="status-{status}" 
@@ -395,7 +400,7 @@
                 <div class="p-4">
                     <h5 class="text-sm font-medium mb-2">Device Status</h5>
                     <div class="grid grid-cols-1 gap-2">
-                        {#each Object.keys(filters.deviceStatus) as status}
+                        {#each onlineStatusKeys as status}
                             <div class="flex items-center space-x-2">
                                 <Checkbox 
                                     id="device-status-{status}" 
@@ -448,8 +453,8 @@
                 </div>
             </Popover.Content>
                 </Popover.Root>
-                <Button on:click={() => showDeviceSelector = true} variant="outline" class="flex items-center gap-1">
-                    <Plus class="h-4 w-4" />
+                <Button on:click={() => addDialogOpen = true} variant="outline" class="flex items-center gap-1" disabled={($page?.data?.bundle?.status || '').toUpperCase() !== 'DRAFT'} title={($page?.data?.bundle?.status || '').toUpperCase() !== 'DRAFT' ? 'Not editable: bundle already published' : undefined}>
+                    <Plus class="h-4 w-4 mr-2" />
                     Add Device
                 </Button>
             </div>
@@ -458,6 +463,11 @@
         <table class="w-full border-collapse">
             <thead>
                 <tr class="border-b bg-muted/50">
+              <th class="text-left py-2 px-4 font-medium text-sm w-10">
+                <button type="button" class="inline-flex" on:click|stopPropagation={toggleSelectAll} aria-label="Select all">
+                  <Checkbox checked={allSelected} aria-label="Select all" />
+                </button>
+              </th>
                     <th class="text-left py-2 px-4 font-medium text-sm">
                         <button 
                             class="flex items-center space-x-1 hover:text-primary" 
@@ -510,16 +520,32 @@
                 {#if sortedDevices.length === 0}
                     <tr>
                         <td colspan="6" class="py-8 text-center text-muted-foreground">
-                            {searchTerm ? 'No devices match your search' : 'No devices added to this bundle yet'}
+                            {#if searchTerm}
+                                <div class="flex flex-col items-center">
+                                    <Search class="h-8 w-8 mb-2 opacity-50" />
+                                    <p class="text-sm">No devices match your search</p>
+                                </div>
+                            {:else}
+                                <div class="flex flex-col items-center">
+                                    <Smartphone class="h-8 w-8 mb-2 opacity-50" />
+                                    <p class="text-sm font-medium mb-1">No devices added yet</p>
+                                    <p class="text-xs text-muted-foreground">Add devices to this bundle to start deployment</p>
+                                </div>
+                            {/if}
                         </td>
                     </tr>
                 {:else}
                     {#each sortedDevices as device}
                         <tr class="border-b hover:bg-muted/50">
+                            <td class="py-3 px-4 w-10">
+                                <button type="button" class="inline-flex" on:click|stopPropagation={() => toggleRowSelection(device.id)} aria-label={`Select ${device.device.name}`}>
+                                    <Checkbox checked={selectedIds.includes(device.id)} />
+                                </button>
+                            </td>
                             <td class="py-3 px-4">
                                 <div class="flex items-center">
                                     <Smartphone class="h-4 w-4 mr-2 text-muted-foreground" />
-                                    <span>{device.device.name}</span>
+                                    <a href={`/admin/iot/devices/${device.device.id}`} class="hover:underline">{device.device.name}</a>
                                 </div>
                             </td>
                             <td class="py-3 px-4">

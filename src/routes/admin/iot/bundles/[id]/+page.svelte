@@ -4,30 +4,35 @@
     import { page } from '$app/stores';
     import { writable } from 'svelte/store';
     import { toast } from 'svelte-sonner';
-    import { 
-        ArrowLeft, 
-        Save, 
-        Trash2, 
-        Package, 
-        Calendar, 
-        Layers, 
-        Settings, 
-        BarChart3, 
+    import {
+        ArrowLeft,
+        Save,
+        Trash2,
+        Package,
+        Calendar,
+        Layers,
+        Settings,
+        BarChart3,
         Activity,
         Plus,
-
-        Play
-
+        Play,
+        Smartphone,
+        Wifi,
+        WifiOff,
+        Info,
+        Clock,
+        User,
+        Globe
     } from 'lucide-svelte';
     import { api_post, api_delete } from '$lib/utils/ApiUtils';
-    
+
     // Layout Components
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
     import { AdminCard } from "$lib/components/admin";
-    
+
     // UI Components
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
@@ -46,26 +51,31 @@
     import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
     import { Progress } from "$lib/components/ui/progress";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    
+
     // Local Components
     import AppSelector from "./components/app_select/AppSelector.svelte";
+    import BundleAppsComponent from "./components/bundle_apps/BundleAppsComponent.svelte";
     import BundleDeviceComponent from "./components/bundle_device/BundleDeviceComponent.svelte";
     import WaveComponent from "./components/waves/WaveComponent.svelte";
     import BundleDeviceProgressComponent from "./components/bundle_device_progress/BundleDeviceProgressComponent.svelte";
-    
-    export let data;
-    const { bundle } = data;
+    import { sseStore } from '$lib/stores/sse-store';
+    import { onMount, onDestroy } from 'svelte';
+
+    export let data: any;
+    // Make bundle reactive to server invalidations
+    let bundle = data.bundle;
+    $: bundle = data.bundle;
 
     // Selected wave for device progress view
-    let selectedWave = null;
+    let selectedWave: any = null;
     
     // Format date for display
-    function formatDate(date) {
+    function formatDate(date: any) {
         return date ? new Date(date).toLocaleString() : 'Not scheduled';
     }
     
     // Delete dialog state
-    const state = writable({
+    const state = writable<{ confirmationOpen: boolean; selectedRecord: any | null; title: string; message: string; confirmButtonText: string; cancelButtonText: string; }>({
         confirmationOpen: false,
         selectedRecord: null,
         title: "Delete Bundle",
@@ -114,7 +124,7 @@
     // Function to handle app deletion
     async function handleDeleteApp(appId: string) {
         try {
-            await api_delete(`/api/admin/iot/bundles/${bundle.id}/apps/${appId}`);
+            await api_delete(`/api/admin/iot/bundles/${bundle.id}/apps/${appId}`, appId);
             toast.success("App removed from bundle successfully");
             await invalidate('app:bundle');
         } catch (error) {
@@ -124,7 +134,7 @@
     }
     
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
         ["IoT", "/admin/iot"],
         ["Bundles", "/admin/iot/bundles"],
@@ -133,22 +143,22 @@
     
     // Handle delete using api_delete utility
     function deleteBundle() {
-        $state.selectedRecord = bundle;
-        $state.confirmationOpen = true;
+        state.update((s) => ({ ...s, selectedRecord: bundle, confirmationOpen: true }));
     }
     
     // Handle delete confirmation
     async function handleDeleteConfirm() {
         try {
-            await api_delete(`/api/admin/iot/bundles/${$state.selectedRecord.id}`);
+            const current = $state;
+            if (!current.selectedRecord) return;
+            await api_delete(`/api/admin/iot/bundles/${current.selectedRecord.id}`, current.selectedRecord.id);
             toast.success("Bundle deleted successfully");
             goto("/admin/iot/bundles");
         } catch (error) {
             toast.error("Failed to delete bundle");
             console.error(error);
         } finally {
-            $state.confirmationOpen = false;
-            $state.selectedRecord = null;
+            state.update((s) => ({ ...s, confirmationOpen: false, selectedRecord: null }));
         }
     }
     
@@ -168,35 +178,185 @@
     ];
     
     // Format bundle status
-    function getBundleStatusDisplay(status) {
+    function getBundleStatusDisplay(status: any) {
         if (!status) return 'Unknown';
-        const statusMap = {
+        const statusMap: Record<string, string> = {
             'DRAFT': 'Draft',
             'PUBLISHED': 'Published',
             'CANCELLED': 'Cancelled',
             'COMPLETED': 'Completed',
-            'FAILED': 'Failed'
+            'FAILED': 'Failed',
+            'IN_PROGRESS': 'In Progress'
         };
         return statusMap[status] || status;
     }
     
-    function getBundleStatusVariant(status) {
+    function getBundleStatusVariant(status: any): 'outline' | 'default' | 'destructive' | 'success' | 'secondary' {
         if (!status) return 'outline';
-        const variantMap = {
+        const variantMap: Record<string, 'outline' | 'default' | 'destructive' | 'success' | 'secondary'> = {
             'DRAFT': 'outline',
-            'PUBLISHED': 'default',
+            // Published = secondary (neutral), In Progress = default (primary)
+            'PUBLISHED': 'secondary',
             'CANCELLED': 'destructive',
             'COMPLETED': 'success',
-            'FAILED': 'destructive'
+            'FAILED': 'destructive',
+            'IN_PROGRESS': 'default'
         };
         return variantMap[status] || 'outline';
     }
     
-    // Count apps and waves
-    const appsCount = bundle.apps?.length || 0;
-    const wavesCount = bundle.waves?.length || 0;
+    // Count apps and waves (reactive)
+    let appsCount = 0;
+    let wavesCount = 0;
+    $: appsCount = (bundle?.apps?.length) || 0;
+    $: wavesCount = (bundle?.waves?.length) || 0;
     
     let activeTab = "info";
+
+    // Live update: listen for device:bundleStatus and update in-memory wave stats
+    let unsubBundleRealtime: (() => void) | null = null;
+    let waveStats: Record<string, { devicesTotal: number; devicesCompleted: number; devicesFailed: number; progress: number }> = {};
+    let wavesVersion = 0;
+    let derivedWaves: Array<{
+        id: string;
+        name: string;
+        status: string;
+        startTime?: string | null;
+        endTime?: string | null;
+        devicesTotal?: number | null;
+        devicesCompleted?: number | null;
+        devicesFailed?: number | null;
+        progress?: number | null;
+    }> = [];
+    // Trigger device list reloads in child component when a matching wave update arrives
+    let deviceProgressReloadToken = 0;
+    onMount(() => {
+        // Ensure SSE is connected
+        try { sseStore.connect('/api/sse', { withCredentials: true }); } catch {}
+        // Subscribe this connection to all device channels used by this bundle
+        let lastSubscribedConnectionId: string | null = null;
+        const deviceIds: string[] = Array.isArray(data?.bundleDevices)
+          ? Array.from(new Set((data.bundleDevices as any[]).map((bd: any) => bd.deviceId)))
+          : [];
+        sseStore.on('connected', (msg: any) => {
+            const connId = msg?.data?.connectionId;
+            if (!connId || connId === lastSubscribedConnectionId) return;
+            // Subscribe to each device channel for live bundle events
+            Promise.all(deviceIds.map((id) => fetch(`/api/sse/subscribe/device/${id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ connectionId: connId })
+            }).catch(() => null)).concat([
+                fetch(`/api/sse/subscribe/bundle/${bundle.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: connId })
+                }).catch(() => null)
+            ])).then(() => {
+                lastSubscribedConnectionId = connId;
+            }).catch(() => {});
+        });
+        unsubBundleRealtime = sseStore.on('*', async (msg: any) => {
+            const evt = msg?.data ?? msg;
+            const evtType = evt?.type || msg?.event || evt?.payload?.type;
+            const data = evt?.payload?.action === 'bundleStatus' ? { ...evt.payload, type: 'device:bundleStatus' } : evt;
+            if (evtType === 'device:bundleStatus' || data?.type === 'device:bundleStatus') {
+                const waveId = data?.waveId as string | undefined;
+                const devicesTotal = typeof data?.devicesTotal === 'number' ? data.devicesTotal : undefined;
+                const devicesCompleted = typeof data?.devicesCompleted === 'number' ? data.devicesCompleted : undefined;
+                const devicesFailed = typeof data?.devicesFailed === 'number' ? data.devicesFailed : undefined;
+                const progress = typeof data?.progress === 'number'
+                  ? data.progress
+                  : (devicesTotal && (devicesCompleted ?? 0) > 0)
+                    ? Math.round(((devicesCompleted ?? 0)) / devicesTotal * 100)
+                    : 0;
+                if (waveId && (bundle?.waves || []).some((w: any) => w.id === waveId)) {
+                    waveStats[waveId] = {
+                        devicesTotal: devicesTotal ?? (waveStats[waveId]?.devicesTotal ?? 0),
+                        devicesCompleted: devicesCompleted ?? (waveStats[waveId]?.devicesCompleted ?? 0),
+                        devicesFailed: devicesFailed ?? (waveStats[waveId]?.devicesFailed ?? 0),
+                        progress
+                    };
+                    // bump version to trigger reactive recompute
+                    wavesVersion = wavesVersion + 1;
+                    // If the selected wave matches, ask device list to reload
+                    if (selectedWave?.id && selectedWave.id === waveId) {
+                        deviceProgressReloadToken = deviceProgressReloadToken + 1;
+                    }
+                    // If this wave appears finished (completed+failed >= total), refresh server data so bundle/wave statuses update
+                    const stats = waveStats[waveId];
+                    if (
+                      typeof stats?.devicesTotal === 'number' &&
+                      (stats.devicesCompleted + stats.devicesFailed) >= stats.devicesTotal &&
+                      stats.devicesTotal > 0
+                    ) {
+                      try { await invalidate('app:bundle'); } catch {}
+                    }
+                }
+            }
+            // Also catch device-level timeout/offline events routed as generic device:bundleStatus without aggregates
+            if (data?.action === 'bundleStatus' && !data?.devicesTotal && selectedWave?.id) {
+                // Force a quick refresh of the selected wave's device table
+                deviceProgressReloadToken = deviceProgressReloadToken + 1;
+            }
+            // Listen for bundle status terminal updates to refresh quickly (optional improvement)
+            if (evtType === 'bundle:status' || data?.type === 'bundle:status') {
+                try { await invalidate('app:bundles'); } catch {}
+                try { await invalidate('app:bundle'); } catch {}
+            }
+        });
+    });
+    onDestroy(() => { try { unsubBundleRealtime && unsubBundleRealtime(); } catch {}; unsubBundleRealtime = null; });
+
+    // Derive waves passed to WaveComponent from server bundle data and live waveStats
+    $: {
+        // reference wavesVersion to ensure recompute when SSE updates arrive
+        wavesVersion;
+        const waves = (bundle?.waves || []) as any[];
+        derivedWaves = waves.map((w) => {
+            const stats = waveStats[w.id] || {} as any;
+            const devicesTotal = stats.devicesTotal ?? w.devicesTotal ?? 0;
+            const devicesCompleted = stats.devicesCompleted ?? w.devicesCompleted ?? 0;
+            const devicesFailed = stats.devicesFailed ?? w.devicesFailed ?? 0;
+            const progress = stats.progress ?? (
+                devicesTotal > 0 ? Math.round((devicesCompleted / devicesTotal) * 100) : 0
+            );
+            return {
+                id: w.id,
+                name: w.name,
+                status: w.status,
+                startTime: w.startTime ?? null,
+                endTime: w.endTime ?? null,
+                devicesTotal,
+                devicesCompleted,
+                devicesFailed,
+                progress
+            };
+        });
+    }
+
+    // Get OS display name
+    function getOSDisplay(os: any) {
+        const osMap: Record<string, string> = {
+            'ANDROID': 'Android',
+            'IOS': 'iOS', 
+            'WINDOWS': 'Windows',
+            'LINUX': 'Linux',
+            'MACOS': 'macOS'
+        };
+        return osMap[os] || os;
+    }
+
+    // Get update strategy display
+    function getUpdateStrategyDisplay(strategy: any) {
+        const strategyMap: Record<string, string> = {
+            'IMMEDIATE': 'Immediate',
+            'ON_REBOOT': 'On Reboot'
+        };
+        return strategyMap[strategy] || strategy;
+    }
 </script>
 
 <AdminPageLayout
@@ -207,51 +367,57 @@
         label: "Back",
         icon: ArrowLeft,
         onClick: () => goto('/admin/iot/bundles'),
-        variant: "outline",
-        class: "h-9"
+        variant: "outline"
       },
       {
         label: "Edit",
         icon: Settings,
-        onClick: () => goto(`/admin/iot/bundles/${bundle.id}/edit`),
-        variant: "outline",
-        class: "h-9"
+        onClick: () => {
+          if (bundle.status !== 'DRAFT') return;
+          goto(`/admin/iot/bundles/${bundle.id}/edit`)
+        },
+        variant: bundle.status === 'DRAFT' ? 'default' : 'outline',
+        disabled: bundle.status !== 'DRAFT',
+        title: bundle.status !== 'DRAFT' ? 'Not editable: bundle already published' : undefined
       },
       {
         label: "Publish",
         icon: Play,
-        onClick: () => goto(`/admin/iot/bundles/${bundle.id}/publish`),
+        onClick: async () => {
+          try {
+            await api_post(`/api/admin/iot/bundles/${bundle.id}/publish`);
+            toast.success('Bundle published');
+            await invalidate('app:bundle');
+          } catch (e) {
+            toast.error('Failed to publish bundle');
+          }
+        },
         variant: "outline",
-        class: "h-9"
+        disabled: bundle.status !== 'DRAFT',
+        title: bundle.status !== 'DRAFT' ? 'Cannot publish: bundle already published' : undefined
       },
       {
         label: "Delete",
         icon: Trash2,
         onClick: deleteBundle,
-        variant: "destructive",
-        class: "h-9"
+        variant: "destructive"
       }
     ]}
 >
     <div class="w-full space-y-6">
-        <!-- Bundle Status Card -->
+        <!-- Bundle Overview Card -->
         <AdminCard>
             <svelte:fragment slot="header">
-                <h3 class="text-lg font-medium">Bundle Status</h3>
-                <p class="text-sm text-muted-foreground">Current status and information about this bundle</p>
+                <h3 class="text-lg font-medium">Bundle Overview</h3>
+                <p class="text-sm text-muted-foreground">Key information about this bundle</p>
             </svelte:fragment>
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div class="space-y-1">
                     <p class="text-xs text-muted-foreground">Name</p>
-                    <p class="text-sm font-mono break-all">{bundle.name}</p>
+                    <p class="text-sm font-medium">{bundle.name || 'Unnamed Bundle'}</p>
                 </div>
 
-                <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Description</p>
-                    <p class="text-sm">{bundle.description || 'No description provided'}</p>
-                </div>
-                
                 <div class="space-y-1">
                     <p class="text-xs text-muted-foreground">Status</p>
                     <div>
@@ -261,43 +427,68 @@
                     </div>
                 </div>
                 
-                
-                
                 <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Scheduled For</p>
-                    <p class="text-sm">{formatDate(bundle.scheduledAt)}</p>
-                </div>
-                
-                <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Wave Size</p>
-                    <p class="text-sm">{bundle.waveSize || 'Not specified'}</p>
+                    <p class="text-xs text-muted-foreground">Target OS</p>
+                    <p class="text-sm">{getOSDisplay(bundle.os)}</p>
                 </div>
 
                 <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Waves</p>
-                    <p class="text-sm">{wavesCount} wave{wavesCount !== 1 ? 's' : ''} of 10</p>
+                    <p class="text-xs text-muted-foreground">Version</p>
+                    <p class="text-sm">{bundle.version || 'N/A'}</p>
+                </div>
+                
+                <!-- Update Strategy removed -->
+
+                <div class="space-y-1">
+                    <p class="text-xs text-muted-foreground">Wave Size</p>
+                    <p class="text-sm">{bundle.waveSize || 'Not configured'}</p>
                 </div>
                 
                 <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Apps</p>
+                    <p class="text-xs text-muted-foreground">Force Update</p>
+                    <p class="text-sm">{bundle.forceUpdate ? 'Yes' : 'No'}</p>
+                </div>
+
+                <div class="space-y-1">
+                    <p class="text-xs text-muted-foreground">Auto Open</p>
+                    <p class="text-sm">{bundle.autoOpen ? 'Yes' : 'No'}</p>
+                </div>
+
+                <div class="space-y-1">
+                    <p class="text-xs text-muted-foreground">Apps Included</p>
                     <p class="text-sm">{appsCount} app{appsCount !== 1 ? 's' : ''}</p>
                 </div>
 
                 <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Devices</p>
-                    <p class="text-sm">{bundle.devices?.length || 0} device{(bundle.devices?.length || 0) !== 1 ? 's' : ''}</p>
+                    <p class="text-xs text-muted-foreground">Waves</p>
+                    <p class="text-sm">{wavesCount} wave{wavesCount !== 1 ? 's' : ''}</p>
                 </div>
-                
-               
-
-                
-
             </div>
+
+            {#if bundle.description}
+                <div class="mt-4 pt-4 border-t">
+                    <p class="text-xs text-muted-foreground mb-1">Description</p>
+                    <p class="text-sm">{bundle.description}</p>
+                </div>
+            {/if}
+
+            {#if bundle.scheduledAt}
+                <div class="mt-4 pt-4 border-t">
+                    <div class="flex items-center gap-2">
+                        <Calendar class="h-4 w-4 text-muted-foreground" />
+                        <span class="text-sm text-muted-foreground">Scheduled for:</span>
+                        <span class="text-sm font-medium">{formatDate(bundle.scheduledAt)}</span>
+                    </div>
+                </div>
+            {/if}
+            
             <svelte:fragment slot="footer">
                 <MetadataFooter
                     items={[
                         { label: "ID", value: bundle.id },
-                        // { label: "Reboot", value: bundle.reboot ? 'Yes' : 'No'},
+                        { label: "Reboot Required", value: bundle.reboot ? 'Yes' : 'No'},
+                        { label: "Force Update", value: bundle.forceUpdate ? 'Yes' : 'No'},
+                        { label: "Auto Open", value: bundle.autoOpen ? 'Yes' : 'No'},
                         { label: 'Created', date: bundle.createdAt, icon: 'calendar' },
                         { label: 'Updated', date: bundle.updatedAt, icon: 'clock' }
                     ]}
@@ -323,79 +514,19 @@
                 
                 <!-- Bundle Apps -->
                 <AdminCard>
-                    <div class="flex justify-between items-center mb-4">
-                        <div>
-                            <h3 class="text-lg font-medium">Bundle Apps</h3>
-                            <p class="text-sm text-muted-foreground">Manage apps included in this bundle</p>
-                        </div>
-                        <Button size="sm" on:click={() => showAppSelector = true}>
-                            <Plus class="h-4 w-4 mr-2" />
-                            Add App
-                        </Button>
-                    </div>
-
-                    <!-- App Selector Dialog -->
-                    <AppSelector 
-                        bundleId={bundle.id}
-                        bind:open={showAppSelector}
-                        on:select={handleAppSelect}
-                        on:close={() => showAppSelector = false}
-                    />
-
-                    <!-- Apps List -->
-                    <div class="mt-4 border rounded-md">
-                        {#if bundle.apps.length === 0}
-                            <div class="p-4 text-center text-muted-foreground">
-                                No apps added to this bundle yet. Click "Add App" to get started.
-                            </div>
-                        {:else}
-                            <table class="w-full">
-                                <thead class="border-b">
-                                    <tr class="text-left text-sm font-medium">
-                                        <th class="p-3">Name</th>
-                                        <th class="p-3">Version</th>
-                                        <th class="p-3">Order</th>
-                                        <th class="p-3">Added</th>
-                                        <th class="p-3 w-24">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {#each bundle.apps as app (app.id)}
-                                        <tr class="border-t hover:bg-muted/50">
-                                            <td class="p-3">{app.resource?.name || 'Unknown'}</td>
-                                            <td class="p-3">{app.version || 'N/A'}</td>
-                                            <td class="p-3">{app.order}</td>
-                                            <td class="p-3">
-                                                <RelativeDate date={app.createdAt} />
-                                            </td>
-                                            <td class="p-3">
-                                                <div class="flex justify-end">
-                                                    <RecordActions 
-                                                        actions={[
-                                                            {
-                                                                label: 'Remove',
-                                                                icon: Trash2,
-                                                                variant: 'destructive',
-                                                                onClick: () => handleDeleteApp(app.id)
-                                                            }
-                                                        ]}
-                                                    />
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    {/each}
-                                </tbody>
-                            </table>
-                        {/if}
-                    </div>
+                    <svelte:fragment slot="header">
+                        <h3 class="text-lg font-medium">Bundle Apps</h3>
+                        <p class="text-sm text-muted-foreground">Manage apps included in this bundle</p>
+                    </svelte:fragment>
+                    <BundleAppsComponent bundleId={bundle.id} apps={bundle.apps} />
                 </AdminCard>
                 
-                <!-- Selected Devices -->
+                <!-- Bundle Devices -->
                 <AdminCard>
-                    <!-- <svelte:fragment slot="header">
-                        <h3 class="text-lg font-medium">Selected Devices</h3>
+                    <svelte:fragment slot="header">
+                        <h3 class="text-lg font-medium">Bundle Devices</h3>
                         <p class="text-sm text-muted-foreground">Devices targeted by this bundle</p>
-                    </svelte:fragment> -->
+                    </svelte:fragment>
                     
                     <BundleDeviceComponent 
                         bundleId={data.bundle.id}
@@ -407,25 +538,37 @@
             
             <!-- Waves Tab -->
             <Tabs.Content value="waves" class="space-y-6">
-                <WaveComponent 
-                    bundleId={bundle.id}
-                    loading={false}
-                    selectedWaveId={selectedWave?.id}
-                    on:selectWave={(event) => selectedWave = event.detail.wave}
-                />
-                
-                <BundleDeviceProgressComponent
-                    selectedWave={selectedWave}
-                    loading={false}
-                />
+                {#if wavesCount === 0}
+                    <AdminCard>
+                        <div class="p-8 text-center text-muted-foreground">
+                            <BarChart3 class="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p class="text-lg font-medium mb-2">No waves configured</p>
+                            <p class="text-sm">Waves will be created automatically when the bundle is published</p>
+                        </div>
+                    </AdminCard>
+                {:else}
+                    <WaveComponent 
+                        bundleId={bundle.id}
+                        loading={false}
+                        selectedWaveId={selectedWave?.id}
+                        waves={derivedWaves}
+                        on:selectWave={(event) => selectedWave = event.detail.wave}
+                    />
+                    
+                    <BundleDeviceProgressComponent
+                        bundleId={bundle.id}
+                        selectedWave={selectedWave}
+                        reloadToken={deviceProgressReloadToken}
+                    />
+                {/if}
             </Tabs.Content>
         </Tabs.Root>
 </AdminPageLayout>
 
 <!-- Delete confirmation dialog -->
 <RecordDeleteDialog
-    state={state}
+    state={$state}
     onConfirm={handleDeleteConfirm}
     useFormSubmission={false}
-    on:close={() => state.confirmationOpen = false}
+    on:close={() => state.update((s) => ({ ...s, confirmationOpen: false }))}
 />

@@ -35,6 +35,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     logger.debug(`-->: ${JSON.stringify(data)}`);
 
+  // Extra diagnostics for large screenshot responses without dumping raw base64
+  try {
+    const p: any = (data as any)?.payload || {};
+    const pType = typeof p.type === 'string' ? p.type : '';
+    if (pType.startsWith('screenshot:')) {
+      const img = (p as any)?.image || (data as any)?.image;
+      const fmt = (p as any)?.format || (data as any)?.format;
+      const reqId = (data as any)?.requestId || (p as any)?.requestId;
+      const imgLen = typeof img === 'string' ? img.length : 0;
+      logger.info(`[DeviceMessage] Screenshot payload received: requestId=${reqId}, format=${fmt || 'unknown'}, imageBase64Length=${imgLen}`);
+    }
+  } catch {}
+
     const userInfo:UserInfo | null = await userInfoByUserId(device.user.id);
 
     if (!userInfo) {

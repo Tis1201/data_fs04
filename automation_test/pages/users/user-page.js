@@ -184,6 +184,7 @@ class UserPage extends BasePage {
         // Handle deactivate dialog using utility (without name verification)
         await DialogUtils.handleGenericDialog(this.page, 'Deactivate');
 
+        await this.goToUserPage();
         // Verify the user status has changed to "Inactive" or similar
         const row = await this.getRowByEmail(email);
         const statusCell = row.locator('td').nth(3); // Status column (4th column, 0-indexed)
@@ -203,6 +204,7 @@ class UserPage extends BasePage {
         // Handle delete dialog using utility
         await DialogUtils.handleDeleteDialog(this.page);
 
+        await this.goToUserPage();
         // Verify the user has been removed from the table
         // Use a more direct approach to check if the row exists
         const row = this.tableRows.filter({ hasText: email }).first();
@@ -252,4 +254,4 @@ class UserPage extends BasePage {
     }
 }
 
-module.exports = { UserPage }; 
+module.exports = { UserPage };

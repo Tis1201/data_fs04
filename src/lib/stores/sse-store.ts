@@ -155,11 +155,11 @@ function createSSEStore() {
                         console.log(`[SSE] Received connection ID: ${message.data.connectionId}`);
                         // Immediately verify the connectionId is set in the store
                         let verifyState: SSEState | null = null;
-                        const verifyUnsub = subscribe(s => { verifyState = s; });
+                        const verifyUnsub = subscribe((s: SSEState) => { verifyState = s; });
                         verifyUnsub();
                         console.log(`[SSE] Store state after connectionId update:`, {
-                            connectionId: verifyState?.connectionId,
-                            status: verifyState?.status
+                            connectionId: (verifyState as SSEState | null)?.connectionId,
+                            status: (verifyState as SSEState | null)?.status
                         });
                     }
 
@@ -167,17 +167,22 @@ function createSSEStore() {
                     const requestId = data.requestId || (data.payload?.requestId as string);
                     if (requestId && pendingRequests[requestId]) {
                         console.log(`[SSE] Received response for request: ${requestId}`);
-                        
+
                         // Add detailed logging for screenshot responses
                         if (requestId.startsWith('screenshot-')) {
+                            const payload = data?.payload || {};
+                            const img = data?.image || payload?.image;
+                            const fmt = data?.format || payload?.format;
+                            const len = typeof img === 'string' ? img.length : 0;
                             console.log(`[SSE] Screenshot response structure:`, {
                                 hasTopLevelImage: !!data.image,
                                 hasPayloadImage: !!(data.payload && data.payload.image),
-                                payloadType: data.payload?.type,
-                                responseFormat: data.payload?.format || data.format
+                                payloadType: payload?.type,
+                                responseFormat: fmt,
+                                imageBase64Length: len
                             });
                         }
-                        
+
                         const { resolve, timer } = pendingRequests[requestId];
                         clearTimeout(timer);
                         delete pendingRequests[requestId];
@@ -203,8 +208,10 @@ function createSSEStore() {
             };
 
             // Set up specific event listeners if needed
-            ['connected', 'webhook', 'notification'].forEach(eventType => {
-                eventSource.addEventListener(eventType, eventSource.onmessage);
+            ['connected', 'webhook', 'notification'].forEach((eventType: string) => {
+                if (!eventSource) return;
+                const handler = (ev: MessageEvent<any>) => eventSource && eventSource.onmessage && eventSource.onmessage(ev as MessageEvent);
+                eventSource.addEventListener(eventType, handler as any);
             });
 
         } catch (error) {

@@ -13,19 +13,28 @@ import { addClient, removeClient } from './WSManager';
 
 export const websocketMiddleware: Handle = async ({ event, resolve }) => {
 
+  logger.info(`[WS Middleware] Called for path: ${event.url.pathname}`);
+
   logger.debug(`[WS Middleware]: ${event.url.pathname}`); 
 
   if (event.url.pathname.startsWith('/auth/')) {
+    logger.info(`[WS Middleware] Skipping auth path`);
     return await resolve(event);
   }
 
+  logger.info(`[WS Middleware] Processing non-auth path: ${event.url.pathname}`);
+
   if (!wssInitialized) {
+    logger.info(`[WS Middleware] Initializing WebSocket server`);
     startupWebsocketServer();
 
     const wss = (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS];
 
     if (wss !== undefined) {
+      logger.info(`[WS Middleware] WebSocket server initialized, setting up connection handler`);
+      logger.info(`[WS Middleware] WebSocket server instance: ${wss}`);
       wss.on('connection', async (ws: ExtendedWebSocket, request) => {
+        logger.info(`[WS Middleware] New WebSocket connection attempt`);
         
         const rawCookieHeader = request.headers.cookie || '';
         logger.debug(`[WS] Raw Cookie header: ${rawCookieHeader}`);
@@ -110,15 +119,8 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
             onClose();
         });
         
-        // Add message handler to log incoming messages
-        ws.on('message', (data: Buffer | string) => {
-            try {
-                const message = JSON.parse(data.toString());
-                logger.info(`[WS] Received message from client ${clientId}:`, JSON.stringify(message));
-            } catch (err) {
-                logger.info(`[WS] Received non-JSON message from client ${clientId}:`, data.toString());
-            }
-        });
+        // Remove the simple message handler that overrides WSConnection
+        // The WSConnection will handle messages properly
         
         try {
             connection.start(); // start event listeners inside WSConnection

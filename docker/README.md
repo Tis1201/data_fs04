@@ -13,53 +13,56 @@ The Docker Compose setup provides an easy way to run the application with all ne
 
 ### Running with Docker Compose
 
-To start the application using Docker Compose:
+From the project root, start everything with the compose file in `docker/`:
 
 ```bash
-# From the project root directory
-docker compose up
+# Build and start in the background
+docker compose -f docker/docker-compose.yml up --build -d
+
+# Or run in the foreground
+docker compose -f docker/docker-compose.yml up --build
 ```
 
 This will:
 1. Build the Docker image if needed
-2. Create a persistent volume for the database
-3. Mount the .env file for configuration
-4. Run database migrations automatically
-5. Start the application on port 3000
+2. Load environment from your project `.env`
+3. Run Prisma migrations automatically (via entrypoint)
+4. Start the app on port 3000 (`http://localhost:3000`)
+5. Start Nginx proxy on ports 80/443 (optional access at `http://localhost`)
 
-To run in detached mode:
+### Seeding the Database (admin user)
+
+Option A (recommended on first run): enable seeding via environment
+
+1) Edit `docker/docker-compose.yml` and uncomment `SEED=true` under `fs04-web-app.environment`.
+2) Start (or restart) the stack:
 
 ```bash
-docker compose up -d
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-### Seeding the Database
-
-To seed the database with an admin user:
+Option B: run the seed script manually in the running container
 
 ```bash
-# Start the container
-docker compose up -d
-
-# Run the seed script
-docker exec fs04-web-app bash -c "RUN_SEED=true ./start.sh"
+docker exec -it fs04-web-app bash -lc 'npm run db:seed'
 ```
 
-This will create:
-- An admin user with email `admin@example.com` and password `admin123`
-- An API key for WebSocket testing (displayed in the logs)
+The seed creates an admin user (default credentials are defined by your seed script) and may print useful test keys to the logs.
 
-### Managing the Container
+### Managing the Containers
 
 ```bash
-# View logs
-docker compose logs -f
+# View app logs
+docker compose -f docker/docker-compose.yml logs -f fs04-web-app
 
-# Stop the container
-docker compose down
+# View all logs
+docker compose -f docker/docker-compose.yml logs -f
 
-# Restart the container
-docker compose restart
+# Stop and remove containers
+docker compose -f docker/docker-compose.yml down
+
+# Restart the app container
+docker compose -f docker/docker-compose.yml restart fs04-web-app
 ```
 
 ## Standalone Docker Setup
@@ -67,22 +70,20 @@ docker compose restart
 If you prefer to use the standalone Docker setup instead of Docker Compose:
 
 ```bash
-# Build the image
-sh docker/build.sh
+sh docker/build.sh build
 
-# Run the container with migrations
 sh docker/run.sh start:init
 
-# Run with migrations and seed data
 sh docker/run.sh start:seed
 
-# Run in debug mode
 sh docker/run.sh debug:init
 ```
 
-## Volume Management
+## Notes
 
-The application uses a Docker volume for database persistence. This ensures that your data is preserved even when the container is stopped or removed.
+- Ensure your project `.env` contains a valid `DATABASE_URL` (e.g. Postgres) and any required app settings (e.g. `PUBLIC_BASE_URL`).
+- Migrations run automatically on startup if `DATABASE_URL` is set.
+- Seeding only runs when `SEED=true` is provided (Option A) or when you run the seed script manually (Option B).
 
 ## Environment Variables
 

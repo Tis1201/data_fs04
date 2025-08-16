@@ -3,7 +3,7 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
@@ -18,6 +18,9 @@
     import { api_post } from "$lib/utils/ApiUtils";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
+    import { sseStore } from "$lib/stores/sse-store";
+    import { Badge } from "$lib/components/ui/badge";
+    import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
 
@@ -92,6 +95,19 @@
     // Column definitions
     const columns = [
         {
+            id: "connected",
+            label: "Online",
+            sortable: false,
+            width: "6%",
+            render: (record: Device) => ({
+                component: OnlineDot,
+                props: {
+                    online: !!record.connected,
+                    title: record.connected ? 'Online' : 'Offline'
+                }
+            })
+        },
+        {
             id: "name",
             label: "Name",
             sortable: true,
@@ -158,7 +174,7 @@
             width: "10%",
             render: (record: Device) => {
                 // Define action items here instead of in the RecordActions component
-                const actionItems: ActionItem[] = [
+                const actionItems = [
                     {
                         label: "Edit",
                         icon: Pencil,
@@ -188,6 +204,81 @@
 
     // Using imported pagination utilities for table interactions
     // These are already imported from pagination-utils
+    // Subscribe to connection events to update rows in real time
+    onMount(() => {
+        const unsubscribe = sseStore.on('*', (msg: any) => {
+            const raw = msg?.data ?? msg;
+            const evtType = raw?.type || msg?.event || raw?.payload?.type;
+            const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
+            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') return;
+            const c = evt as any;
+            if (!c?.deviceId) return;
+            const idx = props.records.findIndex((r) => r.id === c.deviceId);
+            if (idx >= 0) {
+                props.records[idx].connected = !!c.connected;
+                if (c.connected && c.connectedAt) (props.records[idx] as any).connectedAt = c.connectedAt;
+                if (!c.connected && c.disconnectedAt) (props.records[idx] as any).disconnectedAt = c.disconnectedAt;
+                props = { ...props }; // trigger re-render
+            }
+        });
+
+        // Subscribe this connection to all device channels present in the table
+        const subscribedDeviceIds = new Set<string>();
+
+        async function subscribeToDevices(ids: string[]) {
+            // Try to get connectionId from store
+            let connId: string | null = null;
+            const unsub = sseStore.on('connected', (m: any) => {
+                connId = m?.data?.connectionId || m?.connectionId || null;
+            });
+            unsub();
+
+            // If not yet available, wait for connected event once
+            if (!connId) {
+                sseStore.on('connected', async (m: any) => {
+                    const id = m?.data?.connectionId || m?.connectionId || null;
+                    if (!id) return;
+                    for (const deviceId of ids) {
+                        if (subscribedDeviceIds.has(deviceId)) continue;
+                        try {
+                            await fetch(`/api/sse/subscribe/device/${deviceId}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ connectionId: id })
+                            });
+                            subscribedDeviceIds.add(deviceId);
+                        } catch (e) {
+                            // ignore failures; can try again on next change
+                        }
+                    }
+                });
+            } else {
+                // We have a connectionId; subscribe immediately
+                for (const deviceId of ids) {
+                    if (subscribedDeviceIds.has(deviceId)) continue;
+                    try {
+                        await fetch(`/api/sse/subscribe/device/${deviceId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ connectionId: connId })
+                        });
+                        subscribedDeviceIds.add(deviceId);
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+            }
+        }
+
+        // Initial subscribe
+        subscribeToDevices(props.records.map((r) => r.id));
+
+        return () => {
+            try { unsubscribe && unsubscribe(); } catch {}
+        };
+    });
 </script>
 
 <div class="space-y-4">
@@ -219,10 +310,11 @@
         onSuccess={(result) => {
             // Update the device status in the local data without page refresh
             if (deviceToToggle) {
+                const updatingId = deviceToToggle.id;
                 const newStatus = deviceToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
                 
                 // Find and update the device in the records array
-                const index = props.records.findIndex(r => r.id === deviceToToggle.id);
+                const index = props.records.findIndex(r => r.id === updatingId);
                 if (index !== -1) {
                     props.records[index].status = newStatus;
                     // Force a UI update
