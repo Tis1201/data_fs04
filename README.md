@@ -757,4 +757,78 @@ ToDos
   - Devices will ever only belong to a account
 
 
+npx prisma migrate dev --name add_new_tables
+
+## Create PostgreSQL role for webapp access (secure setup)
+
+The app (Prisma/Zenstack) should run with a least‑privilege role. Run the following as a superuser (e.g. `postgres`) in `psql`. Replace values as needed.
+
+```sql
+-- variables (for readability only)
+-- database name: fs04_web
+-- app role: webapp
+-- strong password recommended
+
+-- 1) Create login role (no superuser/createdb/createrole)
+CREATE ROLE webapp WITH LOGIN PASSWORD 'change-me-strong-password';
+
+-- Grant CREATEDB as required for this project workflow
+ALTER ROLE webapp CREATEDB;
+
+-- 2) (Optional but recommended) Use a dedicated schema owned by the app
+-- If you prefer using public, skip this and keep grants on public only.
+CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION webapp;
+
+-- 3) Allow connecting to the database
+GRANT CONNECT ON DATABASE fs04_web TO webapp;
+
+-- 4) Schema-level privileges
+-- If using public schema for Prisma
+GRANT USAGE, CREATE ON SCHEMA public TO webapp;
+-- If using dedicated schema
+GRANT USAGE, CREATE ON SCHEMA app TO webapp;
+
+-- 5) Existing objects (in case tables/sequences already exist)
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+ON ALL TABLES IN SCHEMA public TO webapp;
+GRANT USAGE, SELECT, UPDATE
+ON ALL SEQUENCES IN SCHEMA public TO webapp;
+-- If using dedicated schema
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+ON ALL TABLES IN SCHEMA app TO webapp;
+GRANT USAGE, SELECT, UPDATE
+ON ALL SEQUENCES IN SCHEMA app TO webapp;
+
+-- 6) Future objects (so new Prisma migrations work without extra grants)
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO webapp;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO webapp;
+-- If using dedicated schema
+ALTER DEFAULT PRIVILEGES IN SCHEMA app
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES TO webapp;
+ALTER DEFAULT PRIVILEGES IN SCHEMA app
+GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO webapp;
+```
+
+Notes
+- For this project, `webapp` requires CREATEDB to support local workflows (e.g., Prisma creating the dev DB).
+- Prisma Migrate requires `CREATE` on the target schema; the statements above grant it.
+- Set your `.env` `DATABASE_URL` to use `webapp`:
+  `postgresql://webapp:YOUR_PASSWORD@localhost:5432/fs04_web?schema=public` (or `schema=app` if you use the dedicated schema).
+
+Run initial migration
+```bash
+npx prisma migrate dev --name init
+```
+
+Seed database
+```bash
+npm run db:seed
+```
+
+
+
+
+
 
