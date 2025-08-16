@@ -115,9 +115,9 @@
     };
 
     // Calculate overall progress
-    // Overall progress = percent successfully completed
+    // Overall progress = percent of devices that have been processed (completed + failed)
     $: overallProgress = devices.length > 0
-        ? Math.round((metrics.completed / devices.length) * 100)
+        ? Math.round(((metrics.completed + metrics.failed) / devices.length) * 100)
         : 0;
         
     // Selected device for detail view

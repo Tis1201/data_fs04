@@ -3,6 +3,7 @@
     import { toast } from 'svelte-sonner';
     import { api_post, api_delete } from '$lib/utils/ApiUtils';
     import { invalidate } from '$app/navigation';
+    import { sseStore } from '$lib/stores/sse-store';
     
     import { Button } from "$lib/components/ui/button";
     import { Badge } from "$lib/components/ui/badge";
@@ -24,7 +25,7 @@
     import { page } from "$app/stores";
     
     export let bundleId: string;
-    export let devices: (BundleDevice & { device: { name: string, id: string, model?: string, status?: string } })[] = [];
+    export let devices: (BundleDevice & { device: { name: string, id: string, model?: string, status?: string, connected?: boolean } })[] = [];
     export let loading = false;
     
 
@@ -89,7 +90,9 @@
         // Device status filter
         const deviceStatusFiltersActive = Object.values(filters.deviceStatus).some(v => v);
         const matchesDeviceStatus = !deviceStatusFiltersActive || 
-            (d.device.status && filters.deviceStatus[d.device.status as OnlineStatus]);
+            (d.device.connected !== undefined && 
+             ((d.device.connected && filters.deviceStatus.ONLINE) || 
+              (!d.device.connected && filters.deviceStatus.OFFLINE)));
         
         // Model filter
         const modelFiltersActive = Object.values(filters.model).some(v => v);
@@ -284,6 +287,29 @@
         };
         return statusMap[status] || 'secondary';
     }
+
+    // Subscribe to connection events to update device status in real time
+    onMount(() => {
+        const unsubscribe = sseStore.on('*', (msg: any) => {
+            const raw = msg?.data ?? msg;
+            const evtType = raw?.type || msg?.event || raw?.payload?.type;
+            const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
+            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') return;
+            const c = evt as any;
+            if (!c?.deviceId) return;
+            
+            // Update device status in the devices array
+            const deviceIndex = devices.findIndex((d) => d.device.id === c.deviceId);
+            if (deviceIndex >= 0) {
+                devices[deviceIndex].device.connected = !!c.connected;
+                devices = [...devices]; // trigger re-render
+            }
+        });
+
+        return () => {
+            try { unsubscribe && unsubscribe(); } catch {}
+        };
+    });
 </script>
 
 <!-- Bundle Devices Controls (count + add) -->
@@ -552,24 +578,20 @@
                                 {device.device.model || 'Unknown'}
                             </td>
                             <td class="py-3 px-4">
-                                {#if device.device.status === 'ONLINE'}
+                                {#if device.device.connected}
                                     <div class="flex items-center">
-                                        <Badge variant={getDeviceStatusVariant(device.device.status)} class="mr-1.5">
+                                        <Badge variant="success" class="mr-1.5">
                                             <Wifi class="h-3 w-3 mr-1" />
-                                            {device.device.status}
-                                        </Badge>
-                                    </div>
-                                {:else if device.device.status === 'OFFLINE'}
-                                    <div class="flex items-center">
-                                        <Badge variant={getDeviceStatusVariant(device.device.status)} class="mr-1.5">
-                                            <WifiOff class="h-3 w-3 mr-1" />
-                                            {device.device.status}
+                                            Online
                                         </Badge>
                                     </div>
                                 {:else}
-                                    <Badge variant={getDeviceStatusVariant(device.device.status || 'UNKNOWN')}>
-                                        {device.device.status || 'UNKNOWN'}
-                                    </Badge>
+                                    <div class="flex items-center">
+                                        <Badge variant="destructive" class="mr-1.5">
+                                            <WifiOff class="h-3 w-3 mr-1" />
+                                            Offline
+                                        </Badge>
+                                    </div>
                                 {/if}
                             </td>
                             <td class="py-3 px-4">

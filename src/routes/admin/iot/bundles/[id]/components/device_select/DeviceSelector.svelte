@@ -47,6 +47,7 @@
     description?: string;
     createdAt?: string;
     lastUsedAt?: string;
+    connected?: boolean;
   }
 
   export let bundleId: string;

@@ -69,7 +69,8 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
         status: true,
         description: true,
         createdAt: true,
-        lastUsedAt: true
+        lastUsedAt: true,
+        connected: true
       },
       orderBy: {
         [sort]: order

@@ -22,7 +22,8 @@
         Info,
         Clock,
         User,
-        Globe
+        Globe,
+        Copy
     } from 'lucide-svelte';
     import { api_post, api_delete } from '$lib/utils/ApiUtils';
 
@@ -215,6 +216,7 @@
 
     // Live update: listen for device:bundleStatus and update in-memory wave stats
     let unsubBundleRealtime: (() => void) | null = null;
+    let unsubConnected: (() => void) | null = null;
     let waveStats: Record<string, { devicesTotal: number; devicesCompleted: number; devicesFailed: number; progress: number }> = {};
     let wavesVersion = 0;
     let derivedWaves: Array<{
@@ -230,34 +232,59 @@
     }> = [];
     // Trigger device list reloads in child component when a matching wave update arrives
     let deviceProgressReloadToken = 0;
+    
+    // Track subscriptions to prevent duplicates
+    let subscribedDevices = new Set<string>();
+    let subscribedBundle = false;
+    
     onMount(() => {
-        // Ensure SSE is connected
-        try { sseStore.connect('/api/sse', { withCredentials: true }); } catch {}
+        // Ensure SSE is connected (only once)
+        try { 
+            sseStore.connect('/api/sse', { withCredentials: true }); 
+        } catch {}
+        
         // Subscribe this connection to all device channels used by this bundle
         let lastSubscribedConnectionId: string | null = null;
         const deviceIds: string[] = Array.isArray(data?.bundleDevices)
           ? Array.from(new Set((data.bundleDevices as any[]).map((bd: any) => bd.deviceId)))
           : [];
-        sseStore.on('connected', (msg: any) => {
+          
+        // Subscribe to connected events
+        unsubConnected = sseStore.on('connected', (msg: any) => {
             const connId = msg?.data?.connectionId;
             if (!connId || connId === lastSubscribedConnectionId) return;
-            // Subscribe to each device channel for live bundle events
-            Promise.all(deviceIds.map((id) => fetch(`/api/sse/subscribe/device/${id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: connId })
-            }).catch(() => null)).concat([
+            
+            // Subscribe to each device channel for live bundle events (only if not already subscribed)
+            const devicePromises = deviceIds
+                .filter(id => !subscribedDevices.has(id))
+                .map((id) => fetch(`/api/sse/subscribe/device/${id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: connId })
+                }).then(() => {
+                    subscribedDevices.add(id);
+                    return null;
+                }).catch(() => null));
+                
+            // Subscribe to bundle channel (only if not already subscribed)
+            const bundlePromise = subscribedBundle ? Promise.resolve(null) : 
                 fetch(`/api/sse/subscribe/bundle/${bundle.id}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'include',
                     body: JSON.stringify({ connectionId: connId })
-                }).catch(() => null)
-            ])).then(() => {
+                }).then(() => {
+                    subscribedBundle = true;
+                    return null;
+                }).catch(() => null);
+                
+            Promise.all([...devicePromises, bundlePromise]).then(() => {
                 lastSubscribedConnectionId = connId;
             }).catch(() => {});
         });
+        
+        // Subscribe to all events
         unsubBundleRealtime = sseStore.on('*', async (msg: any) => {
             const evt = msg?.data ?? msg;
             const evtType = evt?.type || msg?.event || evt?.payload?.type;
@@ -306,9 +333,65 @@
                 try { await invalidate('app:bundles'); } catch {}
                 try { await invalidate('app:bundle'); } catch {}
             }
+            
+            // Listen for wave status updates (like auto-start)
+            if (evtType === 'bundle:waveStatus' || data?.type === 'bundle:waveStatus') {
+                const waveId = data?.waveId as string | undefined;
+                const waveStatus = data?.status as string | undefined;
+                if (waveId && waveStatus && (bundle?.waves || []).some((w: any) => w.id === waveId)) {
+                    // Update the wave status in real-time
+                    const waveIndex = (bundle?.waves || []).findIndex((w: any) => w.id === waveId);
+                    if (waveIndex !== -1) {
+                        // Update the bundle waves array to reflect the new status
+                        bundle = {
+                            ...bundle,
+                            waves: bundle.waves.map((w: any, idx: number) => 
+                                idx === waveIndex ? { ...w, status: waveStatus } : w
+                            )
+                        };
+                    }
+                }
+                // Refresh bundle data when wave status changes
+                try { await invalidate('app:bundle'); } catch {}
+            }
         });
     });
-    onDestroy(() => { try { unsubBundleRealtime && unsubBundleRealtime(); } catch {}; unsubBundleRealtime = null; });
+    onDestroy(() => { 
+        try { 
+            unsubBundleRealtime && unsubBundleRealtime(); 
+            unsubConnected && unsubConnected();
+        } catch {} 
+        unsubBundleRealtime = null; 
+        unsubConnected = null;
+        
+        // Clean up subscriptions on server
+        const connectionId = sseStore.connectionId;
+        if (connectionId) {
+            // Unsubscribe from all device channels
+            subscribedDevices.forEach(deviceId => {
+                fetch(`/api/sse/unsubscribe/device/${deviceId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId })
+                }).catch(() => {});
+            });
+            
+            // Unsubscribe from bundle channel
+            if (subscribedBundle) {
+                fetch(`/api/sse/unsubscribe/bundle/${bundle.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId })
+                }).catch(() => {});
+            }
+        }
+        
+        // Clean up local tracking
+        subscribedDevices.clear();
+        subscribedBundle = false;
+    });
 
     // Derive waves passed to WaveComponent from server bundle data and live waveStats
     $: {
@@ -321,12 +404,27 @@
             const devicesCompleted = stats.devicesCompleted ?? w.devicesCompleted ?? 0;
             const devicesFailed = stats.devicesFailed ?? w.devicesFailed ?? 0;
             const progress = stats.progress ?? (
-                devicesTotal > 0 ? Math.round((devicesCompleted / devicesTotal) * 100) : 0
+                devicesTotal > 0 ? Math.round(((devicesCompleted + devicesFailed) / devicesTotal) * 100) : 0
             );
+            
+            // Compute wave status based on real-time stats
+            let computedStatus = w.status;
+            if (devicesTotal > 0 && (devicesCompleted + devicesFailed) >= devicesTotal) {
+                // Wave is complete - determine if it succeeded or failed
+                if (devicesFailed > 0) {
+                    computedStatus = 'FAILED';
+                } else {
+                    computedStatus = 'COMPLETED';
+                }
+            } else if (devicesTotal > 0 && (devicesCompleted + devicesFailed) > 0) {
+                // Wave is in progress
+                computedStatus = 'IN_PROGRESS';
+            }
+            
             return {
                 id: w.id,
                 name: w.name,
-                status: w.status,
+                status: computedStatus,
                 startTime: w.startTime ?? null,
                 endTime: w.endTime ?? null,
                 devicesTotal,
@@ -395,6 +493,22 @@
         variant: "outline",
         disabled: bundle.status !== 'DRAFT',
         title: bundle.status !== 'DRAFT' ? 'Cannot publish: bundle already published' : undefined
+      },
+      {
+        label: "Duplicate",
+        icon: Copy,
+        onClick: async () => {
+          try {
+            const response = await api_post(`/api/user/iot/bundles/${bundle.id}/duplicate`);
+            toast.success('Bundle duplicated successfully');
+            // Navigate to the new bundle
+            goto(`/user/iot/bundles/${response.data.id}`);
+          } catch (e) {
+            toast.error('Failed to duplicate bundle');
+          }
+        },
+        variant: "outline",
+        title: "Create a copy of this bundle with same apps and devices"
       },
       {
         label: "Delete",

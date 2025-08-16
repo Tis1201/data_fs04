@@ -102,16 +102,45 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
                 const devicesTotal = allForWave.length;
                 const devicesCompleted = allForWave.filter((r: any) => r.status === 'COMPLETED').length;
                 const devicesFailed = allForWave.filter((r: any) => r.status === 'FAILED').length;
-                const waveProgress = devicesTotal > 0 ? Math.round((devicesCompleted / devicesTotal) * 100) : 0;
+                const waveProgress = devicesTotal > 0 ? Math.round(((devicesCompleted + devicesFailed) / devicesTotal) * 100) : 0;
                 const waveStatus = devicesCompleted + devicesFailed >= devicesTotal && devicesTotal > 0 ? (devicesFailed > 0 ? 'FAILED' : 'COMPLETED') : 'IN_PROGRESS';
                 await prisma.bundleWave.update({ where: { id: firstWaveId }, data: { status: waveStatus, endTime: waveStatus !== 'IN_PROGRESS' ? new Date() : undefined } });
                 try {
                   const wavesForBundle = await prisma.bundleWave.findMany({ where: { bundleId }, select: { status: true } });
                   if (Array.isArray(wavesForBundle) && wavesForBundle.length > 0) {
-                    const anyInProgressB = wavesForBundle.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
-                    const anyFailedB = wavesForBundle.some((w: any) => w.status === 'FAILED');
-                    const allDoneB = wavesForBundle.every((w: any) => ['COMPLETED', 'FAILED'].includes(w.status));
-                    const bundleStatusB = anyInProgressB ? 'IN_PROGRESS' : (allDoneB ? (anyFailedB ? 'FAILED' : 'COMPLETED') : 'PUBLISHED');
+                    // Count waves by status
+                    const waveCounts = {
+                      PENDING: wavesForBundle.filter((w: any) => w.status === 'PENDING').length,
+                      IN_PROGRESS: wavesForBundle.filter((w: any) => w.status === 'IN_PROGRESS').length,
+                      COMPLETED: wavesForBundle.filter((w: any) => w.status === 'COMPLETED').length,
+                      FAILED: wavesForBundle.filter((w: any) => w.status === 'FAILED').length,
+                      CANCELLED: wavesForBundle.filter((w: any) => w.status === 'CANCELLED').length
+                    };
+                    
+                    // Determine bundle status based on wave states
+                    const anyInProgressB = waveCounts.IN_PROGRESS > 0;
+                    const anyPendingB = waveCounts.PENDING > 0;
+                    const anyFailedB = waveCounts.FAILED > 0;
+                    const anyCancelledB = waveCounts.CANCELLED > 0;
+                    const allCompletedB = waveCounts.COMPLETED === wavesForBundle.length;
+                    const allTerminalB = wavesForBundle.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(w.status));
+                    
+                    // Determine bundle status with priority order
+                    let bundleStatusB;
+                    if (anyInProgressB) {
+                      bundleStatusB = 'IN_PROGRESS';
+                    } else if (anyFailedB) {
+                      bundleStatusB = 'FAILED';
+                    } else if (anyCancelledB && allTerminalB) {
+                      bundleStatusB = 'CANCELLED';
+                    } else if (allCompletedB) {
+                      bundleStatusB = 'COMPLETED';
+                    } else if (anyPendingB) {
+                      bundleStatusB = 'PUBLISHED';
+                    } else {
+                      bundleStatusB = 'PUBLISHED';
+                    }
+                    
                     await prisma.bundle.update({ where: { id: bundleId }, data: { status: bundleStatusB } });
                   }
                 } catch {}
@@ -141,7 +170,7 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
             await publisher.publish(routing);
 
             const numApps = Math.max(1, apps.length || 1);
-            const timeoutMs = numApps * 5 * 60 * 1000;
+            const timeoutMs = numApps * 1 * 60 * 1000;
             setTimeout(async () => {
               try {
                 const current = await prisma.bundleDeviceProgress.findUnique({ where: { id: (prog as any).id } });
@@ -152,16 +181,45 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
                   const devicesTotal2 = allForWave2.length;
                   const devicesCompleted2 = allForWave2.filter((r: any) => r.status === 'COMPLETED').length;
                   const devicesFailed2 = allForWave2.filter((r: any) => r.status === 'FAILED').length;
-                  const waveProgress2 = devicesTotal2 > 0 ? Math.round((devicesCompleted2 / devicesTotal2) * 100) : 0;
+                  const waveProgress2 = devicesTotal2 > 0 ? Math.round(((devicesCompleted2 + devicesFailed2) / devicesTotal2) * 100) : 0;
                   const waveStatus2 = devicesCompleted2 + devicesFailed2 >= devicesTotal2 && devicesTotal2 > 0 ? (devicesFailed2 > 0 ? 'FAILED' : 'COMPLETED') : 'IN_PROGRESS';
                   await prisma.bundleWave.update({ where: { id: firstWaveId }, data: { status: waveStatus2, endTime: waveStatus2 !== 'IN_PROGRESS' ? new Date() : undefined } });
                   try {
                     const wavesForBundle2 = await prisma.bundleWave.findMany({ where: { bundleId }, select: { status: true } });
                     if (Array.isArray(wavesForBundle2) && wavesForBundle2.length > 0) {
-                      const anyInProgressC = wavesForBundle2.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
-                      const anyFailedC = wavesForBundle2.some((w: any) => w.status === 'FAILED');
-                      const allDoneC = wavesForBundle2.every((w: any) => ['COMPLETED', 'FAILED'].includes(w.status));
-                      const bundleStatusC = anyInProgressC ? 'IN_PROGRESS' : (allDoneC ? (anyFailedC ? 'FAILED' : 'COMPLETED') : 'PUBLISHED');
+                      // Count waves by status
+                      const waveCounts = {
+                        PENDING: wavesForBundle2.filter((w: any) => w.status === 'PENDING').length,
+                        IN_PROGRESS: wavesForBundle2.filter((w: any) => w.status === 'IN_PROGRESS').length,
+                        COMPLETED: wavesForBundle2.filter((w: any) => w.status === 'COMPLETED').length,
+                        FAILED: wavesForBundle2.filter((w: any) => w.status === 'FAILED').length,
+                        CANCELLED: wavesForBundle2.filter((w: any) => w.status === 'CANCELLED').length
+                      };
+                      
+                      // Determine bundle status based on wave states
+                      const anyInProgressC = waveCounts.IN_PROGRESS > 0;
+                      const anyPendingC = waveCounts.PENDING > 0;
+                      const anyFailedC = waveCounts.FAILED > 0;
+                      const anyCancelledC = waveCounts.CANCELLED > 0;
+                      const allCompletedC = waveCounts.COMPLETED === wavesForBundle2.length;
+                      const allTerminalC = wavesForBundle2.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(w.status));
+                      
+                      // Determine bundle status with priority order
+                      let bundleStatusC;
+                      if (anyInProgressC) {
+                        bundleStatusC = 'IN_PROGRESS';
+                      } else if (anyFailedC) {
+                        bundleStatusC = 'FAILED';
+                      } else if (anyCancelledC && allTerminalC) {
+                        bundleStatusC = 'CANCELLED';
+                      } else if (allCompletedC) {
+                        bundleStatusC = 'COMPLETED';
+                      } else if (anyPendingC) {
+                        bundleStatusC = 'PUBLISHED';
+                      } else {
+                        bundleStatusC = 'PUBLISHED';
+                      }
+                      
                       await prisma.bundle.update({ where: { id: bundleId }, data: { status: bundleStatusC } });
                     }
                   } catch {}

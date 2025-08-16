@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import { Search, ArrowUpDown } from 'lucide-svelte';
   import DebouncedTextFilter from '$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte';
   import PopoverFilter from '$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte';
+  import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
+  import { sseStore } from '$lib/stores/sse-store';
   // URL and $page are not used; keep state internal
   const options = [
     { label: 'Online', value: 'ONLINE' },
@@ -22,6 +24,7 @@ import Pagination from "$lib/components/ui_components_sveltekit/table/pagination
     description?: string;
     createdAt?: string;
     lastUsedAt?: string;
+    connected?: boolean;
   }
   
   interface TableProps {
@@ -90,6 +93,29 @@ import Pagination from "$lib/components/ui_components_sveltekit/table/pagination
     console.log('[DeviceTable] pagination change', event.detail);
     dispatch('pagination', event.detail);
   }
+
+  // Subscribe to connection events to update device status in real time
+  onMount(() => {
+    const unsubscribe = sseStore.on('*', (msg: any) => {
+      const raw = msg?.data ?? msg;
+      const evtType = raw?.type || msg?.event || raw?.payload?.type;
+      const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
+      if (evtType !== 'device:connection' && evt?.type !== 'device:connection') return;
+      const c = evt as any;
+      if (!c?.deviceId) return;
+      
+      // Update device status in the records
+      const deviceIndex = props.records.findIndex((r) => r.id === c.deviceId);
+      if (deviceIndex >= 0) {
+        props.records[deviceIndex].connected = !!c.connected;
+        props = { ...props }; // trigger re-render
+      }
+    });
+
+    return () => {
+      try { unsubscribe && unsubscribe(); } catch {}
+    };
+  });
 </script>
 
 <div class="w-full">
@@ -129,6 +155,7 @@ import Pagination from "$lib/components/ui_components_sveltekit/table/pagination
             <ArrowUpDown class="ml-2 h-4 w-4" />
           </Button>
         </th>
+        <th class="text-left p-3 w-16">Online</th>
         <th class="text-left p-3">
           <Button 
             variant="ghost" 
@@ -174,6 +201,9 @@ import Pagination from "$lib/components/ui_components_sveltekit/table/pagination
             </td>
             <td class="p-3 flex items-center gap-2">
               {device.name}
+            </td>
+            <td class="p-3">
+              <OnlineDot online={!!device.connected} title={device.connected ? 'Online' : 'Offline'} />
             </td>
             <td class="p-3">
               <Badge variant={getStatusVariant(device.status)}>{device.status}</Badge>

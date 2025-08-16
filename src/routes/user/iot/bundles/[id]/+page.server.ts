@@ -57,6 +57,74 @@ export const load = restrict(
           }
         }
         (bundle as any).waves = enrichedWaves;
+        
+        // Check if any wave has finished but the next wave hasn't been started
+        const sortedWaves = enrichedWaves.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        for (let i = 0; i < sortedWaves.length - 1; i++) {
+          const currentWave = sortedWaves[i];
+          const nextWave = sortedWaves[i + 1];
+          
+          // If current wave is finished (COMPLETED or FAILED) and next wave is still PENDING
+          if ((currentWave.status === 'COMPLETED' || currentWave.status === 'FAILED') && nextWave.status === 'PENDING') {
+            try {
+              // Import the helper function
+              const { checkAndAutoStartNextWave } = await import('$lib/server/messaging/handlers/deviceHandler');
+              await checkAndAutoStartNextWave(bundle.id, currentWave.id);
+              logger.info(`[PageLoad] Auto-started wave ${nextWave.id} for bundle ${bundle.id} during page load`);
+            } catch (autoStartErr: any) {
+              logger.warn(`[PageLoad] Failed to auto-start wave during page load: ${autoStartErr?.message || String(autoStartErr)}`);
+            }
+          }
+        }
+        
+        // Check for waves that are IN_PROGRESS but might need timeout setup
+        for (const wave of enrichedWaves) {
+          if (wave.status === 'IN_PROGRESS') {
+            try {
+              // Check if any devices in this wave are still PENDING or IN_PROGRESS
+              const pendingDevices = await (locals.prisma as any).bundleDeviceProgress.findMany({
+                where: { 
+                  waveId: wave.id,
+                  status: { in: ['PENDING', 'IN_PROGRESS'] }
+                },
+                include: { bundleDevice: true }
+              });
+              
+              if (pendingDevices.length > 0) {
+                // Set up timeouts for devices that don't have them
+                const bundleApps = await (locals.prisma as any).bundleApp.findMany({
+                  where: { bundleId: bundle.id },
+                  select: { id: true }
+                });
+                const numApps = bundleApps.length;
+                const timeoutMs = numApps * 1 * 60 * 1000; // 5 minutes per app
+                
+                for (const prog of pendingDevices) {
+                  // Check if this device has been running for more than the timeout period
+                  const deviceStartTime = prog.startedAt || wave.startTime;
+                  if (deviceStartTime) {
+                    const elapsedMs = Date.now() - new Date(deviceStartTime).getTime();
+                    if (elapsedMs > timeoutMs) {
+                      // Device has exceeded timeout, mark it as failed
+                      await (locals.prisma as any).bundleDeviceProgress.update({
+                        where: { id: prog.id },
+                        data: {
+                          status: 'FAILED',
+                          completedAt: new Date(),
+                          errorDetails: 'timeout'
+                        }
+                      });
+                      
+                      logger.info(`[PageLoad] Marked device ${prog.bundleDevice.deviceId} in wave ${wave.id} as failed due to timeout`);
+                    }
+                  }
+                }
+              }
+            } catch (timeoutErr: any) {
+              logger.warn(`[PageLoad] Failed to check timeouts for wave ${wave.id}: ${timeoutErr?.message || String(timeoutErr)}`);
+            }
+          }
+        }
       }
       
       // Fetch bundle devices with device information

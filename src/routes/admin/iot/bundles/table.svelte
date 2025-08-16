@@ -20,6 +20,8 @@
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
     import { invalidate } from '$app/navigation';
+    import { sseStore } from '$lib/stores/sse-store';
+    import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
 
     // Props for DataTable component
     export let props = {
@@ -60,6 +62,26 @@
         // This will trigger a reload of the page data without a full page refresh
         await invalidate('app:bundles');
     }
+
+    // Subscribe to connection events to update device status in real time
+    onMount(() => {
+        const unsubscribe = sseStore.on('*', (msg: any) => {
+            const raw = msg?.data ?? msg;
+            const evtType = raw?.type || msg?.event || raw?.payload?.type;
+            const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
+            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') return;
+            const c = evt as any;
+            if (!c?.deviceId) return;
+            
+            // Update device status in bundle records if they contain device information
+            // This will trigger a re-render when device connection status changes
+            props = { ...props };
+        });
+
+        return () => {
+            try { unsubscribe && unsubscribe(); } catch {}
+        };
+    });
 
     // Status label and variant mapping for bundles (pretty text and colored badge)
     function getBundleStatusLabel(status: string | null | undefined): string {
