@@ -284,15 +284,6 @@
                                         >
                                             View
                                         </button>
-                                        
-                                        {#if wave.status === 'PENDING'}
-                                            <button 
-                                                class="text-sm text-green-600 hover:underline" 
-                                                on:click|stopPropagation={() => startWave(wave.id)}
-                                            >
-                                                Start
-                                            </button>
-                                        {/if}
                                     </div>
                                 </TableCell>
                             </TableRow>
