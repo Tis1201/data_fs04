@@ -6,7 +6,8 @@ npm-debug.log
 .npm
 
 # Build output
-build
+# Allow prebuilt app bundle so Docker can skip memory-heavy build step
+!build/**
 .svelte-kit
 **/.svelte-kit
 **/.vercel
@@ -36,7 +37,8 @@ CHANGELOG.md
 LICENSE
 
 # Docker files
-docker
+# Allow docker folder so entrypoint and configs are available to the build
+# (Keep ignoring root Dockerfile/.dockerignore if desired)
 Dockerfile
 .dockerignore
 

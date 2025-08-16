@@ -8,7 +8,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 /**
- * App Selection API Endpoint for Bundle Components
+ * App Selection API Endpoint for Bundle Components (User Side)
  */
 
 // Define table options for Resources in the app select context
@@ -70,7 +70,7 @@ export const GET = restrict(
       throw error(500, 'Failed to load resources');
     }
   },
-  [SystemRole.ADMIN] // Only allow admin role to access this endpoint
+  [SystemRole.USER] // Only allow user role to access this endpoint
 ) satisfies RequestHandler;
 
 // Handle POST requests for adding an app to a bundle
@@ -109,7 +109,7 @@ export const POST = restrict(
       }
       
       // Check if the resource is already in the bundle
-      const existingBundleResource = await (prisma as any).bundleResource.findFirst({
+      const existingBundleResource = await (prisma as any).bundleApp.findFirst({
         where: {
           bundleId,
           resourceId
@@ -121,7 +121,7 @@ export const POST = restrict(
       }
       
       // Add the resource to the bundle
-      const bundleResource = await (prisma as any).bundleResource.create({
+      const bundleResource = await (prisma as any).bundleApp.create({
         data: {
           bundle: { connect: { id: bundleId } },
           resource: { connect: { id: resourceId } },
@@ -157,7 +157,7 @@ export const POST = restrict(
       throw error(500, 'Failed to add resource to bundle');
     }
   },
-  [SystemRole.ADMIN] // Only allow admin role to access this endpoint
+  [SystemRole.USER] // Only allow user role to access this endpoint
 ) satisfies RequestHandler;
 
 // Handle DELETE requests for removing an app from a bundle
@@ -178,7 +178,7 @@ export const DELETE = restrict(
       }
       
       // Check if the bundle resource exists
-      const bundleResource = await (prisma as any).bundleResource.findFirst({
+      const bundleResource = await (prisma as any).bundleApp.findFirst({
         where: {
           bundleId,
           resourceId
@@ -190,7 +190,7 @@ export const DELETE = restrict(
       }
       
       // Remove the resource from the bundle
-      await (prisma as any).bundleResource.delete({
+      await (prisma as any).bundleApp.delete({
         where: {
           id: bundleResource.id
         }
@@ -220,7 +220,7 @@ export const DELETE = restrict(
       throw error(500, 'Failed to remove resource from bundle');
     }
   },
-  [SystemRole.ADMIN] // Only allow admin role to access this endpoint
+  [SystemRole.USER] // Only allow user role to access this endpoint
 ) satisfies RequestHandler;
 
 // Handle unsupported HTTP methods

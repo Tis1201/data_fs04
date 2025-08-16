@@ -171,7 +171,7 @@ export const actions: Actions = {
                     throw e; // This is the redirect
                 }
                 
-                logger.error(`Error updating bundle: ${JSON.stringify(e)}`);
+                logger.error(`Error updating bundle:`, e);
                 return fail(500, {
                     form,
                     error: 'Failed to update bundle'

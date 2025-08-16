@@ -54,11 +54,10 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
 
     // Local Components
-    import AppSelector from "./components/app_select/AppSelector.svelte";
-    import BundleAppsComponent from "./components/bundle_apps/BundleAppsComponent.svelte";
-    import BundleDeviceComponent from "./components/bundle_device/BundleDeviceComponent.svelte";
-    import WaveComponent from "./components/waves/WaveComponent.svelte";
-    import BundleDeviceProgressComponent from "./components/bundle_device_progress/BundleDeviceProgressComponent.svelte";
+    import BundleAppsComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_apps/BundleAppsComponent.svelte";
+    import BundleDeviceComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device/BundleDeviceComponent.svelte";
+    import WaveComponent from "$lib/components/ui_components_sveltekit/bundles/waves/WaveComponent.svelte";
+    import BundleDeviceProgressComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device_progress/BundleDeviceProgressComponent.svelte";
     import { sseStore } from '$lib/stores/sse-store';
     import { onMount, onDestroy } from 'svelte';
 
@@ -66,6 +65,10 @@
     // Make bundle reactive to server invalidations
     let bundle = data.bundle;
     $: bundle = data.bundle;
+
+    const dataPage = data
+    
+
 
     // Selected wave for device progress view
     let selectedWave: any = null;
@@ -216,9 +219,15 @@
     let onlineDevicesCount = 0;
     let offlineDevicesCount = 0;
     let totalDevicesCount = 0;
-    $: totalDevicesCount = data?.bundleDevices?.length || 0;
-    $: onlineDevicesCount = data?.bundleDevices?.filter((d: any) => d.device?.connected)?.length || 0;
-    $: offlineDevicesCount = totalDevicesCount - onlineDevicesCount;
+    let deviceStatusVersion = 0; // Version counter to trigger reactive updates
+    $: {
+        deviceStatusVersion; // Reference to trigger recomputation
+        totalDevicesCount = data?.bundleDevices?.length || 0;
+        onlineDevicesCount = data?.bundleDevices?.filter((d: any) => d.device?.connected)?.length || 0;
+        offlineDevicesCount = totalDevicesCount - onlineDevicesCount;
+        
+
+    }
     
     let activeTab = "info";
 
@@ -297,6 +306,8 @@
             const evt = msg?.data ?? msg;
             const evtType = evt?.type || msg?.event || evt?.payload?.type;
             const data = evt?.payload?.action === 'bundleStatus' ? { ...evt.payload, type: 'device:bundleStatus' } : evt;
+            
+
             if (evtType === 'device:bundleStatus' || data?.type === 'device:bundleStatus') {
                 const waveId = data?.waveId as string | undefined;
                 const devicesTotal = typeof data?.devicesTotal === 'number' ? data.devicesTotal : undefined;
@@ -367,6 +378,21 @@
                 }
                 // Refresh bundle data when wave status changes
                 try { await invalidate('app:bundle'); } catch {}
+            }
+            
+            // Listen for device connection events to update device status counts
+            if (evtType === 'device:connection' || data?.type === 'device:connection') {
+                const c = data as any;
+                if (!c?.payload?.deviceId) return;
+                
+                if (dataPage?.bundleDevices && dataPage.bundleDevices.length > 0) {
+                    const deviceIndex = dataPage.bundleDevices.findIndex((d: any) => d.deviceId === c.payload.deviceId);
+                    if (deviceIndex >= 0) {
+                        dataPage.bundleDevices[deviceIndex].device.connected = !!c.payload.connected;
+                        // Increment version to trigger reactive recomputation of device status counts
+                        deviceStatusVersion = deviceStatusVersion + 1;
+                    }
+                }
             }
         });
     });

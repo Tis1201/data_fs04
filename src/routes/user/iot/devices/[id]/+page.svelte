@@ -98,6 +98,11 @@
         return STATUS_LABELS[status] ?? toTitleCaseFromSnake(status);
     }
 
+    // Real-time connection status updates
+    let unsubConnection: (() => void) | null = null;
+    let unsubConnected: (() => void) | null = null;
+    let subscribedDevice = false;
+
     // Define breadcrumbs for this page
     const pageCrumbs: [string, string][] = [
         ["Home", "/user"],
@@ -160,32 +165,71 @@
     let unsubscribeDeviceRealtime: (() => void) | null = null;
     let unsubConnectionLight: (() => void) | null = null;
     onMount(() => {
+        console.log('[UserDeviceDetail] onMount started for device:', device.id);
+        console.log('[UserDeviceDetail] Initial device state:', {
+            id: device.id,
+            connected: device.connected,
+            connectedAt: device.connectedAt,
+            disconnectedAt: device.disconnectedAt
+        });
+        
         try {
-            console.debug('[DeviceDetail] Connecting SSE to /api/sse ...');
+            console.debug('[UserDeviceDetail] Connecting SSE to /api/sse ...');
             sseStore.connect(`/api/sse`, { withCredentials: true });
+            console.log('[UserDeviceDetail] SSE connect initiated');
         } catch (e) {
-            console.warn('SSE connect failed (may already be connected):', e);
+            console.warn('[UserDeviceDetail] SSE connect failed (may already be connected):', e);
         }
+        
+        // Check SSE connection status
+        console.log('[UserDeviceDetail] SSE store state:', sseStore);
+        console.log('[UserDeviceDetail] SSE connection ID:', sseStore.connectionId);
+        
+        // Add a test function to manually trigger connection status change for debugging
+        (window as any).testConnectionStatus = () => {
+            console.log('[UserDeviceDetail] Manual test: toggling connection status');
+            device = {
+                ...device,
+                connected: !device.connected,
+                connectedAt: device.connected ? null : new Date().toISOString(),
+                disconnectedAt: device.connected ? new Date().toISOString() : null
+            };
+            console.log('[UserDeviceDetail] Manual device state change:', {
+                connected: device.connected,
+                connectedAt: device.connectedAt,
+                disconnectedAt: device.disconnectedAt
+            });
+        };
         // After connectionId is known, call subscribe endpoint to bind this connection to device channel
         // Persistently re-subscribe on every SSE (re)connect because connectionId changes
         let lastSubscribedConnectionId: string | null = null;
         sseStore.on('connected', (msg: any) => {
+            console.log('[UserDeviceDetail] SSE connected event received:', msg);
             const connId = msg?.data?.connectionId;
-            if (!connId) return;
-            if (connId === lastSubscribedConnectionId) {
-                console.debug('[DeviceDetail] SSE connected event but already subscribed for', connId);
+            if (!connId) {
+                console.warn('[UserDeviceDetail] No connectionId in connected event');
                 return;
             }
-            console.debug('[DeviceDetail] SSE (re)connected. Subscribing device channel', { deviceId: device.id, connId });
+            if (connId === lastSubscribedConnectionId) {
+                console.debug('[UserDeviceDetail] SSE connected event but already subscribed for', connId);
+                return;
+            }
+            console.log('[UserDeviceDetail] SSE (re)connected. Subscribing device channel', { deviceId: device.id, connId });
             fetch(`/api/sse/subscribe/device/${device.id}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({ connectionId: connId })
-            }).then(() => {
-                lastSubscribedConnectionId = connId;
-                console.log('[DeviceDetail] Subscribed to device channel for', connId);
-            }).catch((err) => console.warn('Subscribe failed', err));
+            }).then((response) => {
+                console.log('[UserDeviceDetail] Subscribe response:', response);
+                if (response.ok) {
+                    lastSubscribedConnectionId = connId;
+                    console.log('[UserDeviceDetail] Successfully subscribed to device channel for', connId);
+                } else {
+                    console.error('[UserDeviceDetail] Subscribe failed with status:', response.status);
+                    response.text().then(text => console.error('[UserDeviceDetail] Subscribe error:', text));
+                }
+            }).catch((err) => console.warn('[UserDeviceDetail] Subscribe failed:', err));
         });
 
         // Use centralized realtime updater for action history
@@ -199,33 +243,46 @@
 
         // Lightweight connection status updates remain inline
         unsubConnectionLight = sseStore.on('*', (msg: any) => {
+            console.log('[UserDeviceDetail] SSE message received:', msg);
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                
+                // Log the raw event structure to understand the format
+                console.log('[UserDeviceDetail] Raw event structure:', {
+                    msg,
+                    evt,
+                    evtType,
+                    payload: evt?.payload,
+                    action: evt?.payload?.action
+                });
+                
                 // Normalize payloads that carry action in payload
                 const normalized = evt?.payload?.action === 'device:connection' ? { ...evt.payload, type: 'device:connection' }
                                   : evt;
 
-                // Debug incoming messages minimally to avoid spam
-                if (evtType || normalized?.type) {
-                    console.debug('[DeviceDetail:SSE] Incoming', {
-                        evtType,
-                        normalizedType: normalized?.type,
-                        forDevice: normalized?.deviceId,
-                        currentDevice: device?.id
-                    });
-                }
+                console.log('[UserDeviceDetail] Parsed event:', {
+                    evtType,
+                    normalizedType: normalized?.type,
+                    forDevice: normalized?.deviceId,
+                    currentDevice: device?.id,
+                    payload: normalized
+                });
 
                 const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
-                if (!isConnectionEvent) return;
+                if (!isConnectionEvent) {
+                    console.log('[UserDeviceDetail] Not a connection event, ignoring');
+                    return;
+                }
 
                 const c = normalized;
                 if (!c?.deviceId || c.deviceId !== device.id) {
-                    // Not for this device; ignore
+                    console.log('[UserDeviceDetail] Not for this device, ignoring');
                     return;
                 }
 
                 const prev = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
+                console.log('[UserDeviceDetail] Previous device state:', prev);
 
                 // Reassign the whole object to trigger reactive updates in Svelte
                 device = {
@@ -236,9 +293,12 @@
                 };
 
                 const next = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
-                console.debug('[DeviceDetail:SSE] Applied connection update', { prev, next });
+                console.log('[UserDeviceDetail] Applied connection update:', { prev, next });
+                
+                // Force a reactivity update
+                device = { ...device };
             } catch (e) {
-                console.warn('[DeviceDetail:SSE] Error processing message', e);
+                console.warn('[UserDeviceDetail] Error processing message:', e);
             }
         });
     });

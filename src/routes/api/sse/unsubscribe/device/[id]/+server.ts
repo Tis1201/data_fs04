@@ -30,4 +30,4 @@ export const POST: RequestHandler = restrict(async ({ params, request, locals, a
   );
   logger.debug(`Unsubscribed user ${auth.user.id} connection ${connectionId} from subscription:device:${deviceId}`);
   return json({ success: true });
-});
+}, ['ADMIN', 'USER']);

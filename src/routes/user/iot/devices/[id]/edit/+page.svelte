@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
@@ -13,6 +12,7 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     import type { PageData } from "./$types";
     import { DEVICE_STATUSES, DEVICE_TYPES } from "../schema";
 
@@ -21,7 +21,7 @@
     const title = `Edit ${device.name || "Device"}`;
 
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Home", "/user"],
         ["IoT", "/user/iot"],
         ["Devices", "/user/iot/devices"],
@@ -29,11 +29,16 @@
         ["Edit", ""]
     ];
 
-    // Setup the form
-    const { form, errors, enhance, submitting } = superForm(data.form, {
-        // Server will handle redirect after successful save
-        resetForm: false,
-        taintedMessage: null
+    // Setup the form with automatic redirect
+    const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
+        successRedirect: `/user/iot/devices/${device.id}`,
+        validateOnInput: true,
+        onSuccess: (result) => {
+            return {
+                type: 'success',
+                text: result.data?.message || "Device updated successfully"
+            };
+        }
     });
 </script>
 
@@ -44,7 +49,7 @@
         {
             label: "Save Changes",
             icon: Save,
-            onClick: () => document.getElementById("device-edit-form")?.requestSubmit(),
+            onClick: () => document.querySelector('form[action="?/save"]')?.requestSubmit(),
             variant: "default"
         },
         {
@@ -63,7 +68,7 @@
             compact={true}
         >
             <!-- Edit Form -->
-            <FormContainer id="device-edit-form" action="?/save" {enhance}>
+            <FormContainer action="?/save" {enhance} errorMessage={$errorMessage}>
                 <!-- Editable fields -->
                 <FormRow columns={2}>
                     <!-- Name -->

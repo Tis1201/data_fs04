@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
@@ -17,6 +16,7 @@
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     import type { PageData } from "./$types";
     import { DEVICE_STATUSES, DEVICE_TYPES } from "../schema";
 
@@ -25,7 +25,7 @@
     const title = `Edit ${device.name || "Device"}`;
 
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
         ["IoT", "/admin/iot"],
         ["Devices", "/admin/iot/devices"],
@@ -33,15 +33,16 @@
         ["Edit", ""]
     ];
 
-    // Setup the form
-    const { form, errors, enhance, submitting } = superForm(data.form, {
-        onUpdated: ({ form }) => {
-            if (form.data.success) {
-                toast.success(form.data.message || "Device updated successfully");
-            }
-        },
-        resetForm: false,
-        taintedMessage: null
+    // Setup the form with automatic redirect
+    const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
+        successRedirect: `/admin/iot/devices/${device.id}`,
+        validateOnInput: true,
+        onSuccess: (result) => {
+            return {
+                type: 'success',
+                text: result.data?.message || "Device updated successfully"
+            };
+        }
     });
 </script>
 
@@ -79,7 +80,7 @@
             compact={true}
         >
             <!-- Edit Form -->
-            <FormContainer id="device-edit-form" action="?/save" {enhance}>
+            <FormContainer id="device-edit-form" action="?/save" {enhance} errorMessage={$errorMessage}>
                 <!-- Editable fields -->
                 <FormRow columns={2}>
                     <!-- Name -->

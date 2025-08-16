@@ -160,11 +160,19 @@
     let unsubscribeDeviceRealtime: (() => void) | null = null;
     let unsubConnectionLight: (() => void) | null = null;
     onMount(() => {
+        console.log('[AdminDeviceDetail] onMount started for device:', device.id);
+        console.log('[AdminDeviceDetail] Initial device state:', {
+            id: device.id,
+            connected: device.connected,
+            connectedAt: device.connectedAt,
+            disconnectedAt: device.disconnectedAt
+        });
+        
         try {
-            console.debug('[DeviceDetail] Connecting SSE to /api/sse ...');
+            console.debug('[AdminDeviceDetail] Connecting SSE to /api/sse ...');
             sseStore.connect(`/api/sse`, { withCredentials: true });
         } catch (e) {
-            console.warn('SSE connect failed (may already be connected):', e);
+            console.warn('[AdminDeviceDetail] SSE connect failed (may already be connected):', e);
         }
         let lastSubscribedConnectionId: string | null = null;
         sseStore.on('connected', (msg: any) => {

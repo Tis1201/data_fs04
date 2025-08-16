@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { superValidate } from 'sveltekit-superforms/server';
+import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
@@ -8,6 +8,7 @@ import { SystemRole } from '$lib/types/roles';
 import { deviceEditSchema } from '../schema';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -91,59 +92,88 @@ export const actions: Actions = {
             }
 
             try {
-                // Start a transaction to ensure data consistency
-                return await locals.prisma.$transaction(async (tx) => {
-                    // First check if device exists and user has access to it
-                    const existingDevice = await tx.device.findUnique({
-                        where: { 
-                            id,
-                            OR: [
-                                { createdBy: locals.user?.id },
-                                { accountId: locals.user?.currentAccountId }
-                            ]
-                        }
-                    });
+                // Debug logging to understand the access check
+                logger.debug(`User access check - userId: ${locals.user?.id}, currentAccountId: ${locals.user?.currentAccountId}`);
+                
+                // First check if device exists and user has access to it
+                const existingDevice = await locals.prisma.device.findUnique({
+                    where: { 
+                        id,
+                        OR: [
+                            { createdBy: locals.user?.id },
+                            { accountId: locals.user?.currentAccountId }
+                        ]
+                    }
+                });
 
-                    if (!existingDevice) {
+                logger.debug(`Device lookup result: ${existingDevice ? 'found' : 'not found'}`);
+
+                if (!existingDevice) {
+                    // Try to find the device by ID first to see if it exists
+                    const deviceById = await locals.prisma.device.findUnique({
+                        where: { id }
+                    });
+                    
+                    if (!deviceById) {
                         return fail(404, {
                             form,
-                            error: 'Device not found or you don\'t have access to it'
+                            error: 'Device not found'
                         });
                     }
-
-                    // Prepare update data - only name and description are editable by users
-                    const updateData = {
-                        name: form.data.name,
-                        description: form.data.description,
-                        // Regular users can't change status
-                    };
-
-                    // Update the device
-                    const device = await tx.device.update({
-                        where: { id },
-                        data: updateData
+                    
+                    // Device exists but user doesn't have access
+                    logger.warn(`User ${locals.user?.id} attempted to access device ${id} but lacks permission`);
+                    return fail(403, {
+                        form,
+                        error: 'You don\'t have access to this device'
                     });
-
-                    await logAudit({
-                        actionType: AuditActionType.UPDATE,
-                        tableName: 'Device',
-                        recordId: id,
-                        oldData: existingDevice,
-                        newData: device,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
-                        prisma: tx
-                    })
-
-                    // Redirect back to the device detail page after successful update
-                    throw redirect(303, `/user/iot/devices/${id}`);
-                });
-            } catch (e) {
-                if (e instanceof Response) {
-                    throw e; // This is the redirect
                 }
-                
-                logger.error(`Error updating device: ${JSON.stringify(e)}`);
+
+                // Prepare update data - only name and description are editable by users
+                const updateData = {
+                    name: form.data.name,
+                    description: form.data.description || null,
+                    // Regular users can't change status
+                };
+
+                logger.debug(`Update data prepared:`, updateData);
+
+                // Update the device
+                logger.debug(`Attempting to update device ${id}...`);
+                const device = await locals.prisma.device.update({
+                    where: { id },
+                    data: updateData
+                });
+                logger.debug(`Device update successful:`, device);
+
+                logger.debug(`Starting audit log...`);
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: existingDevice,
+                    newData: device,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+                logger.debug(`Audit log completed`);
+
+                // Return success response
+                logger.debug(`Device update completed successfully`);
+                return message(
+                    form,
+                    createSuccessResponse('Device updated successfully!', {
+                        details: `Device '${device.name}' has been updated.`,
+                        data: {
+                            id: device.id,
+                            name: device.name
+                        }
+                    })
+                );
+            } catch (e) {
+                logger.debug(`Caught error in device update:`, e);
+                logger.error(`Error updating device:`, e);
                 return fail(500, {
                     form,
                     error: 'Failed to update device'

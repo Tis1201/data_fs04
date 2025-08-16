@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { superValidate } from 'sveltekit-superforms/server';
+import { superValidate, message } from 'sveltekit-superforms/server';
 import { deviceEditSchema } from '../schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
@@ -8,6 +8,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
     async ({ params, locals }) => {
@@ -84,52 +85,55 @@ export const actions: Actions = {
             }
 
             try {
-                // Start a transaction to ensure data consistency
-                return await locals.prisma.$transaction(async (tx) => {
-                    // First check if device exists
-                    const existingDevice = await tx.device.findUnique({
-                        where: { id }
-                    });
-
-                    if (!existingDevice) {
-                        return fail(404, {
-                            form,
-                            error: 'Device not found'
-                        });
-                    }
-
-                    // Prepare update data - only name, status, and description are editable
-                    const updateData = {
-                        name: form.data.name,
-                        description: form.data.description || null,
-                        status: form.data.status,
-                    };
-
-                    // Update device
-                    const updatedDevice = await tx.device.update({
-                        where: { id },
-                        data: updateData
-                    });
-
-                    await logAudit({
-                        actionType: AuditActionType.UPDATE,
-                        tableName: 'Device',
-                        recordId: id,
-                        oldData: existingDevice,
-                        newData: updatedDevice,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
-                        prisma: tx
-                    })
-
-                    // Redirect back to the device detail page after successful update
-                    throw redirect(303, `/admin/iot/devices/${id}`);
+                // First check if device exists
+                const existingDevice = await locals.prisma.device.findUnique({
+                    where: { id }
                 });
-            } catch (e) {
-                if (e instanceof Response) {
-                    throw e; // This is the redirect
+
+                if (!existingDevice) {
+                    return fail(404, {
+                        form,
+                        error: 'Device not found'
+                    });
                 }
-                
+
+                // Prepare update data - only name, status, and description are editable
+                const updateData = {
+                    name: form.data.name,
+                    description: form.data.description || null,
+                    status: form.data.status,
+                };
+
+                // Update device
+                const updatedDevice = await locals.prisma.device.update({
+                    where: { id },
+                    data: updateData
+                });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: existingDevice,
+                    newData: updatedDevice,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                })
+
+                // Return success response
+                logger.debug(`Device update completed successfully`);
+                return message(
+                    form,
+                    createSuccessResponse('Device updated successfully!', {
+                        details: `Device '${updatedDevice.name}' has been updated.`,
+                        data: {
+                            id: updatedDevice.id,
+                            name: updatedDevice.name
+                        }
+                    })
+                );
+            } catch (e) {
                 logger.error('Error updating device:', e);
                 return fail(500, {
                     form,

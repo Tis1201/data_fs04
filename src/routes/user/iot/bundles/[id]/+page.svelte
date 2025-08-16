@@ -54,11 +54,11 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
 
     // Local Components
-    import AppSelector from "./components/app_select/AppSelector.svelte";
-    import BundleAppsComponent from "./components/bundle_apps/BundleAppsComponent.svelte";
-    import BundleDeviceComponent from "./components/bundle_device/BundleDeviceComponent.svelte";
-    import WaveComponent from "./components/waves/WaveComponent.svelte";
-    import BundleDeviceProgressComponent from "./components/bundle_device_progress/BundleDeviceProgressComponent.svelte";
+    import AppSelector from "$lib/components/ui_components_sveltekit/bundles/app_select/AppSelector.svelte";
+    import BundleAppsComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_apps/BundleAppsComponent.svelte";
+    import BundleDeviceComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device/BundleDeviceComponent.svelte";
+    import WaveComponent from "$lib/components/ui_components_sveltekit/bundles/waves/WaveComponent.svelte";
+    import BundleDeviceProgressComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device_progress/BundleDeviceProgressComponent.svelte";
     import { sseStore } from '$lib/stores/sse-store';
     import { onMount, onDestroy } from 'svelte';
 
@@ -66,6 +66,8 @@
     // Make bundle reactive to server invalidations
     let bundle = data.bundle;
     $: bundle = data.bundle;
+
+    const dataPage = data
 
     // Selected wave for device progress view
     let selectedWave: any = null;
@@ -212,6 +214,18 @@
     $: appsCount = (bundle?.apps?.length) || 0;
     $: wavesCount = (bundle?.waves?.length) || 0;
     
+    // Device status counts (reactive)
+    let onlineDevicesCount = 0;
+    let offlineDevicesCount = 0;
+    let totalDevicesCount = 0;
+    let deviceStatusVersion = 0; // Version counter to trigger reactive updates
+    $: {
+        deviceStatusVersion; // Reference to trigger recomputation
+        totalDevicesCount = data?.bundleDevices?.length || 0;
+        onlineDevicesCount = data?.bundleDevices?.filter((d: any) => d.device?.connected)?.length || 0;
+        offlineDevicesCount = totalDevicesCount - onlineDevicesCount;
+    }
+    
     let activeTab = "info";
 
     // Live update: listen for device:bundleStatus and update in-memory wave stats
@@ -353,6 +367,21 @@
                 }
                 // Refresh bundle data when wave status changes
                 try { await invalidate('app:bundle'); } catch {}
+            }
+            
+            // Listen for device connection events to update device status counts
+            if (evtType === 'device:connection' || data?.type === 'device:connection') {
+                const c = data as any;
+                if (!c?.payload?.deviceId) return;
+                
+                if (dataPage?.bundleDevices && dataPage.bundleDevices.length > 0) {
+                    const deviceIndex = dataPage.bundleDevices.findIndex((d: any) => d.deviceId === c.payload.deviceId);
+                    if (deviceIndex >= 0) {
+                        dataPage.bundleDevices[deviceIndex].device.connected = !!c.payload.connected;
+                        // Increment version to trigger reactive recomputation of device status counts
+                        deviceStatusVersion = deviceStatusVersion + 1;
+                    }
+                }
             }
         });
     });
@@ -577,6 +606,20 @@
                     <p class="text-xs text-muted-foreground">Waves</p>
                     <p class="text-sm">{wavesCount} wave{wavesCount !== 1 ? 's' : ''}</p>
                 </div>
+
+                <div class="space-y-1">
+                    <p class="text-xs text-muted-foreground">Device Status</p>
+                    <div class="flex items-center gap-2">
+                        {#if totalDevicesCount > 0}
+                            <div class="flex items-center gap-1">
+                                <div class="w-2 h-2 rounded-full {onlineDevicesCount > 0 ? 'bg-green-500' : 'bg-gray-400'}"></div>
+                                <span class="text-sm">{onlineDevicesCount}/{totalDevicesCount} online</span>
+                            </div>
+                        {:else}
+                            <span class="text-sm text-muted-foreground">No devices</span>
+                        {/if}
+                    </div>
+                </div>
             </div>
 
             {#if bundle.description}
@@ -632,7 +675,12 @@
                         <h3 class="text-lg font-medium">Bundle Apps</h3>
                         <p class="text-sm text-muted-foreground">Manage apps included in this bundle</p>
                     </svelte:fragment>
-                    <BundleAppsComponent bundleId={bundle.id} apps={bundle.apps} />
+                    <BundleAppsComponent 
+                        bundleId={bundle.id} 
+                        apps={bundle.apps} 
+                        apiPrefix="/api/user"
+                        resourceLinkPrefix="/user/iot/resources"
+                    />
                 </AdminCard>
                 
                 <!-- Bundle Devices -->
@@ -642,10 +690,34 @@
                         <p class="text-sm text-muted-foreground">Devices targeted by this bundle</p>
                     </svelte:fragment>
                     
+                    <!-- Device Status Summary -->
+                    {#if totalDevicesCount > 0}
+                        <div class="mb-4 p-4 bg-muted/50 rounded-lg">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                        <span class="text-sm font-medium">{onlineDevicesCount} Online</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-3 h-3 rounded-full bg-gray-400"></div>
+                                        <span class="text-sm font-medium">{offlineDevicesCount} Offline</span>
+                                    </div>
+                                </div>
+                                <div class="text-sm text-muted-foreground">
+                                    {totalDevicesCount > 0 ? Math.round((onlineDevicesCount / totalDevicesCount) * 100) : 0}% online
+                                </div>
+                            </div>
+                        </div>
+                    {/if}
+                    
                     <BundleDeviceComponent 
                         bundleId={data.bundle.id}
                         devices={data.bundleDevices || []}
                         loading={false}
+                        apiPrefix="/api/user"
+                        deviceLinkPrefix="/user/iot/devices"
+                        useRealTimeUpdates={true}
                     />
                 </AdminCard>
             </Tabs.Content>
@@ -666,13 +738,24 @@
                         loading={false}
                         selectedWaveId={selectedWave?.id}
                         waves={derivedWaves}
+                        enableStopWaves={false}
                         on:selectWave={(event) => selectedWave = event.detail.wave}
+                        on:wavesStopped={async () => {
+                            // Refresh the page data to get updated wave statuses
+                            try {
+                                await invalidate('app:bundle');
+                            } catch (error) {
+                                console.error('Failed to refresh bundle data:', error);
+                            }
+                        }}
                     />
                     
                     <BundleDeviceProgressComponent
                         bundleId={bundle.id}
                         selectedWave={selectedWave}
                         reloadToken={deviceProgressReloadToken}
+                        apiPrefix="/api/user"
+                        deviceLinkPrefix="/user/iot/devices"
                     />
                 {/if}
             </Tabs.Content>
