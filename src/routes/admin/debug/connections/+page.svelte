@@ -62,7 +62,9 @@
                 on:click={loadStats} 
                 disabled={loading}
             >
-                <RefreshCw class="w-4 h-4 mr-2" class:animate-spin={loading} />
+                <span class="w-4 h-4 mr-2" class:animate-spin={loading}>
+                    <RefreshCw />
+                </span>
                 Refresh
             </Button>
             <Button 
@@ -70,7 +72,9 @@
                 on:click={cleanupConnections} 
                 disabled={cleanupLoading}
             >
-                <Trash2 class="w-4 h-4 mr-2" class:animate-spin={cleanupLoading} />
+                <span class="w-4 h-4 mr-2" class:animate-spin={cleanupLoading}>
+                    <Trash2 />
+                </span>
                 Cleanup Stale
             </Button>
         </div>

@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getRedisService } from '$lib/server/services/redisService';
+import {restrict} from "$lib/server/security/guards";
 import { logger } from '$lib/server/logger';
-import { restrict } from '$lib/server/auth/restrict';
 import { SystemRole } from '$lib/shared/roles';
 
 /**

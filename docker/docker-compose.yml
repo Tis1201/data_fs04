@@ -1,5 +1,6 @@
 # FS04 Web Application Docker Compose Configuration
 version: '3.8'
+name: 'fs04-web'
 services:
   fs04-web-app:
     platform: linux/amd64
@@ -27,6 +28,7 @@ services:
 
 
   nginx:
+    container_name: fs04-web-nginx
     image: nginx:alpine
     restart: unless-stopped
     ports:
