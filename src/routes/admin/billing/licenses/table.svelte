@@ -9,12 +9,14 @@
     import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import { Download, Pencil, Trash, KeyRound } from "lucide-svelte";
+    import { writable } from "svelte/store";
 
     import type { License } from "@prisma/client";
     import { page } from "$app/stores";
     import { goto, invalidate } from "$app/navigation";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
+    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
     // Simple function to refresh data from the server
     async function refreshData() {
@@ -39,7 +41,7 @@
     // Column definitions
     const columns = [
         {
-            id: "licenseId",
+            id: "keyId",
             label: "License",
             sortable: true,
             width: "18%",
@@ -150,9 +152,6 @@
         }
     ];
 
-    // Filters state pulled from URL
-    $: selectedStatus = ($page.url.searchParams.get("status")?.split(',').filter(Boolean)) ?? [];
-
     // State for confirmation dialog
     let state = {
         selectedRecord: null as License | null,
@@ -186,7 +185,17 @@
     onMount(() => {
         if (!browser) return;
         // no-op for now
+        const url = new URL(window.location.href);
+        let needsRedirect = false;
+        
+        if (needsRedirect) {
+            goto(url.toString(), { replaceState: true, noScroll: true });
+        }
     });
+
+    const selectedStatuses = writable<string[]>(
+        $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? []
+    );
 </script>
 
 <div class="space-y-4">
@@ -210,31 +219,25 @@
                     { label: 'Expired', value: 'EXPIRED' },
                     { label: 'Suspended', value: 'SUSPENDED' }
                 ]}
-                selectedValues={selectedStatus}
-                onChange={(values) => {
-                    const url = new URL(window.location.href);
-                    if (values.length) url.searchParams.set('status', values.join(','));
-                    else url.searchParams.delete('status');
-                    url.searchParams.set('page', '1');
-                    goto(url.toString(), { replaceState: true, noScroll: true });
-                }}
+                selectedValues={$selectedStatuses}
+                key="statuses"
             />
         </div>
 
-        <DataTable {columns} props={props} />
+        <DataTable 
+            {columns} 
+            props={props}
+            on:sort={handleTableSort}
+            on:pagination={handleTablePagination} />
 
         <!-- Delete Confirmation Dialog -->
         <RecordDeleteDialog
-            state={{
-                selectedRecord: state.selectedRecord,
-                confirmationOpen: state.confirmationOpen
-            }}
-            onConfirm={handleDeleteConfirm}
+            {state}
+            onConfirm={() => {}}
             title="Delete License"
             getDescription={(license) => `Are you sure you want to delete this license? This action cannot be undone.`}
             actionName="delete"
             action="?/delete"
-            useFormSubmission={false}
         />
     {/if}
 </div>
