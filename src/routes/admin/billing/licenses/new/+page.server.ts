@@ -10,9 +10,10 @@ import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import jwt from 'jsonwebtoken';
 
 export const load = restrict(
-    async (event) => {
+    async (event: any) => {
         const { locals, url } = event;
         try {
             // Get the selected account ID from URL query parameter if available
@@ -54,7 +55,7 @@ export const load = restrict(
                 orderBy: { name: 'asc' }
             });
 
-            const accountOptions = accounts.map((a) => ({ value: a.id, label: a.name }));
+            const accountOptions = accounts.map((a: any) => ({ value: a.id, label: a.name }));
             
             // Load devices for the selected account if an account is selected
             let deviceOptions: { value: string; label: string }[] = [];
@@ -65,19 +66,29 @@ export const load = restrict(
                         accountId: selectedAccountId,
                         status: 'ACTIVE'
                     },
+                    include: {
+                        factoryTokens: {
+                            where: { isUsed: false }
+                        }
+                    },
                     select: { 
                         id: true, 
                         name: true,
                         hardwareId: true,
-                        deviceType: true
+                        deviceType: true,
+                        factoryTokens: {
+                            select: { id: true, name: true, hardwareModel: true }
+                        }
                     },
                     orderBy: { name: 'asc' }
                 });
                 
-                deviceOptions = devices.map((d) => ({
-                    value: d.id,
-                    label: `${d.name}${d.hardwareId ? ` (${d.hardwareId})` : ''}${d.deviceType ? ` - ${d.deviceType}` : ''}`
-                }));
+                deviceOptions = devices
+                    .filter((d: any) => d.factoryTokens.length > 0)  // Only show devices with factory tokens
+                    .map((d: any) => ({
+                        value: d.id,
+                        label: `${d.name}${d.hardwareId ? ` (${d.hardwareId})` : ''}${d.deviceType ? ` - ${d.deviceType}` : ''} [${d.factoryTokens.length} token(s)]`
+                    }));
             }
 
             return { form, accountOptions, deviceOptions, signingKeys };
@@ -91,11 +102,10 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async (event) => {
+        async (event: any) => {
             const { request, locals, auth } = event;
             // Move form declaration outside try-catch to make it available in the catch block
-            // Use JSON data type for superForm to handle complex data types
-            const form = await superValidate(request, zod(licenseSchema), { dataType: 'json' });
+            const form = await superValidate(request, zod(licenseSchema));
             
             try {
                 if (!form.valid) {
@@ -151,6 +161,7 @@ export const actions: Actions = {
                 // Get the primary signing key if not already set
                 let keyId = form.data.keyId;
                 let algorithm = form.data.algorithm || 'RS256';
+                let jwtToken = `server_generated_jwt_${Date.now()}_${keyId}_${algorithm}`;
                 
                 if (!keyId) {
                     // Find the primary signing key
@@ -206,9 +217,58 @@ export const actions: Actions = {
                     alg: algorithm
                 };
                 
-                // In a real implementation, this would be signed with the proper key
-                const jwt = `server_generated_jwt_${Date.now()}_${keyId}_${algorithm}`;
-                logger.debug(`Generated placeholder JWT for testing purposes`);
+                // Check if device has factory token and use it for signing
+                if (deviceId) {
+                    const device = await locals.prisma.device.findUnique({
+                        where: { id: deviceId },
+                        include: {
+                            factoryTokens: {
+                                where: { isUsed: false },
+                                include: { factory_signing_key: true }
+                            }
+                        }
+                    });
+                    
+                    if (device?.factoryTokens?.length > 0) {
+                        // Use factory token's signing key
+                        const factoryToken = device.factoryTokens[0];
+                        const signingKey = factoryToken.factory_signing_key;
+                        
+                        try {
+                            // Generate real JWT using factory token's signing key
+                            const realJwt = jwt.sign(
+                                payload,
+                                signingKey.privateKey,
+                                {
+                                    algorithm: 'RS256',
+                                    keyid: signingKey.keyId,
+                                    expiresIn: Math.floor((expiresAtDate.getTime() - Date.now()) / 1000)
+                                }
+                            );
+                            
+                            // Update variables to use factory token data
+                            jwtToken = realJwt;
+                            keyId = signingKey.keyId;
+                            algorithm = 'RS256';
+                            
+                            logger.debug(`Generated real JWT using factory token signing key: ${signingKey.keyId}`);
+                        } catch (signError) {
+                            logger.error(`Error signing JWT with factory token key: ${signError}`);
+                            return message(form, createErrorResponse('JWT signing failed', {
+                                details: 'Failed to sign license with factory token. Please check the signing key configuration.'
+                            }));
+                        }
+                    } else {
+                        logger.warn(`Device ${deviceId} has no available factory tokens, using system signing key`);
+                    }
+                }
+                
+                // If no factory token was used, fall back to placeholder JWT
+                if (jwtToken.startsWith('server_generated_jwt_')) {
+                    // In a real implementation, this would be signed with the proper key
+                    jwtToken = `server_generated_jwt_${Date.now()}_${keyId}_${algorithm}`;
+                    logger.debug(`Generated placeholder JWT for testing purposes`);
+                }
 
                 // Create the license
                 const license = await locals.prisma.license.create({
@@ -221,7 +281,7 @@ export const actions: Actions = {
                         description: form.data.description || null,
                         keyId,
                         algorithm,
-                        jwt,
+                        jwt: jwtToken,
                         createdBy: auth.user.id,
                         updatedBy: auth.user.id
                     }
