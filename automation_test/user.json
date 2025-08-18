@@ -1,26 +1,5 @@
 {
-  "cookies": [
-    {
-      "name": "current_account_id",
-      "value": "cmdkc71uu000nuafe7wlugxmq",
-      "domain": "localhost",
-      "path": "/",
-      "expires": 1756643584.259318,
-      "httpOnly": true,
-      "secure": false,
-      "sameSite": "Lax"
-    },
-    {
-      "name": "auth_session",
-      "value": "wszmgnqg33trlvr6gc6mpd6kwnbszdc6diasbhhc",
-      "domain": "localhost",
-      "path": "/",
-      "expires": 1757511164.543315,
-      "httpOnly": true,
-      "secure": false,
-      "sameSite": "Lax"
-    }
-  ],
+  "cookies": [],
   "origins": [
     {
       "origin": "http://localhost:5173",
