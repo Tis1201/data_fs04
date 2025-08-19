@@ -90,7 +90,7 @@
           compact={true}
         >
           <div class="space-y-6">
-            <FormRow columns={1}>
+            <FormRow columns={2}>
               <FormField id="name" label="Token Name" error={$errors.name}>
                 <Input
                   id="name"
@@ -104,6 +104,17 @@
                 <p class="text-xs text-muted-foreground mt-1">
                   A friendly name to help identify this token
                 </p>
+              </FormField>
+              <FormField id="batchNumber" label="Batch Number" error={$errors.batchNumber}>
+                <Input
+                  id="batchNumber"
+                  name="batchNumber"
+                  type="text"
+                  bind:value={$form.batchNumber}
+                  placeholder="Enter batch number (optional)"
+                  aria-invalid={$errors.batchNumber ? 'true' : undefined}
+                  disabled={$submitting}
+                />
               </FormField>
             </FormRow>
             
@@ -134,18 +145,6 @@
             </FormRow>
             
             <FormRow columns={2}>
-              <FormField id="batchNumber" label="Batch Number" error={$errors.batchNumber}>
-                <Input
-                  id="batchNumber"
-                  name="batchNumber"
-                  type="text"
-                  bind:value={$form.batchNumber}
-                  placeholder="Enter batch number (optional)"
-                  aria-invalid={$errors.batchNumber ? 'true' : undefined}
-                  disabled={$submitting}
-                />
-              </FormField>
-              
               <FormField id="factory_signing_key_id" label="Signing Key" error={$errors.factory_signing_key_id} required={true}>
                 <select
                   id="factory_signing_key_id"
@@ -166,6 +165,24 @@
                 <p class="text-xs text-muted-foreground mt-1">
                   The signing key used to issue this token
                 </p>
+              </FormField>
+              <FormField id="deviceId" label="Device" error={$errors.deviceId} required={true}>
+                <select
+                  id="deviceId"
+                  name="deviceId"
+                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  bind:value={$form.deviceId}
+                  aria-invalid={$errors.deviceId ? 'true' : undefined}
+                  disabled={$submitting}
+                >
+                  {#if data.devices.length === 0}
+                    <option value="" disabled>No devices available</option>
+                  {:else}
+                    {#each data.devices as key}
+                      <option value={key.id}>{key.name}</option>
+                    {/each}
+                  {/if}
+                </select>
               </FormField>
             </FormRow>
           </div>

@@ -77,7 +77,7 @@
   ];
   
   // Device options state
-  let deviceOptions = data.deviceOptions || [];
+  let deviceOptions = [];
   
   // Handle account change to update device options
   async function handleAccountChange(accountId: string) {
@@ -89,7 +89,7 @@
     
     try {
       // Fetch devices for the selected account
-      const response = await fetch(`/admin/billing/licenses/new?accountId=${accountId}`);
+      const response = await fetch(`/api/licenses/devices?accountId=${accountId}`);
       if (response.ok) {
         const result = await response.json();
         deviceOptions = result.deviceOptions || [];
@@ -106,9 +106,9 @@
   }
   
   // Watch for account changes
-  $: if ($form.accountId) {
-    handleAccountChange($form.accountId);
-  }
+//   $: if ($form.accountId) {
+//     handleAccountChange($form.accountId);
+//   }
 </script>
 
 <AdminPageLayout
@@ -230,7 +230,22 @@
           <div class="space-y-6">
             <FormRow columns={2}>
               <FormField id="accountId" label="Account" error={$errors.accountId}>
-                <EnhancedSelect
+                <select
+                  id="accountId"
+                  name="accountId"
+                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  bind:value={$form.accountId}
+                  aria-invalid={$errors.accountId ? 'true' : undefined}
+                  placeholder="Select account (optional - defaults to system account)"
+                  disabled={$submitting}
+                  on:change={(e) => handleAccountChange(e.target.value)}
+                >
+                  <option value=''>System Account (Default)</option>
+                  {#each data.accountOptions as key}
+                      <option value={key.value}>{key.label}</option>
+                  {/each}
+                </select>
+                <!-- <EnhancedSelect
                   id="accountId"
                   name="accountId"
                   bind:value={$form.accountId}
@@ -238,26 +253,39 @@
                   aria-invalid={$errors.accountId ? 'true' : undefined}
                   options={[{ value: '', label: 'System Account (Default)' }, ...data.accountOptions]}
                   disabled={$submitting}
-                />
+                /> -->
                 <p class="text-xs text-muted-foreground mt-1">
                   Select the account for this license
                 </p>
               </FormField>
               
-              <FormField id="deviceId" label="Device ID" error={$errors.deviceId}>
-              <EnhancedSelect
-                id="deviceId"
-                name="deviceId"
-                bind:value={$form.deviceId}
-                placeholder="Select a device (optional)"
-                aria-invalid={$errors.deviceId ? 'true' : undefined}
-                options={deviceOptions}
-                disabled={$submitting || !$form.accountId}
-                searchable={true}
-              />
-              <p class="text-xs text-muted-foreground mt-1">
-                Optional: bind license to a specific device (requires account selection)
-              </p>
+              <FormField id="deviceId" label="Device" error={$errors.deviceId}>
+                <!-- <EnhancedSelect
+                    id="deviceId"
+                    name="deviceId"
+                    bind:value={$form.deviceId}
+                    placeholder="Select a device (optional)"
+                    aria-invalid={$errors.deviceId ? 'true' : undefined}
+                    options={deviceOptions}
+                    disabled={$submitting || !$form.accountId}
+                    searchable={true}
+                /> -->
+                <select
+                  id="deviceId"
+                  name="deviceId"
+                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  bind:value={$form.deviceId}
+                  aria-invalid={$errors.deviceId ? 'true' : undefined}
+                  placeholder="Select a device"
+                  disabled={$submitting}
+                >
+                  {#each deviceOptions as key}
+                      <option value={key.value}>{key.label}</option>
+                  {/each}
+                </select>
+                <p class="text-xs text-muted-foreground mt-1">
+                    Optional: bind license to a specific device (requires account selection)
+                </p>
             </FormField>
           </FormRow>
 

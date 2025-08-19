@@ -16,37 +16,9 @@ export const load = restrict(
     async (event: any) => {
         const { locals, url } = event;
         try {
-            // Get the selected account ID from URL query parameter if available
-            const selectedAccountId = url.searchParams.get('accountId') || '';
             
             // Initialize form with defaults
             const form = await superValidate(zod(licenseSchema), { id: 'license-form' });
-            
-            // Set default values
-            form.data.accountId = selectedAccountId || '';
-            form.data.algorithm = 'RS256'; // Set default algorithm
-            
-            // Get signing keys to set default keyId
-            const signingKeys = await locals.prisma.jwtSigningKey.findMany({
-                where: {
-                    keyType: 'LICENSE',
-                    isActive: true
-                },
-                select: {
-                    id: true,
-                    keyId: true,
-                    isPrimary: true
-                },
-                orderBy: [
-                    { isPrimary: 'desc' },
-                    { createdAt: 'desc' }
-                ]
-            });
-            
-            // Set default keyId if available
-            if (signingKeys.length > 0) {
-                form.data.keyId = signingKeys[0].keyId;
-            }
 
             // Load accounts for dropdown
             const accounts = await locals.prisma.account.findMany({
@@ -56,42 +28,8 @@ export const load = restrict(
             });
 
             const accountOptions = accounts.map((a: any) => ({ value: a.id, label: a.name }));
-            
-            // Load devices for the selected account if an account is selected
-            let deviceOptions: { value: string; label: string }[] = [];
-            
-            if (selectedAccountId) {
-                const devices = await locals.prisma.device.findMany({
-                    where: { 
-                        accountId: selectedAccountId,
-                        status: 'ACTIVE'
-                    },
-                    include: {
-                        factoryTokens: {
-                            where: { isUsed: false }
-                        }
-                    },
-                    select: { 
-                        id: true, 
-                        name: true,
-                        hardwareId: true,
-                        deviceType: true,
-                        factoryTokens: {
-                            select: { id: true, name: true, hardwareModel: true }
-                        }
-                    },
-                    orderBy: { name: 'asc' }
-                });
-                
-                deviceOptions = devices
-                    .filter((d: any) => d.factoryTokens.length > 0)  // Only show devices with factory tokens
-                    .map((d: any) => ({
-                        value: d.id,
-                        label: `${d.name}${d.hardwareId ? ` (${d.hardwareId})` : ''}${d.deviceType ? ` - ${d.deviceType}` : ''} [${d.factoryTokens.length} token(s)]`
-                    }));
-            }
 
-            return { form, accountOptions, deviceOptions, signingKeys };
+            return { form, accountOptions };
         } catch (err) {
             logger.error(`Error loading add license form: ${String(err)}`);
             throw error(500, 'Failed to load license form');
@@ -106,13 +44,12 @@ export const actions: Actions = {
             const { request, locals, auth } = event;
             // Move form declaration outside try-catch to make it available in the catch block
             const form = await superValidate(request, zod(licenseSchema));
+            if (!form.valid) {
+                logger.debug(`License form validation failed: ${JSON.stringify(form.errors)}`);
+                return fail(400, { form });
+            }
             
             try {
-                if (!form.valid) {
-                    logger.debug(`License form validation failed: ${JSON.stringify(form.errors)}`);
-                    return fail(400, { form });
-                }
-
                 let accountId = form.data.accountId || '';
 
                 // Resolve account (specific or system)
@@ -155,70 +92,17 @@ export const actions: Actions = {
                     );
                 }
 
-                const deviceId = form.data.deviceId && form.data.deviceId.trim() !== '' ? form.data.deviceId.trim() : null;
-                
-                // Always generate JWT server-side
-                // Get the primary signing key if not already set
-                let keyId = form.data.keyId;
-                let algorithm = form.data.algorithm || 'RS256';
-                let jwtToken = `server_generated_jwt_${Date.now()}_${keyId}_${algorithm}`;
-                
-                if (!keyId) {
-                    // Find the primary signing key
-                    const primaryKey = await locals.prisma.jwtSigningKey.findFirst({
-                        where: {
-                            keyType: 'LICENSE',
-                            isActive: true,
-                            isPrimary: true
-                        },
-                        select: {
-                            keyId: true
-                        }
-                    });
-                    
-                    if (primaryKey) {
-                        keyId = primaryKey.keyId;
-                        logger.debug(`Using primary signing key: ${keyId}`);
-                    } else {
-                        // Fallback to any active key
-                        const anyKey = await locals.prisma.jwtSigningKey.findFirst({
-                            where: {
-                                keyType: 'LICENSE',
-                                isActive: true
-                            },
-                            select: {
-                                keyId: true
-                            }
-                        });
-                        
-                        if (anyKey) {
-                            keyId = anyKey.keyId;
-                            logger.debug(`Using fallback signing key: ${keyId}`);
-                        } else {
-                            keyId = 'default_key';
-                            logger.warn('No active signing keys found, using default key');
-                        }
-                    }
-                }
-                
-                // Generate JWT
-                logger.debug(`Generating server-side JWT for license with keyId: ${keyId}`);
-                
-                // Create JWT payload
+
+                const deviceId = form.data.deviceId.trim();
                 const expiresAtDate = new Date(form.data.expiresAt);
-                
-                const payload = {
-                    iss: 'fs04_system',
-                    iat: Math.floor(Date.now() / 1000),
-                    exp: Math.floor(expiresAtDate.getTime() / 1000),
-                    sub: deviceId || 'any_device',
-                    accountId: accountId,
-                    kid: keyId,
-                    alg: algorithm
-                };
-                
-                // Check if device has factory token and use it for signing
-                if (deviceId) {
+                console.log(form.data.expiresAt)
+                console.log({expiresAtDate})
+                console.log(new Date())
+                let jwtToken;
+                let signingKey;
+                let factoryToken;
+
+                try {
                     const device = await locals.prisma.device.findUnique({
                         where: { id: deviceId },
                         include: {
@@ -228,64 +112,91 @@ export const actions: Actions = {
                             }
                         }
                     });
-                    
-                    if (device?.factoryTokens?.length > 0) {
-                        // Use factory token's signing key
-                        const factoryToken = device.factoryTokens[0];
-                        const signingKey = factoryToken.factory_signing_key;
-                        
-                        try {
-                            // Generate real JWT using factory token's signing key
-                            const realJwt = jwt.sign(
-                                payload,
-                                signingKey.privateKey,
-                                {
-                                    algorithm: 'RS256',
-                                    keyid: signingKey.keyId,
-                                    expiresIn: Math.floor((expiresAtDate.getTime() - Date.now()) / 1000)
-                                }
-                            );
-                            
-                            // Update variables to use factory token data
-                            jwtToken = realJwt;
-                            keyId = signingKey.keyId;
-                            algorithm = 'RS256';
-                            
-                            logger.debug(`Generated real JWT using factory token signing key: ${signingKey.keyId}`);
-                        } catch (signError) {
-                            logger.error(`Error signing JWT with factory token key: ${signError}`);
-                            return message(form, createErrorResponse('JWT signing failed', {
-                                details: 'Failed to sign license with factory token. Please check the signing key configuration.'
-                            }));
-                        }
-                    } else {
-                        logger.warn(`Device ${deviceId} has no available factory tokens, using system signing key`);
+
+                    if (!device) {
+                        return message(
+                            form,
+                            createErrorResponse('Invalid device', {
+                                details: `The selected device with ID '${deviceId}' does not exist.`
+                            })
+                        );
                     }
-                }
-                
-                // If no factory token was used, fall back to placeholder JWT
-                if (jwtToken.startsWith('server_generated_jwt_')) {
-                    // In a real implementation, this would be signed with the proper key
-                    jwtToken = `server_generated_jwt_${Date.now()}_${keyId}_${algorithm}`;
-                    logger.debug(`Generated placeholder JWT for testing purposes`);
+
+                    if (!device.factoryTokens.length) {
+                        return message(
+                            form,
+                            createErrorResponse('Missing factory token', {
+                                details: `The selected device with ID '${deviceId}' does not have unsued factory token.`
+                            })
+                        );
+                    }
+
+                    // Use factory token's signing key
+                    factoryToken = device.factoryTokens[0];
+                    signingKey = factoryToken.factory_signing_key;
+                    
+                    try {
+                        // Generate real JWT using factory token's signing key
+                        const payload = {
+                            iss: 'fs04_system',
+                            iat: Math.floor(Date.now() / 1000),
+                            exp: Math.floor(expiresAtDate.getTime() / 1000),
+                            sub: deviceId,
+                            accountId
+                        };
+                        jwtToken = jwt.sign(
+                            payload,
+                            signingKey.privateKey,
+                            {
+                                algorithm: signingKey.algorithm,
+                                keyid: signingKey.keyId,
+                            }
+                        );
+                        
+                        logger.debug(`Generated JWT using factory token signing key: ${signingKey.keyId}`);
+                    } catch (signError) {
+                        logger.error(`Error signing JWT with factory token key: ${signError}`);
+                        return message(form, createErrorResponse('JWT signing failed', {
+                            details: 'Failed to sign license with factory token. Please check the signing key configuration.'
+                        }));
+                    }
+                } catch (deviceErr) {
+                    logger.error(`Error verifying device: ${String(deviceErr)}`);
+                    return message(
+                        form,
+                        createErrorResponse('Error verifying device', {
+                            details: 'Failed to verify the selected device. Please try again.'
+                        })
+                    );
                 }
 
-                // Create the license
-                const license = await locals.prisma.license.create({
-                    data: {
-                        accountId,
-                        deviceId: deviceId || null,
-                        // Convert expiresAt to Date object for database storage
-                        expiresAt: new Date(form.data.expiresAt),
-                        // Add description field
-                        description: form.data.description || null,
-                        keyId,
-                        algorithm,
-                        jwt: jwtToken,
-                        createdBy: auth.user.id,
-                        updatedBy: auth.user.id
-                    }
-                });
+                // Create the license and mark factory token as used
+                const result = await locals.prisma.$transaction(async (tx) => {
+                    const license = await tx.license.create({
+                        data: {
+                            accountId,
+                            deviceId: deviceId,
+                            // Convert expiresAt to Date object for database storage
+                            expiresAt: expiresAtDate,
+                            // Add description field
+                            description: form.data.description || null,
+                            keyId: signingKey.keyId,
+                            algorithm: signingKey.algorithm,
+                            jwt: jwtToken,
+                            createdBy: auth.user.id,
+                            updatedBy: auth.user.id
+                        }
+                    });
+
+                    await tx.factoryToken.update({
+                        where: { id: factoryToken.id },
+                        data: { isUsed: true, usedAt: new Date() }
+                    })
+
+                    return { license };
+                })
+
+                const { license } = result;
                 
                 // Get device name for the message if a device was selected
                 let deviceName = '';
