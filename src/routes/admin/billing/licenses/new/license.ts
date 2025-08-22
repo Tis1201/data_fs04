@@ -1,16 +1,8 @@
 import { z } from 'zod';
 
 export const licenseSchema = z.object({
-    accountId: z
-        .string()
-        .optional()
-        .nullable()
-        .transform((v) => (v === 'undefined' || v == null ? '' : v)),
-    deviceId: z
-        .string()
-        .optional()
-        .nullable()
-        .transform((v) => (v === 'undefined' || v == null ? '' : v)),
+    accountId: z.string().min(1, { message: 'Account is required' }),
+    deviceId: z.string().min(1, { message: 'Device is required' }),
     // Accept date input and handle it properly
     expiresAt: z.preprocess(
         // Convert any input to string first to handle both Date objects and strings
@@ -24,13 +16,6 @@ export const licenseSchema = z.object({
         .optional()
         .nullable()
         .transform((v) => (v === 'undefined' || v == null ? '' : v)),
-    keyId: z.string().optional().default(''),
-    algorithm: z.enum(['RS256', 'HS256']).optional().default('RS256'),
-    jwt: z
-        .string()
-        .optional()
-        .nullable()
-        .transform((v) => (v === 'undefined' || v == null || v === '' ? null : v))
 });
 
 export type LicenseForm = z.infer<typeof licenseSchema>;

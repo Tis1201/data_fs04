@@ -8,6 +8,7 @@ export const factoryTokenSchema = z.object({
     expiresAt: z.coerce.date(),
     notes: z.string().optional(),
     factory_signing_key_id: z.string().min(1, { message: 'Signing key is required' }),
+    deviceId: z.string().min(1, { message: 'Device is required' }),
 });
 
 export type FactoryTokenFormData = z.infer<typeof factoryTokenSchema>;
