@@ -34,6 +34,7 @@
                 label="Add Token"
                 icon={Plus}
                 onClick={() => goto('/admin/iot/factory_tokens/new')}
+                disabled={records.length > 0}
             />
         </svelte:fragment>
     </PageHeader>
