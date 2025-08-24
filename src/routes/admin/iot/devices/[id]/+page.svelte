@@ -51,6 +51,7 @@
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
     let device = (data as any).device;
+    let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
@@ -58,30 +59,11 @@
     let pendingFirmwareTempId: string | null = null;
     const title = device.name || "Device Details";
 
-    // Helpers
-    const formatDeviceStatus = (s: string | null | undefined) => (s ? s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '—');
-
-    // UX-friendly labels for action types and statuses
-    const ACTION_LABELS: Record<string, string> = {
-        firmware_update: 'Firmware update',
-        screenshot: 'Screenshot',
-        snapshot: 'Snapshot',
-        restart: 'Restart',
-        remote_desktop: 'Remote desktop',
-        terminal: 'Terminal',
-        install: 'Install',
-        ping: 'Ping',
-        status_check: 'Status check',
-        config_update: 'Configuration update'
-    };
-
-    const STATUS_LABELS: Record<string, string> = {
-        initiated: 'Initiated',
-        in_progress: 'In progress',
-        success: 'Completed',
-        failed: 'Failed',
-        cancelled: 'Cancelled',
-        timeout: 'Timed out'
+    const LICENSE_STATUS_LABELS: Record<string, string> = {
+        ACTIVE: 'Active',
+        REVOKED: 'Revoked',
+        EXPIRED: 'Expired',
+        SUSPENDED: 'Suspended'
     };
 
     function toTitleCaseFromSnake(input: string): string {
@@ -90,12 +72,17 @@
             .replace(/\b\w/g, (c) => c.toUpperCase());
     }
 
-    function getActionLabel(actionType: string): string {
-        return ACTION_LABELS[actionType] ?? toTitleCaseFromSnake(actionType);
+    function getLicenseStatusLabel(status: string): string {
+        return LICENSE_STATUS_LABELS[status] ?? status;
     }
 
-    function getStatusLabel(status: string): string {
-        return STATUS_LABELS[status] ?? toTitleCaseFromSnake(status);
+    export function getLicenseStatusBadgeVariant(status: string): 'success' | 'destructive' | 'secondary' | 'outline' {
+        const s = (status || '').toLowerCase();
+        if (s === 'active') return 'success';
+        if (s === 'revoked') return 'destructive';
+        if (s === 'expired') return 'secondary';
+        if (s === 'suspended') return 'outline';
+        return 'outline';
     }
 
     // Define breadcrumbs for this page
@@ -884,6 +871,50 @@
             <TechnicalDetailsContent {device} />
         </AdminCard>
     </div>
+
+    <!-- Device License -->
+    <AdminCard
+        title="Device Licenses"
+        description="Licenses of this device"
+        icon={FileText}
+        class_name="mt-4"
+        compact={true}
+    >
+        {#if actionLogs && actionLogs.length > 0}
+            <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                <tr class="text-left border-b">
+                    <th class="py-2 pr-4">License ID</th>
+                    <th class="py-2 pr-4">Status</th>
+                    <th class="py-2 pr-4">Issued At</th>
+                    <th class="py-2 pr-4">Expires At</th>
+                    <th class="py-2 pr-4">Key ID</th>
+                    <th class="py-2 pr-4">Algorithm</th>
+                </tr>
+                </thead>
+                <tbody>
+                {#each licenses as license}
+                    <tr class="border-b last:border-b-0">
+                        <td class="py-2 pr-4">{license.id}</td>
+                        <td class="py-2 pr-4">
+                            <Badge variant={getLicenseStatusBadgeVariant(license.status)}>
+                                {getLicenseStatusLabel(license.status)}
+                            </Badge>
+                        </td>
+                        <td class="py-2 pr-4 text-neutral-500">{new Date(license.issuedAt).toLocaleString()}</td>
+                        <td class="py-2 pr-4 text-neutral-500">{new Date(license.expiresAt).toLocaleString()}</td>
+                        <td class="py-2 pr-4">{license.keyId}</td>
+                        <td class="py-2 pr-4">{license.algorithm}</td>
+                    </tr>
+                {/each}
+                </tbody>
+            </table>
+            </div>
+        {:else}
+            <div class="text-sm text-neutral-500">No licenses.</div>
+        {/if}
+    </AdminCard>
 
     <!-- Device Action History -->
     <AdminCard
