@@ -13,6 +13,7 @@
   import EnhancedFileUpload from "$lib/components/ui_components_sveltekit/form/EnhancedFileUpload.svelte";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
+  import { addMonths, format as fmt } from "date-fns";
 
   export let data: PageData;
 
@@ -38,6 +39,13 @@
       }
     }
   });
+
+  // Default expiry to 1 month in the future if not provided
+  // Store format must match the form schema (yyyy-MM-dd)
+  if (!$form?.expiresAt) {
+    const defaultExpiry = addMonths(new Date(), 1);
+    $form.expiresAt = fmt(defaultExpiry, 'yyyy-MM-dd');
+  }
 
   const fileAccept = 
     "text/csv, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel";
@@ -154,7 +162,17 @@
 
           <FormRow columns={1}>
             <FormField id="expiresAt" label="Expiry Date" error={$errors.expiresAt}>
-              <EnhancedDatePicker id="expiresAt" name="expiresAt" form={$form} field="expiresAt" format_string="yyyy-MM-dd" clearable={true} />
+              <EnhancedDatePicker
+                id="expiresAt"
+                name="expiresAt"
+                form={$form}
+                field="expiresAt"
+                format_string="yyyy-MM-dd"
+                clearable={true}
+                showFutureDates={true}
+                timelineOptions="future"
+                defaultTimeline="future"
+              />
             </FormField>
           </FormRow>
 

@@ -12,7 +12,7 @@
     import { page } from "$app/stores";
     import { onMount } from "svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-    import { Badge } from "$lib/components/ui/badge";
+    import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
 
     // Props for DataTable component
     type PreclaimSet = {
@@ -70,11 +70,10 @@
             sortable: true,
             width: "15%",
             render: (record: PreclaimSet) => ({
-                component: Badge,
+                component: StatusBadge,
                 props: {
-                    variant: record.status === 'ACTIVE' ? 'success' : 'secondary',
-                    class: 'capitalize',
-                    children: record.status?.toLowerCase() || 'Unknown'
+                    status: (record.status || '').toString().toLowerCase(),
+                    className: 'capitalize'
                 }
             })
         },

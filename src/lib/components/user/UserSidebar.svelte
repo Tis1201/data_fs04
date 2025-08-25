@@ -32,7 +32,16 @@
 
         Building2,
 
-        MessageCircle
+        MessageCircle,
+
+        ClipboardList,
+
+        ShieldPlus,
+
+        Package2
+
+
+
 
 
 
@@ -77,8 +86,8 @@
             initialExpanded: false,
             subItems: [
                 { href: "/user/iot/devices", label: "Devices", icon: Router },
-                { href: "/user/iot/bundles", label: "Bundles", icon: Router },
-                { href: "/user/iot/preclaims", label: "Preclaims", icon: Router }
+                { href: "/user/iot/bundles", label: "Bundles", icon: Package2 },
+                { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus }
             ]
         },
 
