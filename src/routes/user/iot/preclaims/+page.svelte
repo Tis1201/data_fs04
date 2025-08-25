@@ -34,11 +34,11 @@
 
     // Establish SSE connection once for the list page (DeviceTable will subscribe per-record)
     onMount(() => {
-        try {
-            sseStore.connect(`/api/sse`, { withCredentials: true });
-        } catch (e) {
-            // ignore if already connected
-        }
+        // try {
+        //     sseStore.connect(`/api/sse`, { withCredentials: true });
+        // } catch (e) {
+        //     // ignore if already connected
+        // }
     });
 </script>
 
@@ -48,7 +48,7 @@
             <ActionButton
                 label="Add Preclaim Set"
                 icon={Plus}
-                onClick={() => goto('/user/iot/devices/new')}
+                onClick={() => goto('/user/iot/preclaims/new')}
             />
         </svelte:fragment>
     </PageHeader>
