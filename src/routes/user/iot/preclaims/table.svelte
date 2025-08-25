@@ -9,7 +9,7 @@
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import { ExternalLink } from "lucide-svelte";
     import { goto } from "$app/navigation";
-    import { page } from "$app/stores";
+    import { page } from '$app/stores';
     import { onMount } from "svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
@@ -144,10 +144,10 @@
         <div class="flex flex-col sm:flex-row gap-2">
             <!-- Search filter -->
             <DebouncedTextFilter
-                placeholder="Search sets..."
-                paramName="search"
-            />
-            
+                placeholder="Search by name or description..."
+                value={$page.url.searchParams.get('search') || ''}
+                className="w-full md:w-[250px]"
+            />      
             <!-- Status filter -->
             <PopoverFilter
                 label="Status"
