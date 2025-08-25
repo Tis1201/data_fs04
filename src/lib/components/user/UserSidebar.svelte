@@ -77,7 +77,8 @@
             initialExpanded: false,
             subItems: [
                 { href: "/user/iot/devices", label: "Devices", icon: Router },
-                { href: "/user/iot/bundles", label: "Bundles", icon: Router }
+                { href: "/user/iot/bundles", label: "Bundles", icon: Router },
+                { href: "/user/iot/preclaims", label: "Preclaims", icon: Router }
             ]
         },
 

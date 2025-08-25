@@ -42,6 +42,8 @@ model Account {
   refreshTokens RefreshToken[]
   tokenUsageLogs TokenUsageLog[]
   whatsappAccounts WhatsAppAccount[]
+  preclaimSets  PreclaimSet[]
+  preclaimDevices PreclaimDevice[]
   // Licensing & entitlements
   licenses      License[]
   entitlements  Entitlement[]
@@ -488,7 +490,7 @@ model Device {
   // logs          Log[]?    // Uncomment if you have a Log model
   actionLogs   DeviceActionLog[] @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
-
+  preclaimDevices PreclaimDevice[]
   // Connection status
   connected     Boolean  @default(false)
   connectedAt   DateTime?
@@ -496,6 +498,7 @@ model Device {
 
   // Licensing
   licenses      License[]
+  
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
@@ -1304,4 +1307,85 @@ model Entitlement{
 	@@index([status])
 	@@unique([licenseId, code])
 	@@unique([accountId, code])
+}
+
+// Pre-claim enums
+enum ClaimStatus {
+  PENDING
+  FULFILLED
+  EXPIRED
+  REVOKED
+}
+
+enum SetStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Device pre-claim set uploaded by admin
+model PreclaimSet {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  status      SetStatus  @default(ACTIVE)
+  expiresAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdBy   String
+
+  // Ownership
+  accountId   String
+  account     Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Relations
+  claims      PreclaimDevice[]
+
+  // Authorization rules (RLS)
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']] || createdBy == auth().id)
+
+  // Indexes & constraints
+  @@index([accountId])
+  @@index([status])
+  @@index([expiresAt])
+  @@unique([accountId, name])
+}
+
+// Individual device pre-claim rows within a set
+model PreclaimDevice {
+  id          String       @id @default(cuid())
+  macId       String       // normalized MAC (uppercase, no separators)
+  name        String?
+  description String?
+  status      ClaimStatus  @default(PENDING)
+  expiresAt   DateTime?
+  claimedAt   DateTime?
+  claimedBy   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Ownership
+  accountId   String
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Parent set
+  setId       String
+  set         PreclaimSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  // Linked device when fulfilled
+  deviceId    String?
+  device      Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  // Authorization rules (RLS)
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']] || set.createdBy == auth().id)
+
+  // Indexes & constraints
+  @@unique([setId, macId])
+  @@index([macId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([accountId])
 }

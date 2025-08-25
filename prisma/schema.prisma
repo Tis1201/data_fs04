@@ -12,6 +12,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum ClaimStatus {
+  PENDING
+  FULFILLED
+  EXPIRED
+  REVOKED
+}
+
+enum SetStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model Account {
   id               String              @id() @default(cuid())
   name             String
@@ -34,6 +46,8 @@ model Account {
   refreshTokens    RefreshToken[]
   tokenUsageLogs   TokenUsageLog[]
   whatsappAccounts WhatsAppAccount[]
+  preclaimSets     PreclaimSet[]
+  preclaimDevices  PreclaimDevice[]
   licenses         License[]
   entitlements     Entitlement[]
 
@@ -343,6 +357,7 @@ model Device {
   claimedBy            String?
   actionLogs           DeviceActionLog[]     @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
+  preclaimDevices      PreclaimDevice[]
   connected            Boolean               @default(false)
   connectedAt          DateTime?
   disconnectedAt       DateTime?
@@ -899,4 +914,48 @@ model Entitlement {
   @@index([accountId])
   @@index([licenseId])
   @@index([status])
+}
+
+model PreclaimSet {
+  id          String           @id() @default(cuid())
+  name        String
+  description String?
+  status      SetStatus        @default(ACTIVE)
+  expiresAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt()
+  createdBy   String
+  accountId   String
+  account     Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  claims      PreclaimDevice[]
+
+  @@unique([accountId, name])
+  @@index([accountId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model PreclaimDevice {
+  id          String      @id() @default(cuid())
+  macId       String
+  name        String?
+  description String?
+  status      ClaimStatus @default(PENDING)
+  expiresAt   DateTime?
+  claimedAt   DateTime?
+  claimedBy   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt()
+  accountId   String
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  setId       String
+  set         PreclaimSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  deviceId    String?
+  device      Device?     @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@unique([setId, macId])
+  @@index([macId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([accountId])
 }
