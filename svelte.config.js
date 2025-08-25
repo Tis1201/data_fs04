@@ -17,7 +17,7 @@ const config = {
 		// Disabled for production deployment to avoid issues with WebSockets and API calls
 		// For production environments, consider implementing CSRF protection at the application level
 		// or using a reverse proxy with security headers
-		csrf: false
+		csrf: { checkOrigin: false }
 	},
 	preprocess: vitePreprocess()
 };

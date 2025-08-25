@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { join, dirname } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { uploadToS3, getObjectUrl } from '$lib/server/s3/S3';
+// import { uploadToS3, getObjectUrl } from '$lib/server/s3/S3';
 import { logger } from '$lib/server/logger';
 import { env } from '$env/dynamic/private';
 
@@ -106,10 +106,10 @@ export async function saveFile(file: File): Promise<string> {
             logger.debug(`Saved file locally: ${localPath} (size=${buffer.length})`);
             return `/uploads/iot/${safeFileName}`;
         } else {
-            await uploadToS3(safeFileName, buffer, file.type);
-            const url = getObjectUrl(safeFileName);
-            logger.debug(`Uploaded file to S3: ${url} (size=${buffer.length})`);
-            return url;
+            // await uploadToS3(safeFileName, buffer, file.type);
+            // const url = getObjectUrl(safeFileName);
+            // logger.debug(`Uploaded file to S3: ${url} (size=${buffer.length})`);
+            // return url;
         }
     } catch (err: any) {
         logger.error(`Error saving file: ${String(err)}`);
