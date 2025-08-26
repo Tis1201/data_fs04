@@ -1,4 +1,3 @@
-import { dev } from '$app/environment';
 import { Lucia } from "lucia";
 import { PrismaAdapter } from "@lucia-auth/adapter-prisma";
 import prisma from '../prisma';
@@ -23,7 +22,8 @@ const adapter = new PrismaAdapter(
 export const lucia = new Lucia(adapter, {
     sessionCookie: {
         attributes: {
-            secure: !dev,
+            // Use runtime environment to decide Secure flag so dev over HTTP works
+            secure: process.env.NODE_ENV === 'production',
             sameSite: "lax"
         }
     },

@@ -5,7 +5,6 @@
     import { fly } from "svelte/transition";
     import { LogOut, FileText, UserPlus, Download, Upload, Settings } from "lucide-svelte";
     import { goto } from "$app/navigation";
-    import SimpleMenubar from "$lib/components/ui_components_sveltekit/menubar/SimpleMenubar.svelte";
     import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
     import { topMenuItems } from "$lib/stores/menuStore";
 
