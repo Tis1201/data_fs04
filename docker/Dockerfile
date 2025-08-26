@@ -1,8 +1,8 @@
 # Build stage
-FROM node:20-bookworm-slim AS build
+FROM node:20.9.0-bookworm-slim AS build
 WORKDIR /app
 ENV ROLLUP_SKIP_NODE_NATIVE=1
-ENV NODE_OPTIONS=--max-old-space-size=4096
+ENV NODE_OPTIONS=--max-old-space-size=5632
 
 # Install build tools and native deps for node-canvas and prisma
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,28 +36,27 @@ COPY scripts ./scripts
 COPY prodServer.js ./
 COPY postcss.config.js ./
 COPY tailwind.config.js ./
- # Optionally copy prebuilt client/server bundle from host to avoid building inside Docker
-COPY build ./build
+ # Build the application (no pre-built build directory in CI/CD)
 
 # Create .svelte-kit directory with empty tsconfig.json
 RUN mkdir -p .svelte-kit
 RUN echo '{"compilerOptions":{}}' > .svelte-kit/tsconfig.json
 
-# Generate ZenStack and Prisma files before building
-RUN npx zenstack generate
+# Generate Prisma client first, then ZenStack
 RUN npx prisma generate
+RUN npx zenstack generate
 
 # Copy entrypoint into build stage so it's available for later stages
 COPY docker/entrypoint.sh ./entrypoint.sh
 
-# Build the application unless a prebuilt ./build exists (allows host build to avoid high memory usage in Docker)
-RUN [ -d build ] || npm run build
+# Build the application
+RUN npm run build
 
 # Keep dev dependencies so prisma CLI and tsx are available at runtime
 # (Do NOT prune dev deps; entrypoint runs migrations/seed using prisma/tsx)
 
 # Production stage
-FROM node:20-bookworm-slim
+FROM node:20.9.0-bookworm-slim
 WORKDIR /app
 ENV ROLLUP_SKIP_NODE_NATIVE=1
 
