@@ -10,6 +10,7 @@
   export let data: any;
   let preclaimSet = data.preclaimSet;
   $: preclaimSet = data.preclaimSet;
+  const metrics = data?.metrics ?? { total: 0, claimed: 0, left: 0 };
 
   const title = `Pre-claim Set: ${preclaimSet?.name || preclaimSet?.id}`;
 
@@ -61,7 +62,8 @@
         <p class="text-sm text-muted-foreground">Key information about this pre-claim set</p>
       </svelte:fragment>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <!-- Basic info -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="space-y-1">
           <p class="text-xs text-muted-foreground">Name</p>
           <p class="text-sm font-medium">{preclaimSet?.name || 'Unnamed'}</p>
@@ -74,17 +76,35 @@
             </Badge>
           </div>
         </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Expires</p>
-          {#if preclaimSet?.expiresAt}
-            <p class="text-sm"><RelativeDate date={preclaimSet.expiresAt} /></p>
-          {:else}
-            <p class="text-sm">No expiry</p>
-          {/if}
+      </div>
+
+      <!-- Metrics tiles -->
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="rounded-lg border bg-muted/20 p-4">
+          <p class="text-xs text-muted-foreground">Total Devices</p>
+          <p class="text-2xl font-semibold">{metrics.total}</p>
+          <p class="text-xs text-muted-foreground">Devices in this pre-claim set</p>
         </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Claims</p>
-          <p class="text-sm">{claims.length}</p>
+        <div class="rounded-lg border bg-muted/20 p-4">
+          <p class="text-xs text-muted-foreground">Devices Claimed</p>
+          <p class="text-2xl font-semibold">{metrics.claimed}</p>
+          <p class="text-xs text-muted-foreground">Claimed or used</p>
+        </div>
+        <div class="rounded-lg border bg-muted/20 p-4">
+          <p class="text-xs text-muted-foreground">Devices Left</p>
+          <p class="text-2xl font-semibold">{metrics.left}</p>
+          <p class="text-xs text-muted-foreground">Remaining to be claimed</p>
+        </div>
+        <div class="rounded-lg border bg-muted/20 p-4">
+          <p class="text-xs text-muted-foreground">Expires</p>
+          <p class="text-sm">
+            {#if preclaimSet?.expiresAt}
+              <RelativeDate date={preclaimSet.expiresAt} />
+            {:else}
+              No expiry
+            {/if}
+          </p>
+          <p class="text-xs text-muted-foreground">Validity of this set</p>
         </div>
       </div>
 

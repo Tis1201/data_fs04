@@ -23,9 +23,23 @@ export const load = restrict(async ({ params, locals, depends }) => {
       });
     }
 
+    const claims = preclaimSet.claims ?? [];
+    // Compute metrics with safe fallbacks
+    const total = claims.length;
+    const claimed = claims.filter((c: any) => {
+      const status = (c?.status ?? '').toString().toUpperCase();
+      return !!c?.claimedAt || status === 'CLAIMED' || status === 'USED' || status === 'ASSIGNED';
+    }).length;
+    const left = Math.max(0, total - claimed);
+
     return {
       preclaimSet,
-      claims: preclaimSet.claims ?? [],
+      claims,
+      metrics: {
+        total,
+        claimed,
+        left
+      },
       meta: {
         title: `Pre-claim Set: ${preclaimSet.name || preclaimSet.id}`,
         description: `View details for pre-claim set ${preclaimSet.name || preclaimSet.id}`
