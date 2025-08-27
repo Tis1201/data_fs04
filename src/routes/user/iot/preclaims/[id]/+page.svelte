@@ -5,7 +5,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
   import { toast } from 'svelte-sonner';
-  import { ArrowLeft, Info } from 'lucide-svelte';
+  import { ArrowLeft, Info, Pencil } from 'lucide-svelte';
   import ClaimsTable from './claims/table.svelte';
   import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
 
@@ -53,6 +53,12 @@
       icon: ArrowLeft,
       onClick: () => goto('/user/iot/preclaims'),
       variant: 'outline'
+    },
+    {
+      label: 'Edit',
+      icon: Pencil,
+      onClick: () => goto(`/user/iot/preclaims/${preclaimSet.id}/edit`),
+      variant: 'default'
     }
   ]}
 >
