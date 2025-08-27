@@ -7,6 +7,7 @@
   import { toast } from 'svelte-sonner';
   import { ArrowLeft, Info } from 'lucide-svelte';
   import ClaimsTable from './claims/table.svelte';
+  import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
 
   export let data: any;
   let preclaimSet = data.preclaimSet;
@@ -115,6 +116,18 @@
           <p class="text-sm">{preclaimSet.description}</p>
         </div>
       {/if}
+
+      <svelte:fragment slot="footer">
+        <MetadataFooter
+          items={[
+            { label: "ID", value: preclaimSet?.id, icon: "hash" },
+            { label: "Account", value: preclaimSet?.account?.name || "None", icon: "tag" },
+            { label: "Created By", value: preclaimSet?.user?.name || "Unknown", icon: "user" },
+            { label: "Created", date: preclaimSet?.createdAt, icon: "calendar" },
+            { label: "Last Updated", date: preclaimSet?.updatedAt, icon: "clock" }
+          ]}
+        />
+      </svelte:fragment>
     </AdminCard>
 
     <!-- Claims List -->
