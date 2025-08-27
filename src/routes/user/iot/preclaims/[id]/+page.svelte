@@ -6,6 +6,7 @@
   import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
   import { toast } from 'svelte-sonner';
   import { ArrowLeft, Info } from 'lucide-svelte';
+  import ClaimsTable from './claims/table.svelte';
 
   export let data: any;
   let preclaimSet = data.preclaimSet;
@@ -123,44 +124,7 @@
         <p class="text-sm text-muted-foreground">Devices included in this pre-claim set</p>
       </svelte:fragment>
 
-      {#if claims.length === 0}
-        <div class="p-8 text-center text-muted-foreground">
-          <Info class="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p class="text-lg font-medium mb-2">No claims</p>
-          <p class="text-sm">This pre-claim set has no devices yet.</p>
-        </div>
-      {:else}
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-left text-muted-foreground border-b">
-                <th class="py-2 pr-4">ID</th>
-                <th class="py-2 pr-4">Device</th>
-                <th class="py-2 pr-4">Status</th>
-                <th class="py-2 pr-4">Claimed At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each claims as c}
-                <tr class="border-b last:border-0">
-                  <td class="py-2 pr-4 font-mono text-xs">{c?.id}</td>
-                  <td class="py-2 pr-4">{c?.deviceId ?? c?.serial ?? '—'}</td>
-                  <td class="py-2 pr-4">
-                    <Badge variant={getStatusVariant(c?.status)}>{getStatusDisplay(c?.status)}</Badge>
-                  </td>
-                  <td class="py-2 pr-4">
-                    {#if c?.claimedAt}
-                      <RelativeDate date={c.claimedAt} />
-                    {:else}
-                      —
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
+      <ClaimsTable preclaimId={preclaimSet.id} />
     </AdminCard>
   </div>
 </AdminPageLayout>
