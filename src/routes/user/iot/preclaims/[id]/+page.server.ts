@@ -12,7 +12,10 @@ export const load = restrict(async ({ params, locals, depends }) => {
     const preclaimSet = await (locals.prisma as any).preclaimSet.findUnique({
       where: { id },
       include: {
-        claims: true
+        claims: true,
+        account: {
+          select: { id: true, name: true }
+        }
       }
     });
 
@@ -22,6 +25,16 @@ export const load = restrict(async ({ params, locals, depends }) => {
         code: 'PRECLAIM_SET_NOT_FOUND'
       });
     }
+
+    // Attach creator user (model stores only createdBy string)
+    const creator = preclaimSet?.createdBy
+      ? await (locals.prisma as any).user.findUnique({
+          where: { id: preclaimSet.createdBy },
+          select: { id: true, name: true, email: true }
+        })
+      : null;
+
+    const preclaimSetOut = { ...preclaimSet, user: creator };
 
     const claims = preclaimSet.claims ?? [];
     // Compute metrics with safe fallbacks
@@ -33,7 +46,7 @@ export const load = restrict(async ({ params, locals, depends }) => {
     const left = Math.max(0, total - claimed);
 
     return {
-      preclaimSet,
+      preclaimSet: preclaimSetOut,
       claims,
       metrics: {
         total,
