@@ -38,6 +38,13 @@ export const POST: RequestHandler = async ({ request, locals }: any) => {
         senderId
     } = data;
 
+    // Extract MAC from nested network info if present
+    const networkMac: string | undefined = data?.networkInfo?.mac;
+    // Normalize MAC fields: prefer explicit macAddress, else networkMac, else wifiMac
+    const macAddress: string | undefined = data?.macAddress ?? networkMac ?? wifiMac;
+    // Ensure wifiMac is filled if missing but we have a MAC
+    const resolvedWifiMac: string | undefined = wifiMac ?? macAddress;
+
     // Validate required fields
     if (!pin || !id) {
         return json({
@@ -83,7 +90,8 @@ export const POST: RequestHandler = async ({ request, locals }: any) => {
             osVersion,
             firmwareVersion,
             hardwareId,
-            wifiMac,
+            macAddress,
+            wifiMac: resolvedWifiMac,
             lanMac,
             ipAddress,
             publicIpAddress,

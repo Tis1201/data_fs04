@@ -347,6 +347,7 @@ model Device {
   osVersion            String?
   firmwareVersion      String?
   hardwareId           String?
+  macAddress           String?
   wifiMac              String?
   lanMac               String?
   ipAddress            String?

@@ -4,11 +4,12 @@
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
     import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
-    import { Pencil, Power, ExternalLink } from "lucide-svelte";
+    import { Pencil, Power, ExternalLink, Trash } from "lucide-svelte";
     import type { Device } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
@@ -39,6 +40,17 @@
         loading: false
     };
     
+    // Delete confirmation state
+    let state = {
+        selectedRecord: null as Device | null,
+        confirmationOpen: false
+    };
+
+    function confirmDelete(device: Device) {
+        state.selectedRecord = device;
+        state.confirmationOpen = true;
+    }
+
     // Device to be toggled (for status change)
     let deviceToToggle: Device | null = null;
     let isTogglingStatus = false;
@@ -151,6 +163,11 @@
                         label: record.status === 'ACTIVE' ? "Deactivate" : "Activate",
                         icon: Power,
                         onClick: () => prepareToggleStatus(record)
+                    },
+                    {
+                        label: "Delete",
+                        icon: Trash,
+                        onClick: () => confirmDelete(record)
                     }
                 ];
                 
@@ -239,6 +256,24 @@
 </script>
 
 <div class="space-y-4">
+    <!-- Delete Confirmation Dialog -->
+    <RecordDeleteDialog
+        state={{
+            selectedRecord: state.selectedRecord,
+            confirmationOpen: state.confirmationOpen,
+            title: 'Delete Device',
+            message: state.selectedRecord ? `Are you sure you want to delete device ${state.selectedRecord.name || state.selectedRecord.id}?` : '',
+            confirmButtonText: 'Delete',
+            cancelButtonText: 'Cancel',
+            successMessage: 'Device deleted successfully',
+            errorMessage: 'Failed to delete device'
+        }}
+        onConfirm={() => {
+            // Simple approach: reload to refresh table
+            window.location.reload();
+        }}
+        on:close={() => state.confirmationOpen = false}
+    />
     <!-- Status Toggle Dialog -->
     <RecordUpdateDialog
         open={statusToggleDialogOpen}

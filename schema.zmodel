@@ -473,6 +473,7 @@ model Device {
   hardwareId    String?  // e.g. MAC address or serial number
 
   // Network info
+  macAddress    String?
   wifiMac       String?
   lanMac        String?
   ipAddress     String?
@@ -501,6 +502,7 @@ model Device {
   
 
   @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('delete', auth() != null && createdBy == auth().id)
   @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
   @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
   

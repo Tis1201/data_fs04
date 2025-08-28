@@ -53,6 +53,10 @@ export const GET = createSSEHandler({
 
         // Validate the PIN
         const pin = request.headers.get('X-Device-PIN');
+
+        const mac = request.headers.get('X-Device-MAC');
+
+        logger.debug(`X-Device-MAC: ${mac}`);
         
         if (!pin) {
             logger.warn('No PIN provided');
