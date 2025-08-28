@@ -26,6 +26,7 @@ import {
     createErrorResponse,
     toResponse
 } from '$lib/shared/response_format';
+import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -42,6 +43,14 @@ export const GET = createSSEHandler({
      * Authenticate the device registration request
      */
     authenticate: async (locals, request) => {
+        // Verify Factory JWT (signature, audience, typ, scope)
+        await verifyFactoryJWT(locals, request);
+
+
+        //We will need to check if the device is already registered, if yes, return error, need to unclaim first
+        //We will also check if device has a preclaim (non-expired) against it
+        //If yes, we will have to short cut the pin registration process
+
         // Validate the PIN
         const pin = request.headers.get('X-Device-PIN');
         
