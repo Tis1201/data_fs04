@@ -16,6 +16,7 @@ import type { RequestHandler } from '../../$types';
 import { logger } from '$lib/server/logger';
 import { checkPinFormat } from '$lib/server/device/devicePinChecker';
 import type { DeviceMeta } from '$lib/server/device/deviceMeta';
+import { ClaimStatus } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { DeviceManager } from '$lib/server/device/deviceManager';
@@ -28,8 +29,7 @@ import {
 } from '$lib/shared/response_format';
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
+import { sendDeviceRegistrationMessage, createClaimOptions } from '$lib/server/device/deviceRegistrationUtils';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -61,6 +61,9 @@ export const GET = createSSEHandler({
 
         logger.debug(`X-Device-MAC: ${mac}`);
 
+        // Stash MAC for later use during onConnect (claim flow)
+        (locals as any).deviceMac = mac;
+
         // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
         if (mac) {
             const existingDevice = await locals.prisma.device.findFirst({
@@ -84,7 +87,7 @@ export const GET = createSSEHandler({
             if (preclaimCheck?.preclaim) {
                 // Stash for later use in flow (e.g., shortcut pin registration)
                 (locals as any).preclaimDevice = preclaimCheck;
-                logger.info(`Preclaim found for MAC ${preclaimCheck.normalizedMac}, preclaimId=${preclaimCheck.preclaim.id}`);
+                logger.info(`Preclaim found for MAC ${preclaimCheck.mac}, preclaimId=${preclaimCheck.preclaim.id}`);
             }
         } catch (e) {
             logger.error(`Preclaim check error: ${e}`);
@@ -191,26 +194,47 @@ export const GET = createSSEHandler({
                 return;
             }
 
-            // Send immediate notification to device using standard "registered" message
-            const registrationMessage = MessageFactory.createSystemMessage(
-                'device',
-                `subscription:device:${device.id}`,
-                {
-                    id: claimedDevice.id,
-                    action: 'registered',
-                    apiKey: claimedDevice.apiKey,
-                    accountId: claimedDevice.accountId,
-                    userId: claimedDevice.claimedBy,
-                    claimedAt: new Date().toISOString(),
-                    ...claimedDevice
-                },
-                SystemUser,
-                { 
-                    echoToSender: false,
-                    sudo: true 
+            // Update device network identifiers using the provided MAC
+            const mac = (locals as any).deviceMac as string | null;
+            if (mac) {
+                try {
+                    await locals.prisma.device.update({
+                        where: { id: claimedDevice.id },
+                        data: {
+                            macAddress: mac,
+                            wifiMac: mac
+                        }
+                    });
+                } catch (e) {
+                    logger.warn(`Failed to update device MACs for ${claimedDevice.id}: ${e}`);
                 }
-            );
-            await publisher.publish(registrationMessage);
+            }
+
+            // Update preclaim record with claim metadata and linkage to device
+            try {
+                await locals.prisma.preclaimDevice.update({
+                    where: { id: preclaim.preclaim.id },
+                    data: {
+                        status: ClaimStatus.FULFILLED,
+                        claimedAt: new Date(),
+                        claimedBy: claimUserId,
+                        deviceId: claimedDevice.id
+                    }
+                });
+            } catch (e) {
+                logger.warn(`Failed to update preclaim device ${preclaim.preclaim.id}: ${e}`);
+            }
+
+            // Send registration message using shared utility
+            await sendDeviceRegistrationMessage(device.id, {
+                id: claimedDevice.id,
+                apiKey: claimedDevice.apiKey,
+                accountId: claimedDevice.accountId,
+                claimedBy: claimedDevice.claimedBy,
+                name: claimedDevice.name,
+                deviceType: claimedDevice.deviceType,
+                status: claimedDevice.status
+            });
         }
         
         logger.info(`Device ${device.id} registered with PIN ${pin}`);

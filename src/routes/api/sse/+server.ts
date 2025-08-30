@@ -182,7 +182,7 @@ export const POST: RequestHandler = restrict(
                 protocol: 'sse',
                 connectionId: connectionId,
                 requestId: message.requestId,
-                accountId: currentAccount?.id
+                accountId: currentAccount?.accountId
             };
             
             // Log the message being processed

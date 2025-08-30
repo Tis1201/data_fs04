@@ -9,6 +9,7 @@ import { generateId } from 'lucia';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { logAudit } from '../audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { sendDeviceRegistrationMessage, createClaimOptions, type ClaimDeviceOptions } from './deviceRegistrationUtils';
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
 
@@ -23,6 +24,13 @@ export class DefaultDeviceManager {
             id: 'system',  // or get from the actual user context
             systemRole: 'ADMIN'  // or get from the actual user context
         });
+    }
+
+    private createClaimOptions(
+        userInfo: UserInfo | {userId: string, accountId: string, preclaimId?: string},
+        accountId?: string
+    ): ClaimDeviceOptions {
+        return createClaimOptions(userInfo, accountId);
     }
 
     /**
@@ -58,12 +66,6 @@ export class DefaultDeviceManager {
 
     /**
      * Claim a device using its PIN code
-     * @param pin The PIN code displayed on the device
-     * @param userInfo The user claiming the device
-     * @param accountId The account ID the device belongs to
-     * @param senderConnectionId The connection ID of the sender
-     * @param senderConnectionProtocol The protocol of the sender
-     * @returns The claimed device or null if not found
      */
     async claimDevice(
         pin: string, 
@@ -73,18 +75,9 @@ export class DefaultDeviceManager {
         senderConnectionProtocol?: string
     ): Promise<any> {
         
-        // Handle preclaim case where userInfo is simplified
-        const isPreclaim = !('email' in userInfo);
-        const actualAccountId = isPreclaim ? userInfo.accountId : userInfo.currentAccount?.account?.id;
-        const actualUserId = isPreclaim ? userInfo.userId : userInfo.id;
-        
-        if (!actualAccountId) {
-            throw new Error('Account ID is required');
-        }
-        
-        if (!actualUserId) {
-            throw new Error('User ID is required for device claiming');
-        }
+        const { userId: actualUserId, accountId: actualAccountId, preclaimId } = 
+            this.createClaimOptions(userInfo, accountId);
+        const isPreclaim = !!preclaimId;
         
         logger.info(`Attempting to claim device with PIN ${pin} for account ${actualAccountId}`);
 
@@ -180,28 +173,18 @@ export class DefaultDeviceManager {
         // Remove PIN from store
         await pinSharedStore.remove(pin);
 
-        // Send notification if not preclaim
+        // Send registration message using shared utility
         if (!isPreclaim && senderConnectionId && senderConnectionProtocol) {
-            const registrationMessage = {
-                ...MessageFactory.createDeviceMessage(
-                    'registered',
-                    device.id,
-                    deviceMeta.connectionId || '',
-                    userInfo,
-                    senderConnectionId,
-                    senderConnectionProtocol,
-                    {
-                        ...device,
-                        apiKey,
-                        accountId: actualAccountId,
-                        userId: actualUserId,
-                        ...(deviceMeta.metadata || {})
-                    },
-                    { sudo: true }
-                ),
-                sudo: true
-            };
-            await publisher.publish(registrationMessage);
+            await sendDeviceRegistrationMessage(device.id, {
+                id: updatedDevice.id,
+                apiKey: updatedDevice.apiKey!,
+                accountId: actualAccountId,
+                claimedBy: actualUserId,
+                name: updatedDevice.name,
+                deviceType: updatedDevice.deviceType,
+                status: updatedDevice.status,
+                ...(deviceMeta.metadata || {})
+            });
         }
 
         return updatedDevice;
