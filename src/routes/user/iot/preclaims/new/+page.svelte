@@ -1,10 +1,10 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
-  import { Save, ArrowLeft, Download } from "lucide-svelte";
+  import { Save, ArrowLeft, Download, CheckCircle, Eye, Plus } from "lucide-svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
-  import { Card, CardContent } from "$lib/components/ui/card";
+  import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
@@ -26,16 +26,36 @@
     ["New", ""]
   ] as [string, string][];
 
+  // Success state management
+  let showSuccess = false;
+  let successData: { id: string; name: string; deviceCount?: number } | null = null;
+
   const { form, errors, submitting, errorMessage, enhance, constraints } = createFormHandler(data.form, {
     validateOnInput: true,
     onSuccess: (result) => {
+      console.log('onSuccess called with result:', result);
+      console.log('result.data:', result?.data);
+      console.log('result.data.form:', result?.data?.form);
+      console.log('result.data.form.message:', result?.data?.form?.message);
+      
       const id = result?.data?.form?.message?.data?.id
         ?? result?.data?.data?.id
         ?? result?.form?.message?.data?.id;
+      
+      console.log('Extracted id:', id);
+      
       if (id) {
-        goto(`/user/iot/preclaims/${id}`);
+        // Extract success details from the result
+        const message = result?.data?.form?.message;
+        successData = {
+          id,
+          name: $form.name || 'Preclaim Set',
+          deviceCount: uploadedFiles.length > 0 ? 1 : undefined // We could enhance this later
+        };
+        console.log('Setting showSuccess to true, successData:', successData);
+        showSuccess = true;
       } else {
-        goto('/user/iot/preclaims');
+        console.log('No id found, not showing success state');
       }
     }
   });
@@ -114,91 +134,169 @@
     const f = document.querySelector('form[action="?/upload"]') as HTMLFormElement | null;
     if (f) f.requestSubmit();
   }
+
+  function resetForm() {
+    showSuccess = false;
+    successData = null;
+    uploadedFiles = [];
+    uploadSuccess = '';
+    uploadError = '';
+    if (nativeFileInput) nativeFileInput.value = '';
+    
+    // Reset form data
+    $form.name = '';
+    $form.description = '';
+    const defaultExpiry = addMonths(new Date(), 1);
+    $form.expiresAt = fmt(defaultExpiry, 'yyyy-MM-dd');
+  }
 </script>
 
 <UserPageLayout
   title={pageTitle}
   crumbs={pageCrumbs}
-  actionButtons={[{
-    label: "Back",
-    icon: ArrowLeft,
-    onClick: () => goto('/user/iot/preclaims')
-  },{
-    label: "Download CSV Template",
-    icon: Download,
-    onClick: downloadTemplate
-  },{
-    label: "Upload",
-    icon: Save,
-    disabled: $submitting,
-    onClick: submitForm
-  }]}
+  actionButtons={showSuccess ? [
+    {
+      label: "View Details",
+      icon: Eye,
+      onClick: () => successData && goto(`/user/iot/preclaims/${successData.id}`)
+    },
+    {
+      label: "Create Another",
+      icon: Plus,
+      onClick: resetForm
+    },
+    {
+      label: "Back to List",
+      icon: ArrowLeft,
+      onClick: () => goto('/user/iot/preclaims')
+    }
+  ] : [
+    {
+      label: "Back",
+      icon: ArrowLeft,
+      onClick: () => goto('/user/iot/preclaims')
+    },
+    {
+      label: "Download CSV Template",
+      icon: Download,
+      onClick: downloadTemplate
+    },
+    {
+      label: "Upload",
+      icon: Save,
+      disabled: $submitting,
+      onClick: submitForm
+    }
+  ]}
 >
-  <Card class="w-full">
-    <CardContent class="pt-6">
-      <FormContainer
-        method="POST"
-        action="?/upload"
-        {enhance}
-        enctype="multipart/form-data"
-        novalidate
-        errorMessage={$errorMessage}
-        disabled={$submitting}
-      >
-        <div class="space-y-6" bind:this={containerRef}>
-          <input type="file" name="file" class="sr-only" aria-hidden="true" bind:this={nativeFileInput} />
-
-          <FormRow columns={1}>
-            <FormField id="name" label="Set Name" error={$errors.name} required={true}>
-              <Input id="name" name="name" type="text" bind:value={$form.name} {...$constraints.name} />
-            </FormField>
-          </FormRow>
-
-          <FormRow columns={1}>
-            <FormField id="description" label="Description" error={$errors.description}>
-              <Textarea id="description" name="description" rows={3} bind:value={$form.description} />
-            </FormField>
-          </FormRow>
-
-          <FormRow columns={1}>
-            <FormField id="expiresAt" label="Expiry Date" error={$errors.expiresAt}>
-              <EnhancedDatePicker
-                id="expiresAt"
-                name="expiresAt"
-                form={$form}
-                field="expiresAt"
-                format_string="yyyy-MM-dd"
-                clearable={true}
-                showFutureDates={true}
-                timelineOptions="future"
-                defaultTimeline="future"
-              />
-            </FormField>
-          </FormRow>
-
-          <FormRow columns={1}>
-            <FormField id="file" label="Upload File (CSV or Excel)" error={uploadError} required={true}>
-              <EnhancedFileUpload
-                id="file"
-                name="file"
-                accept={fileAccept}
-                bind:value={uploadedFiles}
-                multiple={false}
-                preview={false}
-                on:change={handleFileUpload}
-                on:drop={handleFileUpload}
-                on:paste={handleFileUpload}
-                on:remove={handleFileRemove}
-                on:error={(e) => (uploadError = e.detail?.message || 'Upload error')}
-              />
-              <p class="text-xs text-muted-foreground mt-1">CSV header must include macId or mac. Optional: name, description, expiresAt (yyyy-MM-dd).</p>
-              {#if uploadSuccess}
-                <p class="text-xs text-green-600 font-medium mt-1">✓ {uploadSuccess}</p>
-              {/if}
-            </FormField>
-          </FormRow>
+  {#if showSuccess && successData}
+    <!-- Success State -->
+    <Card class="w-full">
+      <CardHeader class="text-center">
+        <div class="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+          <CheckCircle class="w-8 h-8 text-green-600" />
         </div>
-      </FormContainer>
-    </CardContent>
-  </Card>
+        <CardTitle class="text-2xl text-green-700">Upload Successful!</CardTitle>
+      </CardHeader>
+      <CardContent class="text-center space-y-4">
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+          <h3 class="font-semibold text-green-800 mb-2">Preclaim Set Created</h3>
+          <div class="space-y-2 text-sm text-green-700">
+            <p><strong>Name:</strong> {successData.name}</p>
+            <p><strong>ID:</strong> <code class="bg-green-100 px-2 py-1 rounded text-xs">{successData.id}</code></p>
+            {#if successData.deviceCount}
+              <p><strong>Devices:</strong> {successData.deviceCount} device(s) added</p>
+            {/if}
+          </div>
+        </div>
+        
+        <div class="flex flex-col sm:flex-row gap-3 justify-center pt-4">
+          <Button 
+            on:click={() => successData && goto(`/user/iot/preclaims/${successData.id}`)}
+            class="flex items-center gap-2"
+          >
+            <Eye class="w-4 h-4" />
+            View Details
+          </Button>
+          <Button 
+            variant="outline" 
+            on:click={resetForm}
+            class="flex items-center gap-2"
+          >
+            <Plus class="w-4 h-4" />
+            Create Another
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  {:else}
+    <!-- Upload Form -->
+    <Card class="w-full">
+      <CardContent class="pt-6">
+        <FormContainer
+          method="POST"
+          action="?/upload"
+          {enhance}
+          enctype="multipart/form-data"
+          novalidate
+          errorMessage={$errorMessage}
+          disabled={$submitting}
+        >
+          <div class="space-y-6" bind:this={containerRef}>
+            <input type="file" name="file" class="sr-only" aria-hidden="true" bind:this={nativeFileInput} />
+
+            <FormRow columns={1}>
+              <FormField id="name" label="Set Name" error={$errors.name} required={true}>
+                <Input id="name" name="name" type="text" bind:value={$form.name} {...$constraints.name} />
+              </FormField>
+            </FormRow>
+
+            <FormRow columns={1}>
+              <FormField id="description" label="Description" error={$errors.description}>
+                <Textarea id="description" name="description" rows={3} bind:value={$form.description} />
+              </FormField>
+            </FormRow>
+
+            <FormRow columns={1}>
+              <FormField id="expiresAt" label="Expiry Date" error={$errors.expiresAt}>
+                <EnhancedDatePicker
+                  id="expiresAt"
+                  name="expiresAt"
+                  form={$form}
+                  field="expiresAt"
+                  format_string="yyyy-MM-dd"
+                  clearable={true}
+                  showFutureDates={true}
+                  timelineOptions="future"
+                  defaultTimeline="future"
+                />
+              </FormField>
+            </FormRow>
+
+            <FormRow columns={1}>
+              <FormField id="file" label="Upload File (CSV or Excel)" error={uploadError} required={true}>
+                <EnhancedFileUpload
+                  id="file"
+                  name="file"
+                  accept={fileAccept}
+                  bind:value={uploadedFiles}
+                  multiple={false}
+                  preview={false}
+                  on:change={handleFileUpload}
+                  on:drop={handleFileUpload}
+                  on:paste={handleFileUpload}
+                  on:remove={handleFileRemove}
+                  on:error={(e) => (uploadError = e.detail?.message || 'Upload error')}
+                />
+                <p class="text-xs text-muted-foreground mt-1">CSV header must include macId or mac. Optional: name, description, expiresAt (yyyy-MM-dd).</p>
+                {#if uploadSuccess}
+                  <p class="text-xs text-green-600 font-medium mt-1">✓ {uploadSuccess}</p>
+                {/if}
+              </FormField>
+            </FormRow>
+          </div>
+        </FormContainer>
+      </CardContent>
+    </Card>
+  {/if}
 </UserPageLayout>

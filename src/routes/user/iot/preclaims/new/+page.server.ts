@@ -227,7 +227,7 @@ export const actions: Actions = {
                     logger.info(`PreclaimSet created ${result.id} with ${rows.length} devices`);
                     return message(
                         form,
-                        createSuccessResponse('Preclaim set created successfully', { data: { setId: result.id } }),
+                        createSuccessResponse('Preclaim set created successfully', { id: result.id }),
                         { status: 200 }
                     );
                 } catch (err) {
