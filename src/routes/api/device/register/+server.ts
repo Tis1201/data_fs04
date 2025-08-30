@@ -28,6 +28,8 @@ import {
 } from '$lib/shared/response_format';
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -157,7 +159,59 @@ export const GET = createSSEHandler({
         
         // Register the device with the PIN
         const pin = locals.pin as string;
-        DeviceManager.registerDevice(pin, deviceMeta);
+        await DeviceManager.registerDevice(pin, deviceMeta);
+        
+        // Handle preclaimed devices
+        const preclaim = (locals as any).preclaimDevice;
+        if (preclaim) {
+            logger.info(`Processing preclaim for device ${device.id} with preclaim ${preclaim.preclaim.id}`);
+            
+            // Use preclaim set creator as the claiming user (fallback if claimedBy is not set)
+            const preclaimSet = await locals.prisma.preclaimSet.findUnique({
+                where: { id: preclaim.preclaim.setId },
+                select: { createdBy: true }
+            });
+            
+            const claimUserId = preclaim.preclaim.claimedBy || preclaimSet?.createdBy;
+            
+            if (!claimUserId) {
+                logger.error(`No user found to claim preclaimed device ${device.id}`);
+                return;
+            }
+            
+            // Immediately claim the device with preclaim info
+            const claimedDevice = await DeviceManager.claimDevice(pin, {
+                userId: claimUserId,
+                accountId: preclaim.preclaim.accountId,
+                preclaimId: preclaim.preclaim.id
+            });
+
+            if (!claimedDevice) {
+                logger.error(`Failed to claim device ${device.id} after preclaim processing`);
+                return;
+            }
+
+            // Send immediate notification to device using standard "registered" message
+            const registrationMessage = MessageFactory.createSystemMessage(
+                'device',
+                `subscription:device:${device.id}`,
+                {
+                    id: claimedDevice.id,
+                    action: 'registered',
+                    apiKey: claimedDevice.apiKey,
+                    accountId: claimedDevice.accountId,
+                    userId: claimedDevice.claimedBy,
+                    claimedAt: new Date().toISOString(),
+                    ...claimedDevice
+                },
+                SystemUser,
+                { 
+                    echoToSender: false,
+                    sudo: true 
+                }
+            );
+            await publisher.publish(registrationMessage);
+        }
         
         logger.info(`Device ${device.id} registered with PIN ${pin}`);
     },

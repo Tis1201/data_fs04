@@ -35,7 +35,10 @@ export const POST: RequestHandler = async ({ request, locals }: any) => {
         pin,
         id,
         senderConnectionId,
-        senderId
+        senderId,
+        // Handle Go device service field names
+        SenderID,
+        SenderConnectionID
     } = data;
 
     // Extract MAC from nested network info if present
@@ -54,8 +57,8 @@ export const POST: RequestHandler = async ({ request, locals }: any) => {
         }, { status: 400 });
     }
 
-    // Determine the user ID to use for the device
-    const userId = senderId
+    // Determine the user ID to use for the device (handle both field names)
+    const userId = senderId || SenderID;
 
     if (!userId) {
         return json({

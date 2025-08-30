@@ -59,12 +59,34 @@ export class DefaultDeviceManager {
     /**
      * Claim a device using its PIN code
      * @param pin The PIN code displayed on the device
-     * @param userId The ID of the user claiming the device
+     * @param userInfo The user claiming the device
+     * @param accountId The account ID the device belongs to
+     * @param senderConnectionId The connection ID of the sender
+     * @param senderConnectionProtocol The protocol of the sender
      * @returns The claimed device or null if not found
      */
-    async claimDevice(pin: string, userInfo: UserInfo, accountId: string, senderConnectionId: string, senderConnectionProtocol: string): Promise<any> {
-
-        logger.info(`Attempting to claim device with PIN ${pin} for account ${accountId} over ${senderConnectionId}[${senderConnectionProtocol}]`);
+    async claimDevice(
+        pin: string, 
+        userInfo: UserInfo | {userId: string, accountId: string, preclaimId?: string},
+        accountId?: string,
+        senderConnectionId?: string,
+        senderConnectionProtocol?: string
+    ): Promise<any> {
+        
+        // Handle preclaim case where userInfo is simplified
+        const isPreclaim = !('email' in userInfo);
+        const actualAccountId = isPreclaim ? userInfo.accountId : userInfo.currentAccount?.account?.id;
+        const actualUserId = isPreclaim ? userInfo.userId : userInfo.id;
+        
+        if (!actualAccountId) {
+            throw new Error('Account ID is required');
+        }
+        
+        if (!actualUserId) {
+            throw new Error('User ID is required for device claiming');
+        }
+        
+        logger.info(`Attempting to claim device with PIN ${pin} for account ${actualAccountId}`);
 
         // Get device from PIN store
         const deviceMeta = await pinSharedStore.getSingle(pin);
@@ -76,104 +98,60 @@ export class DefaultDeviceManager {
 
         logger.info(`Found device with PIN ${pin}`, { deviceId: deviceMeta.id });
 
-        // Get the actual account ID from userInfo
-        const actualAccountId = userInfo.currentAccount?.account?.id;
-        if (!actualAccountId) {
-            throw new Error('User is not associated with any account');
-        }
-
-        // Verify the account exists and user has access to it
+        // Verify the account exists
         const account = await this.prisma.account.findUnique({
             where: { id: actualAccountId },
             select: { id: true }
         });
 
         if (!account) {
-            throw new Error(`Account ${actualAccountId} not found or you don't have access to it`);
+            throw new Error(`Account ${actualAccountId} not found`);
         }
 
-        // Prepare base device data without relations
-        const baseDeviceData = {
+        // Prepare base device data
+        const baseDeviceData: any = {
             id: deviceMeta.id,
             name: deviceMeta.name || `Device-${deviceMeta.id.substring(0, 8)}`,
             deviceType: deviceMeta.deviceType || 'UNKNOWN',
             status: 'ACTIVE',
             claimedAt: new Date(),
-            claimedBy: userInfo.id,
-            // Include any additional metadata from deviceMeta
+            claimedBy: actualUserId,
             ...(deviceMeta.metadata || {})
         };
 
-        logger.debug(`Upserting device with data:`, baseDeviceData);
-        
-        // First try to update if exists
+        // Upsert device record
         const existingDevice = await this.prisma.device.findUnique({
-            where: { id: deviceMeta.id },
-            include: { account: true, user: true }
+            where: { id: deviceMeta.id }
         });
 
         let device;
         if (existingDevice) {
-            // For update, use the relation fields
             device = await this.prisma.device.update({
                 where: { id: deviceMeta.id },
                 data: {
                     ...baseDeviceData,
                     account: { connect: { id: actualAccountId } },
-                    user: { connect: { id: userInfo.id } }
+                    user: { connect: { id: actualUserId } }
                 },
-                include: {
-                    account: true,
-                    user: true
-                }
+                include: { account: true, user: true }
             });
         } else {
-            // For create, include the relations in the create call
             device = await this.prisma.device.create({
                 data: {
                     ...baseDeviceData,
                     account: { connect: { id: actualAccountId } },
-                    user: { connect: { id: userInfo.id } }
+                    user: { connect: { id: actualUserId } }
                 },
-                include: {
-                    account: true,
-                    user: true
-                }
+                include: { account: true, user: true }
             });
         }
 
-        logger.info(`Device ${device.id} successfully claimed by user ${userInfo.id} for account ${accountId}`);
+        logger.info(`Device ${device.id} successfully claimed by user ${actualUserId}`);
 
-        await logAudit({
-            actionType: AuditActionType.INSERT,
-            tableName: 'Device',
-            recordId: device.id,
-            oldData: null,
-            newData: device,
-            userId: userInfo.id,
-            prisma: this.prisma
-        })
-        
-        // Remove the PIN from the shared store since it's now claimed
-        await pinSharedStore.remove(pin);
-
-        // Update device metadata with claim info
-        // deviceMeta.claimedAt = new Date();
-        // deviceMeta.claimedById = userInfo.id;
-
-        // // Store in device shared store
-        // await deviceSharedStore.addMember(deviceMeta.id, deviceMeta);
-
-        // // Create and send routing message using deviceMeta connectionId
-        // // Log the connection information for debugging
-        // logger.info(`[DeviceHandler] Client connection info - ID: ${senderConnectionId}, Protocol: ${senderConnectionProtocol}`);
-
-
-        // Generate API key for the device
+        // Generate API key
         const apiKey = generateId(32);
         const now = new Date();
 
-        // Update device with API key and connection info
         const updatedDevice = await this.prisma.device.update({
             where: { id: device.id },
             data: {
@@ -183,68 +161,50 @@ export class DefaultDeviceManager {
                 status: 'ACTIVE',
                 connected: true,
                 connectedAt: now,
-                lastUsedAt: now,  // Using lastUsedAt instead of lastSeenAt
-                updatedAt: now    // Ensure updatedAt is always set
+                lastUsedAt: now,
+                updatedAt: now
             },
-            include: { 
-                account: true, 
-                user: true 
+            select: {
+                id: true,
+                name: true,
+                deviceType: true,
+                status: true,
+                apiKey: true,
+                claimedBy: true,
+                accountId: true,
+                account: { select: { id: true, name: true } },
+                user: { select: { id: true, name: true, email: true } }
             }
         });
 
-        // Create registration message with device info
-        const registrationMessage = {
-            ...MessageFactory.createDeviceMessage(
-                'registered',
-                device.id,
-                deviceMeta.connectionId || '',
-                userInfo,
-                senderConnectionId,
-                senderConnectionProtocol,
-                {
-                    // Include all necessary device info
-                    ...device,
-                    apiKey,
-                    accountId: actualAccountId,
-                    userId: userInfo.id,
-                    // Include any additional metadata
-                    ...(deviceMeta.metadata || {})
-                },
-                { sudo: true }
-            ),
-            sudo: true  // Ensure sudo is set at the message level
-        };
+        // Remove PIN from store
+        await pinSharedStore.remove(pin);
 
-        // Publish the registration message
-        await publisher.publish(registrationMessage);
-        logger.info(`Device registration complete for ${device.id}`);
+        // Send notification if not preclaim
+        if (!isPreclaim && senderConnectionId && senderConnectionProtocol) {
+            const registrationMessage = {
+                ...MessageFactory.createDeviceMessage(
+                    'registered',
+                    device.id,
+                    deviceMeta.connectionId || '',
+                    userInfo,
+                    senderConnectionId,
+                    senderConnectionProtocol,
+                    {
+                        ...device,
+                        apiKey,
+                        accountId: actualAccountId,
+                        userId: actualUserId,
+                        ...(deviceMeta.metadata || {})
+                    },
+                    { sudo: true }
+                ),
+                sudo: true
+            };
+            await publisher.publish(registrationMessage);
+        }
 
-
-        // // Create the message with the new helper method and set sudo to true
-        // const routingMessage = {
-        //     ...MessageFactory.createDeviceMessage(
-        //         'registered',
-        //         deviceMeta.id,
-        //         deviceMeta.connectionId || '',
-        //         userInfo,
-        //         senderConnectionId,
-        //         senderConnectionProtocol,
-        //         { sudo: true }
-        //     ),
-        //     sudo: true  // Ensure sudo is set at the message level
-        // };
-
-        // // Debug log to check if sudo property is set correctly
-        // logger.debug(`[DeviceManager] Routing message sudo property: ${routingMessage.sudo}, type: ${typeof routingMessage.sudo}`);
-
-        // // Publish the routing message
-        // await publisher.publish(routingMessage);
-        // logger.info(`Device registration message sent to device ${deviceMeta.id}, ${JSON.stringify(routingMessage)}`);
-
-
-        // Return the device record
-        // return deviceRecords[deviceMeta.id];
-        return device;
+        return updatedDevice;
     }
 
     /**
