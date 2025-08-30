@@ -1,79 +1,213 @@
 # Device Claim Processes
 
-## 1) Existing Ad‑Hoc Claim (PIN-based)
+## Overview
 
-- Device → Server
-  - Device generates a short‑lived PIN and opens SSE to `/api/device/register` with header `X-Device-PIN`.
-  - Server authenticates the connection and stores `pin -> deviceMeta(connectionId)`.
+The system supports two device claiming methods:
+1. **PIN-based claim**: Manual user-initiated claiming using a 6-digit PIN
+2. **Preclaim-based claim**: Automatic claiming using pre-uploaded MAC addresses
 
-- User → Server
-  - An authenticated user submits the PIN (via messaging/WebSocket).
-  - [DeviceManager.claimDevice(pin, user, account)](cci:1://file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/device/deviceManager.ts:58:4-247:5) validates the PIN and account membership, then:
-    - Upserts [Device](cci:2://file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/stores/device-store.ts:27:0-37:1) with `status: ACTIVE`, `claimedAt`, `claimedBy`, links to `account` and `user`.
-    - Issues an `apiKey`.
-    - Sends a privileged “registered” message (sudo) to the device SSE connection with `apiKey`, `deviceId`, `accountId`, `userId`.
-    - Removes the PIN from the PIN store.
+## 1) PIN-based Claim (Manual)
 
-- Device completes
-  - Device receives “registered”, persists `apiKey`, and POSTs its system info to `/api/device/add`.
-  - Subsequent requests use `x-api-key`.
+```
+Device Registration Flow:
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Device    │    │   Server    │    │    User     │
+└──────┬──────┘    └──────┬──────┘    └──────┬──────┘
+       │                  │                  │
+       │ SSE /api/device/register           │
+       │ Headers: X-Device-PIN, X-Device-MAC │
+       │ Authorization: Factory-JWT          │
+       ├─────────────────►│                  │
+       │                  │ Authenticate Factory JWT
+       │                  │ Check if MAC already claimed
+       │                  │ Check for preclaim match
+       │                  │◄─────────────────┤
+       │ SSE connection established          │
+       │◄─────────────────│                  │
+       │                  │                  │
+       │         ┌────────┴────────┐         │
+       │         │ Preclaim exists? │         │
+       │         └────────┬────────┘         │
+       │                  │                  │
+       │            ┌─────┴─────┐            │
+       │            │    YES    │            │
+       │            └─────┬─────┘            │
+       │                  │                  │
+       │    Auto-claim device:               │
+       │    • Update Device.macAddress/wifiMac
+       │    • Set PreclaimDevice.status=FULFILLED
+       │    • Set claimedAt, claimedBy, deviceId
+       │                  │                  │
+       │    Send "registered" message with apiKey
+       │◄─────────────────│                  │
+       │                  │                  │
+       │            ┌─────┴─────┐            │
+       │            │    NO     │            │
+       │            └─────┬─────┘            │
+       │                  │                  │
+       │                  │   Wait for manual claim
+       │                  │◄─────────────────┤
+       │       Submit PIN via WebSocket/SSE  │
+       │                  ├─────────────────►│
+       │                  │ DeviceManager.claimDevice()
+       │                  │ Send "registered" message
+       │◄─────────────────│                  │
+       │                  │                  │
+       │ POST /api/device/add with system info
+       ├─────────────────►│                  │
+       │                  │                  │
+       │ Connect to /api/device/listen with apiKey
+       ├─────────────────►│                  │
+       │                  │                  │
+```
 
-- Notes
-  - PINs should expire quickly; remove on success/timeout.
-  - Keep this flow unchanged as the fallback path.
+**Flow Details:**
+- Device generates 6-digit PIN and connects to `/api/device/register` with headers:
+  - `X-Device-PIN`: Generated PIN
+  - `X-Device-MAC`: Device MAC address  
+  - `Authorization`: Factory JWT token
+- Server authenticates Factory JWT and checks if MAC already claimed
+- Server checks for active preclaim matching the MAC
+- **If preclaim exists**: Automatically claims device and updates:
+  - `Device.macAddress` and `Device.wifiMac` from header
+  - `PreclaimDevice.status = FULFILLED`, `claimedAt`, `claimedBy`, `deviceId`
+- **If no preclaim**: Waits for user to manually enter PIN via web UI
+- Device receives "registered" message with `apiKey` and switches to API key auth
 
-## 2) Pre‑Claim (Uploaded MACs with Expiry)
+## 2) Preclaim-based Claim (Automatic)
 
-- Data model (Zenstack)
-  - DeviceClaimSet: id, name, description, accountId, expiresAt?, status(ACTIVE/INACTIVE), createdBy, timestamps.
-  - DeviceClaim: id, setId, accountId, macId, name, description, expiresAt?, status(PENDING|FULFILLED|EXPIRED|REVOKED), deviceId?, claimedAt?, claimedBy?, timestamps.
-  - Constraints: unique(setId, macId). Effective expiry = `coalesce(DeviceClaim.expiresAt, DeviceClaimSet.expiresAt)`.
+```
+Admin Upload Process:
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Admin     │    │   Server    │    │   Device    │
+└──────┬──────┘    └──────┬──────┘    └──────┬──────┘
+       │                  │                  │
+       │ Upload CSV with MAC addresses       │
+       │ Create PreclaimSet & PreclaimDevice │
+       ├─────────────────►│                  │
+       │                  │ Store PENDING preclaims
+       │                  │ with normalized MACs     │
+       │                  │◄─────────────────┤
+       │                  │                  │
+       │                  │                  │
+       │         ┌────────┴────────┐         │
+       │         │ Device registration      │
+       │         │ (same as PIN flow)       │
+       │         └────────┬────────┘         │
+       │                  │                  │
+       │                  │ SSE /api/device/register
+       │                  │ Headers: X-Device-PIN, X-Device-MAC, Factory-JWT
+       │                  │◄─────────────────┤
+       │                  │                  │
+       │         ┌────────┴────────┐         │
+       │         │ Check for preclaim       │
+       │         │ matching MAC             │
+       │         └────────┬────────┘         │
+       │                  │                  │
+       │            ┌─────┴─────┐            │
+       │            │ Preclaim  │            │
+       │            │ found     │            │
+       │            └─────┬─────┘            │
+       │                  │                  │
+       │    Auto-claim device:               │
+       │    • Update Device.macAddress/wifiMac
+       │    • Set PreclaimDevice.status=FULFILLED
+       │    • Set claimedAt, claimedBy, deviceId
+       │                  │                  │
+       │    Send "registered" message with apiKey
+       │◄─────────────────│                  │
+       │                  │                  │
+       │            ┌─────┴─────┐            │
+       │            │ No preclaim │          │
+       │            └─────┬─────┘            │
+       │                  │                  │
+       │                  │ Fall back to manual
+       │                  │ PIN claim        │
+       │                  │◄─────────────────┤
+```
 
-- Admin upload (SvelteKit Action)
-  - CSV columns: `macId,name,description,expiresAt?`.
-  - Validate with Zod, normalize MACs (uppercase, strip separators), dedupe.
-  - Create/append to an ACTIVE `DeviceClaimSet` and insert PENDING rows in a transaction.
-  - Security: restrict to account admins; row‑level security via Zenstack.
+### Data Model (Current Implementation)
 
-- Device auto‑claim (Factory token)
-  - Device POSTs to `/api/device/add` with factory token header (e.g., `X-Factory-Token`) and system info including MACs.
-  - Server matches any PENDING `DeviceClaim` by normalized MAC where not expired and set is ACTIVE.
-  - Transactionally:
-    - Mark the selected row FULFILLED (store matched macId, claimedAt/By).
-    - Upsert [Device](cci:2://file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/stores/device-store.ts:27:0-37:1) linked to `accountId` from the claim, set ACTIVE, issue `apiKey`.
-    - Send sudo “registered” message to the device with `apiKey` and `deviceId`.
-  - Device switches to `x-api-key` for subsequent calls.
+**PreclaimSet** (`schema.zmodel`):
+- `id`, `name`, `description`, `accountId`, `status` (ACTIVE/INACTIVE)
+- `expiresAt?`, `createdAt`, `updatedAt`, `createdBy`
+- Constraints: `unique([accountId, name])`
 
-- Conflict with PIN flow
-  - If a device is PIN‑claimed first, any overlapping PENDING pre‑claim rows should be REVOKED (or marked FULFILLED to that device for audit) to prevent future auto‑claims.
+**PreclaimDevice** (`schema.zmodel`):
+- `id`, `setId`, `accountId`, `macId` (normalized MAC)
+- `name?`, `description?`, `status` (PENDING/FULFILLED/EXPIRED)
+- `expiresAt?`, `claimedAt?`, `claimedBy?`, `deviceId?`
+- `createdAt`, `updatedAt`
+- Constraints: `unique([setId, macId])`
 
-- Update rules
-  - `accountId` immutable after creation.
-  - When `status = FULFILLED`, `macId/accountId/setId` immutable (allow name/description edits only).
-  - No duplicate active claims: reject updates that create another PENDING/ FULFILLED for the same `macId` in ACTIVE sets of the same account.
-  - Status transitions: PENDING → FULFILLED/EXPIRED/REVOKED. No re‑opening expired/revoked.
+### Current Implementation Status
 
-## Set‑Level Rollups (for Admin UI)
+✅ **Implemented:**
+- Preclaim detection during device registration (`/api/device/register`)
+- Automatic claiming when preclaim matches device MAC
+- MAC address persistence to `Device.macAddress` and `Device.wifiMac`
+- PreclaimDevice status updates (`FULFILLED`, `claimedAt`, `claimedBy`, `deviceId`)
+- Account ID validation fix in SSE handler
 
-For each `DeviceClaimSet` show:
-- Days to expiry:
-  - If `set.expiresAt`: ceil(days until that date), min 0.
-  - Else: ceil(days until latest non‑null effective row expiry), or null if none.
-- Totals:
-  - totalRows
-  - claimed: FULFILLED
-  - outstanding: PENDING and not expired (by effective expiry)
-  - expired: EXPIRED, or PENDING/REVOKED with effective expiry past
-  - revoked: REVOKED
-- Expiring soon: PENDING rows with effective expiry within the next N days (e.g., 7).
+🚧 **Pending:**
+- Admin UI for preclaim upload/management
+- CSV upload functionality
+- Preclaim expiry handling
 
-Compute effective expiry per row as `coalesce(DeviceClaim.expiresAt, DeviceClaimSet.expiresAt)`.
+## Technical Implementation Details
 
-## Auth Headers Summary
+### Key Files Modified
 
-- PIN registration: `X-Device-PIN` (SSE `/api/device/register`)
-- Factory pre‑claim: `X-Factory-Token` (POST `/api/device/add`)
-- Post‑registration: `x-api-key` (all device APIs)
+**Registration Handler** (`/api/device/register/+server.ts`):
+- Added MAC address storage during authentication: `(locals as any).deviceMac = mac`
+- Added Device MAC field updates: `Device.macAddress` and `Device.wifiMac`
+- Added PreclaimDevice status updates: `status: ClaimStatus.FULFILLED`, `claimedAt`, `claimedBy`, `deviceId`
+- Uses `locals.prisma` for database access (project convention)
+
+**SSE Handler** (`/api/sse/+server.ts`):
+- Fixed account ID bug: `accountId: currentAccount?.accountId` (was `currentAccount?.id`)
+- Ensures correct account validation in device claim flow
+
+**Preclaim Detection** (`devicePreclaim.ts`):
+- Checks for active, unexpired preclaims matching device MAC
+- Integrated into registration authentication flow
+
+### Auth Headers & Endpoints
+
+| Header | Endpoint | Purpose |
+|--------|----------|---------|
+| `X-Device-PIN` | `/api/device/register` (SSE) | 6-digit PIN for manual claim |
+| `X-Device-MAC` | `/api/device/register` (SSE) | Device MAC for preclaim matching |
+| `Authorization: Bearer <factory-jwt>` | `/api/device/register` (SSE) | Factory authentication |
+| `X-Api-Key` | All device APIs | Post-registration authentication |
+
+### Database Schema
+
+```sql
+-- Preclaim management
+model PreclaimSet {
+  status      SetStatus @default(ACTIVE)  -- ACTIVE/INACTIVE
+  expiresAt   DateTime?
+  claims      PreclaimDevice[]
+}
+
+model PreclaimDevice {
+  macId       String       -- normalized MAC (uppercase, no separators)
+  status      ClaimStatus  -- PENDING/FULFILLED/EXPIRED
+  claimedAt   DateTime?
+  claimedBy   String?      -- User ID who claimed
+  deviceId    String?      -- Linked device when fulfilled
+  device      Device?      @relation(fields: [deviceId], references: [id])
+}
+
+-- Device with MAC fields
+model Device {
+  macAddress    String?    -- Primary MAC from X-Device-MAC header
+  wifiMac       String?    -- WiFi MAC (same as macAddress currently)
+  claimedAt     DateTime?
+  claimedBy     String?    -- User ID who claimed
+}
+```
 
 
 ## Implementation Checklist
