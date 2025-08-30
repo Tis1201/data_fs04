@@ -27,6 +27,7 @@ import {
     toResponse
 } from '$lib/shared/response_format';
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
+import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -57,6 +58,36 @@ export const GET = createSSEHandler({
         const mac = request.headers.get('X-Device-MAC');
 
         logger.debug(`X-Device-MAC: ${mac}`);
+
+        // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
+        if (mac) {
+            const existingDevice = await locals.prisma.device.findFirst({
+                where: { macAddress: mac }
+            });
+            
+            if (existingDevice?.claimedBy) {
+                logger.warn(`Device with MAC ${mac} is already claimed`);
+                throw toResponse(createErrorResponse({
+                    error: 'ValidationError',
+                    message: 'Device is already claimed',
+                    status: ResponseStatus.BAD_REQUEST,
+                    category: ResponseCategory.DEVICE
+                }));
+            }
+        }
+
+        // Check preclaim (active, unclaimed, not expired) for this MAC
+        try {
+            const preclaimCheck = await checkDevicePreclaim(locals, request);
+            if (preclaimCheck?.preclaim) {
+                // Stash for later use in flow (e.g., shortcut pin registration)
+                (locals as any).preclaimDevice = preclaimCheck;
+                logger.info(`Preclaim found for MAC ${preclaimCheck.normalizedMac}, preclaimId=${preclaimCheck.preclaim.id}`);
+            }
+        } catch (e) {
+            logger.error(`Preclaim check error: ${e}`);
+        }
+        
         
         if (!pin) {
             logger.warn('No PIN provided');
@@ -142,4 +173,3 @@ export const GET = createSSEHandler({
     // Don't update device status in database for registration connections
     updateDeviceStatus: false
 });
-
