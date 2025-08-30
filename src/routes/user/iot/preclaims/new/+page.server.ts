@@ -115,15 +115,7 @@ export const actions: Actions = {
                     return message(form, createErrorResponse('No valid rows found in file.'), { status: 400 });
                 }
 
-                // Deduplicate by macId within upload
-                const seen = new Set<string>();
-                rows = rows.filter((r) => {
-                    if (seen.has(r.macId)) return false;
-                    seen.add(r.macId);
-                    return true;
-                });
-
-                // Build user context for enhanced prisma
+                // Build user context for enhanced prisma (needed before duplicate check)
                 const userContext = {
                     id: auth.user.id,
                     systemRole: auth.user.systemRole,
@@ -132,10 +124,73 @@ export const actions: Actions = {
 
                 const enhancedPrisma = getEnhancedPrisma(userContext, { logPrismaQuery: true });
 
+                // Resolve accountId before duplicate checks
                 const { currentAccount } = locals;
                 const accountId: string = auth.currentAccount?.account?.id ?? currentAccount?.id ?? currentAccount?.accountId;
                 if (!accountId) {
                     return message(form, createErrorResponse('No current account selected. Please select an account first.'), { status: 400 });
+                }
+
+                // Check for duplicates across all accounts in database
+                const macIds = rows.map(r => r.macId);
+                const existingPreclaims = await enhancedPrisma.preclaimDevice.findMany({
+                    where: {
+                        macId: { in: macIds },
+                        status: { in: ['PENDING', 'FULFILLED'] } // Include fulfilled to prevent re-preclaiming
+                    },
+                    include: {
+                        set: {
+                            select: { name: true }
+                        },
+                        account: {
+                            select: { name: true }
+                        }
+                    }
+                });
+
+                // Group conflicts by MAC and account
+                const conflicts: Array<{
+                    macId: string;
+                    existingAccount: string;
+                    existingSet: string;
+                    status: string;
+                }> = [];
+
+                for (const existing of existingPreclaims) {
+                    const conflictingRow = rows.find(r => r.macId === existing.macId);
+                    if (conflictingRow && existing.accountId !== accountId) {
+                        conflicts.push({
+                            macId: existing.macId,
+                            existingAccount: existing.account?.name || 'Unknown Account',
+                            existingSet: existing.set?.name || 'Unknown Set',
+                            status: existing.status
+                        });
+                    } else if (conflictingRow && existing.accountId === accountId) {
+                        // Same account - check if it's a different set
+                        if (existing.setId !== null) { // We'll set setId after creation
+                            conflicts.push({
+                                macId: existing.macId,
+                                existingAccount: existing.account?.name || 'Same Account',
+                                existingSet: existing.set?.name || 'Existing Set',
+                                status: existing.status
+                            });
+                        }
+                    }
+                }
+
+                if (conflicts.length > 0) {
+                    // Log detailed conflicts server-side for audit without leaking cross-tenant info to users
+                    logger.warn(`Duplicate preclaim conflicts detected: ${JSON.stringify(conflicts)}`);
+
+                    // Mask MACs for client message (keep first 4 and last 4 chars)
+                    const maskMac = (mac: string) => mac.length <= 8 ? '********' : `${mac.slice(0, 4)}****${mac.slice(-4)}`;
+                    const masked = Array.from(new Set(conflicts.map((c) => maskMac(c.macId))));
+
+                    const text = masked.length === 1
+                        ? `Duplicate MAC detected: ${masked[0]}. Please remove duplicates and try again.`
+                        : `Duplicate MACs detected (${masked.length}): ${masked.join(', ')}. Please remove duplicates and try again.`;
+
+                    return message(form, createErrorResponse(text), { status: 400 });
                 }
 
                 const expiresAt = form.data.expiresAt ? new Date(`${form.data.expiresAt}T00:00:00`) : null;
@@ -186,7 +241,14 @@ export const actions: Actions = {
                     });
                 }
             } catch (e: any) {
-                logger.error(`Failed to upload preclaims: ${JSON.stringify(e)}`);
+                const errInfo = {
+                    name: e?.name,
+                    message: e?.message,
+                    code: e?.code,
+                    meta: e?.meta,
+                    stack: e?.stack
+                };
+                logger.error(`Failed to upload preclaims: ${JSON.stringify(errInfo)}`);
                 return fail(500, {
                     message: 'An unexpected error occurred while processing the upload.',
                     error: e instanceof Error ? e.message : 'Unknown error'
