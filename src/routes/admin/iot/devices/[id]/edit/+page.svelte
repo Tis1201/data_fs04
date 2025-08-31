@@ -44,6 +44,31 @@
             };
         }
     });
+
+    // Tag handler
+    let tags: string[] = device.tags ?? [];
+    let newTag = '';
+
+    function addTag() {
+        console.log('COME 1')
+        const value = newTag.trim();
+        if (value && !tags.includes(value)) {
+            console.log('COME 2')
+            tags = [...tags, value];
+            console.log({tags})
+            $form.tags = tags;
+        }
+        console.log(`$form.tags: ${ $form.tags}`)
+        newTag = '';
+    }
+    
+    function removeTag(tag: string) {
+        tags = tags.filter((t) => t !== tag);
+        console.log({tags})
+        $form.tags = tags;
+        console.log(`$form.tags: ${ $form.tags}`)
+    }
+
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -125,6 +150,35 @@
                         bind:value={$form.description}
                         rows={3}
                     />
+                </FormField>
+
+                <FormField
+                    id="tags"
+                    label="Tags"
+                    error={$errors.tags}
+                >
+                    <Input
+                        id="tags"
+                        name="tags"
+                        type="text"
+                        bind:value={newTag}
+                        placeholder="Add a tag and press Enter"
+                        on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                    />
+                    <div class="flex flex-wrap gap-2 mb-2">
+                        {#each tags as tag}
+                            <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1">
+                                {tag}
+                                <button
+                                type="button"
+                                class="text-red-500 hover:text-red-700"
+                                on:click={() => removeTag(tag)}
+                                >
+                                ✕
+                                </button>
+                            </span>
+                        {/each}
+                    </div>
                 </FormField>
 
                 <!-- Only name, status, and description are editable -->

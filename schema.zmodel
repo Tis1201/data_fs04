@@ -488,6 +488,7 @@ model Device {
   // logs          Log[]?    // Uncomment if you have a Log model
   actionLogs   DeviceActionLog[] @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
+  tags      DeviceTag[]  @relation("DeviceTags")
 
   // Connection status
   connected     Boolean  @default(false)
@@ -507,6 +508,21 @@ model Device {
   @@index([accountId])
   @@index([companyId])
 }   
+
+model DeviceTag {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  devices      Device[]   @relation("DeviceTags")
+
+  // Access policies
+  // Admins can do everything
+  @@allow('all', auth().systemRole == 'ADMIN')
+}
 
 // Generic device action log for all operations (firmware update, screenshot, etc.)
 model DeviceActionLog {

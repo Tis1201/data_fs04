@@ -18,6 +18,7 @@ export const load = restrict(
                 where: { id: params.id },
                 select: {
                     id: true,
+                    tags: true,
                     name: true,
                     description: true,
                     status: true,
@@ -53,6 +54,7 @@ export const load = restrict(
                     name: device.name,
                     description: device.description || "",
                     status: device.status,
+                    tags: device.tags
                 },
                 zod(deviceEditSchema)
             );
@@ -102,7 +104,10 @@ export const actions: Actions = {
                     name: form.data.name,
                     description: form.data.description || null,
                     status: form.data.status,
+                    tags: form.data.tags
                 };
+                console.log(form.data.tags)
+                console.log({updateData})
 
                 // Update device
                 const updatedDevice = await locals.prisma.device.update({
