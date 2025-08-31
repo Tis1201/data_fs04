@@ -48,20 +48,33 @@ export const load = restrict(
                 throw error(404, "Device not found");
             }
 
+            const availableTags = await locals.prisma.deviceTag.findMany({
+                select: {
+                    id: true,
+                    name: true
+                }
+            })
+
+            const deviceTagIds = device.tags.map(tag => tag.id);
+
             const form = await superValidate(
                 {
                     id: device.id,
                     name: device.name,
                     description: device.description || "",
                     status: device.status,
-                    tags: device.tags
+                    tagIds: deviceTagIds
                 },
                 zod(deviceEditSchema)
             );
+            
+            
 
             return {
                 form,
-                device
+                device,
+                deviceTagIds,
+                availableTags
             };
         } catch (e) {
             logger.error('Error loading device for edit:', e);
@@ -99,20 +112,25 @@ export const actions: Actions = {
                     });
                 }
 
-                // Prepare update data - only name, status, and description are editable
-                const updateData = {
-                    name: form.data.name,
-                    description: form.data.description || null,
-                    status: form.data.status,
-                    tags: form.data.tags
-                };
-                console.log(form.data.tags)
-                console.log({updateData})
+                const { name, description, status, tagIds } = form.data;
+                
+                let tagIdObjects: { id: string }[] = [];
 
-                // Update device
+                tagIds.forEach(tagId => {
+                    if (tagId.trim()) {
+                        tagIdObjects.push({ id: tagId })
+                    }
+                })
                 const updatedDevice = await locals.prisma.device.update({
                     where: { id },
-                    data: updateData
+                    data: {
+                        name: name,
+                        description: description || null,
+                        status: status,
+                        tags: {
+                            set: tagIdObjects
+                        }
+                    }
                 });
 
                 await logAudit({
@@ -152,7 +170,7 @@ export const actions: Actions = {
     cancel: restrict(
         async ({ params }) => {
             // Redirect back to the device detail page
-            throw redirect(303, `/admin/iot/devices/${params.id}`);
+            throw redirect(303, `/admin/iot/device/${params.id}`);
         },
         [SystemRole.ADMIN]
     )

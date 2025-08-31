@@ -20,6 +20,7 @@ export const load = restrict(
                 where: { id: params.id },
                 select: {
                     id: true,
+                    tags: true,
                     name: true,
                     description: true,
                     status: true,

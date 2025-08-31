@@ -2,6 +2,7 @@
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
+    import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
     import { Save, X, ArrowLeft } from "lucide-svelte";
@@ -21,7 +22,8 @@
     import { DEVICE_STATUSES, DEVICE_TYPES } from "../schema";
 
     export let data: PageData;
-    const { device } = data;
+    const { device, deviceTagIds, availableTags } = data;
+    let selectedTags: string[] = deviceTagIds;
     const title = `Edit ${device.name || "Device"}`;
 
     // Define breadcrumbs for this page
@@ -45,29 +47,15 @@
         }
     });
 
-    // Tag handler
-    let tags: string[] = device.tags ?? [];
-    let newTag = '';
-
-    function addTag() {
-        console.log('COME 1')
-        const value = newTag.trim();
-        if (value && !tags.includes(value)) {
-            console.log('COME 2')
-            tags = [...tags, value];
-            console.log({tags})
-            $form.tags = tags;
+    function toggleTag(tagId: string) {
+        if (selectedTags.includes(tagId)) {
+            selectedTags = selectedTags.filter((id) => id !== tagId);
+        } else {
+            selectedTags = [...selectedTags, tagId];
         }
-        console.log(`$form.tags: ${ $form.tags}`)
-        newTag = '';
+        $form.tagIds = selectedTags;
     }
-    
-    function removeTag(tag: string) {
-        tags = tags.filter((t) => t !== tag);
-        console.log({tags})
-        $form.tags = tags;
-        console.log(`$form.tags: ${ $form.tags}`)
-    }
+
 
 </script>
 
@@ -152,39 +140,32 @@
                     />
                 </FormField>
 
-                <FormField
-                    id="tags"
-                    label="Tags"
-                    error={$errors.tags}
+                <!-- Tags -->
+                 <FormField
+                    label="Device Tags"
+                    error={$errors.tagIds}
                 >
-                    <Input
-                        id="tags"
-                        name="tags"
-                        type="text"
-                        bind:value={newTag}
-                        placeholder="Add a tag and press Enter"
-                        on:keydown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-                    />
-                    <div class="flex flex-wrap gap-2 mb-2">
-                        {#each tags as tag}
-                            <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1">
-                                {tag}
-                                <button
-                                type="button"
-                                class="text-red-500 hover:text-red-700"
-                                on:click={() => removeTag(tag)}
-                                >
-                                ✕
-                                </button>
-                            </span>
-                        {/each}
-                    </div>
+                    {#each availableTags as tag}
+                        <div
+                            class="flex items-center gap-2 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"
+                        >
+                            <Checkbox
+                                name={tag.name}
+                                checked={selectedTags.includes(tag.id)}
+                                on:click={() => toggleTag(tag.id)}
+                            />
+                            <span>{tag.name}</span>
+                        </div>
+                    {/each}
                 </FormField>
 
                 <!-- Only name, status, and description are editable -->
 
-                <!-- Hidden ID field -->
+                <!-- Hidden fields -->
                 <input type="hidden" name="id" bind:value={$form.id} />
+                {#each $form.tagIds as tagId}
+                    <input type="hidden" name="tagIds" value={tagId} />
+                {/each}
             </FormContainer>
         </AdminCard>
     </div>
