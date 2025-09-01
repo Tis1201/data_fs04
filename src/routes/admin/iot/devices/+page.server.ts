@@ -25,6 +25,16 @@ const table_options = {
     filterMappings: {
         'types': { field: 'deviceType', operator: 'in' },
         'statuses': { field: 'status', operator: 'in' }
+    },
+    select: {
+        id: true,
+        name: true,
+        connected: true,
+        deviceType: true,
+        hardwareId: true,
+        manufacturer: true,
+        createdAt: true,
+        tags: true
     }
 };
 
@@ -37,9 +47,38 @@ export const load = restrict(
     async ({ url, locals }) => {
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
+        const availableTags = await locals.prisma.deviceTag.findMany({
+            select: {
+                id: true,
+                name: true
+            }
+        })
+
+        let filteredTagIds = url.searchParams.get("tags");
+        if (filteredTagIds) {
+            filteredTagIds = filteredTagIds.includes(',') ? filteredTagIds.split(',').filter(Boolean) : [filteredTagIds];
+        }
+
+        const records = result.records;
+
+        let devices = [];
+        if (!filteredTagIds) {
+            devices = records;
+        } else {
+            records.forEach(record => {
+                const tags = record.tags;
+                for (const tag of tags) {
+                    if (filteredTagIds.includes(tag.id)) {
+                        devices.push(record);
+                        break;
+                    }
+                }
+            })
+        }
         
         return {
-            devices: result.records,
+            devices,
+            availableTags,
             meta: result.meta
         };
     },
