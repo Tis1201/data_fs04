@@ -2,6 +2,7 @@
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
+    import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
     import { Save, X, ArrowLeft } from "lucide-svelte";
@@ -21,7 +22,8 @@
     import { DEVICE_STATUSES, DEVICE_TYPES } from "../schema";
 
     export let data: PageData;
-    const { device } = data;
+    const { device, deviceTagIds, availableTags } = data;
+    let selectedTags: string[] = deviceTagIds;
     const title = `Edit ${device.name || "Device"}`;
 
     // Define breadcrumbs for this page
@@ -44,6 +46,17 @@
             };
         }
     });
+
+    function toggleTag(tagId: string) {
+        if (selectedTags.includes(tagId)) {
+            selectedTags = selectedTags.filter((id) => id !== tagId);
+        } else {
+            selectedTags = [...selectedTags, tagId];
+        }
+        $form.tagIds = selectedTags;
+    }
+
+
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -127,10 +140,32 @@
                     />
                 </FormField>
 
+                <!-- Tags -->
+                 <FormField
+                    label="Device Tags"
+                    error={$errors.tagIds}
+                >
+                    {#each availableTags as tag}
+                        <div
+                            class="flex items-center gap-2 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded"
+                        >
+                            <Checkbox
+                                name={tag.name}
+                                checked={selectedTags.includes(tag.id)}
+                                on:click={() => toggleTag(tag.id)}
+                            />
+                            <span>{tag.name}</span>
+                        </div>
+                    {/each}
+                </FormField>
+
                 <!-- Only name, status, and description are editable -->
 
-                <!-- Hidden ID field -->
+                <!-- Hidden fields -->
                 <input type="hidden" name="id" bind:value={$form.id} />
+                {#each $form.tagIds as tagId}
+                    <input type="hidden" name="tagIds" value={tagId} />
+                {/each}
             </FormContainer>
         </AdminCard>
     </div>

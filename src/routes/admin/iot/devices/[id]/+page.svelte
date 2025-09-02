@@ -810,6 +810,15 @@
                             </div>
                         {/if}
                     </div>
+
+                    <CompactInfoGrid columns={2} gap="gap-4" class_name="items-start">
+                        <CompactInfoItem label="Device Tags" separated={true}>
+                            
+                            {#each device.tags as tag}
+                                <div class="font-medium">{tag.name}</div>
+                            {/each}
+                        </CompactInfoItem>
+                    </CompactInfoGrid>
                 </div>
             </div>
             <svelte:fragment slot="footer">

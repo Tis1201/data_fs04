@@ -358,6 +358,7 @@ model Device {
   claimedBy            String?
   actionLogs           DeviceActionLog[]     @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
+  tags                 DeviceTag[]           @relation("DeviceTags")
   preclaimDevices      PreclaimDevice[]
   connected            Boolean               @default(false)
   connectedAt          DateTime?
@@ -369,6 +370,15 @@ model Device {
   @@index([status])
   @@index([accountId])
   @@index([companyId])
+}
+
+model DeviceTag {
+  id          String   @id() @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
+  devices     Device[] @relation("DeviceTags")
 }
 
 model DeviceActionLog {

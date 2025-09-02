@@ -10,7 +10,7 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import { Pencil, Trash, Power, RefreshCw } from "lucide-svelte";
-    import type { Device } from "@prisma/client";
+    import type { Device, DeviceTag } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
@@ -27,6 +27,7 @@
     // Props for DataTable component
     export let props = {
         records: [] as Device[],
+        availableTags: [] as DeviceTag[],
         pagination: {
             page: 1,
             per_page: 10,
@@ -91,6 +92,17 @@
     const selectedStatuses = writable<string[]>(
         $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? []
     );
+
+    const selectedTagIds = writable<string[]>(
+        $page.url.searchParams.get("tags")?.split(",").filter(Boolean) ?? []
+    );
+
+    const tagOptions = props.availableTags.map(tag => {
+        return {
+            label: tag.name,
+            value: tag.id
+        }
+    })
 
     // Column definitions
     const columns = [
@@ -391,6 +403,21 @@
                     const url = new URL(window.location.href);
                     url.searchParams.set('statuses', values.join(','));
                     if (!values.length) url.searchParams.delete('statuses');
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
+            />
+
+            <!-- Tags filter -->
+            <PopoverFilter
+                label="Tags"
+                options={tagOptions}
+                selectedValues={$selectedTagIds}
+                onChange={(values) => {
+                    selectedTagIds.set(values);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tags', values.join(','));
+                    if (!values.length) url.searchParams.delete('tags');
                     url.searchParams.set('page', '1');
                     goto(url.toString(), { replaceState: true, noScroll: true });
                 }}
