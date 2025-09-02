@@ -1,9 +1,9 @@
 <script lang="ts">
-    import { Factory, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw } from 'lucide-svelte';
+    import { Factory, RotateCw, AlertCircle, CheckCircle, ArrowLeft, RefreshCw, Key } from 'lucide-svelte';
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
-    
+    import TokenDisplayDialog from './TokenDisplayDialog.svelte';
     // Import confirmation dialog
     import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
     
@@ -97,6 +97,9 @@
     
     // Confirmation dialog state
     let showRotateConfirmation = false;
+    let showGenerateConfirmation = false;
+    let showTokenDialog = false;
+    let generatedToken = '';
     
     // Handle rotate key button click
     function handleRotateKeyClick() {
@@ -104,6 +107,36 @@
             showRotateConfirmation = true;
         } else {
             toast.error("No primary key found to rotate");
+        }
+    }
+
+    // Handle generate JWT button click: fetch token and show in dialog
+    async function handleGenerateJwtClick() {
+        if (!primaryKey) {
+            toast.error('No primary key available to sign JWT');
+            return;
+        }
+        const form = document.getElementById('generate-jwt-form') as HTMLFormElement;
+        if (!form) {
+            toast.error('Form not found');
+            return;
+        }
+        const fd = new FormData(form);
+        const dismiss = toast.loading('Generating factory JWT...');
+        try {
+            const res = await fetch(form.action, { method: 'POST', body: fd });
+            const text = await res.text();
+            if (!res.ok) {
+                toast.error('Failed to generate JWT');
+                return;
+            }
+            generatedToken = text;
+            showTokenDialog = true;
+            toast.success('JWT generated');
+        } catch (e) {
+            toast.error('Error generating JWT');
+        } finally {
+            toast.dismiss(dismiss);
         }
     }
     
@@ -158,6 +191,13 @@
             variant: "outline"
         },
         {
+            label: "Generate JWT",
+            icon: Key,
+            onClick: handleGenerateJwtClick,
+            variant: "default",
+            disabled: !primaryKey
+        },
+        {
             label: "Rotate Key",
             icon: RefreshCw,
             onClick: handleRotateKeyClick,
@@ -195,6 +235,13 @@
             
             <svelte:fragment slot="actions">
                 {#if primaryKey}
+                    <!-- Hidden form for generating a factory JWT; server action can be wired later -->
+                    <form id="generate-jwt-form" method="POST" action="/admin/jwt/signing_keys/factory/generate">
+                        <input type="hidden" name="keyId" value={primaryKey.id} />
+                        <!-- Minimal defaults; server can fill sensible claims -->
+                        <input type="hidden" name="aud" value="device-register" />
+                        <input type="hidden" name="typ" value="factory" />
+                    </form>
                     <form id="rotate-key-form" method="POST" action="?/rotateKey" use:rotateEnhance>
                         <input type="hidden" name="keyId" value={primaryKey.id} />
                     </form>
@@ -245,5 +292,12 @@
         description="Are you sure you want to rotate this key? This will create a new primary key and mark the current one as inactive. The following changes will occur:\n\n• The well-known JWKs endpoint will be updated with the new key\n• The old key will remain in the well-known endpoint for token validation\n• New tokens will be signed with the new key\n• Existing tokens will still be valid until they expire\n• Factory tokens will need to be regenerated\n\nThis operation cannot be undone."
         confirmText="Rotate Key"
         onConfirm={handleRotateConfirm}
+    />
+    
+    <!-- Token display dialog -->
+    <TokenDisplayDialog
+        bind:open={showTokenDialog}
+        token={generatedToken}
+        onClose={() => { showTokenDialog = false; generatedToken = ''; }}
     />
 </AdminPageLayout>

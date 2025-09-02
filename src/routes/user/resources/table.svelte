@@ -18,7 +18,7 @@
     import { onMount } from "svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
-    import { Badge } from "$lib/components/ui/badge";
+    import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
 
     // Props for DataTable component
     export let props = {
@@ -97,12 +97,11 @@
             sortable: true,
             width: "10%",
             render: (record: Resource) => ({
-                component: Badge,
+                component: StatusBadge,
                 props: {
-                    variant: getTypeVariant(record.type),
-                    class: "capitalize"
-                },
-                children: record.type
+                    status: record.type,
+                    className: "capitalize"
+                }
             })
         },
         {
@@ -178,20 +177,7 @@
         }
     ];
 
-    // Helper function to get badge variant based on resource type
-    function getTypeVariant(type: string): "default" | "secondary" | "destructive" | "outline" {
-        switch (type.toLowerCase()) {
-            case 'image':
-                return "default";
-            case 'video':
-                return "secondary";
-            case 'document':
-                return "outline";
-            case 'file':
-            default:
-                return "outline";
-        }
-    }
+    // No additional helpers needed; StatusBadge will handle default styling
 </script>
 
 <div class="space-y-4">

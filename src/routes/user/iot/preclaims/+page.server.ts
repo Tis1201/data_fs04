@@ -13,28 +13,27 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
 
-// Define table options for Devices
+// Define table options for Preclaim Sets
 const table_options = {
-    modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId'],
-    allowedFilters: ['types', 'statuses'],
+    modelName: 'preclaimSet',
+    searchableFields: ['name', 'id', 'description'],
+    allowedFilters: ['statuses'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
     // Define filter mappings at the table level
     filterMappings: {
-        'types': { field: 'deviceType', operator: 'in' },
         'statuses': { field: 'status', operator: 'in' }
     },
-    // Add user-specific filter to only show user's devices
+    // Add user-specific filter to only show sets in user's accounts or created by the user
     additionalFilters: (locals: any) => {
         const userId = locals.auth?.user?.id;
         if (!userId) return {};
-        
+
         return {
             OR: [
-                { createdBy: userId }, // Devices created by this user
-                { 
+                { createdBy: userId },
+                {
                     account: {
                         members: {
                             some: {
@@ -42,7 +41,7 @@ const table_options = {
                             }
                         }
                     }
-                } // Devices in accounts where user is a member
+                }
             ]
         };
     }
@@ -56,12 +55,13 @@ const table_options = {
 export const load = restrict(
     async ({ url, locals, depends }) => {
         // Add a dependency key for invalidation
-        depends('app:userDevices');
+        depends('app:userPreclaimSets');
         
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
         return {
+            // Keep the key name to avoid changing the page component
             devices: result.records,
             meta: result.meta
         };
@@ -152,73 +152,5 @@ export const actions = {
             }
         },
         [SystemRole.USER] // Restrict to authenticated users
-    ),
-    /*******************************************************************************************
-     * Delete Device
-     ******************************************************************************************/
-    delete: restrict(
-        async ({ request, locals }) => {
-            try {
-                const data = await request.formData();
-                const id = data.get('id')?.toString();
-                if (!id) {
-                    return fail(400, { error: 'Device ID is required' });
-                }
-
-                const auth = await locals.auth.validate();
-                if (!auth) {
-                    return fail(401, { error: 'Unauthorized' });
-                }
-
-                // Fetch device first
-                const device = await locals.prisma.device.findUnique({ where: { id } });
-
-                if (!device) {
-                    return fail(404, { error: 'Device not found' });
-                }
-
-                // Authorization:
-                // - Allow if current user is the creator (Option B in schema)
-                // - Or allow if device has an account and user is OWNER/ADMIN of that account
-                let authorized = false;
-                if (device.createdBy === auth.user.id) {
-                    authorized = true;
-                } else if (device.accountId) {
-                    const membership = await locals.prisma.accountMembership.findFirst({
-                        where: {
-                            accountId: device.accountId,
-                            userId: auth.user.id,
-                            role: { in: ['OWNER', 'ADMIN'] }
-                        }
-                    });
-                    authorized = !!membership;
-                }
-
-                if (!authorized) {
-                    return fail(403, { error: 'You do not have permission to delete this device' });
-                }
-
-                await locals.prisma.device.delete({ where: { id } });
-
-                logger.info(`User ${auth.user.id} deleted device ${id}`);
-
-                await logAudit({
-                    actionType: AuditActionType.DELETE,
-                    tableName: 'Device',
-                    recordId: id,
-                    oldData: device,
-                    newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
-                    prisma: locals.prisma
-                });
-
-                return { success: true };
-            } catch (err) {
-                logger.error(`Error deleting device: ${err}`);
-                return fail(500, { error: 'Failed to delete device' });
-            }
-        },
-        [SystemRole.USER]
     )
-} satisfies Actions;
+};
