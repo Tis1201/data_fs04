@@ -57,6 +57,16 @@ export const load = restrict(
                             name: true,
                             slug: true
                         }
+                    },
+                    licenses: {
+                        select: {
+                            id: true,
+                            status: true,
+                            issuedAt: true,
+                            expiresAt: true,
+                            keyId: true,
+                            algorithm: true
+                        }
                     }
                 }
             });

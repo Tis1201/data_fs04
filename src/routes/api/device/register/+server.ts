@@ -16,6 +16,7 @@ import type { RequestHandler } from '../../$types';
 import { logger } from '$lib/server/logger';
 import { checkPinFormat } from '$lib/server/device/devicePinChecker';
 import type { DeviceMeta } from '$lib/server/device/deviceMeta';
+import { ClaimStatus } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { DeviceManager } from '$lib/server/device/deviceManager';
@@ -26,6 +27,9 @@ import {
     createErrorResponse,
     toResponse
 } from '$lib/shared/response_format';
+import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
+import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
+import { sendDeviceRegistrationMessage, createClaimOptions } from '$lib/server/device/deviceRegistrationUtils';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -42,8 +46,53 @@ export const GET = createSSEHandler({
      * Authenticate the device registration request
      */
     authenticate: async (locals, request) => {
+        // Verify Factory JWT (signature, audience, typ, scope)
+        await verifyFactoryJWT(locals, request);
+
+
+        //We will need to check if the device is already registered, if yes, return error, need to unclaim first
+        //We will also check if device has a preclaim (non-expired) against it
+        //If yes, we will have to short cut the pin registration process
+
         // Validate the PIN
         const pin = request.headers.get('X-Device-PIN');
+
+        const mac = request.headers.get('X-Device-MAC');
+
+        logger.debug(`X-Device-MAC: ${mac}`);
+
+        // Stash MAC for later use during onConnect (claim flow)
+        (locals as any).deviceMac = mac;
+
+        // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
+        if (mac) {
+            const existingDevice = await locals.prisma.device.findFirst({
+                where: { macAddress: mac }
+            });
+            
+            if (existingDevice?.claimedBy) {
+                logger.warn(`Device with MAC ${mac} is already claimed`);
+                throw toResponse(createErrorResponse({
+                    error: 'ValidationError',
+                    message: 'Device is already claimed',
+                    status: ResponseStatus.BAD_REQUEST,
+                    category: ResponseCategory.DEVICE
+                }));
+            }
+        }
+
+        // Check preclaim (active, unclaimed, not expired) for this MAC
+        try {
+            const preclaimCheck = await checkDevicePreclaim(locals, request);
+            if (preclaimCheck?.preclaim) {
+                // Stash for later use in flow (e.g., shortcut pin registration)
+                (locals as any).preclaimDevice = preclaimCheck;
+                logger.info(`Preclaim found for MAC ${preclaimCheck.mac}, preclaimId=${preclaimCheck.preclaim.id}`);
+            }
+        } catch (e) {
+            logger.error(`Preclaim check error: ${e}`);
+        }
+        
         
         if (!pin) {
             logger.warn('No PIN provided');
@@ -113,7 +162,80 @@ export const GET = createSSEHandler({
         
         // Register the device with the PIN
         const pin = locals.pin as string;
-        DeviceManager.registerDevice(pin, deviceMeta);
+        await DeviceManager.registerDevice(pin, deviceMeta);
+        
+        // Handle preclaimed devices
+        const preclaim = (locals as any).preclaimDevice;
+        if (preclaim) {
+            logger.info(`Processing preclaim for device ${device.id} with preclaim ${preclaim.preclaim.id}`);
+            
+            // Use preclaim set creator as the claiming user (fallback if claimedBy is not set)
+            const preclaimSet = await locals.prisma.preclaimSet.findUnique({
+                where: { id: preclaim.preclaim.setId },
+                select: { createdBy: true }
+            });
+            
+            const claimUserId = preclaim.preclaim.claimedBy || preclaimSet?.createdBy;
+            
+            if (!claimUserId) {
+                logger.error(`No user found to claim preclaimed device ${device.id}`);
+                return;
+            }
+            
+            // Immediately claim the device with preclaim info
+            const claimedDevice = await DeviceManager.claimDevice(pin, {
+                userId: claimUserId,
+                accountId: preclaim.preclaim.accountId,
+                preclaimId: preclaim.preclaim.id
+            });
+
+            if (!claimedDevice) {
+                logger.error(`Failed to claim device ${device.id} after preclaim processing`);
+                return;
+            }
+
+            // Update device network identifiers using the provided MAC
+            const mac = (locals as any).deviceMac as string | null;
+            if (mac) {
+                try {
+                    await locals.prisma.device.update({
+                        where: { id: claimedDevice.id },
+                        data: {
+                            macAddress: mac,
+                            wifiMac: mac
+                        }
+                    });
+                } catch (e) {
+                    logger.warn(`Failed to update device MACs for ${claimedDevice.id}: ${e}`);
+                }
+            }
+
+            // Update preclaim record with claim metadata and linkage to device
+            try {
+                await locals.prisma.preclaimDevice.update({
+                    where: { id: preclaim.preclaim.id },
+                    data: {
+                        status: ClaimStatus.FULFILLED,
+                        claimedAt: new Date(),
+                        claimedBy: claimUserId,
+                        deviceId: claimedDevice.id
+                    }
+                });
+            } catch (e) {
+                logger.warn(`Failed to update preclaim device ${preclaim.preclaim.id}: ${e}`);
+            }
+
+            // Send registration message using shared utility
+            await sendDeviceRegistrationMessage(device.id, {
+                id: claimedDevice.id,
+                apiKey: claimedDevice.apiKey,
+                accountId: claimedDevice.accountId,
+                claimedBy: claimedDevice.claimedBy,
+                name: claimedDevice.name,
+                deviceType: claimedDevice.deviceType,
+                status: claimedDevice.status
+            });
+        }
         
         logger.info(`Device ${device.id} registered with PIN ${pin}`);
     },
@@ -129,4 +251,3 @@ export const GET = createSSEHandler({
     // Don't update device status in database for registration connections
     updateDeviceStatus: false
 });
-

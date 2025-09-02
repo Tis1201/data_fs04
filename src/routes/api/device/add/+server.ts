@@ -1,17 +1,15 @@
 import { json } from '@sveltejs/kit';
-import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
-import { getEnhancedPrisma } from '$lib/server/prisma';
-import { SystemUser } from '$lib/server/messaging/interfaces/message';
-
-import { restrict_device } from '$lib/server/security/guards';
-import type { DeviceAuthEvent, DeviceAuthResult } from '$lib/server/security/guards';
+import {
+    ResponseStatus,
+    ResponseCategory,
+    createErrorResponse,
+    toResponse
+} from '$lib/shared/response_format';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals }: any) => {
-
-    const prisma = getEnhancedPrisma({ id: '', systemRole: 'ADMIN' });
-        
+    // Use locals.prisma per convention
     const data = await request.json();
 
     logger.debug(`Entry to api/device/add Data: ${JSON.stringify(data)}`);
@@ -35,46 +33,59 @@ export const POST: RequestHandler = async ({ request, locals }: any) => {
         pin,
         id,
         senderConnectionId,
-        senderId
+        senderId,
+        // Handle Go device service field names
+        SenderID,
+        SenderConnectionID
     } = data;
+
+    // Extract MAC from nested network info if present
+    const networkMac: string | undefined = data?.networkInfo?.mac;
+    // Normalize MAC fields: prefer explicit macAddress, else networkMac, else wifiMac
+    const macAddress: string | undefined = data?.macAddress ?? networkMac ?? wifiMac;
+    // Ensure wifiMac is filled if missing but we have a MAC
+    const resolvedWifiMac: string | undefined = wifiMac ?? macAddress;
 
     // Validate required fields
     if (!pin || !id) {
-        return json({
-            success: false,
-            error: 'PIN and device ID are required',
-            message: 'Missing required fields'
-        }, { status: 400 });
+        throw toResponse(createErrorResponse({
+            error: 'ValidationError',
+            message: 'PIN and device ID are required',
+            status: ResponseStatus.BAD_REQUEST,
+            category: ResponseCategory.DEVICE
+        }));
     }
 
-    // Determine the user ID to use for the device
-    const userId = senderId
+    // Determine the user ID to use for the device (handle both field names)
+    const userId = senderId || SenderID;
 
     if (!userId) {
-        return json({
-            success: false,
-            error: 'User ID is required',
-            message: 'User authentication failed'
-        }, { status: 401 });
+        throw toResponse(createErrorResponse({
+            error: 'ValidationError',
+            message: 'User ID is required',
+            status: ResponseStatus.UNAUTHORIZED,
+            category: ResponseCategory.DEVICE
+        }));
     }
 
     // Get the user to check account membership
-    const user = await prisma.user.findUnique({
+    const user = await locals.prisma.user.findUnique({
         where: { id: userId }
     });
 
     if (!user) {
-        return json({
-            success: false,
-            error: 'User not found',
-            message: 'User authentication failed'
-        }, { status: 404 });
+        throw toResponse(createErrorResponse({
+            error: 'NotFound',
+            message: 'User not found',
+            status: ResponseStatus.NOT_FOUND,
+            category: ResponseCategory.DEVICE
+        }));
     }
 
     // const accountId = user.memberships[0]?.accountId;
 
     // Save the device to the database
-    const device = await prisma.device.update({
+    const device = await locals.prisma.device.update({
         where: { id },
         data: {
             deviceType,
@@ -83,7 +94,8 @@ export const POST: RequestHandler = async ({ request, locals }: any) => {
             osVersion,
             firmwareVersion,
             hardwareId,
-            wifiMac,
+            macAddress,
+            wifiMac: resolvedWifiMac,
             lanMac,
             ipAddress,
             publicIpAddress,

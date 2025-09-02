@@ -100,9 +100,9 @@ export function createSSEStream({
             } catch (error) {
                 logger.error(`Error in SSE ReadableStream start: ${error}`);
                 
-                // Update device status on error
+                // Update device status on error (device may not exist yet during registration)
                 try {
-                    await locals.prisma.device.update({
+                    await locals.prisma.device.updateMany({
                         where: { id: device.id },
                         data: {
                             connected: false,
@@ -206,8 +206,17 @@ async function cleanupConnection(connectionId: string, deviceId: string, locals:
                 } catch (e) {
                     logger.warn(`Failed to broadcast device disconnection for ${deviceId}: ${String(e)}`);
                 }
-            } catch (updateError) {
-                logger.error(`Failed to update device ${deviceId} status: ${updateError}`);
+            } catch (updateError: any) {
+                // Handle specific Prisma errors
+                if (updateError.code === 'P2025') {
+                    // Record not found - device was likely deleted, ignore
+                    logger.debug(`Device ${deviceId} not found during cleanup - likely deleted`);
+                } else if (updateError.code === 'P2002') {
+                    // Unique constraint violation - ignore during cleanup
+                    logger.debug(`Unique constraint error during device ${deviceId} cleanup - ignoring`);
+                } else if (!String(updateError).includes('closed')) {
+                    logger.error(`Failed to update device ${deviceId} status: ${JSON.stringify(updateError)}`);
+                }
             }
         } else {
             logger.warn('No device ID provided for cleanup');

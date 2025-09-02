@@ -40,6 +40,7 @@ export const load = restrict(
                     hardwareId: true,
                     wifiMac: true,
                     lanMac: true,
+                    macAddress: true,
                     ipAddress: true,
                     apiKey: true,
                     apiKeyCreatedAt: true,

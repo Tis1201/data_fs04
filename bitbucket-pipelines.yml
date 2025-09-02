@@ -1,0 +1,96 @@
+image: atlassian/default-image:3
+
+definitions:
+  services:
+    docker:
+      memory: 7168
+
+pipelines:
+  custom:
+    Deploy-DEV-Manually:
+      - step:
+          name: Build & Push to GitLab Registry (DEV)
+          services: [ docker ]
+          size: 2x
+          script:
+            - set -eu
+            # Configure HTTPS auth for private Bitbucket submodules using secured vars
+            # Define BITBUCKET_SUBMODULE_USER and BITBUCKET_SUBMODULE_APP_PASSWORD in Pipelines variables
+            - echo "Ensuring submodule HTTPS auth is configured"
+            - |
+              if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
+                git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
+                git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
+              else
+                echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
+              fi
+            # Ensure git submodules are available in CI (ui_components_sveltekit, etc.)
+            - git submodule sync --recursive
+            # Force submodule URL to HTTPS with credentials to avoid SSH publickey errors
+            - |
+              if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
+                git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
+                  https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
+                git submodule sync --recursive
+              fi
+            - git submodule update --init --recursive
+            # 1) Login to GitLab registry
+            - echo "$GITLAB_TOKEN" | docker login registry.gitlab.com -u "$GITLAB_USER" --password-stdin
+            # 2) Build the Docker image (Dockerfile handles Node.js 20 and build process)
+            - export IMAGE="registry.gitlab.com/fs040/web:dev-$BITBUCKET_COMMIT"
+            - export LATEST_IMAGE="registry.gitlab.com/fs040/web:dev-latest"
+            - docker build --platform=linux/amd64 --memory=7g --memory-swap=7g -t "$IMAGE" -t "$LATEST_IMAGE" -f docker/Dockerfile .
+            # 4) Push both tagged and latest images
+            - docker push "$IMAGE"
+            - docker push "$LATEST_IMAGE"
+            - echo "✅ Pushed $IMAGE and $LATEST_IMAGE"
+            # 5) Save image info for deployment
+            - echo "$IMAGE" > .deploy_image
+          artifacts:
+            - .deploy_image
+      - step:
+            name: Deploy to DEV Environment
+            image: alpine:3.20
+            script:
+              - set -eux
+              - apk add --no-cache openssh-client coreutils docker-cli
+              - mkdir -p /root/.ssh
+              - echo "$OSLOGIN_SSH_KEY_B64_DEV" | base64 -d > /root/.ssh/id_oslogin
+              - chmod 600 /root/.ssh/id_oslogin
+              - SSH_OPTS="-o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts"
+              - echo "Testing folder creation and pulling latest dev image..."
+              # Upload docker-compose.yml and .env.dev to remote host
+              - scp $SSH_OPTS -i /root/.ssh/id_oslogin docker/docker-compose.yml "$OSLOGIN_USER@$VM_HOST_DEV:~/fs04-web/docker/docker-compose.yml"
+              - scp $SSH_OPTS -i /root/.ssh/id_oslogin .env.dev "$OSLOGIN_USER@$VM_HOST_DEV:~/fs04-web/.env"
+              # Single SSH session for all deployment steps
+              - |
+                ssh $SSH_OPTS -i /root/.ssh/id_oslogin "$OSLOGIN_USER@$VM_HOST_DEV" "
+                  set -e
+                  echo '🚀 Starting deployment...'
+                  
+                  # Create directories
+                  mkdir -p ~/fs04-web && mkdir -p ~/fs04-web/docker
+                  echo '✅ Folders created successfully'
+                  
+                  # Append DATABASE_URL_DEV to .env file
+                  cd ~/fs04-web
+                  echo 'DATABASE_URL=${DATABASE_URL_DEV:-postgresql://dummy:password@localhost:5432/db}' >> .env
+                  echo '✅ .env file updated with DATABASE_URL_DEV'
+                  
+                  # Activate docker group and pull image
+                  newgrp docker
+                  docker pull registry.gitlab.com/fs040/web:dev-latest
+                  echo '✅ Image pulled successfully'
+                  
+                  # Deploy with docker compose
+                  export IMAGE_NAME=registry.gitlab.com/fs040/web:dev-latest
+                  export NODE_ENV=development
+                  export DATABASE_URL_DEV=${DATABASE_URL_DEV:-postgresql://dummy:password@localhost:5432/db}
+                  docker compose -f docker/docker-compose.yml up -d
+                  echo '✅ Application deployed'
+                  
+                  # Show status
+                  docker compose -f docker/docker-compose.yml ps
+                  echo '✅ Deployment completed!'
+                "
+              - echo "✅ DEV deployment completed successfully"
