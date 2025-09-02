@@ -103,7 +103,6 @@
             value: tag.id
         }
     })
-    console.log({tagOptions})
 
     // Column definitions
     const columns = [

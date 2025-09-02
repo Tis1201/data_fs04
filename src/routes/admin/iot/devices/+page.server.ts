@@ -46,6 +46,19 @@ const table_options = {
 export const load = restrict(
     async ({ url, locals }) => {
         // Use the reusable fetchTableData function with our table options
+        let filteredTagIds = url.searchParams.get("tags");
+        if (filteredTagIds) {
+            filteredTagIds = filteredTagIds.includes(',') ? filteredTagIds.split(',').filter(Boolean) : [filteredTagIds];
+            table_options.baseWhere = {
+                tags: {
+                    some: {
+                        id: {
+                            in: filteredTagIds,
+                        }
+                    }
+                }
+            }
+        }
         const result = await fetchTableData(locals, url, table_options);
         const availableTags = await locals.prisma.deviceTag.findMany({
             select: {
@@ -53,31 +66,9 @@ export const load = restrict(
                 name: true
             }
         })
-
-        let filteredTagIds = url.searchParams.get("tags");
-        if (filteredTagIds) {
-            filteredTagIds = filteredTagIds.includes(',') ? filteredTagIds.split(',').filter(Boolean) : [filteredTagIds];
-        }
-
-        const records = result.records;
-
-        let devices = [];
-        if (!filteredTagIds) {
-            devices = records;
-        } else {
-            records.forEach(record => {
-                const tags = record.tags;
-                for (const tag of tags) {
-                    if (filteredTagIds.includes(tag.id)) {
-                        devices.push(record);
-                        break;
-                    }
-                }
-            })
-        }
         
         return {
-            devices,
+            devices: result.records,
             availableTags,
             meta: result.meta
         };
