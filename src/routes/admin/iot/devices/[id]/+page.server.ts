@@ -13,7 +13,8 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals, depends }) => {
+        depends('app:device');
         try {
             // Load existing device
             const device = await locals.prisma.device.findUnique({

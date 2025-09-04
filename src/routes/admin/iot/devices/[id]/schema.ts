@@ -20,7 +20,6 @@ export const DEVICE_TYPES = [
 // Schema for device edit form
 export const deviceEditSchema = z.object({
     id: z.string(),
-    tagIds: z.array(z.string()),
     name: z.string().min(1, 'Name is required'),
     description: z.string().optional().nullable(),
     status: z.string(),

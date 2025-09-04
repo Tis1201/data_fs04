@@ -47,10 +47,12 @@
     import { sseStore } from "$lib/stores/sse-store";
     import { subscribeDeviceDetailEvents } from "$lib/client/deviceDetailRealtime";
     import { onMount, onDestroy } from 'svelte';
+    import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
     let device = (data as any).device;
+    $: device = data.device;
     let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
     const MAX_ACTION_LOGS = 15;
@@ -810,15 +812,6 @@
                             </div>
                         {/if}
                     </div>
-
-                    <CompactInfoGrid columns={2} gap="gap-4" class_name="items-start">
-                        <CompactInfoItem label="Device Tags" separated={true}>
-                            
-                            {#each device.tags as tag}
-                                <div class="font-medium">{tag.name}</div>
-                            {/each}
-                        </CompactInfoItem>
-                    </CompactInfoGrid>
                 </div>
             </div>
             <svelte:fragment slot="footer">
@@ -923,6 +916,20 @@
         {:else}
             <div class="text-sm text-neutral-500">No licenses.</div>
         {/if}
+    </AdminCard>
+
+    <!-- Device Tags -->
+    <AdminCard>
+        <svelte:fragment slot="header">
+            <h3 class="text-lg font-medium">Device Tags</h3>
+            <p class="text-sm text-muted-foreground">Device Tags attached to this device</p>
+        </svelte:fragment>
+        
+        <DeviceDeviceTagComponent 
+            deviceId={device.id}
+            deviceTags={device.tags || []}
+            loading={false}
+        />
     </AdminCard>
 
     <!-- Device Action History -->

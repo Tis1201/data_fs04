@@ -48,33 +48,19 @@ export const load = restrict(
                 throw error(404, "Device not found");
             }
 
-            const availableTags = await locals.prisma.deviceTag.findMany({
-                select: {
-                    id: true,
-                    name: true
-                }
-            })
-
-            const deviceTagIds = device.tags.map(tag => tag.id);
-
             const form = await superValidate(
                 {
                     id: device.id,
                     name: device.name,
                     description: device.description || "",
                     status: device.status,
-                    tagIds: deviceTagIds
                 },
                 zod(deviceEditSchema)
             );
-            
-            
 
             return {
                 form,
-                device,
-                deviceTagIds,
-                availableTags
+                device
             };
         } catch (e) {
             logger.error('Error loading device for edit:', e);
@@ -112,24 +98,14 @@ export const actions: Actions = {
                     });
                 }
 
-                const { name, description, status, tagIds } = form.data;
+                const { name, description, status } = form.data;
                 
-                let tagIdObjects: { id: string }[] = [];
-
-                tagIds.forEach(tagId => {
-                    if (tagId.trim()) {
-                        tagIdObjects.push({ id: tagId })
-                    }
-                })
                 const updatedDevice = await locals.prisma.device.update({
                     where: { id },
                     data: {
                         name: name,
                         description: description || null,
-                        status: status,
-                        tags: {
-                            set: tagIdObjects
-                        }
+                        status: status
                     }
                 });
 
