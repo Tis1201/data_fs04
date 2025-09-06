@@ -67,7 +67,12 @@ export const GET = createSSEHandler({
         // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
         if (mac) {
             const existingDevice = await locals.prisma.device.findFirst({
-                where: { macAddress: mac }
+                where: { 
+                    OR: [
+                        { macAddress: mac },
+                        { wifiMac: mac }
+                    ]
+                }
             });
             
             if (existingDevice?.claimedBy) {
@@ -198,6 +203,7 @@ export const GET = createSSEHandler({
             const mac = (locals as any).deviceMac as string | null;
             if (mac) {
                 try {
+                    // Store original MAC format in device record
                     await locals.prisma.device.update({
                         where: { id: claimedDevice.id },
                         data: {

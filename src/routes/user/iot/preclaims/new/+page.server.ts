@@ -34,10 +34,6 @@ export const load = restrict(
     [SystemRole.USER]
 ) satisfies PageServerLoad;
 
-function normalizeMac(mac: string): string {
-    return mac.replace(/[^a-fA-F0-9]/g, '').toUpperCase();
-}
-
 function parseCsv(content: string): Array<{ macId: string; name?: string; description?: string; expiresAt?: string }>{
     // Very small CSV parser for UTF-8 with header
     const lines = content.split(/\r?\n/).filter((l) => l.trim().length > 0);
@@ -58,10 +54,10 @@ function parseCsv(content: string): Array<{ macId: string; name?: string; descri
         if (cols.length === 0) continue;
         const macRaw = (cols[colIndex.macid] || '').trim();
         if (!macRaw) continue;
-        const macId = normalizeMac(macRaw);
-        if (!macId || macId.length < 6) continue;
+        // Use original MAC format as-is
+        if (macRaw.length < 6) continue;
         const row = {
-            macId,
+            macId: macRaw, // Store original format
             name: colIndex.name >= 0 ? (cols[colIndex.name] || '').trim() : undefined,
             description: colIndex.description >= 0 ? (cols[colIndex.description] || '').trim() : undefined,
             expiresAt: colIndex.expiresat >= 0 ? (cols[colIndex.expiresat] || '').trim() : undefined

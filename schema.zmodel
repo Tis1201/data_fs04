@@ -506,7 +506,7 @@ model Device {
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('delete', auth() != null && createdBy == auth().id)
   @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
-  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'USER', 'MEMBER']])
   
   @@index([createdBy])
   @@index([hardwareId])

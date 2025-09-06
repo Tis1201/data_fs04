@@ -228,7 +228,7 @@ export const actions: Actions = {
                         id,
                         OR: [
                             { createdBy: locals.user?.id },
-                            { accountId: locals.user?.currentAccountId }
+                            { accountId: locals.currentAccount?.account.id }
                         ]
                     }
                 });
