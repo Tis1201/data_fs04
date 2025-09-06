@@ -20,6 +20,7 @@
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import * as Select from "$lib/components/ui/select";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
+    import DeviceComponent from "$lib/components/ui_components_sveltekit/device_tags/DeviceComponent.svelte";
     
     export let data;
     const { deviceTag } = data;
@@ -145,6 +146,19 @@
                         </FormField>
                     </FormRow>
                 </div>
+            </AdminCard>
+
+            <!-- Devices -->
+            <AdminCard>
+                <svelte:fragment slot="header">
+                    <h3 class="text-lg font-medium">Device Tags</h3>
+                    <p class="text-sm text-muted-foreground">Device Tags attached to this device</p>
+                </svelte:fragment>
+                
+                <DeviceComponent 
+                    devices={deviceTag.devices || []}
+                    loading={false}
+                />
             </AdminCard>
         </FormContainer>
     </div>

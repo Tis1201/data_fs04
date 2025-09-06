@@ -127,7 +127,13 @@ export const load = restrict(
         try {
             // Fetch the Device Tag by ID
             const deviceTag = await locals.prisma.deviceTag.findUnique({
-                where: { id }
+                where: { id },
+                select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    devices: true
+                }
             });
             
             if (!deviceTag) {
