@@ -39,6 +39,7 @@ model Account {
   members          AccountMembership[]
   groups           Group[]
   devices          Device[]
+  deviceTags       DeviceTag[]
   apiKeys          ApiKey[]
   primaryUsers     User[]              @relation("UserPrimaryAccount")
   resources        Resource[]
@@ -379,6 +380,8 @@ model DeviceTag {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt()
   devices     Device[] @relation("DeviceTags")
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 }
 
 model DeviceActionLog {

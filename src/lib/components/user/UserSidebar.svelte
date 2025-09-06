@@ -38,9 +38,9 @@
 
         ShieldPlus,
 
-        Package2
+        Package2,
 
-
+        TagIcon
 
 
 
@@ -86,6 +86,7 @@
             initialExpanded: false,
             subItems: [
                 { href: "/user/iot/devices", label: "Devices", icon: Router },
+                { href: "/user/iot/device_tags", label: "Device Tags", icon: TagIcon },
                 { href: "/user/iot/bundles", label: "Bundles", icon: Package2 },
                 { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus }
             ]
