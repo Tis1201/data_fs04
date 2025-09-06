@@ -19,7 +19,8 @@ const apiKeySchema = z.object({
 });
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals, depends }) => {
+        depends('app:device');
         try {
             console.log('Device detail load params:', params);
             console.log('Device detail load user:', locals.user);
@@ -29,6 +30,7 @@ export const load = restrict(
                 where: { id: params.id },
                 select: {
                     id: true,
+                    tags: true,
                     name: true,
                     description: true,
                     status: true,
@@ -65,6 +67,16 @@ export const load = restrict(
                             id: true,
                             name: true,
                             slug: true
+                        }
+                    },
+                    licenses: {
+                        select: {
+                            id: true,
+                            status: true,
+                            issuedAt: true,
+                            expiresAt: true,
+                            keyId: true,
+                            algorithm: true
                         }
                     }
                 }
