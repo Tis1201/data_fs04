@@ -63,7 +63,7 @@
     // Column definitions
     const columns = [
         {
-            id: "deviceTagId",
+            id: "name",
             label: "Tag ID",
             sortable: true,
             width: "15%",
@@ -169,8 +169,14 @@
         </div>
 
         <DataTable
-            {columns}
-            props={props}
+            props={{
+                records: props.records,
+                pagination: props.pagination,
+                sort: props.sort
+            }}
+            columns={columns}
+            on:sort={handleTableSort}
+            on:pagination={handleTablePagination}
         />
     {/if}
 </div>

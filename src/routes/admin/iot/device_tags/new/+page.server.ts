@@ -6,7 +6,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
-import { createSuccessResponse } from '$lib/types/api';
+import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
@@ -19,12 +19,23 @@ export const load = restrict(
         const deviceTagForm = await superValidate(zod(deviceTagSchema), {
             defaults: {
                 name: '',
-                description: ''
+                description: '',
+                accountId: ''
             }
         });
 
+        // Load accounts for dropdown
+        const accounts = await locals.prisma.account.findMany({
+            where: { isSystem: false },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' }
+        });
+
+        const accountOptions = accounts.map((a: any) => ({ value: a.id, label: a.name }));
+
         return {
-            deviceTagForm
+            deviceTagForm,
+            accountOptions
         };
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
@@ -58,9 +69,49 @@ export const actions: Actions = {
 
                 const { name, description } = form.data;
 
+                let account;
+                let accountId = form.data.accountId;
+                try {
+                    if (accountId && accountId.trim() !== '') {
+                        account = await locals.prisma.account.findUnique({ where: { id: accountId } });
+                        if (!account) {
+                            return message(
+                                form,
+                                createErrorResponse('Invalid account', {
+                                    details: `The selected account with ID '${accountId}' does not exist.`
+                                })
+                            );
+                        }
+                    } else {
+                        account = await locals.prisma.account.findFirst({ where: { isSystem: true } });
+                        if (!account) {
+                            logger.error('System account not found in database');
+                            return message(
+                                form,
+                                createErrorResponse('System account not found', {
+                                    details: 'The system account does not exist. Please run the database seed to create it.'
+                                })
+                            );
+                        }
+                    }
+
+                    accountId = account.id; // canonicalize
+                } catch (acctErr) {
+                    logger.error(`Error verifying account: ${String(acctErr)}`);
+                    return message(
+                        form,
+                        createErrorResponse('Error verifying account', {
+                            details: 'Failed to verify the selected account. Please try again.'
+                        })
+                    );
+                }
+
                 // Verify that the device tag name not exists
+                console.log({accountId});
+                
                 const existingDeviceTag = await locals.prisma.deviceTag.findFirst({
                     where: {
+                        accountId,
                         name: {
                             equals: name,
                             mode: "insensitive"
@@ -80,8 +131,9 @@ export const actions: Actions = {
                 // Create Device Tag
                 const deviceTag = await locals.prisma.deviceTag.create({
                     data: {
-                        name: name,
-                        description: description
+                        name,
+                        description,
+                        accountId
                     }
                 });
 

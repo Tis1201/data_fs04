@@ -95,9 +95,7 @@ export const actions: Actions = {
 
                 const deviceId = form.data.deviceId.trim();
                 const expiresAtDate = new Date(form.data.expiresAt);
-                console.log(form.data.expiresAt)
-                console.log({expiresAtDate})
-                console.log(new Date())
+                
                 let jwtToken;
                 let signingKey;
                 let factoryToken;

@@ -158,6 +158,7 @@
                 <DeviceComponent 
                     devices={deviceTag.devices || []}
                     loading={false}
+                    deviceLinkPrefix='/user/iot/devices'
                 />
             </AdminCard>
         </FormContainer>

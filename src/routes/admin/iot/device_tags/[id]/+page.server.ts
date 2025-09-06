@@ -50,13 +50,14 @@ export const actions: Actions = {
 
 
                 // Create update object
-                const { data } = form;
+                const { name, description } = form.data;
 
-                if (data.name.toLowerCase() != deviceTag.name.toLowerCase()) {
+                if (name.toLowerCase() != deviceTag.name.toLowerCase()) {
                     const existingDeviceTag = await locals.prisma.deviceTag.findFirst({
                         where: {
+                            accountId: deviceTag.accountId,
                             name: {
-                                equals: data.name,
+                                equals: name,
                                 mode: "insensitive"
                             }
                         }
@@ -74,8 +75,8 @@ export const actions: Actions = {
                 const updatedDeviceTag = await locals.prisma.deviceTag.update({
                     where: { id },
                     data: {
-                        name: data.name,
-                        description: data.description
+                        name,
+                        description
                     }
                 });
                 
@@ -132,7 +133,8 @@ export const load = restrict(
                     id: true,
                     name: true,
                     description: true,
-                    devices: true
+                    devices: true,
+                    account: true
                 }
             });
             
