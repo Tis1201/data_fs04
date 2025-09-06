@@ -29,15 +29,15 @@
   // Page title and breadcrumbs
   const title = "Create Device Tag";
   const pageCrumbs = [
-    ["Admin", "/admin"],
-    ["IoT", "/admin/iot"],
-    ["Device Tags", "/admin/iot/device_tags"],
+    ["User", "/user"],
+    ["IoT", "/user/iot"],
+    ["Device Tags", "/user/iot/device_tags"],
     "Create Device Tag",
   ];
   
   // Create a form handler with standardized error handling
   const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.deviceTagForm, {
-    successRedirect: '/admin/iot/device_tags',
+    successRedirect: '/user/iot/device_tags',
     validateOnInput: true,
     onSuccess: () => {
       // Toast is handled by the redirect
@@ -56,7 +56,7 @@
       {
         label: "Cancel",
         icon: ArrowLeft,
-        onClick: () => goto('/admin/iot/device_tags'),
+        onClick: () => goto('/user/iot/device_tags'),
         variant: "outline",
         class: "h-9" // Fixed height for consistency
       },
@@ -105,37 +105,16 @@
                   A friendly name to help identify this Tag
                 </p>
               </FormField>
-              <FormField id="accountId" label="Account" error={$errors.accountId}>
-                <select
-                  id="accountId"
-                  name="accountId"
-                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  bind:value={$form.accountId}
-                  aria-invalid={$errors.accountId ? 'true' : undefined}
-                  placeholder="Select account (optional - defaults to system account)"
-                  disabled={$submitting}
-                >
-                  <option value=''>System Account (Default)</option>
-                  {#each data.accountOptions as key}
-                      <option value={key.value}>{key.label}</option>
-                  {/each}
-                </select>
-                <p class="text-xs text-muted-foreground mt-1">
-                  Select the account for this tag
-                </p>
-              </FormField>
-            </FormRow>
-            <FormRow columns={1}>
               <FormField id="description" label="Description" error={$errors.description}>
-              <Input
-                id="description"
-                name="description"
-                type="text"
-                bind:value={$form.description}
-                placeholder="Enter description (optional)"
-                aria-invalid={$errors.description ? 'true' : undefined}
-                disabled={$submitting}
-              />
+                <Input
+                  id="description"
+                  name="description"
+                  type="text"
+                  bind:value={$form.description}
+                  placeholder="Enter description (optional)"
+                  aria-invalid={$errors.description ? 'true' : undefined}
+                  disabled={$submitting}
+                />
               </FormField>
             </FormRow>
           </div>

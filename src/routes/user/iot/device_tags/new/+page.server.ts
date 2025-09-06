@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
@@ -6,7 +6,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
-import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
+import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
@@ -19,32 +19,21 @@ export const load = restrict(
         const deviceTagForm = await superValidate(zod(deviceTagSchema), {
             defaults: {
                 name: '',
-                description: '',
-                accountId: ''
+                description: ''
             }
         });
 
-        // Load accounts for dropdown
-        const accounts = await locals.prisma.account.findMany({
-            where: { isSystem: false },
-            select: { id: true, name: true },
-            orderBy: { name: 'asc' }
-        });
-
-        const accountOptions = accounts.map((a: any) => ({ value: a.id, label: a.name }));
-
         return {
-            deviceTagForm,
-            accountOptions
+            deviceTagForm
         };
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    [SystemRole.USER] // Only allow user role to access this route
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
     // Action for creating a new Device Tag
     createTag: restrict(
-        async ({ request, locals }:any) => {
+        async ({ request, locals, auth }:any) => {
             // Validate the form data against the schema
             const form = await superValidate(request, zod(deviceTagSchema));
 
@@ -54,61 +43,14 @@ export const actions: Actions = {
             }
 
             try {
-                // Get authenticated user
-                const auth = await locals.auth.validate();
-                const userInfo = auth?.user;
-
-                if (!userInfo) {
-                    // Throw a FormValidationError that will be caught and handled by handleFormError
-                    throw new FormValidationError(
-                        'You must be logged in to create a Device Tag',
-                        'AUTH_REQUIRED',
-                        401
-                    );
+                if (!auth.currentAccount || !auth.currentAccount.account) {
+                    throw error(400, 'No current account selected. Please select an account first.');
                 }
 
+                const accountId = auth.currentAccount.account.id;
                 const { name, description } = form.data;
 
-                let account;
-                let accountId = form.data.accountId;
-                try {
-                    if (accountId && accountId.trim() !== '') {
-                        account = await locals.prisma.account.findUnique({ where: { id: accountId } });
-                        if (!account) {
-                            return message(
-                                form,
-                                createErrorResponse('Invalid account', {
-                                    details: `The selected account with ID '${accountId}' does not exist.`
-                                })
-                            );
-                        }
-                    } else {
-                        account = await locals.prisma.account.findFirst({ where: { isSystem: true } });
-                        if (!account) {
-                            logger.error('System account not found in database');
-                            return message(
-                                form,
-                                createErrorResponse('System account not found', {
-                                    details: 'The system account does not exist. Please run the database seed to create it.'
-                                })
-                            );
-                        }
-                    }
-
-                    accountId = account.id; // canonicalize
-                } catch (acctErr) {
-                    logger.error(`Error verifying account: ${String(acctErr)}`);
-                    return message(
-                        form,
-                        createErrorResponse('Error verifying account', {
-                            details: 'Failed to verify the selected account. Please try again.'
-                        })
-                    );
-                }
-
                 // Verify that the device tag name not exists
-                console.log({accountId});
-                
                 const existingDeviceTag = await locals.prisma.deviceTag.findFirst({
                     where: {
                         accountId,
@@ -131,13 +73,13 @@ export const actions: Actions = {
                 // Create Device Tag
                 const deviceTag = await locals.prisma.deviceTag.create({
                     data: {
-                        name,
-                        description,
-                        accountId
+                        name: name,
+                        description: description,
+                        accountId: accountId
                     }
                 });
 
-                logger.info(`Device Tag created: ${deviceTag.id} by user ${userInfo.id}`);
+                logger.info(`Device Tag created: ${deviceTag.id} by user ${locals.user.id}`);
 
                 await logAudit({
                     actionType: AuditActionType.INSERT,
@@ -173,6 +115,6 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN] // Only allow admin role to access this action
+        [SystemRole.USER] // Only allow user role to access this action
     )
 };

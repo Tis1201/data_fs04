@@ -74,7 +74,7 @@
                         id: record.id,
                         name: record.name
                     },
-                    baseUrl: '/admin/iot/device_tags',
+                    baseUrl: '/user/iot/device_tags',
                     showId: true
                 }
             })
@@ -96,7 +96,7 @@
                     {
                         label: "Edit",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/iot/device_tags/${record.id}`)
+                        onClick: () => goto(`/user/iot/device_tags/${record.id}`)
                     },
                     {
                         label: "Delete",
@@ -134,7 +134,7 @@
             try {
                 // Use the generic API delete function
                 const result = await api_delete(
-                    '/admin/iot/device_tags',
+                    '/user/iot/device_tags',
                     state.selectedRecord.id
                 );
                 

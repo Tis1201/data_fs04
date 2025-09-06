@@ -35,6 +35,7 @@ model Account {
   members       AccountMembership[]
   groups        Group[]
   devices       Device[]  // Devices owned by this account
+  deviceTags    DeviceTag[]  // Device tags owned by this account
   apiKeys       ApiKey[] // API keys associated with this account
   primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
   resources     Resource[] // Resources owned by this account
@@ -524,10 +525,14 @@ model DeviceTag {
   
   // Relations
   devices      Device[]   @relation("DeviceTags")
+  accountId    String?
+  account      Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   // Access policies
   // Admins can do everything
   @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
 }
 
 // Generic device action log for all operations (firmware update, screenshot, etc.)

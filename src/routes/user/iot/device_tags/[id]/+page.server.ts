@@ -14,7 +14,7 @@ import { deviceTagSchema } from '../new/device-tag';
 
 export const actions: Actions = {
     updateTag: restrict(
-        async ({ params, locals, request }) => {
+        async ({ params, locals, request, auth }) => {
             const { id } = params;
             
             // Validate form data
@@ -25,7 +25,11 @@ export const actions: Actions = {
             }
             
             try {
-                // Fetch the existing Device Tag
+                if (!auth.currentAccount || !auth.currentAccount.account) {
+                    throw error(400, 'No current account selected. Please select an account first.');
+                }
+                const accountId = auth.currentAccount.account.id;
+
                 const deviceTag = await locals.prisma.deviceTag.findUnique({
                     where: { id }
                 });
@@ -37,17 +41,6 @@ export const actions: Actions = {
                         404
                     );
                 }
-                
-                // Get authenticated user info
-                const auth = await locals.auth.validate();
-                if (!auth?.user) {
-                    throw new FormValidationError(
-                        'You must be logged in to update a Device Tag',
-                        'AUTH_REQUIRED',
-                        401
-                    );
-                }
-
 
                 // Create update object
                 const { name, description } = form.data;
@@ -55,7 +48,7 @@ export const actions: Actions = {
                 if (name.toLowerCase() != deviceTag.name.toLowerCase()) {
                     const existingDeviceTag = await locals.prisma.deviceTag.findFirst({
                         where: {
-                            accountId: deviceTag.accountId,
+                            accountId,
                             name: {
                                 equals: name,
                                 mode: "insensitive"
@@ -75,12 +68,12 @@ export const actions: Actions = {
                 const updatedDeviceTag = await locals.prisma.deviceTag.update({
                     where: { id },
                     data: {
-                        name,
-                        description
+                        name: name,
+                        description: description
                     }
                 });
                 
-                logger.info(`Device Tag updated: ${deviceTag.id} by user ${auth.user.id}`);
+                logger.info(`Device Tag updated: ${deviceTag.id} by user ${locals.user.id}`);
 
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
@@ -115,7 +108,7 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN]
+        [SystemRole.USER]
     ),
     
 
@@ -133,8 +126,7 @@ export const load = restrict(
                     id: true,
                     name: true,
                     description: true,
-                    devices: true,
-                    account: true
+                    devices: true
                 }
             });
             
@@ -165,5 +157,5 @@ export const load = restrict(
             });
         }
     },
-    [SystemRole.ADMIN]
+    [SystemRole.USER]
 );
