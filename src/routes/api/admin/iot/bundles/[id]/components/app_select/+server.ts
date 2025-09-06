@@ -38,27 +38,59 @@ export const GET = restrict(
       });
       const excludeIds = new Set(existing.map((e: { resourceId: string }) => e.resourceId));
 
-      // Use the reusable fetchTableData function
-      const result = await fetchTableData(locals, url, tableOptions as any);
+      // Requested pagination
+      const perPage = Number(url.searchParams.get('per_page') || tableOptions.defaultPerPage);
+      const current_page = Number(url.searchParams.get('page') || 1);
 
-      // Filter out already-in-bundle resources
-      const filteredRecords = (result.records || []).filter((r: any) => !excludeIds.has(r.id));
+      // 1) Get base totals (without exclusion), needed for meta
+      const baseMetaResult = await fetchTableData(locals, url, tableOptions as any);
+      const baseTotal = Number(((baseMetaResult as any)?.meta?.pagination?.total_records) ?? ((baseMetaResult as any)?.meta?.total) ?? 0);
 
-      // Adjust meta for filtered-out records and ensure client-friendly pagination shape
-      const baseTotal = Number(((result as any)?.meta?.pagination?.total_records) ?? ((result as any)?.meta?.total) ?? 0);
-      const perPage = Number(url.searchParams.get('per_page') || (result as any)?.meta?.pagination?.per_page || tableOptions.defaultPerPage);
-      const current_page = Number(url.searchParams.get('page') || (result as any)?.meta?.pagination?.page || 1);
+      // 2) Iteratively fetch enough records so that AFTER filtering we can fill the requested page
+      // We always fetch from page=1 with increasing per_page so we have a stable slice window
+      const requiredCount = current_page * perPage; // we need at least this many filtered records to fill page N
+      let fetchSize = Math.max(requiredCount, perPage * 2); // start with at least 2 pages worth as a buffer
+      let filteredRecords: any[] = [];
+      let safety = 0;
+
+      while (safety < 6) { // cap to avoid runaway loops (max ~12 pages worth via doubling)
+        const adjustedUrl = new URL(url);
+        adjustedUrl.searchParams.set('page', '1');
+        adjustedUrl.searchParams.set('per_page', String(fetchSize));
+
+        const batch = await fetchTableData(locals, adjustedUrl, tableOptions as any);
+        const records = (batch.records || []) as any[];
+        filteredRecords = records.filter((r: any) => !excludeIds.has(r.id));
+
+        if (filteredRecords.length >= requiredCount || records.length < fetchSize) {
+          // Either we have enough filtered records to fill the requested page,
+          // or we've fetched all available records.
+          break;
+        }
+        // Increase fetch size and try again
+        fetchSize += perPage;
+        safety += 1;
+      }
+
+      // 3) Compute final page slice from filtered results
+      const startIndex = (current_page - 1) * perPage;
+      const endIndex = startIndex + perPage;
+      const pageRecords = filteredRecords.slice(startIndex, endIndex);
+
+      // 4) Build meta after exclusion
       const total = Math.max(0, baseTotal - excludeIds.size);
       const last_page = Math.max(1, Math.ceil(total / perPage));
 
+      logger.info(`App select pagination (iterative): page ${current_page}, perPage ${perPage}, fetched ${fetchSize}, filteredTotal=${filteredRecords.length}, pageRecords=${pageRecords.length}, total=${total}, last_page=${last_page}`);
+
       return json({
-        resources: filteredRecords,
+        resources: pageRecords,
         meta: {
-          ...result.meta,
+          ...baseMetaResult.meta,
           total,
           last_page,
           pagination: {
-            page: current_page,
+            page: Math.min(current_page, last_page),
             per_page: perPage,
             total_records: total,
             total_pages: last_page
