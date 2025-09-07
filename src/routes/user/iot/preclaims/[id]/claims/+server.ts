@@ -38,7 +38,11 @@ export const GET: RequestHandler = restrict(async ({ url, params, locals }) => {
       baseWhere: { setId: id },
       // Map URL filters to DB fields/operators
       filterMappings: {
-        status: { field: 'status', operator: 'in' }
+        status: { 
+          field: 'status', 
+          operator: 'equals',
+          valueTransformer: (value: string) => value.toUpperCase()
+        }
       }
     });
 

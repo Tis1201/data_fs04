@@ -23,9 +23,9 @@
   const statusOptions = [
     { label: "All Statuses", value: "" },
     { label: "Pending", value: "PENDING" },
-    { label: "Claimed", value: "CLAIMED" },
-    { label: "Assigned", value: "ASSIGNED" },
-    { label: "Used", value: "USED" }
+    { label: "Fulfilled", value: "FULFILLED" },
+    { label: "Expired", value: "EXPIRED" },
+    { label: "Revoked", value: "REVOKED" }
   ];
 
   // Columns
@@ -66,9 +66,9 @@
     if (!status) return 'Unknown';
     const map: Record<string, string> = {
       PENDING: 'Pending',
-      CLAIMED: 'Claimed',
-      ASSIGNED: 'Assigned',
-      USED: 'Used'
+      FULFILLED: 'Fulfilled',
+      EXPIRED: 'Expired',
+      REVOKED: 'Revoked'
     };
     return map[status] || String(status);
   }
@@ -77,9 +77,9 @@
     if (!status) return 'text-zinc-700 border-zinc-200';
     const map: Record<string, string> = {
       PENDING: 'text-zinc-700 border-zinc-300',
-      CLAIMED: 'text-green-700 border-green-200',
-      ASSIGNED: 'text-blue-700 border-blue-300',
-      USED: 'text-green-700 border-green-200'
+      FULFILLED: 'text-green-700 border-green-200',
+      EXPIRED: 'text-red-700 border-red-200',
+      REVOKED: 'text-orange-700 border-orange-200'
     };
     return map[status] || 'text-zinc-800 border-zinc-200';
   }
@@ -179,8 +179,9 @@
       </div>
       <PopoverFilter
         label="Status"
-        options={statusOptions.filter(o => o.value !== '')}
+        options={statusOptions}
         selectedValues={$page.url.searchParams.get('status') ? [$page.url.searchParams.get('status') || ''] : []}
+        singleSelect={true}
         onChange={(values) => {
           const url = new URL(window.location.href);
           if (values.length && values[0]) url.searchParams.set('status', values[0]);
