@@ -21,6 +21,7 @@
     import { sseStore } from "$lib/stores/sse-store";
     import { Badge } from "$lib/components/ui/badge";
     import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
+    import DeviceStatusBadge from "$lib/components/ui_components_sveltekit/devices/DeviceStatusBadge.svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
 
@@ -154,15 +155,31 @@
             id: "manufacturer",
             label: "Manufacturer",
             sortable: true,
-            width: "10%",
+            width: "8%",
             render: (record: Device) => record.manufacturer || "N/A"
+        },
+        {
+            id: "macAddress",
+            label: "MAC Address",
+            sortable: true,
+            width: "12%",
+            render: (record: Device) => {
+                // Show primary MAC address, fallback to wifi or lan MAC
+                const mac = record.macAddress || record.wifiMac || record.lanMac;
+                return mac || "N/A";
+            }
         },
         {
             id: "status",
             label: "Status",
             sortable: true,
-            width: "10%",
-            render: (record: Device) => record.status || "N/A"
+            width: "8%",
+            render: (record: Device) => ({
+                component: DeviceStatusBadge,
+                props: {
+                    status: record.status
+                }
+            })
         },
         {
             id: "createdAt",

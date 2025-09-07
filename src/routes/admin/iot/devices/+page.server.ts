@@ -16,7 +16,7 @@ import { getStatusBeforeToggled } from '$lib/utils';
 // Define table options for Devices
 const table_options = {
     modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId'],
+    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac'],
     allowedFilters: ['types', 'statuses'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
@@ -33,7 +33,11 @@ const table_options = {
         deviceType: true,
         hardwareId: true,
         manufacturer: true,
+        macAddress: true,
+        wifiMac: true,
+        lanMac: true,
         createdAt: true,
+        status: true,
         tags: true
     }
 };

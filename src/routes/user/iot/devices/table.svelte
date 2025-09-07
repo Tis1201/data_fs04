@@ -23,6 +23,7 @@
     import { Badge } from "$lib/components/ui/badge";
     import { sseStore } from "$lib/stores/sse-store";
     import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
+    import DeviceStatusBadge from "$lib/components/ui_components_sveltekit/devices/DeviceStatusBadge.svelte";
 
     // Props for DataTable component
     export let props = {
@@ -114,20 +115,29 @@
             id: "deviceType",
             label: "Type",
             sortable: true,
-            width: "15%",
+            width: "12%",
             render: (record: Device) => record.deviceType || "N/A"
+        },
+        {
+            id: "macAddress",
+            label: "MAC Address",
+            sortable: true,
+            width: "15%",
+            render: (record: Device) => {
+                // Show primary MAC address, fallback to wifi or lan MAC
+                const mac = record.macAddress || record.wifiMac || record.lanMac;
+                return mac || "N/A";
+            }
         },
         {
             id: "status",
             label: "Status",
             sortable: true,
-            width: "15%",
+            width: "12%",
             render: (record: Device) => ({
-                component: Badge,
+                component: DeviceStatusBadge,
                 props: {
-                    variant: record.status === 'ACTIVE' ? 'success' : 'secondary',
-                    class: 'capitalize',
-                    children: record.status?.toLowerCase() || 'Unknown'
+                    status: record.status
                 }
             })
         },

@@ -29,7 +29,10 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { model: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } }
+        { description: { contains: search, mode: 'insensitive' } },
+        { macAddress: { contains: search, mode: 'insensitive' } },
+        { wifiMac: { contains: search, mode: 'insensitive' } },
+        { lanMac: { contains: search, mode: 'insensitive' } }
       ];
     }
 
@@ -69,7 +72,11 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
         status: true,
         description: true,
         createdAt: true,
-        lastUsedAt: true
+        lastUsedAt: true,
+        macAddress: true,
+        wifiMac: true,
+        lanMac: true,
+        connected: true
       },
       orderBy: {
         [sort]: order
