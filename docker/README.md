@@ -27,8 +27,7 @@ This will:
 1. Build the Docker image if needed
 2. Load environment from your project `.env`
 3. Run Prisma migrations automatically (via entrypoint)
-4. Start the app on port 3000 (`http://localhost:3000`)
-5. Start Nginx proxy on ports 80/443 (optional access at `http://localhost`)
+4. Start the app directly on port 80 (`http://localhost`)
 
 ### Seeding the Database (admin user)
 

@@ -4,7 +4,7 @@ set -e
 # Configuration
 IMAGE_NAME="fs04-web-app"
 CONTAINER_NAME="fs04-web-app"
-PORT=3000
+PORT=80
 
 # Display banner
 echo "====================================="
@@ -79,7 +79,7 @@ function run_container {
   fi
   
   echo "Starting container: $CONTAINER_NAME"
-  echo "Port mapping: $PORT:$PORT"
+  echo "Port mapping: $PORT:3000"
   if [ "$MIGRATE" = "true" ]; then
     echo "Running with migrations enabled"
   fi
@@ -89,7 +89,7 @@ function run_container {
   fi
   
   docker run -d --name $CONTAINER_NAME \
-    -p $PORT:$PORT \
+    -p $PORT:3000 \
     $ENV_FILE_OPT \
     $ENV_OPTS \
     $IMAGE_NAME
