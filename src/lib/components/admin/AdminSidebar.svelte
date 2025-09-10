@@ -56,7 +56,9 @@
 
         IdCard,
 
-        TagIcon
+        TagIcon,
+
+        ShieldPlus
     } from "lucide-svelte";
 
     export let className = "";
@@ -94,7 +96,8 @@
                 { href: "/admin/iot/device_tags", label: "Device Tags", icon: TagIcon },
                 { href: "/admin/iot/devices/simulator", label: "Device Simulator", icon: Monitor },
                 { href: "/admin/iot/resources", label: "Resources", icon: Files},
-                { href: "/admin/iot/bundles", label: "Bundles", icon: PackagePlus}
+                { href: "/admin/iot/bundles", label: "Bundles", icon: PackagePlus},
+                { href: "/admin/iot/preclaims", label: "Preclaims", icon: ShieldPlus }
             ]
         },
         { 

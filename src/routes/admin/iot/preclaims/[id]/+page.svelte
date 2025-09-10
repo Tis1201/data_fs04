@@ -12,34 +12,15 @@
   export let data: any;
   let preclaimSet = data.preclaimSet;
   $: preclaimSet = data.preclaimSet;
-  const metrics = data?.metrics ?? { total: 0, claimed: 0, left: 0 };
 
   const title = `Pre-claim Set: ${preclaimSet?.name || preclaimSet?.id}`;
 
   const pageCrumbs: [string, string][] = [
-    ["Home", "/user"],
-    ["IoT", "/user/iot"],
-    ["Pre-claims", "/user/iot/preclaims"],
+    ["Home", "/admin"],
+    ["IoT", "/admin/iot"],
+    ["Pre-claims", "/admin/iot/preclaims"],
     [preclaimSet?.name || 'Pre-claim Set', ""]
   ];
-
-  function getStatusDisplay(status: any) {
-    const map: Record<string, string> = {
-      'ACTIVE': 'Active',
-      'INACTIVE': 'Inactive',
-      'EXPIRED': 'Expired'
-    };
-    return map[status] || status || 'Unknown';
-  }
-
-  function getStatusVariant(status: any): 'outline' | 'default' | 'destructive' | 'success' | 'secondary' {
-    const map: Record<string, 'outline' | 'default' | 'destructive' | 'success' | 'secondary'> = {
-      'ACTIVE': 'success',
-      'INACTIVE': 'secondary',
-      'EXPIRED': 'destructive'
-    };
-    return map[status] || 'outline';
-  }
 
   const claims = data?.claims ?? [];
 </script>
@@ -51,13 +32,13 @@
     {
       label: 'Back',
       icon: ArrowLeft,
-      onClick: () => goto('/user/iot/preclaims'),
+      onClick: () => goto('/admin/iot/preclaims'),
       variant: 'outline'
     },
     {
       label: 'Edit',
       icon: Pencil,
-      onClick: () => goto(`/user/iot/preclaims/${preclaimSet.id}/edit`),
+      onClick: () => goto(`/admin/iot/preclaims/${preclaimSet.id}/edit`),
       variant: 'default'
     }
   ]}
@@ -99,7 +80,7 @@
 
       <PreclaimDeviceTable
         preclaimId={preclaimSet.id}
-        apiPrefix="/api/user"
+        apiPrefix="/api/admin"
       />
     </AdminCard>
   </div>
