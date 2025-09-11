@@ -8,6 +8,7 @@ import { logAudit } from '$lib/server/audit-logger';
 import { superValidate } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { resourceSchema } from '../../../admin/iot/resources/new/resource';
+import { deleteFileFromCloudStorage } from '$lib/server/storage';
 
 // Define actions for this route
 export const actions: Actions = {
@@ -50,7 +51,18 @@ export const actions: Actions = {
                     });
                 }
                 
-                // Delete the resource
+                // Delete the file from cloud storage first
+                if (resource.path) {
+                    try {
+                        await deleteFileFromCloudStorage(resource.path);
+                        logger.info(`Successfully deleted file from cloud storage: ${resource.path}`);
+                    } catch (error) {
+                        logger.error(`Failed to delete file from cloud storage: ${error}`);
+                        // Continue with database deletion even if file deletion fails
+                    }
+                }
+
+                // Delete the resource from database
                 await locals.prisma.resource.delete({
                     where: { id }
                 });
@@ -123,6 +135,7 @@ export const load = restrict(
             }
             
             // Check if the user has access to this resource
+            // User can access if they belong to the account that owns the resource
             const hasAccess = await locals.prisma.accountMembership.findFirst({
                 where: {
                     accountId: resource.accountId,

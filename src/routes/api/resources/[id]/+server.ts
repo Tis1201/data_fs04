@@ -57,6 +57,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
             }
             
             // Check if the user has access to this resource
+            // User can access if they belong to the account that owns the resource
             const hasAccess = await locals.prisma.accountMembership.findFirst({
                 where: {
                     accountId: resource.accountId,
@@ -65,9 +66,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 }
             });
             
-            const isCreator = resource.createdBy === locals.user.id;
-            
-            if (!hasAccess && !isCreator) {
+            if (!hasAccess) {
                 throw error(403, {
                     message: 'You do not have permission to access this resource',
                     code: 'FORBIDDEN'
