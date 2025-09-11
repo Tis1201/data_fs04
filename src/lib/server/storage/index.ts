@@ -446,3 +446,166 @@ export async function generateDownloadUrlGCloud(
         throw new Error(`Failed to generate download URL: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+/**
+ * Delete file from cloud storage
+ */
+export async function deleteFileFromCloudStorage(filePath: string): Promise<void> {
+    const config = getStorageConfig();
+    
+    if (config.mode === 'LOCAL') {
+        // For local mode, delete from local filesystem
+        const { unlinkSync } = await import('fs');
+        const { join } = await import('path');
+        
+        // Extract filename from path
+        let localPath = filePath;
+        if (filePath.startsWith('/uploads/')) {
+            localPath = join(process.cwd(), 'static', filePath.substring(1));
+        } else if (filePath.startsWith('uploads/')) {
+            localPath = join(process.cwd(), 'static', filePath);
+        } else {
+            localPath = join(process.cwd(), 'static', 'uploads', 'iot', filePath);
+        }
+        
+        try {
+            unlinkSync(localPath);
+            logger.info(`Deleted local file: ${localPath}`);
+        } catch (err) {
+            logger.warn(`Failed to delete local file ${localPath}: ${err}`);
+            // Don't throw error for local file deletion failures
+        }
+        return;
+    }
+    
+    if (!config.bucket) {
+        logger.warn('No bucket configured for cloud storage deletion');
+        return;
+    }
+    
+    // Extract object path from the stored path
+    let objectPath = filePath;
+    
+    if (filePath.startsWith('https://storage.googleapis.com/')) {
+        // Extract the object path from the full URL
+        const url = new URL(filePath);
+        const pathParts = url.pathname.substring(1).split('/');
+        if (pathParts.length > 1) {
+            objectPath = pathParts.slice(1).join('/'); // Remove bucket name, keep the rest
+        } else {
+            objectPath = pathParts[0];
+        }
+        logger.info(`Extracted object path from full URL: ${objectPath}`);
+    } else if (filePath.includes('/')) {
+        // This is already an object path
+        objectPath = filePath;
+        logger.info(`Using stored object path: ${objectPath}`);
+    } else {
+        logger.warn(`Unexpected file path format for deletion: ${filePath}`);
+        return;
+    }
+    
+    try {
+        switch (config.mode) {
+            case 'LOCAL_CLOUD':
+                await deleteFileFromLocalCloud(config.bucket, objectPath, config.targetServiceAccount!);
+                break;
+            case 'GCLOUD':
+                await deleteFileFromGCloud(config.bucket, objectPath);
+                break;
+            default:
+                logger.warn(`File deletion not supported for storage mode: ${config.mode}`);
+        }
+    } catch (error) {
+        logger.error(`Failed to delete file from cloud storage: ${error}`);
+        // Don't throw error - we don't want file deletion failures to break the resource deletion
+    }
+}
+
+/**
+ * Delete file from LOCAL_CLOUD mode (using service account impersonation)
+ */
+async function deleteFileFromLocalCloud(
+    bucket: string,
+    objectPath: string,
+    targetServiceAccount: string
+): Promise<void> {
+    try {
+        logger.info(`Deleting file from LOCAL_CLOUD: bucket=${bucket}, objectPath=${objectPath}, targetSA=${targetServiceAccount}`);
+
+        // Use local ADC (user creds)
+        const auth = new GoogleAuth({ 
+            scopes: ['https://www.googleapis.com/auth/cloud-platform'] 
+        });
+        const sourceClient = await auth.getClient();
+        
+        logger.debug(`Source client obtained: ${sourceClient.constructor.name}`);
+
+        // Impersonate the service account
+        const impersonated = new Impersonated({
+            sourceClient,
+            targetPrincipal: targetServiceAccount,
+            lifetime: 3600,
+            delegates: [],
+            targetScopes: ['https://www.googleapis.com/auth/cloud-platform'],
+        });
+
+        logger.debug(`Impersonated client created for: ${targetServiceAccount}`);
+
+        // Use the impersonated client with Storage
+        const config = getStorageConfig();
+        const storage = new Storage({ 
+            authClient: impersonated,
+            projectId: config.projectId
+        });
+        
+        logger.debug(`Storage client created with projectId: ${config.projectId}`);
+        
+        const file = storage.bucket(bucket).file(objectPath);
+        
+        // Check if file exists before deleting
+        const [exists] = await file.exists();
+        if (!exists) {
+            logger.warn(`File does not exist in cloud storage: ${objectPath}`);
+            return;
+        }
+        
+        await file.delete();
+        logger.info(`Successfully deleted file from LOCAL_CLOUD: ${objectPath}`);
+    } catch (error) {
+        logger.error(`Failed to delete file from LOCAL_CLOUD: ${error}`);
+        throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Delete file from GCLOUD mode (using VM service account)
+ */
+async function deleteFileFromGCloud(
+    bucket: string,
+    objectPath: string
+): Promise<void> {
+    try {
+        logger.info(`Deleting file from GCLOUD: bucket=${bucket}, objectPath=${objectPath}`);
+        
+        const config = getStorageConfig();
+        const storage = new Storage({ 
+            projectId: config.projectId 
+        }); // Uses VM SA; will "sign with IAM" automatically
+
+        const file = storage.bucket(bucket).file(objectPath);
+        
+        // Check if file exists before deleting
+        const [exists] = await file.exists();
+        if (!exists) {
+            logger.warn(`File does not exist in cloud storage: ${objectPath}`);
+            return;
+        }
+        
+        await file.delete();
+        logger.info(`Successfully deleted file from GCLOUD: ${objectPath}`);
+    } catch (error) {
+        logger.error(`Failed to delete file from GCLOUD: ${error}`);
+        throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
