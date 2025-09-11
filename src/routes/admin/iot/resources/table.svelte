@@ -192,7 +192,10 @@
                     actions.splice(1, 0, {
                         label: "Download",
                         icon: Download,
-                        onClick: () => window.open(resource.path, '_blank'),
+                        onClick: () => {
+                            // Open download in new tab
+                            window.open(`/api/resources/${resource.id}`, '_blank');
+                        },
                         variant: "outline"
                     });
                 }

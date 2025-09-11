@@ -5,6 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { restrict } from '$lib/server/security/guards';
+import { generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
 
 /**
  * GET handler for resource files
@@ -27,6 +28,11 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
         });
     }
         const { id } = params;
+        
+        logger.info(`=== RESOURCE DOWNLOAD REQUEST ===`);
+        logger.info(`Resource ID: ${id}`);
+        logger.info(`Request URL: ${request.url}`);
+        logger.info(`Request headers: ${JSON.stringify(Object.fromEntries(request.headers.entries()))}`);
         
         try {
             // Find the resource in the database
@@ -75,11 +81,58 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 type: resource.type
             })}`);
             
-            // Normalize the path to ensure it works correctly
-            let staticPath: string;
-            let fallbackUsed = false;
+            // Check storage configuration
+            const storageConfig = getStorageConfig();
+            logger.info(`Storage config: ${JSON.stringify(storageConfig)}`);
+            logger.info(`Resource path: ${resource.path}`);
             
             if (resource.path) {
+                // Check if we're using cloud storage
+                if (storageConfig.mode !== 'LOCAL') {
+                    try {
+                        // Extract object path from the stored path
+                        let objectPath = resource.path;
+                        
+                        if (resource.path.startsWith('https://storage.googleapis.com/')) {
+                            // Extract the object path from the full URL
+                            const url = new URL(resource.path);
+                            // Remove the leading slash and the bucket name (first part after the slash)
+                            const pathParts = url.pathname.substring(1).split('/');
+                            if (pathParts.length > 1) {
+                                objectPath = pathParts.slice(1).join('/'); // Remove bucket name, keep the rest
+                            } else {
+                                objectPath = pathParts[0];
+                            }
+                            logger.info(`Extracted object path from full URL: ${objectPath}`);
+                        } else if (resource.path.includes('/')) {
+                            // This is already an object path
+                            objectPath = resource.path;
+                            logger.info(`Using stored object path: ${objectPath}`);
+                        } else {
+                            logger.warn(`Unexpected resource path format: ${resource.path}`);
+                            throw new Error(`Invalid resource path format: ${resource.path}`);
+                        }
+                        
+                        logger.info(`Generating fresh download URL for cloud storage. Object path: ${objectPath}`);
+                        const downloadResult = await generateDownloadUrl(objectPath, 3600); // 1 hour expiry
+                        
+                        logger.info(`Redirecting to presigned download URL: ${downloadResult.url}`);
+                        
+                        return new Response(null, {
+                            status: 302,
+                            headers: {
+                                'Location': downloadResult.url,
+                                'Cache-Control': 'no-cache'
+                            }
+                        });
+                    } catch (downloadError) {
+                        logger.error(`Failed to generate download URL: ${downloadError}`);
+                    }
+                }
+                
+                // Handle local file storage
+                let staticPath: string;
+                
                 // Extract the filename from the path
                 let filePath = resource.path;
                 
@@ -101,19 +154,15 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 const fileExists = existsSync(fullPath);
                 
                 if (!fileExists) {
-                    // If the file doesn't exist, use a default image based on the resource type
-                    logger.warn(`File not found at ${fullPath}, using fallback`);
-                    fallbackUsed = true;
-                    
-                    if (resource.type === 'image') {
-                        staticPath = '/uploads/default.png';
-                    } else {
-                        // For non-image resources, we could have different defaults based on type
-                        staticPath = '/uploads/default.png';
-                    }
+                    logger.error(`File not found at ${fullPath}`);
+                    throw error(404, {
+                        message: 'File not found',
+                        code: 'FILE_NOT_FOUND',
+                        details: `The requested file '${resource.name}' does not exist on the server.`
+                    });
                 }
                 
-                logger.info(`Redirecting to static path: ${staticPath}${fallbackUsed ? ' (fallback)' : ''}`);
+                logger.info(`Redirecting to static path: ${staticPath}`);
                 
                 // Return a redirect to the static file
                 return new Response(null, {

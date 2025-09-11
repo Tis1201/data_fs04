@@ -8,7 +8,7 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    import EnhancedFileUpload from "$lib/components/ui_components_sveltekit/form/EnhancedFileUpload.svelte";
+    import SmartFileUpload from "$lib/components/ui_components_sveltekit/form/SmartFileUpload.svelte";
     import type { PageData } from "./$types";
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { fileProxy } from 'sveltekit-superforms/client';
@@ -48,6 +48,7 @@
 
     let nativeFileInput: HTMLInputElement | null = null;
     let containerRef: HTMLDivElement;
+    let fileUploadRef: any;
 
     const targetOptions = [
         { value: 'user', label: 'User' },
@@ -73,7 +74,9 @@
         const file = files[0];
         $fileField = file;
         syncToNativeInput(file);
-        uploadSuccess = `File "${file.name}" selected successfully!`;
+        
+        // Clear previous messages
+        uploadSuccess = '';
         uploadError = '';
 
         if (!$form.name || $form.name === '') {
@@ -84,7 +87,29 @@
         $form.path = `Auto-generated from: ${file.name}`;
 
         nameError = '';
+        
+        // Set uploadedFiles for the upload component
+        uploadedFiles = files;
     }
+
+    function handleUploadComplete(event: CustomEvent<{ file: File; url: string }>) {
+        const { file, url } = event.detail;
+        uploadSuccess = `File "${file.name}" uploaded successfully!`;
+        uploadError = '';
+        $form.path = url; // Update the path with the actual uploaded URL
+    }
+
+    function handleUploadProgress(event: CustomEvent<{ file: File; progress: number }>) {
+        const { file, progress } = event.detail;
+        // You can add progress tracking here if needed
+        console.log(`Upload progress for ${file.name}: ${progress}%`);
+    }
+
+    function handleUploadError(event: CustomEvent<{ message: string }>) {
+        uploadError = event.detail.message;
+        uploadSuccess = '';
+    }
+
 
     function handleFileRemove() {
         $fileField = null;
@@ -109,7 +134,7 @@
         }
     }
 
-    function submitForm() {
+    async function submitForm() {
         nameError = $form.name ? '' : 'Resource name is required.';
         if (!$form.file) {
             uploadError = 'File is required.';
@@ -136,6 +161,17 @@
 
         if (typeof realForm.reportValidity === 'function' && !realForm.reportValidity()) {
             return;
+        }
+
+        // Upload files first if there are any
+        if (fileUploadRef && uploadedFiles.length > 0) {
+            try {
+                await fileUploadRef.uploadFiles();
+            } catch (error) {
+                console.error('File upload failed:', error);
+                uploadError = 'File upload failed. Please try again.';
+                return;
+            }
         }
 
         if (typeof realForm.requestSubmit === 'function') {
@@ -192,7 +228,8 @@
                 <div class="space-y-6">
                     <FormRow columns={1}>
                         <FormField id="file" label="File Upload" required={true} error={uploadError || ''}>
-                            <EnhancedFileUpload
+                            <SmartFileUpload
+                                    bind:this={fileUploadRef}
                                     id="file"
                                     name="file"
                                     accept="image/*,video/*,application/*,text/*"
@@ -202,9 +239,13 @@
                                     on:drop={handleFileUpload}
                                     on:paste={handleFileUpload}
                                     on:remove={handleFileRemove}
-                                    on:error={(e) => (uploadError = e.detail?.message || 'Upload error')}
+                                    on:error={handleUploadError}
+                                    on:uploadComplete={handleUploadComplete}
+                                    on:uploadProgress={handleUploadProgress}
                                     preview={true}
                                     multiple={false}
+                                    isAdmin={true}
+                                    autoUpload={false}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
                                 Upload a file by dragging and dropping, or paste an image directly from clipboard.
