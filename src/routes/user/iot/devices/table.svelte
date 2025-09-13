@@ -82,23 +82,10 @@
     // Column definitions
     const columns = [
         {
-            id: "connected",
-            label: "Online",
-            sortable: false,
-            width: "6%",
-            render: (record: Device) => ({
-                component: OnlineDot,
-                props: {
-                    online: !!record.connected,
-                    title: record.connected ? 'Online' : 'Offline'
-                }
-            })
-        },
-        {
             id: "name",
             label: "Name",
             sortable: true,
-            width: "25%",
+            width: "20%",
             render: (record: Device) => ({
                 component: NameWithIdLink,
                 props: {
@@ -112,17 +99,10 @@
             })
         },
         {
-            id: "deviceType",
-            label: "Type",
-            sortable: true,
-            width: "12%",
-            render: (record: Device) => record.deviceType || "N/A"
-        },
-        {
             id: "macAddress",
             label: "MAC Address",
             sortable: true,
-            width: "15%",
+            width: "12%",
             render: (record: Device) => {
                 // Show primary MAC address, fallback to wifi or lan MAC
                 const mac = record.macAddress || record.wifiMac || record.lanMac;
@@ -130,32 +110,31 @@
             }
         },
         {
-            id: "status",
-            label: "Status",
+            id: "osVersion",
+            label: "OS Version",
             sortable: true,
-            width: "12%",
+            width: "8%",
+            render: (record: Device) => record.osVersion || "N/A"
+        },
+        {
+            id: "connected",
+            label: "Online",
+            sortable: false,
+            width: "6%",
             render: (record: Device) => ({
-                component: DeviceStatusBadge,
+                component: OnlineDot,
                 props: {
-                    status: record.status
+                    online: !!record.connected,
+                    title: record.connected ? 'Online' : 'Offline'
                 }
             })
         },
         {
-            id: "createdAt",
-            label: "Added",
-            sortable: true,
-            width: "15%",
-            render: (record: Device) => ({
-                component: RelativeDate,
-                props: {
-                    date: record.createdAt,
-                    format: "relative",
-                    showTooltip: true,
-                    useHoverCard: true,
-                    iconSize: 12
-                }
-            })
+            id: "usage",
+            label: "Usage",
+            sortable: false,
+            width: "10%",
+            render: (record: Device) => record.usage || "N/A"  // Will use table device info later
         },
         {
             id: "actions",
