@@ -159,10 +159,13 @@ export const GET = createSSEHandler({
     onConnect: async ({ connectionId, device, locals }) => {
         logger.debug(`Device registration SSE connection established: ${connectionId}`);
         
-        // Create device metadata with the connection ID
+        // Create device metadata with the connection ID and MAC address
+        const mac = (locals as any).deviceMac as string | null;
         const deviceMeta: DeviceMeta = {
             id: device.id,
             connectionId: connectionId,
+            macAddress: mac || undefined,
+            wifiMac: mac || undefined,
         };
         
         // Register the device with the PIN
