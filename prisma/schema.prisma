@@ -51,6 +51,7 @@ model Account {
   preclaimDevices  PreclaimDevice[]
   licenses         License[]
   entitlements     Entitlement[]
+  deviceProfiles   DeviceProfile[]
 
   @@index([slug])
 }
@@ -327,21 +328,21 @@ model WhatsAppAuthData {
 }
 
 model Device {
-  id                   String                @id() @default(cuid())
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt()
+  id                   String                   @id() @default(cuid())
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt()
   name                 String
   factoryTokens        FactoryToken[]
   description          String?
-  status               String                @default("ACTIVE")
+  status               String                   @default("ACTIVE")
   expiresAt            DateTime?
   lastUsedAt           DateTime?
   createdBy            String
-  user                 User                  @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  user                 User                     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   accountId            String?
-  account              Account?              @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  account              Account?                 @relation(fields: [accountId], references: [id], onDelete: SetNull)
   companyId            String?
-  company              Company?              @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company              Company?                 @relation(fields: [companyId], references: [id], onDelete: SetNull)
   deviceType           String?
   model                String?
   manufacturer         String?
@@ -352,19 +353,20 @@ model Device {
   wifiMac              String?
   lanMac               String?
   ipAddress            String?
-  apiKey               String?               @unique()
+  apiKey               String?                  @unique()
   apiKeyCreatedAt      DateTime?
   apiKeyRotatedAt      DateTime?
   claimedAt            DateTime?
   claimedBy            String?
-  actionLogs           DeviceActionLog[]     @relation("DeviceToActionLogs")
+  actionLogs           DeviceActionLog[]        @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
-  tags                 DeviceTag[]           @relation("DeviceTags")
+  tags                 DeviceTag[]              @relation("DeviceTags")
   preclaimDevices      PreclaimDevice[]
-  connected            Boolean               @default(false)
+  connected            Boolean                  @default(false)
   connectedAt          DateTime?
   disconnectedAt       DateTime?
   licenses             License[]
+  profileAssignment    DeviceProfileAssignment?
 
   @@index([createdBy])
   @@index([hardwareId])
@@ -972,4 +974,56 @@ model PreclaimDevice {
   @@index([status])
   @@index([expiresAt])
   @@index([accountId])
+}
+
+model DeviceProfile {
+  id          String                    @id() @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean                   @default(true)
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt()
+  createdBy   String
+  updatedBy   String?
+  accountId   String
+  account     Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  settings    DeviceProfileSetting[]
+  assignments DeviceProfileAssignment[]
+
+  @@index([accountId])
+  @@index([createdBy])
+}
+
+model DeviceProfileSetting {
+  id        String        @id() @default(cuid())
+  profileId String
+  profile   DeviceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  key       String
+  value     String
+  dataType  String
+  label     String
+  category  String?
+  order     Int
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt()
+
+  @@unique([profileId, key])
+  @@index([profileId])
+}
+
+model DeviceProfileAssignment {
+  id         String        @id() @default(cuid())
+  profileId  String
+  deviceId   String
+  profile    DeviceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  device     Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  assignedAt DateTime      @default(now())
+  assignedBy String
+  status     String        @default("ACTIVE")
+  appliedAt  DateTime?
+  lastSyncAt DateTime?
+
+  @@unique([deviceId])
+  @@index([profileId])
+  @@index([deviceId])
 }

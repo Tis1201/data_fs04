@@ -58,6 +58,8 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
             
             // Check if the user has access to this resource
             // User can access if they belong to the account that owns the resource
+            logger.info(`Checking access for user ${locals.user.id} to resource with accountId: ${resource.accountId}`);
+            
             const hasAccess = await locals.prisma.accountMembership.findFirst({
                 where: {
                     accountId: resource.accountId,
@@ -66,11 +68,19 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 }
             });
             
+            logger.info(`Account membership check result: ${hasAccess ? 'ACCESS GRANTED' : 'ACCESS DENIED'}`);
+            
             if (!hasAccess) {
-                throw error(403, {
-                    message: 'You do not have permission to access this resource',
-                    code: 'FORBIDDEN'
-                });
+                // Also check if user is admin (admin can access all resources)
+                const isAdmin = locals.user.systemRole === 'ADMIN';
+                logger.info(`User is admin: ${isAdmin}`);
+                
+                if (!isAdmin) {
+                    throw error(403, {
+                        message: 'You do not have permission to access this resource',
+                        code: 'FORBIDDEN'
+                    });
+                }
             }
             
             // Log the resource details for debugging
