@@ -106,7 +106,7 @@
             render: (record: Device) => {
                 // Show primary MAC address, fallback to wifi or lan MAC
                 const mac = record.macAddress || record.wifiMac || record.lanMac;
-                return mac || "N/A";
+                return mac?.toUpperCase() || "N/A";
             }
         },
         {
