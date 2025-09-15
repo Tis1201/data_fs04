@@ -102,13 +102,21 @@ export class DefaultDeviceManager {
         }
 
         // Prepare base device data
+        // Use MAC address for device name if available, fallback to device type or ID
+        const macAddress = deviceMeta.macAddress || deviceMeta.wifiMac || deviceMeta.lanMac;
+        const deviceName = macAddress ? `device-${macAddress}` : (deviceMeta.name || `Device-${deviceMeta.id.substring(0, 8)}`);
+        
         const baseDeviceData: any = {
             id: deviceMeta.id,
-            name: deviceMeta.name || `Device-${deviceMeta.id.substring(0, 8)}`,
+            name: deviceName,
             deviceType: deviceMeta.deviceType || 'UNKNOWN',
             status: 'ACTIVE',
             claimedAt: new Date(),
             claimedBy: actualUserId,
+            // Store MAC address if available
+            ...(deviceMeta.macAddress && { macAddress: deviceMeta.macAddress }),
+            ...(deviceMeta.wifiMac && { wifiMac: deviceMeta.wifiMac }),
+            ...(deviceMeta.lanMac && { lanMac: deviceMeta.lanMac }),
             ...(deviceMeta.metadata || {})
         };
 
@@ -223,7 +231,9 @@ export class DefaultDeviceManager {
 
             // Generate API key and create device record
             const apiKeyValue = generateId(32);
-            const deviceName = data.deviceType || `Device-${id.slice(0, 6)}`;
+            // Use MAC address for device name, fallback to device type or ID
+            const macAddress = data.macAddress || data.wifiMac || data.lanMac;
+            const deviceName = macAddress ? `device-${macAddress}` : (data.deviceType || `Device-${id.slice(0, 6)}`);
             const deviceType = data.deviceType || 'unknown';
 
             // Check if user has a current account to include in the device record
@@ -240,8 +250,8 @@ export class DefaultDeviceManager {
             // Create device record with system info
             const deviceRecord = {
                 id: id,
-                name: data.deviceType || 'dummy',
-                deviceType: data.deviceType || 'dummy',
+                name: deviceName,
+                deviceType: deviceType,
                 model: data.model,
                 manufacturer: data.manufacturer,
                 osVersion: data.osVersion,

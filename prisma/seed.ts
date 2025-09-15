@@ -22,6 +22,7 @@ async function initAdminUser(systemAccount) {
             password: hashedPassword,
             systemRole: 'ADMIN',
             rolesString: 'admin',
+            primaryAccountId: systemAccount.id,
         },
     });
 

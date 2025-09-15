@@ -124,6 +124,16 @@ export const actions: Actions = {
                 // Hash the password using Argon2
                 const hashedPassword = await hash(tempPassword);
                 
+                // Get the SYSTEM_ACCOUNT for admin users
+                let systemAccountId = null;
+                if (form.data.role === 'ADMIN') {
+                    const systemAccount = await locals.prisma.account.findFirst({
+                        where: { isSystem: true },
+                        select: { id: true }
+                    });
+                    systemAccountId = systemAccount?.id;
+                }
+
                 // Create the user
                 const newUser = await locals.prisma.user.create({
                     data: {
@@ -132,7 +142,9 @@ export const actions: Actions = {
                         systemRole: form.data.role,
                         status: form.data.status,
                         rolesString: form.data.role.toLowerCase(),
-                        password: hashedPassword
+                        password: hashedPassword,
+                        // Set primaryAccountId for admin users
+                        ...(systemAccountId && { primaryAccountId: systemAccountId })
                     },
                     select: {
                         id: true,
@@ -142,6 +154,19 @@ export const actions: Actions = {
                         status: true
                     }
                 });
+
+                // Create account membership for admin users
+                if (form.data.role === 'ADMIN' && systemAccountId) {
+                    await locals.prisma.accountMembership.create({
+                        data: {
+                            userId: newUser.id,
+                            accountId: systemAccountId,
+                            role: 'SYSTEM'
+                        }
+                    });
+                    
+                    logger.info(`Admin user ${newUser.id} added to SYSTEM_ACCOUNT ${systemAccountId}`);
+                }
                 
                 // Generate an invitation token for the new user
                 const invitationToken = await createInvitationToken(locals.prisma, newUser.id);
