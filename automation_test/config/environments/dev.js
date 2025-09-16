@@ -3,8 +3,8 @@ require('dotenv').config();
 module.exports = {
     apiBaseURL: 'http://localhost:5173/auth/login',
     baseURL: 'http://localhost:5173/auth/login',
-    username: 'hoan@gmail.com',
-    password: '123',
+    username: 'admin@admin.com',
+    password: 'admin0823',
     pageURL: {
         preconditions: {
             tags: ['auto_test', 'auto_test 2', 'auto_test 3'],

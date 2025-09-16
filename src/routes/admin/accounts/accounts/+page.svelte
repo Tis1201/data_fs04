@@ -44,7 +44,7 @@
     crumbs={pageCrumbs}
     actionButtons={[
         {
-            label: "Add User",
+            label: "Add Account",
             icon: Plus,
             onClick: () => goto("/admin/accounts/accounts/new")
         }
