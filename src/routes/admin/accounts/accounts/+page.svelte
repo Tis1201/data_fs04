@@ -6,20 +6,25 @@
     import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import AccountsTable from "./table.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "$lib/components/ui/card";
     import { page } from "$app/stores";
     import { onMount } from "svelte";
-    import { createTableProps } from "$lib/utils/table-props-utils";
-    import type {PageData} from "../../../../../.svelte-kit/types/src/routes/admin/accounts/companies/$types";
+    import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import type { PageData } from "./$types";
     
     // Get data from page data
     export let data: PageData;
     
     // Set up table props using the utility
-    $: tableProps = createTableProps(data, {
-        recordsKey: 'accounts',
-        defaultSort: { field: 'createdAt', order: 'desc' }
-    });
+    $: tableProps = {
+        records: data.accounts || [],
+        pagination: getDefaultPagination(data.meta, 10),
+        sort: getDefaultSort(data.meta, "createdAt", "desc"),
+        loading: false
+    };
+
+    initPagination('preferredPageSize', true);
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
@@ -34,19 +39,16 @@
     });
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader title="Accounts">
-        <svelte:fragment slot="action">
-            <ActionButton
-                label="Add Account"
-                icon={Plus}
-                href="/admin/accounts/accounts/new"
-            />
-        </svelte:fragment>
-    </PageHeader>
-    
-    <PageContent>
-   <AccountsTable props={tableProps} />
-
-    </PageContent>
-</PageContainer>
+<AdminPageLayout
+    title="Accounts"
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Add User",
+            icon: Plus,
+            onClick: () => goto("/admin/accounts/accounts/new")
+        }
+    ]}
+>
+    <AccountsTable props={tableProps} />
+</AdminPageLayout>
