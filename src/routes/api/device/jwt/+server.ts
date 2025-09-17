@@ -10,8 +10,7 @@ import jwt from 'jsonwebtoken';
  */
 export const GET: RequestHandler = restrictDevice(
     async ({ request, locals, device, userInfo }) => {
-        // TODO create JWT for this device
-        const token = 'dummy-jwt';          // replace with real signing logic
+        
         logger.debug(`Device: ${JSON.stringify(device)}`);
         logger.debug(`User: ${JSON.stringify(userInfo)}`);
 
@@ -50,10 +49,13 @@ export const GET: RequestHandler = restrictDevice(
                     algorithm: signingKey.algorithm || 'HS256', // depends on your DB model
                     expiresIn: '1h',
                     issuer: 'fs04',
+                    audience: 'https://fs04.datarealities.com', // Added audience claim
                     subject: device.id,
                     keyid: signingKey.id,
                 }
             );
+
+            
 
             return json(createSuccessResponse({
                 jwt: token,
