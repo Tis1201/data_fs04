@@ -9,6 +9,7 @@ class AccountPage extends BasePage {
         super(page);
         this.page = page;
 
+        this.table = page.locator('table tbody');
         this.tableRows = page.locator('table tbody tr');
 
         // Page locators
@@ -31,7 +32,8 @@ class AccountPage extends BasePage {
 
     async goToAccountPage() {
         await this.page.goto(config.pageURL.accounts.url);
-        await this.accountListName;
+        await expect(this.accountListName).toBeVisible();
+        await this.table.waitFor();
     }
 
     /*
