@@ -58,6 +58,7 @@ const table_options = {
         wifiMac: true,
         lanMac: true,
         createdAt: true,
+        osVersion: true,
         status: true
     }
 };

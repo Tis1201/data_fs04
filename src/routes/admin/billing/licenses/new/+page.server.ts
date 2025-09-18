@@ -11,6 +11,7 @@ import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import jwt from 'jsonwebtoken';
+import { DeviceModel } from '$lib/constants/device';
 
 export const load = restrict(
     async (event: any) => {
@@ -140,8 +141,16 @@ export const actions: Actions = {
                             iat: Math.floor(Date.now() / 1000),
                             exp: Math.floor(expiresAtDate.getTime() / 1000),
                             sub: deviceId,
-                            accountId
+                            accountId,
                         };
+
+                        if (device.model?.toUpperCase() === DeviceModel.ANDROID) {
+                            const macAddress = device.macAddress || device.wifiMac || device.lanMac;
+                            if (macAddress) {
+                                payload['macAddress'] = macAddress;
+                            }
+                        }
+
                         jwtToken = jwt.sign(
                             payload,
                             signingKey.privateKey,
