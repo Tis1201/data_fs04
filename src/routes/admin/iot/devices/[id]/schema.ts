@@ -29,6 +29,7 @@ export const deviceEditSchema = z.object({
     osVersion: z.string().optional().nullable(),
     firmwareVersion: z.string().optional().nullable(),
     hardwareId: z.string().optional().nullable(),
+    macAddress: z.string().optional().nullable(),
     wifiMac: z.string().optional().nullable(),
     lanMac: z.string().optional().nullable(),
     ipAddress: z.string().optional().nullable(),

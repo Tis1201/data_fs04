@@ -54,24 +54,12 @@
 
         CreditCard,
 
-        IdCard
+        IdCard,
 
+        TagIcon,
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+        ShieldPlus,
+        FileCog
     } from "lucide-svelte";
 
     export let className = "";
@@ -106,9 +94,11 @@
             subItems: [
                 { href: "/admin/iot/factory_tokens", label: "Factory Tokens", icon: Factory },
                 { href: "/admin/iot/devices", label: "Devices", icon: Router },
-                { href: "/admin/iot/devices/simulator", label: "Device Simulator", icon: Monitor },
+                { href: "/admin/iot/device_tags", label: "Device Tags", icon: TagIcon },
+                { href: "/admin/iot/device-profiles", label: "Device Profiles", icon: FileCog },
                 { href: "/admin/iot/resources", label: "Resources", icon: Files},
-                { href: "/admin/iot/bundles", label: "Bundles", icon: PackagePlus}
+                { href: "/admin/iot/bundles", label: "Bundles", icon: PackagePlus},
+                { href: "/admin/iot/preclaims", label: "Preclaims", icon: ShieldPlus }
             ]
         },
         { 

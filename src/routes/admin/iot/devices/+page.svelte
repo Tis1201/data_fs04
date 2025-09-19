@@ -12,10 +12,10 @@
 
     export let data: PageData;
 
-    $: ({ devices: records, meta } = data);
+    $: ({ devices: records, meta, availableTags } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
-    $: props = { records: records as any, pagination, sort, loading };
+    $: props = { records: records as any, availableTags, pagination, sort, loading };
     
     let loading = false;
     

@@ -2,6 +2,7 @@
     import { toast } from "svelte-sonner";
     import { goto } from "$app/navigation";
     import { Button } from "$lib/components/ui/button";
+    import { Checkbox } from "$lib/components/ui/checkbox";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
     import { Save, X, ArrowLeft } from "lucide-svelte";
@@ -44,6 +45,7 @@
             };
         }
     });
+
 </script>
 
 <PageContainer crumbs={pageCrumbs}>
@@ -129,7 +131,7 @@
 
                 <!-- Only name, status, and description are editable -->
 
-                <!-- Hidden ID field -->
+                <!-- Hidden fields -->
                 <input type="hidden" name="id" bind:value={$form.id} />
             </FormContainer>
         </AdminCard>

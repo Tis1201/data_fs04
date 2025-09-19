@@ -52,7 +52,7 @@ class SortUtils {
         // Postgres-like text sorting for 'text'
         const comparator = (a, b) => {
             if (dataType === 'number') return parseFloat(a) - parseFloat(b);
-            if (dataType === 'text') return SortUtils.postgresLikeCompare(a, b);
+            // if (dataType === 'text') return SortUtils.postgresLikeCompare(a, b);
             return a.localeCompare(b, undefined, { sensitivity: 'base' });
         };
 

@@ -5,6 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { deleteFileFromCloudStorage } from '$lib/server/storage';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -135,6 +136,27 @@ export const actions: Actions = {
             }
 
             try {
+                // Get the resource first to get the file path
+                const resource = await locals.prisma.resource.findUnique({
+                    where: { id },
+                    select: { path: true }
+                });
+
+                if (!resource) {
+                    return { success: false, error: 'Resource not found' };
+                }
+
+                // Delete the file from cloud storage first
+                if (resource.path) {
+                    try {
+                        await deleteFileFromCloudStorage(resource.path);
+                        logger.info(`Successfully deleted file from cloud storage: ${resource.path}`);
+                    } catch (error) {
+                        logger.error(`Failed to delete file from cloud storage: ${error}`);
+                        // Continue with database deletion even if file deletion fails
+                    }
+                }
+
                 // Try to delete the resource - Zenstack will automatically check access permissions
                 // If the user doesn't have access, Zenstack will throw an error
                 await locals.prisma.resource.delete({

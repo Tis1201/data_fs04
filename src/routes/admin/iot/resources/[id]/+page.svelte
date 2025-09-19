@@ -116,7 +116,9 @@
     {
       label: 'Download',
       icon: Download,
-      onClick: () => window.open(resource.path, '_blank'),
+      onClick: () => {
+        window.open(`/api/resources/${resource.id}`, '_blank');
+      },
       variant: 'outline',
       class: 'h-9'
     },

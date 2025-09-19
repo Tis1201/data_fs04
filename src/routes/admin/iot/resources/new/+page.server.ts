@@ -178,7 +178,12 @@ export const actions: Actions = {
                 let filePath: string | null = null;
 
                 try {
-                    if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
+                    // Check if file is already uploaded (cloud upload mode)
+                    if (form.data.path && form.data.path.startsWith('http')) {
+                        logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
+                        filePath = form.data.path;
+                        form.data.file = null; // strip before persisting
+                    } else if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
                         const uploadedFile = form.data.file as File;
 
                         if (uploadedFile.size === 0) {

@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 // import { uploadToS3, getObjectUrl } from '$lib/server/s3/S3';
 import { logger } from '$lib/server/logger';
 import { env } from '$env/dynamic/private';
+import { handleFileUpload } from '$lib/server/storage';
 
 // Define the upload directory - in a real app, this would be configurable
 const UPLOAD_DIR = join(process.cwd(), 'static', 'uploads', 'iot');
@@ -72,45 +73,14 @@ export function inferTypeAndFormatFromFile(file: File): { type: string; format: 
 }
 
 /**
- * Persist the uploaded file locally (dev) or to S3 (prod), returning the public path/URL.
- * Infers extension from filename or MIME type if missing.
+ * Persist the uploaded file using the configured storage system.
+ * Supports LOCAL, LOCAL_CLOUD, and GCLOUD storage modes.
  */
 export async function saveFile(file: File): Promise<string> {
-    const uniqueId = uuidv4();
-
-    // Determine file extension
-    let fileExt = '';
-    if (file.name && file.name.includes('.')) {
-        fileExt = file.name.split('.').pop() || '';
-    } else if (file.type && MIME_EXT_MAP[file.type]) {
-        fileExt = MIME_EXT_MAP[file.type];
-    }
-
-    const safeFileName = fileExt ? `${uniqueId}.${fileExt}` : uniqueId;
-    
-
     try {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        if (buffer.length === 0) {
-            throw new Error('Uploaded file is empty (0 bytes)');
-        }
-
-        const isDev = env.NODE_ENV !== 'production';
-        
-        if (isDev) {
-            generateUploadDirectory();
-            const localPath = join(UPLOAD_DIR, safeFileName);
-            writeFileSync(localPath, buffer);
-            logger.debug(`Saved file locally: ${localPath} (size=${buffer.length})`);
-            return `/uploads/iot/${safeFileName}`;
-        } else {
-            // await uploadToS3(safeFileName, buffer, file.type);
-            // const url = getObjectUrl(safeFileName);
-            // logger.debug(`Uploaded file to S3: ${url} (size=${buffer.length})`);
-            // return url;
-        }
+        const result = await handleFileUpload(file);
+        logger.debug(`File uploaded successfully: ${result.url} (path: ${result.path})`);
+        return result.url;
     } catch (err: any) {
         logger.error(`Error saving file: ${String(err)}`);
         throw new Error(`Failed to save file: ${err.message || String(err)}`);

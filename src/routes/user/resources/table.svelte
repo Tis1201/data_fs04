@@ -156,9 +156,12 @@
                         onClick: () => goto(`/user/resources/${record.id}`)
                     },
                     {
-                        label: "Open",
-                        icon: ExternalLink,
-                        onClick: () => window.open(record.path, '_blank')
+                        label: "Download",
+                        icon: Download,
+                        onClick: () => {
+                            // Open download in new tab
+                            window.open(`/api/resources/${record.id}`, '_blank');
+                        }
                     },
                     {
                         label: "Delete",

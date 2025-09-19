@@ -10,7 +10,7 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import { Pencil, Trash, Power, RefreshCw } from "lucide-svelte";
-    import type { Device } from "@prisma/client";
+    import type { Device, DeviceTag } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
@@ -21,12 +21,14 @@
     import { sseStore } from "$lib/stores/sse-store";
     import { Badge } from "$lib/components/ui/badge";
     import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
+    import DeviceStatusBadge from "$lib/components/ui_components_sveltekit/devices/DeviceStatusBadge.svelte";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
 
     // Props for DataTable component
     export let props = {
         records: [] as Device[],
+        availableTags: [] as DeviceTag[],
         pagination: {
             page: 1,
             per_page: 10,
@@ -92,21 +94,19 @@
         $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? []
     );
 
+    const selectedTagIds = writable<string[]>(
+        $page.url.searchParams.get("tags")?.split(",").filter(Boolean) ?? []
+    );
+
+    const tagOptions = props.availableTags.map(tag => {
+        return {
+            label: tag.name,
+            value: tag.id
+        }
+    })
+
     // Column definitions
     const columns = [
-        {
-            id: "connected",
-            label: "Online",
-            sortable: false,
-            width: "6%",
-            render: (record: Device) => ({
-                component: OnlineDot,
-                props: {
-                    online: !!record.connected,
-                    title: record.connected ? 'Online' : 'Offline'
-                }
-            })
-        },
         {
             id: "name",
             label: "Name",
@@ -125,48 +125,42 @@
             })
         },
         {
-            id: "deviceType",
-            label: "Type",
+            id: "macAddress",
+            label: "MAC Address",
             sortable: true,
-            width: "10%",
-            render: (record: Device) => record.deviceType || "N/A"
+            width: "12%",
+            render: (record: Device) => {
+                // Show primary MAC address, fallback to wifi or lan MAC
+                const mac = record.macAddress || record.wifiMac || record.lanMac;
+                return mac?.toUpperCase() || "N/A";
+            }
         },
         {
-            id: "hardwareId",
-            label: "Hardware ID",
+            id: "osVersion",
+            label: "OS Version",
             sortable: true,
-            width: "10%",
-            render: (record: Device) => record.hardwareId || "N/A"
+            width: "8%",
+            render: (record: Device) => record.osVersion || "N/A"
         },
         {
-            id: "manufacturer",
-            label: "Manufacturer",
-            sortable: true,
-            width: "10%",
-            render: (record: Device) => record.manufacturer || "N/A"
-        },
-        {
-            id: "status",
-            label: "Status",
-            sortable: true,
-            width: "10%",
-            render: (record: Device) => record.status || "N/A"
-        },
-        {
-            id: "createdAt",
-            label: "Created",
-            sortable: true,
-            width: "15%",
+            id: "connected",
+            label: "Online",
+            sortable: false,
+            width: "6%",
             render: (record: Device) => ({
-                component: RelativeDate,
+                component: OnlineDot,
                 props: {
-                    date: record.createdAt,
-                    format: "relative",
-                    showTooltip: true,
-                    useHoverCard: true,
-                    iconSize: 12
+                    online: !!record.connected,
+                    title: record.connected ? 'Online' : 'Offline'
                 }
             })
+        },
+        {
+            id: "usage",
+            label: "Usage",
+            sortable: false,
+            width: "10%",
+            render: (record: Device) => record.usage || "N/A"  // Will use table device info later
         },
         {
             id: "actions",
@@ -391,6 +385,21 @@
                     const url = new URL(window.location.href);
                     url.searchParams.set('statuses', values.join(','));
                     if (!values.length) url.searchParams.delete('statuses');
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
+            />
+
+            <!-- Tags filter -->
+            <PopoverFilter
+                label="Tags"
+                options={tagOptions}
+                selectedValues={$selectedTagIds}
+                onChange={(values) => {
+                    selectedTagIds.set(values);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tags', values.join(','));
+                    if (!values.length) url.searchParams.delete('tags');
                     url.searchParams.set('page', '1');
                     goto(url.toString(), { replaceState: true, noScroll: true });
                 }}

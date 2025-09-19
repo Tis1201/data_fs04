@@ -4,83 +4,48 @@ import {restrict} from "$lib/server/security/guards";
 import {SystemRole} from "$lib/types/roles";
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType, UserStatus } from '$lib/constants/system';
+import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+
+const table_options = {
+    modelName: 'account',
+    searchableFields: ['name', 'id', 'slug'],
+    allowedFilters: ['statuses'],
+    defaultSortField: 'createdAt',
+    defaultSortOrder: 'desc' as const,
+    defaultPerPage: 10,
+    filterMappings: {
+        'statuses': { field: 'status', operator: 'in' }
+    },
+    select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        description: true,
+        logoUrl: true,
+        _count: {
+            select: {
+                companies: true,
+                members: true,
+                devices: true
+            }
+        }
+    },
+    baseWhere: {
+        isSystem: false
+    }
+};
 
 export const load: PageServerLoad = async ({ url, locals }: RequestEvent) => {
     try {
-        // Get query parameters for filtering, sorting, and pagination
-        const search = url.searchParams.get('search') || '';
-        const page = parseInt(url.searchParams.get('page') || '1');
-        const perPage = parseInt(url.searchParams.get('per_page') || '10');
-        const sortField = url.searchParams.get('sort') || 'createdAt';
-        const sortOrder = url.searchParams.get('order') || 'desc';
-        const statuses = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
-
-        // Calculate pagination values
-        const skip = (page - 1) * perPage;
-        const take = perPage;
-
-        // Build the where clause for filtering
-        const where: any = { isSystem: false };
+        // Use the reusable fetchTableData function with our table options
+        const result = await fetchTableData(locals, url, table_options);
         
-        // Add search filter if provided
-        if (search) {
-            where.OR = [
-                { name: { contains: search, mode: 'insensitive' } },
-                { id: { contains: search, mode: 'insensitive' } },
-                { slug: { contains: search, mode: 'insensitive' } }
-            ];
-        }
-        
-        // Add status filter if provided
-        if (statuses.length > 0) {
-            where.status = { in: statuses };
-        }
-
-        // Query accounts with filtering, sorting, and pagination
-        const [accounts, totalAccounts] = await Promise.all([
-            locals.prisma.account.findMany({
-                where,
-                orderBy: {
-                    [sortField]: sortOrder
-                },
-                skip,
-                take,
-                select: {
-                    id: true,
-                    name: true,
-                    slug: true,
-                    status: true,
-                    createdAt: true,
-                    updatedAt: true,
-                    description: true,
-                    logoUrl: true,
-                    _count: {
-                        select: {
-                            companies: true,
-                            members: true,
-                            devices: true
-                        }
-                    }
-                }
-            }),
-            locals.prisma.account.count({ where })
-        ]);
-
-        // Calculate pagination metadata
-        const totalPages = Math.ceil(totalAccounts / perPage);
-
         return {
-            accounts,
-            meta: {
-                totalItems: totalAccounts,
-                itemsPerPage: perPage,
-                totalPages,
-                currentPage: page
-            },
-            sort: {
-                field: sortField,
-                order: sortOrder
-            }
+            accounts: result.records,
+            meta: result.meta
         };
     } catch (err) {
         console.error('Error loading accounts:', err);

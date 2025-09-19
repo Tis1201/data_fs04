@@ -35,6 +35,7 @@ model Account {
   members       AccountMembership[]
   groups        Group[]
   devices       Device[]  // Devices owned by this account
+  deviceTags    DeviceTag[]  // Device tags owned by this account
   apiKeys       ApiKey[] // API keys associated with this account
   primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
   resources     Resource[] // Resources owned by this account
@@ -47,6 +48,9 @@ model Account {
   // Licensing & entitlements
   licenses      License[]
   entitlements  Entitlement[]
+  
+  // Device profiles
+  deviceProfiles DeviceProfile[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -491,6 +495,8 @@ model Device {
   // logs          Log[]?    // Uncomment if you have a Log model
   actionLogs   DeviceActionLog[] @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
+  tags      DeviceTag[]  @relation("DeviceTags")
+
   preclaimDevices PreclaimDevice[]
   // Connection status
   connected     Boolean  @default(false)
@@ -500,11 +506,14 @@ model Device {
   // Licensing
   licenses      License[]
   
+  // Device profile assignment
+  profileAssignment DeviceProfileAssignment?
+  
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('delete', auth() != null && createdBy == auth().id)
   @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
-  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'USER', 'MEMBER']])
   
   @@index([createdBy])
   @@index([hardwareId])
@@ -512,6 +521,25 @@ model Device {
   @@index([accountId])
   @@index([companyId])
 }   
+
+model DeviceTag {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  devices      Device[]   @relation("DeviceTags")
+  accountId    String?
+  account      Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // Access policies
+  // Admins can do everything
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+}
 
 // Generic device action log for all operations (firmware update, screenshot, etc.)
 model DeviceActionLog {
@@ -547,6 +575,8 @@ model DeviceActionLog {
   @@allow('all', auth().systemRole == 'ADMIN')
   // The user who initiated can read
   @@allow('read', auth() != null && initiatedBy == auth().id)
+  // Account members can read action logs for devices in their accounts
+  @@allow('read', auth() != null && device.accountId != null && device.account.members?[userId == auth().id])
 }
 
 model Setting {
@@ -1390,4 +1420,83 @@ model PreclaimDevice {
   @@index([status])
   @@index([expiresAt])
   @@index([accountId])
+}
+
+// Device Profile Models
+model DeviceProfile {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Retail Kiosk Profile"
+  description String?  // e.g., "Standard configuration for retail kiosk devices"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
+  createdBy   String
+  updatedBy   String?
+  
+  // Ownership
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Relationships
+  settings    DeviceProfileSetting[]
+  assignments DeviceProfileAssignment[]
+  
+  // Permissions
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'MEMBER']])
+  
+  @@index([accountId])
+  @@index([createdBy])
+}
+
+model DeviceProfileSetting {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   DeviceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  
+  // Setting definition
+  key       String   // e.g., "kiosk_lock_mode", "display_resolution"
+  value     String   // e.g., "enabled", "1920x1080"
+  dataType  String   // "boolean", "string", "number", "select", "time"
+  
+  // Metadata
+  label     String   // Display label
+  category  String?  // Grouping category
+  order     Int      // Display order
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt()
+  
+  @@unique([profileId, key])
+  @@index([profileId])
+  
+  // Permissions - any account member can read/write/delete
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', profile.account.members?[userId == auth().id])
+}
+
+model DeviceProfileAssignment {
+  id        String   @id @default(cuid())
+  profileId String
+  deviceId  String
+  profile   DeviceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  // Assignment metadata
+  assignedAt DateTime @default(now())
+  assignedBy String
+  status     String   @default("ACTIVE") // "ACTIVE", "PENDING", "FAILED"
+  
+  // Application tracking
+  appliedAt  DateTime?
+  lastSyncAt DateTime?
+  
+  @@unique([deviceId]) // One profile per device
+  @@index([profileId])
+  @@index([deviceId])
+
+  // Permissions - any account member can read/write/delete
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', profile.account.members?[userId == auth().id])
 }

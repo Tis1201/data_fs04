@@ -18,6 +18,7 @@ export const load = restrict(
                 where: { id: params.id },
                 select: {
                     id: true,
+                    tags: true,
                     name: true,
                     description: true,
                     status: true,
@@ -97,17 +98,15 @@ export const actions: Actions = {
                     });
                 }
 
-                // Prepare update data - only name, status, and description are editable
-                const updateData = {
-                    name: form.data.name,
-                    description: form.data.description || null,
-                    status: form.data.status,
-                };
-
-                // Update device
+                const { name, description, status } = form.data;
+                
                 const updatedDevice = await locals.prisma.device.update({
                     where: { id },
-                    data: updateData
+                    data: {
+                        name: name,
+                        description: description || null,
+                        status: status
+                    }
                 });
 
                 await logAudit({
@@ -147,7 +146,7 @@ export const actions: Actions = {
     cancel: restrict(
         async ({ params }) => {
             // Redirect back to the device detail page
-            throw redirect(303, `/admin/iot/devices/${params.id}`);
+            throw redirect(303, `/admin/iot/device/${params.id}`);
         },
         [SystemRole.ADMIN]
     )

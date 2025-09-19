@@ -16,7 +16,7 @@ import { getStatusBeforeToggled } from '$lib/utils';
 // Define table options for Devices
 const table_options = {
     modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId'],
+    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac'],
     allowedFilters: ['types', 'statuses'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
@@ -45,6 +45,21 @@ const table_options = {
                 } // Devices in accounts where user is a member
             ]
         };
+    },
+    // Include MAC address fields in the select
+    select: {
+        id: true,
+        name: true,
+        connected: true,
+        deviceType: true,
+        hardwareId: true,
+        manufacturer: true,
+        macAddress: true,
+        wifiMac: true,
+        lanMac: true,
+        createdAt: true,
+        osVersion: true,
+        status: true
     }
 };
 

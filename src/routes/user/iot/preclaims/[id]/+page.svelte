@@ -2,12 +2,12 @@
   import { goto } from '$app/navigation';
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
   import { AdminCard } from "$lib/components/admin";
-  import { Badge } from "$lib/components/ui/badge";
-  import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-  import { toast } from 'svelte-sonner';
   import { ArrowLeft, Info, Pencil } from 'lucide-svelte';
-  import ClaimsTable from './claims/table.svelte';
-  import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
+  import PreclaimBasicInfo from "$lib/components/ui_components_sveltekit/preclaims/PreclaimBasicInfo.svelte";
+  import PreclaimMetrics from "$lib/components/ui_components_sveltekit/preclaims/PreclaimMetrics.svelte";
+  import PreclaimDescription from "$lib/components/ui_components_sveltekit/preclaims/PreclaimDescription.svelte";
+  import PreclaimMetadata from "$lib/components/ui_components_sveltekit/preclaims/PreclaimMetadata.svelte";
+  import PreclaimDeviceTable from "$lib/components/ui_components_sveltekit/preclaims/PreclaimDeviceTable.svelte";
 
   export let data: any;
   let preclaimSet = data.preclaimSet;
@@ -65,73 +65,27 @@
   <div class="w-full space-y-6">
     <!-- Overview -->
     <AdminCard>
-      <svelte:fragment slot="header">
-        <h3 class="text-lg font-medium">Pre-claim Overview</h3>
-        <p class="text-sm text-muted-foreground">Key information about this pre-claim set</p>
-      </svelte:fragment>
+        <svelte:fragment slot="header">
+          <h3 class="text-lg font-medium">Pre-claim Overview</h3>
+          <p class="text-sm text-muted-foreground">Key information about this pre-claim set</p>
+        </svelte:fragment>
 
-      <!-- Basic info -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Name</p>
-          <p class="text-sm font-medium">{preclaimSet?.name || 'Unnamed'}</p>
-        </div>
-        <div class="space-y-1">
-          <p class="text-xs text-muted-foreground">Status</p>
-          <div>
-            <Badge variant={getStatusVariant(preclaimSet?.status)}>
-              {getStatusDisplay(preclaimSet?.status)}
-            </Badge>
-          </div>
-        </div>
-      </div>
+      <PreclaimBasicInfo
+        preclaimSet={preclaimSet}
+      />
 
-      <!-- Metrics tiles -->
-      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="rounded-lg border bg-muted/20 p-4">
-          <p class="text-xs text-muted-foreground">Total Devices</p>
-          <p class="text-2xl font-semibold">{metrics.total}</p>
-          <p class="text-xs text-muted-foreground">Devices in this pre-claim set</p>
-        </div>
-        <div class="rounded-lg border bg-muted/20 p-4">
-          <p class="text-xs text-muted-foreground">Devices Claimed</p>
-          <p class="text-2xl font-semibold">{metrics.claimed}</p>
-          <p class="text-xs text-muted-foreground">Claimed or used</p>
-        </div>
-        <div class="rounded-lg border bg-muted/20 p-4">
-          <p class="text-xs text-muted-foreground">Devices Left</p>
-          <p class="text-2xl font-semibold">{metrics.left}</p>
-          <p class="text-xs text-muted-foreground">Remaining to be claimed</p>
-        </div>
-        <div class="rounded-lg border bg-muted/20 p-4">
-          <p class="text-xs text-muted-foreground">Expires</p>
-          <p class="text-sm">
-            {#if preclaimSet?.expiresAt}
-              <RelativeDate date={preclaimSet.expiresAt} />
-            {:else}
-              No expiry
-            {/if}
-          </p>
-          <p class="text-xs text-muted-foreground">Validity of this set</p>
-        </div>
-      </div>
+      <PreclaimMetrics
+        preclaimSet={preclaimSet}
+        metrics={data.metrics}
+      />
 
-      {#if preclaimSet?.description}
-        <div class="mt-4 pt-4 border-t">
-          <p class="text-xs text-muted-foreground mb-1">Description</p>
-          <p class="text-sm">{preclaimSet.description}</p>
-        </div>
-      {/if}
+      <PreclaimDescription
+        preclaimSet={preclaimSet}
+      />
 
       <svelte:fragment slot="footer">
-        <MetadataFooter
-          items={[
-            { label: "ID", value: preclaimSet?.id, icon: "hash" },
-            { label: "Account", value: preclaimSet?.account?.name || "None", icon: "tag" },
-            { label: "Created By", value: preclaimSet?.user?.name || "Unknown", icon: "user" },
-            { label: "Created", date: preclaimSet?.createdAt, icon: "calendar" },
-            { label: "Last Updated", date: preclaimSet?.updatedAt, icon: "clock" }
-          ]}
+        <PreclaimMetadata
+          preclaimSet={preclaimSet}
         />
       </svelte:fragment>
     </AdminCard>
@@ -143,7 +97,10 @@
         <p class="text-sm text-muted-foreground">Devices included in this pre-claim set</p>
       </svelte:fragment>
 
-      <ClaimsTable preclaimId={preclaimSet.id} />
+      <PreclaimDeviceTable
+        preclaimId={preclaimSet.id}
+        apiPrefix="/api/user"
+      />
     </AdminCard>
   </div>
 </AdminPageLayout>

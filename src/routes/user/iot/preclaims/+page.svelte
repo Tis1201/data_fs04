@@ -2,7 +2,7 @@
     import DeviceTable from "./table.svelte";
     import { page } from "$app/stores";
     import { goto } from "$app/navigation";
-    import { Plus } from "lucide-svelte";
+    import { Plus, CheckCircle } from "lucide-svelte";
     import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
     import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
@@ -10,6 +10,8 @@
     import type { PageData } from "./$types";
     import { sseStore } from "$lib/stores/sse-store";
     import { onMount } from 'svelte';
+    import { toast } from 'svelte-sonner';
+    import { Card, CardContent } from "$lib/components/ui/card";
     
     // Import page data
     export let data: PageData;
@@ -21,6 +23,8 @@
     $: props = { records: records as any, pagination, sort, loading };
     
     let loading = false;
+    let showSuccessMessage = false;
+    let successMessage = '';
     
     // Initialize pagination with stored preferences
     initPagination('preferredPageSize', true);
@@ -32,8 +36,49 @@
         ["Preclaims", ""]
     ] as [string, string][];
 
-    // Establish SSE connection once for the list page (DeviceTable will subscribe per-record)
+    // Handle success message from URL parameters
     onMount(() => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const success = urlParams.get('success');
+        const name = urlParams.get('name');
+        const id = urlParams.get('id');
+        
+        if (success === 'created') {
+            if (name && id) {
+                successMessage = `Preclaim set "${decodeURIComponent(name)}" created successfully!`;
+                showSuccessMessage = true;
+                
+                // Show toast notification
+                toast.success(successMessage);
+                
+                // Clean up URL parameters
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.delete('success');
+                newUrl.searchParams.delete('name');
+                newUrl.searchParams.delete('id');
+                window.history.replaceState({}, '', newUrl.toString());
+                
+                // Auto-hide success message after 5 seconds
+                setTimeout(() => {
+                    showSuccessMessage = false;
+                }, 5000);
+            } else {
+                successMessage = 'Preclaim set created successfully!';
+                showSuccessMessage = true;
+                toast.success(successMessage);
+                
+                // Clean up URL parameters
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.delete('success');
+                window.history.replaceState({}, '', newUrl.toString());
+                
+                // Auto-hide success message after 5 seconds
+                setTimeout(() => {
+                    showSuccessMessage = false;
+                }, 5000);
+            }
+        }
+        
         // try {
         //     sseStore.connect(`/api/sse`, { withCredentials: true });
         // } catch (e) {
@@ -52,6 +97,17 @@
             />
         </svelte:fragment>
     </PageHeader>
+
+    {#if showSuccessMessage}
+        <Card class="w-full mb-4 border-green-200 bg-green-50">
+            <CardContent class="pt-4">
+                <div class="flex items-center gap-3">
+                    <CheckCircle class="w-5 h-5 text-green-600 flex-shrink-0" />
+                    <p class="text-green-800 font-medium">{successMessage}</p>
+                </div>
+            </CardContent>
+        </Card>
+    {/if}
 
     <DeviceTable {props} />
 </PageContainer>

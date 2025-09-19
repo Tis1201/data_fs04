@@ -4,7 +4,7 @@ set -e
 # Configuration
 IMAGE_NAME="fs04-web-app"
 CONTAINER_NAME="fs04-web-app"
-PORT=3000
+PORT=80
 
 # Display banner
 echo "====================================="
@@ -113,7 +113,7 @@ function run_container {
       $IMAGE_NAME
     
     echo "Container started!"
-    echo "Access the application at: http://localhost:$PORT"
+    echo "Access the application at: http://localhost"
     echo "To view logs: ./run.sh logs"
   fi
 }
