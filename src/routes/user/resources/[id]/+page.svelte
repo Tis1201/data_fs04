@@ -60,7 +60,7 @@
     
     // Determine if resource is an image that can be previewed
     const isImage = resource.type.toLowerCase() === 'image';
-    const filePath = resource.path.startsWith('http') ? resource.path : `/api/resources/${resource.id}`;
+    const filePath = `/api/resources/${resource.id}`;
     
     // Get the appropriate icon component
     const ResourceIcon = getResourceIcon(resource.type);
@@ -70,23 +70,12 @@
         // Show loading indicator or feedback
         toast.loading('Preparing download...');
         
-        // Attempt to download the file
-        fetch(filePath, { method: 'HEAD' })
-            .then(response => {
-                toast.dismiss();
-                if (response.ok) {
-                    // If the file exists, open it in a new tab
-                    window.open(filePath, '_blank');
-                } else {
-                    // If the file doesn't exist, show an error
-                    toast.error('File not found or inaccessible');
-                }
-            })
-            .catch(error => {
-                toast.dismiss();
-                toast.error('Error accessing file');
-                console.error('Download error:', error);
-            });
+        // Open download in new tab
+        window.open(filePath, '_blank');
+        
+        // Dismiss the loading toast
+        toast.dismiss();
+        toast.success('Download started');
     }
     
     // Determine if the current user can edit this resource

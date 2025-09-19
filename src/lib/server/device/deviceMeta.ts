@@ -6,6 +6,11 @@ export interface DeviceMeta {
     osVersion?: string;
     model?: string; 
     connectionId?: string;
+    
+    // Network identifiers
+    macAddress?: string;
+    wifiMac?: string;
+    lanMac?: string;
 
     claimedByConnectionId?: string;
     claimedById?: string;

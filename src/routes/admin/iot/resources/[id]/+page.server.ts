@@ -10,6 +10,7 @@ import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { deleteFileFromCloudStorage } from '$lib/server/storage';
 
 export const load = restrict(
     async (event) => {
@@ -290,7 +291,18 @@ export const actions: Actions = {
                     return fail(404, { message: 'Resource not found' });
                 }
 
-                // Delete the resource
+                // Delete the file from cloud storage first
+                if (resource.path) {
+                    try {
+                        await deleteFileFromCloudStorage(resource.path);
+                        logger.info(`Successfully deleted file from cloud storage: ${resource.path}`);
+                    } catch (error) {
+                        logger.error(`Failed to delete file from cloud storage: ${error}`);
+                        // Continue with database deletion even if file deletion fails
+                    }
+                }
+
+                // Delete the resource from database
                 await locals.prisma.resource.delete({
                     where: { id: resourceId }
                 });

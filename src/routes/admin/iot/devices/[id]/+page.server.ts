@@ -13,13 +13,15 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals, depends }) => {
+        depends('app:device');
         try {
             // Load existing device
             const device = await locals.prisma.device.findUnique({
                 where: { id: params.id },
                 select: {
                     id: true,
+                    tags: true,
                     name: true,
                     description: true,
                     status: true,
@@ -29,6 +31,7 @@ export const load = restrict(
                     osVersion: true,
                     firmwareVersion: true,
                     hardwareId: true,
+                    macAddress: true,
                     wifiMac: true,
                     lanMac: true,
                     ipAddress: true,
@@ -86,6 +89,7 @@ export const load = restrict(
                     osVersion: device.osVersion || "",
                     firmwareVersion: device.firmwareVersion || "",
                     hardwareId: device.hardwareId || "",
+                    macAddress: device.macAddress || "",
                     wifiMac: device.wifiMac || "",
                     lanMac: device.lanMac || "",
                     ipAddress: device.ipAddress || "",
@@ -170,6 +174,7 @@ export const actions: Actions = {
                         osVersion: form.data.osVersion || null,
                         firmwareVersion: form.data.firmwareVersion || null,
                         hardwareId: form.data.hardwareId || null,
+                        macAddress: form.data.macAddress || null,
                         wifiMac: form.data.wifiMac || null,
                         lanMac: form.data.lanMac || null,
                         ipAddress: form.data.ipAddress || null,

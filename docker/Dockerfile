@@ -20,7 +20,7 @@ RUN grep -v '"preview": "vite preview",' ./package.json.original | grep -v '"sta
 
 # Install dependencies with a clean, platform-appropriate resolution
 # Remove macOS-generated lockfile to avoid npm optional-deps platform mismatch (rollup native)
-RUN rm -f package-lock.json && npm cache clean --force && npm install
+RUN rm -f package-lock.json && npm cache clean --force && npm install --legacy-peer-deps
 
 # Copy only necessary files for build
 COPY src ./src

@@ -18,6 +18,7 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
     const order = (url.searchParams.get('order') || 'asc') as 'asc' | 'desc';
     const search = url.searchParams.get('search') || '';
     const status = url.searchParams.get('status') || '';
+    const tag = url.searchParams.get('tag') || '';
 
     // Bundle ID from route params
     const { id: bundleId } = params as { id: string };
@@ -29,12 +30,23 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
         { model: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } }
+        { description: { contains: search, mode: 'insensitive' } },
+        { macAddress: { contains: search, mode: 'insensitive' } },
+        { wifiMac: { contains: search, mode: 'insensitive' } },
+        { lanMac: { contains: search, mode: 'insensitive' } }
       ];
     }
 
     if (status) {
       where.status = status;
+    }
+    
+    if (tag) {
+        where.tags = {
+            some: {
+                id: tag
+            }
+        }
     }
 
     // Exclude devices already in this bundle
@@ -70,7 +82,10 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
         description: true,
         createdAt: true,
         lastUsedAt: true,
-        connected: true
+        connected: true,
+        macAddress: true,
+        wifiMac: true,
+        lanMac: true
       },
       orderBy: {
         [sort]: order

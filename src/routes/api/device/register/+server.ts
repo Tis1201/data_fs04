@@ -67,7 +67,12 @@ export const GET = createSSEHandler({
         // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
         if (mac) {
             const existingDevice = await locals.prisma.device.findFirst({
-                where: { macAddress: mac }
+                where: { 
+                    OR: [
+                        { macAddress: mac },
+                        { wifiMac: mac }
+                    ]
+                }
             });
             
             if (existingDevice?.claimedBy) {
@@ -154,10 +159,13 @@ export const GET = createSSEHandler({
     onConnect: async ({ connectionId, device, locals }) => {
         logger.debug(`Device registration SSE connection established: ${connectionId}`);
         
-        // Create device metadata with the connection ID
+        // Create device metadata with the connection ID and MAC address
+        const mac = (locals as any).deviceMac as string | null;
         const deviceMeta: DeviceMeta = {
             id: device.id,
             connectionId: connectionId,
+            macAddress: mac || undefined,
+            wifiMac: mac || undefined,
         };
         
         // Register the device with the PIN
@@ -198,6 +206,7 @@ export const GET = createSSEHandler({
             const mac = (locals as any).deviceMac as string | null;
             if (mac) {
                 try {
+                    // Store original MAC format in device record
                     await locals.prisma.device.update({
                         where: { id: claimedDevice.id },
                         data: {

@@ -139,7 +139,12 @@ export const actions: Actions = {
                 let filePath: string | null = null;
 
                 try {
-                    if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
+                    // Check if file has already been uploaded to cloud storage
+                    if (form.data.path && form.data.path.startsWith('https://storage.googleapis.com/')) {
+                        logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
+                        // File is already uploaded, use the existing path
+                        filePath = form.data.path;
+                    } else if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
                         const uploadedFile = form.data.file as File;
 
                         if (uploadedFile.size === 0) {

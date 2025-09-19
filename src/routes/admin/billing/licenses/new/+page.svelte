@@ -300,7 +300,8 @@
                 timelineOptions="future"
                 defaultTimeline="future"
                 placeholder="Select expiration date"
-                valueAsString={true}
+                format_string="yyyy-MM-dd"
+                clearable={true}
               />
               <p class="text-xs text-muted-foreground mt-1">
                 Date when this license will expire

@@ -16,7 +16,7 @@ import { getStatusBeforeToggled } from '$lib/utils';
 // Define table options for Devices
 const table_options = {
     modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId'],
+    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac', 'osVersion'],
     allowedFilters: ['types', 'statuses'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
@@ -25,6 +25,21 @@ const table_options = {
     filterMappings: {
         'types': { field: 'deviceType', operator: 'in' },
         'statuses': { field: 'status', operator: 'in' }
+    },
+    select: {
+        id: true,
+        name: true,
+        connected: true,
+        deviceType: true,
+        hardwareId: true,
+        manufacturer: true,
+        macAddress: true,
+        wifiMac: true,
+        lanMac: true,
+        createdAt: true,
+        status: true,
+        osVersion: true,
+        tags: true
     }
 };
 
@@ -36,10 +51,30 @@ const table_options = {
 export const load = restrict(
     async ({ url, locals }) => {
         // Use the reusable fetchTableData function with our table options
+        let filteredTagIds = url.searchParams.get("tags");
+        if (filteredTagIds) {
+            filteredTagIds = filteredTagIds.includes(',') ? filteredTagIds.split(',').filter(Boolean) : [filteredTagIds];
+            table_options.baseWhere = {
+                tags: {
+                    some: {
+                        id: {
+                            in: filteredTagIds,
+                        }
+                    }
+                }
+            }
+        }
         const result = await fetchTableData(locals, url, table_options);
-        
+        const availableTags = await locals.prisma.deviceTag.findMany({
+            select: {
+                id: true,
+                name: true
+            }
+        });
+
         return {
             devices: result.records,
+            availableTags,
             meta: result.meta
         };
     },

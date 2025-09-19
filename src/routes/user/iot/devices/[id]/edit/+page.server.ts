@@ -20,7 +20,7 @@ export const load = restrict(
                     // Only allow users to edit their own devices or devices in their account
                     OR: [
                         { createdBy: locals.user?.id },
-                        { accountId: locals.user?.currentAccountId }
+                        { accountId: locals.currentAccount?.account.id }
                     ]
                 },
                 select: {
@@ -93,7 +93,11 @@ export const actions: Actions = {
 
             try {
                 // Debug logging to understand the access check
-                logger.debug(`User access check - userId: ${locals.user?.id}, currentAccountId: ${locals.user?.currentAccountId}`);
+                logger.debug(`User access check - userId: ${locals.user?.id}, currentAccountId: ${locals.currentAccount?.account.id}, userRole: ${locals.currentAccount?.role}`);
+                logger.debug(`Current account details:`, { 
+                    currentAccount: locals.currentAccount,
+                    accountMemberships: locals.accountMemberships?.length || 0
+                });
                 
                 // First check if device exists and user has access to it
                 const existingDevice = await locals.prisma.device.findUnique({
@@ -101,7 +105,7 @@ export const actions: Actions = {
                         id,
                         OR: [
                             { createdBy: locals.user?.id },
-                            { accountId: locals.user?.currentAccountId }
+                            { accountId: locals.currentAccount?.account.id }
                         ]
                     }
                 });
@@ -172,11 +176,13 @@ export const actions: Actions = {
                     })
                 );
             } catch (e) {
-                logger.debug(`Caught error in device update:`, e);
-                logger.error(`Error updating device:`, e);
+                const error = e as Error;
+                logger.debug(`Caught error in device update: ${error.message}`, { stack: error.stack });
+                logger.error(`Error updating device: ${error.message}`, { stack: error.stack });
+                console.error('Device update error details:', error);
                 return fail(500, {
                     form,
-                    error: 'Failed to update device'
+                    error: `Failed to update device: ${error.message}`
                 });
             }
         },
