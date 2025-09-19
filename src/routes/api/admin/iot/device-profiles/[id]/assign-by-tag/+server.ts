@@ -9,6 +9,11 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Admin users have full access
+    if (auth.user.systemRole !== 'ADMIN') {
+      return json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const { id: profileId } = params;
     const { tagId } = await request.json();
 
@@ -20,13 +25,12 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
       return json({ success: false, error: 'Tag ID is required' }, { status: 400 });
     }
 
-    // Verify the profile exists and user has access
+    // Verify the profile exists
     const profile = await locals.prisma.deviceProfile.findUnique({
       where: { id: profileId },
       select: { 
         id: true, 
-        name: true,
-        accountId: true
+        name: true
       }
     });
 
@@ -34,23 +38,9 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
       return json({ success: false, error: 'Device profile not found' }, { status: 404 });
     }
 
-    // Check permissions
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-      where: {
-        accountId: profile.accountId,
-        userId: auth.user.id,
-        role: { in: ['OWNER', 'ADMIN'] }
-      }
-    });
-
-    if (!hasAccess && auth.user.systemRole !== 'ADMIN') {
-      return json({ success: false, error: 'Access denied' }, { status: 403 });
-    }
-
-    // Get devices with the specified tag that are available for assignment
+    // Get devices with the specified tag that are available for assignment (admin can assign across accounts)
     const devices = await locals.prisma.device.findMany({
       where: {
-        accountId: profile.accountId,
         tags: {
           some: {
             id: tagId

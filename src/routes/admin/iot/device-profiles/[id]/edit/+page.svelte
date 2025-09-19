@@ -183,6 +183,35 @@
     $: assignedTotalPages = Math.ceil(assignedTotal / itemsPerPage);
     $: availableTotalPages = Math.ceil(availableTotal / itemsPerPage);
     
+    // Ensure page numbers stay within bounds
+    $: if (assignedPage > assignedTotalPages && assignedTotalPages > 0) {
+        assignedPage = assignedTotalPages;
+    }
+    $: if (availablePage > availableTotalPages && availableTotalPages > 0) {
+        availablePage = availableTotalPages;
+    }
+    
+    // Generate page arrays for pagination
+    $: assignedPageNumbers = (() => {
+        const pages = [];
+        const start = Math.max(1, assignedPage - 2);
+        const end = Math.min(assignedTotalPages, start + 4);
+        for (let i = start; i <= end; i++) {
+            pages.push(i);
+        }
+        return pages;
+    })();
+    
+    $: availablePageNumbers = (() => {
+        const pages = [];
+        const start = Math.max(1, availablePage - 2);
+        const end = Math.min(availableTotalPages, start + 4);
+        for (let i = start; i <= end; i++) {
+            pages.push(i);
+        }
+        return pages;
+    })();
+    
     // Debug logging
     $: console.log('Assigned total pages:', { assignedTotal, itemsPerPage, pages: assignedTotalPages });
     $: console.log('Available total pages:', { availableTotal, itemsPerPage, pages: availableTotalPages });
@@ -821,7 +850,7 @@
                             {#if assignedTotalPages > 1}
                                 <div class="flex items-center justify-between px-4 py-3 border-t bg-slate-50/50">
                                     <div class="flex items-center gap-2 text-sm text-gray-600">
-                                        <span>Showing {((assignedPage - 1) * itemsPerPage) + 1} to {Math.min(assignedPage * itemsPerPage, assignedTotal)} of {assignedTotal} devices</span>
+                                        <span>Showing {Math.min(((assignedPage - 1) * itemsPerPage) + 1, assignedTotal)} to {Math.min(assignedPage * itemsPerPage, assignedTotal)} of {assignedTotal} devices</span>
                                     </div>
                                     <div class="flex items-center gap-1">
                                         <Button
@@ -834,10 +863,7 @@
                                             <ChevronLeft class="h-4 w-4" />
                                         </Button>
                                         
-                                        {#each Array.from({length: Math.min(5, assignedTotalPages)}, (_, i) => {
-                                            const start = Math.max(1, assignedPage - 2);
-                                            return start + i;
-                                        }) as pageNum}
+                                        {#each assignedPageNumbers as pageNum}
                                             <Button
                                                 variant={pageNum === assignedPage ? "default" : "outline"}
                                                 size="sm"
@@ -970,7 +996,7 @@
                             {#if availableTotalPages > 1}
                                 <div class="flex items-center justify-between px-4 py-3 border-t bg-slate-50/50">
                                     <div class="flex items-center gap-2 text-sm text-gray-600">
-                                        <span>Showing {((availablePage - 1) * itemsPerPage) + 1} to {Math.min(availablePage * itemsPerPage, availableTotal)} of {availableTotal} devices</span>
+                                        <span>Showing {Math.min(((availablePage - 1) * itemsPerPage) + 1, availableTotal)} to {Math.min(availablePage * itemsPerPage, availableTotal)} of {availableTotal} devices</span>
                                     </div>
                                     <div class="flex items-center gap-1">
                                         <Button
@@ -983,10 +1009,7 @@
                                             <ChevronLeft class="h-4 w-4" />
                                         </Button>
                                         
-                                        {#each Array.from({length: Math.min(5, availableTotalPages)}, (_, i) => {
-                                            const start = Math.max(1, availablePage - 2);
-                                            return start + i;
-                                        }) as pageNum}
+                                        {#each availablePageNumbers as pageNum}
                                             <Button
                                                 variant={pageNum === availablePage ? "default" : "outline"}
                                                 size="sm"

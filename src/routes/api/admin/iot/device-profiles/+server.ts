@@ -9,6 +9,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Admin users have full access
+    if (auth.user.systemRole !== 'ADMIN') {
+      return json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const search = url.searchParams.get('search');
     const status = url.searchParams.get('status');
     const limit = parseInt(url.searchParams.get('limit') || '100');
@@ -16,15 +21,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
     // Build where clause
     const where: any = {};
-    
-    // Filter by account membership
-    const userAccountMemberships = await locals.prisma.accountMembership.findMany({
-      where: { userId: auth.user.id },
-      select: { accountId: true }
-    });
-    
-    const accountIds = userAccountMemberships.map(m => m.accountId);
-    where.accountId = { in: accountIds };
 
     // Search filter
     if (search) {
@@ -74,6 +70,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
     const total = await locals.prisma.deviceProfile.count({ where });
 
+    console.log("where", where)
+    console.log("total", total)
+
     return json({
       success: true,
       profiles,
@@ -97,25 +96,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Admin users have full access
+    if (auth.user.systemRole !== 'ADMIN') {
+      return json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const body = await request.json();
-    const { name, description, settings } = body;
+    const { name, description, settings, accountId } = body;
 
     // Validate required fields
     if (!name || !settings || !Array.isArray(settings)) {
       return json({ error: 'Name and settings are required' }, { status: 400 });
     }
 
-    // Get user's primary account
-    const userAccountMembership = await locals.prisma.accountMembership.findFirst({
-      where: { 
-        userId: auth.user.id,
-        role: { in: ['OWNER', 'ADMIN'] }
-      },
-      select: { accountId: true }
-    });
-
-    if (!userAccountMembership) {
-      return json({ error: 'No account access found' }, { status: 403 });
+    // Validate accountId for admin creation
+    if (!accountId) {
+      return json({ error: 'Account ID is required for admin profile creation' }, { status: 400 });
     }
 
     // Create device profile with settings
@@ -123,7 +119,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       data: {
         name,
         description,
-        accountId: userAccountMembership.accountId,
+        accountId,
         createdBy: auth.user.id,
         settings: {
           create: settings.map((setting: any, index: number) => ({

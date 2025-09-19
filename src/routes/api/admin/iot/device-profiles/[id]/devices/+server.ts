@@ -9,21 +9,25 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Admin users have full access
+    if (auth.user.systemRole !== 'ADMIN') {
+      return json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const { id: profileId } = params;
     const search = url.searchParams.get('search');
     const deviceType = url.searchParams.get('deviceType');
     const tagId = url.searchParams.get('tagId');
-    const status = url.searchParams.get('status'); // 'assigned', 'available', or null for all
+    const status = url.searchParams.get('status');
     const limit = parseInt(url.searchParams.get('limit') || '100');
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
-    // Check if profile exists and user has access
+    // Check if profile exists
     const profile = await locals.prisma.deviceProfile.findUnique({
       where: { id: profileId },
       select: { 
         id: true, 
-        name: true,
-        accountId: true
+        name: true
       }
     });
 
@@ -31,21 +35,8 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
       return json({ error: 'Device profile not found' }, { status: 404 });
     }
 
-    // Check permissions
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-      where: {
-        accountId: profile.accountId,
-        userId: auth.user.id
-      }
-    });
-
-    if (!hasAccess && auth.user.systemRole !== 'ADMIN') {
-      return json({ error: 'Access denied' }, { status: 403 });
-    }
-
     // Build where clause for devices
     const where: any = {
-      accountId: profile.accountId,
       status: 'ACTIVE'
     };
 
@@ -124,7 +115,10 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
     // Filter devices by specific profile if status is 'assigned'
     let filteredDevices = devices;
     let totalCount = await locals.prisma.device.count({ where });
-    
+
+    console.log("where", where)
+    console.log("totalCount", totalCount)
+
     if (status === 'assigned') {
       filteredDevices = devices.filter(device => 
         device.profileAssignment?.profile?.id === profileId

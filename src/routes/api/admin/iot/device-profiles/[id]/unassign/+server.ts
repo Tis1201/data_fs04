@@ -9,6 +9,11 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Admin users have full access
+    if (auth.user.systemRole !== 'ADMIN') {
+      return json({ error: 'Admin access required' }, { status: 403 });
+    }
+
     const { id: profileId } = params;
     const body = await request.json();
     const { deviceIds } = body;
@@ -18,30 +23,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       return json({ error: 'Device IDs are required' }, { status: 400 });
     }
 
-    // Check if profile exists and user has access
+    // Check if profile exists
     const profile = await locals.prisma.deviceProfile.findUnique({
       where: { id: profileId },
       select: { 
-        id: true, 
-        accountId: true
+        id: true
       }
     });
 
     if (!profile) {
       return json({ error: 'Device profile not found' }, { status: 404 });
-    }
-
-    // Check permissions
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-      where: {
-        accountId: profile.accountId,
-        userId: auth.user.id,
-        role: { in: ['OWNER', 'ADMIN'] }
-      }
-    });
-
-    if (!hasAccess && auth.user.systemRole !== 'ADMIN') {
-      return json({ error: 'Access denied' }, { status: 403 });
     }
 
     // Remove assignments
