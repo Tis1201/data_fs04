@@ -1,13 +1,14 @@
 import type { RequestHandler } from './$types';
 import { json } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/system';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { sseStore } from '$lib/server/sse/sseStore';
+import { sseStore } from '$lib/stores/sse-store';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 
 export const GET: RequestHandler = restrict(
-    async ({ params, locals }) => {
+    async (event: AuthenticatedEvent) => {
+        const { params } = event;
         try {
             const deviceId = params.id;
             
@@ -59,7 +60,7 @@ export const GET: RequestHandler = restrict(
                 }
             });
 
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error fetching device logs:', error);
             return errorHandler(error);
         }
