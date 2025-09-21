@@ -1,18 +1,43 @@
 // Production server with proper WebSocket upgrade handling
 import { createServer } from 'http';
 import { handler } from './build/handler.js';
-
-// Import WebSocket utilities from the built chunks
-import { onHttpServerUpgrade } from './build/server/chunks/hooks.server-CzJY9uOB.js';
+import { readdirSync } from 'fs';
+import { join } from 'path';
 
 // Create HTTP server
 const server = createServer(handler);
 
-// Set up WebSocket upgrade handler
-// The middleware will handle WebSocket server initialization when needed
-server.on('upgrade', onHttpServerUpgrade);
+// Dynamically find and import WebSocket utilities
+async function setupWebSocket() {
+  try {
+    // Find the hooks.server file (name changes with each build)
+    const chunksDir = './build/server/chunks';
+    const files = readdirSync(chunksDir);
+    const hooksFile = files.find(file => file.startsWith('hooks.server-') && file.endsWith('.js'));
+    
+    if (!hooksFile) {
+      console.log('[WS] hooks.server file not found, WebSocket will not be available');
+      return;
+    }
+    
+    console.log(`[WS] Found hooks.server file: ${hooksFile}`);
+    
+    // Import the WebSocket utilities
+    const hooksPath = join(chunksDir, hooksFile);
+    const { onHttpServerUpgrade } = await import(hooksPath);
+    
+    // Set up WebSocket upgrade handler
+    server.on('upgrade', onHttpServerUpgrade);
+    console.log('[WS] WebSocket upgrade handler set up');
+    
+  } catch (error) {
+    console.log('[WS] Failed to set up WebSocket:', error.message);
+    console.log('[WS] WebSocket will not be available');
+  }
+}
 
-console.log('[WS] WebSocket upgrade handler set up');
+// Set up WebSocket
+await setupWebSocket();
 
 // Start the server
 const PORT = process.env.PORT || 3000;
