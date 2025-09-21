@@ -9,49 +9,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Import the handler from the build directory
 const { handler: svelteHandler } = await import('./build/handler.js');
 
-// Create a custom handler with security headers and CSRF protection
+// Simple handler - let nginx and SvelteKit handle everything
 const handler = (req, res) => {
-  // Add security headers
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  
-  // Only set strict CSP for non-WebSocket requests
-  if (req.headers.upgrade !== 'websocket') {
-    res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self' ws: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;");
-  }
-  
-  // Skip CSRF checks for WebSocket connections and non-mutating methods
-  const isWebSocketRequest = req.headers.upgrade === 'websocket';
-  const isSafeMutation = req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS';
-  
-  if (isWebSocketRequest || isSafeMutation) {
-    return svelteHandler(req, res);
-  }
-  
-  // Simple CSRF check for mutating requests (POST, PUT, DELETE, etc.)
-  // This checks if the origin header matches the host header
-  const origin = req.headers.origin;
-  const host = req.headers.host;
-  
-  if (origin) {
-    // Extract hostname from origin
-    const originHost = new URL(origin).host;
-    
-    // Allow same-origin requests
-    if (originHost === host) {
-      return svelteHandler(req, res);
-    }
-    
-    // Reject cross-origin requests
-    res.statusCode = 403;
-    res.end('CSRF validation failed: Origin does not match host');
-    return;
-  }
-  
-  // Pass to SvelteKit handler for requests without origin header
-  // This handles API requests from non-browser clients
+  // Just pass everything to SvelteKit - nginx handles security and proxying
   return svelteHandler(req, res);
 };
 
