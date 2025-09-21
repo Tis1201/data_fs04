@@ -487,14 +487,27 @@
                 }
             }, 180000, 'logs'); 
 
-            await new Promise(resolve => setTimeout(resolve, 180000));
+            // Wait for response with timeout
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error("Request timed out after 3 minutes")), 180000)
+            );
+            
+            const responsePromise = new Promise<void>((resolve) => {
+                const checkResponse = () => {
+                    if (responseReceived) {
+                        resolve();
+                    } else {
+                        setTimeout(checkResponse, 100); // Check every 100ms
+                    }
+                };
+                checkResponse();
+            });
+
+            // Race between response and timeout
+            await Promise.race([responsePromise, timeoutPromise]);
 
             // Clean up the listener
             unsubscribe();
-
-            if (!responseReceived) {
-                throw new Error("No response received from device");
-            }
         } catch (error) {
             actionStatus.set({
                 action: "logs",
