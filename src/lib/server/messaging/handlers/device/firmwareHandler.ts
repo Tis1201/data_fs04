@@ -112,6 +112,30 @@ export async function handleFirmwareUpdate(message: InMessage): Promise<void> {
     // Mark in-progress
     if (logId) {
       await ActionLogger.markInProgress(logId, 'Initiating firmware update…');
+      
+      // Publish initial status update to UI
+      try {
+        const routing = MessageFactory.createSystemMessage(
+          'device:firmwareStatus',
+          `subscription:device:${deviceId}`,
+          {
+            action: 'firmwareStatus',
+            deviceId,
+            status: 'in_progress',
+            progress: 0,
+            message: 'Initiating firmware update…',
+            firmwareResourceId: firmware.resourceId,
+            logId,
+            timestamp: new Date().toISOString()
+          },
+          SystemUser,
+          { echoToSender: false }
+        );
+        await publisher.publish(routing);
+      } catch (e) {
+        logger.warn(`[DeviceHandler] Failed to publish initial firmware status: ${String(e)}`);
+      }
+      
       // Schedule a timeout to mark as failed after 10 minutes if not completed
       setTimeout(async () => {
         try {
