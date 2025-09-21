@@ -49,32 +49,47 @@ export function subscribeDeviceDetailEvents(
         const idx = logs.findIndex((l) => l.id === logId);
         if (idx >= 0) {
           const existing = logs[idx];
+          const completedAt = (newStatus === 'success' || newStatus === 'failed') ? new Date().toISOString() : existing.completedAt ?? null;
+          
+          // Calculate duration if completed
+          let durationMs = existing.durationMs;
+          if (completedAt && existing.initiatedAt) {
+            const startTime = new Date(existing.initiatedAt).getTime();
+            const endTime = new Date(completedAt).getTime();
+            durationMs = endTime - startTime;
+          }
+          
           logs[idx] = {
             ...existing,
             status: newStatus,
             progress: (progress ?? existing.progress) ?? null,
             message: message ?? existing.message ?? null,
-            completedAt: (newStatus === 'success' || newStatus === 'failed') ? new Date().toISOString() : existing.completedAt ?? null
+            completedAt,
+            durationMs
           } as ActionLog;
           return setLogs([...logs]);
         }
       }
 
-      setLogs([
-        {
-          id: logId ?? `temp-${Date.now()}`,
-          deviceId,
-          actionType: 'firmware_update',
-          status: newStatus,
-          progress: progress ?? null,
-          initiatedAt: new Date().toISOString(),
-          completedAt: null,
-          durationMs: null,
-          message: message ?? null,
-          user: null
-        },
-        ...logs
-      ].slice(0, MAX_ACTION_LOGS));
+      // Only create a new log if we don't have a logId (shouldn't happen in normal flow)
+      // This is a fallback for cases where the device reports status without a logId
+      if (!logId) {
+        setLogs([
+          {
+            id: `temp-${Date.now()}`,
+            deviceId,
+            actionType: 'firmware_update',
+            status: newStatus,
+            progress: progress ?? null,
+            initiatedAt: new Date().toISOString(),
+            completedAt: (newStatus === 'success' || newStatus === 'failed') ? new Date().toISOString() : null,
+            durationMs: null,
+            message: message ?? null,
+            user: null
+          },
+          ...logs
+        ].slice(0, MAX_ACTION_LOGS));
+      }
       return;
     }
 
