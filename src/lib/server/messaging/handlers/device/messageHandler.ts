@@ -228,6 +228,44 @@ export async function handleDeviceMessage(message: InMessage): Promise<void> {
     }
   }
 
+  // Snapshot error handling
+  if (type === 'screenshot:error') {
+    try {
+      const deviceId = payload?.deviceId as string | undefined;
+      const errorMessage = payload?.error as string || 'Unknown screenshot error';
+      
+      // Finalize the action log with error status
+      const updated = await ActionLogger.finalizeByRequestId(
+        deviceId || 'unknown',
+        message.requestId || '',
+        'failed',
+        `Screenshot failed: ${errorMessage}`,
+        errorMessage
+      );
+      
+      // Forward the error response back to the client
+      const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message, {
+        systemGenerated: true,
+        sudo: true,
+        ...computeEchoSettings(message, isResponse, isConnScoped)
+      });
+      await publisher.publish(routingMessage);
+      
+      // Also publish status update for UI (for action history, etc.)
+      await publishDeviceStatus('snapshot', deviceId!, {
+        deviceId,
+        status: 'failed',
+        message: `Screenshot failed: ${errorMessage}`,
+        requestId: message.requestId,
+        logId: updated?.id,
+        completedAt: updated?.completedAt,
+        durationMs: updated?.durationMs
+      });
+    } catch (e: any) {
+      logger.warn(`[DeviceHandler] Failed to finalize screenshot error action log: ${String(e)}`);
+    }
+  }
+
   // Terminal success
   if (type === 'terminal:connected') {
     try {
