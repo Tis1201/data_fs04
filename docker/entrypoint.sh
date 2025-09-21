@@ -52,7 +52,7 @@ if [ -n "${DATABASE_URL:-}" ]; then
 fi
 
 echo "[entrypoint] Starting application..."
-exec node build/index.js
+exec node prodServer.js
 
 
 

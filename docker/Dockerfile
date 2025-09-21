@@ -72,6 +72,7 @@ COPY --from=build /app/build ./build
 COPY --from=build /app/static ./static
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/schema.zmodel ./
+COPY --from=build /app/prodServer.js ./prodServer.js
 
 # Copy Prisma schema and migrations
 COPY --from=build /app/prisma/schema.prisma ./prisma/

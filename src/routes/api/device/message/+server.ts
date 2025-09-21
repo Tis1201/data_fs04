@@ -31,7 +31,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     logger.debug('Device message received');
 
-    const data = await request.json();
+    let data;
+    try {
+        data = await request.json();
+        
+        // Log payload size for debugging
+        const payloadSize = JSON.stringify(data).length;
+        logger.info(`Device message payload size: ${payloadSize} bytes`);
+        
+        if (payloadSize > 10 * 1024 * 1024) { // 10MB
+            logger.warn(`Large device message payload: ${payloadSize} bytes`);
+        }
+    } catch (error) {
+        logger.error('Failed to parse device message JSON:', error);
+        return json({
+            success: false,
+            error: 'Invalid JSON payload',
+            message: 'Failed to parse request body'
+        }, { status: 400 });
+    }
 
     logger.debug(`-->: ${JSON.stringify(data)}`);
 
@@ -61,11 +79,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     data.payload.deviceId = device.id;
     data.userInfo = userInfo;
 
-    MessageDispatcher.dispatch(data);
-    
-    return json({
-        success: true,
-        message: 'Device message received successfully'
-    });
+    try {
+        await MessageDispatcher.dispatch(data);
+        
+        return json({
+            success: true,
+            message: 'Device message received successfully'
+        });
+    } catch (error) {
+        logger.error('Error dispatching device message:', error);
+        return json({
+            success: false,
+            error: 'Failed to process device message',
+            message: error instanceof Error ? error.message : 'Unknown error'
+        }, { status: 500 });
+    }
 
 }
