@@ -11,7 +11,8 @@ export type DeviceActionType =
   | 'snapshot'
   | 'ping'
   | 'status_check'
-  | 'config_update';
+  | 'config_update'
+  | 'logs';
 
 export type DeviceActionStatus =
   | 'initiated'

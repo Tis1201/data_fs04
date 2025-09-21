@@ -86,8 +86,23 @@ export const GET: RequestHandler = restrict(
       const skip = (page - 1) * pageSize;
       const take = pageSize;
 
+      // Debug logging
+      logger.info(`[FirmwareAPI] Query params:`, {
+        search,
+        formatFilter,
+        versionFilter,
+        createdAfter,
+        createdBefore,
+        page,
+        pageSize,
+        sortField,
+        sortOrder
+      });
+      logger.info(`[FirmwareAPI] Where clause:`, where);
+
       // Count total
       const totalItems = await locals.prisma.resource.count({ where });
+      logger.info(`[FirmwareAPI] Total items found: ${totalItems}`);
 
       // Fetch items
       const items = await locals.prisma.resource.findMany({
@@ -107,6 +122,8 @@ export const GET: RequestHandler = restrict(
           createdAt: true
         }
       });
+
+      logger.info(`[FirmwareAPI] Items returned: ${items.length}`);
 
       const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
       const hasNext = page < totalPages;

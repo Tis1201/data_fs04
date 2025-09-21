@@ -30,6 +30,7 @@ export function subscribeDeviceDetailEvents(
     const data = evt?.payload?.action === 'firmwareStatus' ? { ...evt.payload, type: 'device:firmwareStatus' }
                : evt?.payload?.action === 'snapshotStatus' ? { ...evt.payload, type: 'device:snapshotStatus' }
                : evt?.payload?.action === 'terminalStatus' ? { ...evt.payload, type: 'device:terminalStatus' }
+               : evt?.payload?.action === 'logsStatus' ? { ...evt.payload, type: 'device:logsStatus' }
                : evt;
 
     // Connection events: update device connected state is handled by page (skip here)
@@ -195,6 +196,50 @@ export function subscribeDeviceDetailEvents(
           completedAt: completedAt || ((newStatus === 'success' || newStatus === 'failed') ? new Date().toISOString() : null),
           durationMs,
           message: message ?? 'Terminal session established',
+          user: null
+        },
+        ...logs
+      ].slice(0, MAX_ACTION_LOGS));
+      return;
+    }
+
+    // Logs status updates
+    if (evtType === 'device:logsStatus' || data?.type === 'device:logsStatus') {
+      if (!data || data.deviceId !== deviceId) return;
+      const logId = data.logId as string | undefined;
+      const mapStatus = (s?: string) => (s === 'success' ? 'success' : s === 'failed' ? 'failed' : 'in_progress');
+      const newStatus = mapStatus(data.status);
+      const message = data.message as string | undefined;
+      const durationMs = typeof data.durationMs === 'number' ? data.durationMs : null;
+
+      const logs = getLogs();
+      if (logId) {
+        const idx = logs.findIndex((l) => l.id === logId);
+        if (idx >= 0) {
+          const existing = logs[idx];
+          logs[idx] = {
+            ...existing,
+            status: newStatus,
+            message: message ?? existing.message ?? null,
+            completedAt: (newStatus === 'success' || newStatus === 'failed') ? new Date().toISOString() : existing.completedAt ?? null,
+            durationMs: (durationMs ?? existing.durationMs) ?? null
+          } as ActionLog;
+          return setLogs([...logs]);
+        }
+      }
+
+      // If no existing log found, create a new one
+      setLogs([
+        {
+          id: logId ?? `temp-${Date.now()}`,
+          deviceId,
+          actionType: 'logs',
+          status: newStatus,
+          progress: null,
+          initiatedAt: new Date().toISOString(),
+          completedAt: (newStatus === 'success' || newStatus === 'failed') ? new Date().toISOString() : null,
+          durationMs: durationMs,
+          message: message ?? null,
           user: null
         },
         ...logs

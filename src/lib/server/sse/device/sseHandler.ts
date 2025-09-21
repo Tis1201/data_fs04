@@ -2,6 +2,8 @@ import type { RequestEvent } from '@sveltejs/kit';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { createSSEStream } from './sseStream';
 import { logger } from '$lib/server/logger';
+import { DeviceStatusManager } from '$lib/server/device/deviceStatusManager';
+import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { 
     ResponseStatus,
     ResponseCategory,
@@ -77,14 +79,21 @@ export function createSSEHandler<T = unknown>(options: SSERouteOptions<T>) {
                 onConnectionEstablished: async (connectionId) => {
                     if (options.updateDeviceStatus !== false) {
                         try {
-                            await locals.prisma.device.update({
-                                where: { id: device.id },
-                                data: { connected: true, connectedAt: new Date() }
-                            });
-                            logger.info(`Device ${device.id} connection established`);
+                            await DeviceStatusManager.setDeviceOnline(device.id, locals, connectionId);
                         } catch (error) {
                             logger.error(`Failed to update device ${device.id} status on connect: ${error}`);
                         }
+                    }
+                    
+                    // Automatically subscribe the device to its own channel
+                    try {
+                        await subscriptionRegistry.addSubscription(
+                            `subscription:device:${device.id}`,
+                            `subscriber:connection:${connectionId}`
+                        );
+                        logger.info(`Device ${device.id} automatically subscribed to its own channel via connection ${connectionId}`);
+                    } catch (error) {
+                        logger.error(`Failed to subscribe device ${device.id} to its own channel: ${error}`);
                     }
                     
                     if (options.onConnect) {
@@ -99,11 +108,7 @@ export function createSSEHandler<T = unknown>(options: SSERouteOptions<T>) {
                 onConnectionClosed: async (connectionId) => {
                     if (options.updateDeviceStatus !== false) {
                         try {
-                            await locals.prisma.device.update({
-                                where: { id: device.id },
-                                data: { connected: false, disconnectedAt: new Date() }
-                            });
-                            logger.info(`Device ${device.id} connection closed`);
+                            await DeviceStatusManager.setDeviceOffline(device.id, locals, connectionId);
                         } catch (error) {
                             logger.error(`Failed to update device ${device.id} status on disconnect: ${error}`);
                         }

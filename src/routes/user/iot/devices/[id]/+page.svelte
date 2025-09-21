@@ -401,7 +401,7 @@
                         quality: 80 // JPEG quality (1-100)
                     }
                 },
-                /* timeoutMs = */ 30000, // Screenshots might take longer; allow up to 30s
+                /* timeoutMs = */ 120000, // Screenshots might take longer; allow up to 2 minutes
                 /* requestIdPrefix = */ 'screenshot'
             );
 

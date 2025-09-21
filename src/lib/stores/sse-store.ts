@@ -139,7 +139,7 @@ function createSSEStore() {
                     const data = JSON.parse(event.data);
                     const message: SSEMessage = {
                         id: data.id || crypto.randomUUID(),
-                        event: event.type === 'message' ? (data.event || 'message') : event.type,
+                        event: event.type === 'message' ? (data.type || data.event || 'message') : event.type,
                         content: typeof data === 'string' ? data : data.content,
                         data,
                         timestamp: data.timestamp || new Date().toISOString(),
@@ -167,6 +167,7 @@ function createSSEStore() {
                     const requestId = data.requestId || (data.payload?.requestId as string);
                     if (requestId && pendingRequests[requestId]) {
                         console.log(`[SSE] Received response for request: ${requestId}`);
+                        console.log(`[SSE] Response data:`, data);
 
                         // Add detailed logging for screenshot responses
                         if (requestId.startsWith('screenshot-')) {
@@ -187,6 +188,8 @@ function createSSEStore() {
                         clearTimeout(timer);
                         delete pendingRequests[requestId];
                         resolve(data);
+                    } else {
+                        console.log(`[SSE] Received non-request message:`, data);
                     }
 
                     addMessage(message);

@@ -313,7 +313,7 @@
                         quality: 80 // JPEG quality (1-100)
                     }
                 },
-                /* timeoutMs = */ 30000, // Screenshots might take longer; allow up to 30s
+                /* timeoutMs = */ 120000, // Screenshots might take longer; allow up to 2 minutes
                 /* requestIdPrefix = */ 'screenshot'
             );
 
@@ -422,104 +422,78 @@
         actionStatus.set({
             action: "logs",
             status: "loading",
-            message: "Fetching device logs...",
+            message: "Generating device logs...",
         });
 
         try {
-            // Request logs from the device via SSE
-            const responsePayload = await sseStore.sendRequest(
-                {
-                    type: 'device',
-                    scope: `subscription:device:${device.id}`,
-                    payload: {
-                        action: 'getLogs',
-                        deviceId: device.id,
-                        lines: 100 // Request last 100 lines of logs
-                    }
-                },
-                /* timeoutMs = */ 8000,
-                /* requestIdPrefix = */ 'logs'
-            );
+            // Send the request to the device using sendRequest (this will trigger the device)
+            console.log('Sending logs request to device:', device.id);
+            
+            // Set up a listener for the device:response message that contains the actual logs data
+            let responseReceived = false;
+            const responseHandler = (message: any) => {
+                console.log('Received device:response message:', message);
+                if (message.event === 'device:response' && 
+                    message.data?.payload?.action === 'getLogs' && 
+                    message.data?.payload?.deviceId === device.id) {
+                    
+                    console.log('Processing logs response:', message.data.payload);
+                    
+                    if (message.data.payload?.success && message.data.payload?.logsData) {
+                        // Decode the base64 zip data and download it
+                        const zipData = message.data.payload.logsData;
+                        const binaryString = atob(zipData);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        const blob = new Blob([bytes], { type: 'application/zip' });
+                        
+                        // Create download link
+                        const filename = `device-${device.id}-logs-${new Date().toISOString().split('T')[0]}.zip`;
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
 
-            if (responsePayload?.logs) {
-                // Create a modal to display the logs
-                const modal = document.createElement('div');
-                modal.style.position = 'fixed';
-                modal.style.top = '0';
-                modal.style.left = '0';
-                modal.style.width = '100%';
-                modal.style.height = '100%';
-                modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-                modal.style.display = 'flex';
-                modal.style.alignItems = 'center';
-                modal.style.justifyContent = 'center';
-                modal.style.zIndex = '9999';
-                
-                // Create a container for the logs
-                const container = document.createElement('div');
-                container.style.position = 'relative';
-                container.style.width = '80%';
-                container.style.maxWidth = '800px';
-                container.style.maxHeight = '80vh';
-                container.style.backgroundColor = 'white';
-                container.style.borderRadius = '8px';
-                container.style.padding = '20px';
-                container.style.overflow = 'auto';
-                
-                // Create a close button
-                const closeButton = document.createElement('button');
-                closeButton.textContent = '×';
-                closeButton.style.position = 'absolute';
-                closeButton.style.top = '10px';
-                closeButton.style.right = '10px';
-                closeButton.style.border = 'none';
-                closeButton.style.background = 'none';
-                closeButton.style.fontSize = '24px';
-                closeButton.style.cursor = 'pointer';
-                closeButton.style.color = '#666';
-                closeButton.onclick = () => document.body.removeChild(modal);
-                
-                // Create a title
-                const title = document.createElement('h3');
-                title.textContent = 'Device Logs';
-                title.style.marginBottom = '15px';
-                title.style.borderBottom = '1px solid #eee';
-                title.style.paddingBottom = '10px';
-                
-                // Create a pre element for the logs
-                const pre = document.createElement('pre');
-                pre.style.margin = '0';
-                pre.style.padding = '10px';
-                pre.style.backgroundColor = '#f5f5f5';
-                pre.style.borderRadius = '4px';
-                pre.style.overflow = 'auto';
-                pre.style.fontSize = '12px';
-                pre.style.fontFamily = 'monospace';
-                pre.style.whiteSpace = 'pre-wrap';
-                pre.textContent = responsePayload.logs.join('\n');
-                
-                // Assemble the modal
-                container.appendChild(closeButton);
-                container.appendChild(title);
-                container.appendChild(pre);
-                modal.appendChild(container);
-                document.body.appendChild(modal);
-                
-                // Close modal when clicking outside the container
-                modal.addEventListener('click', (e) => {
-                    if (e.target === modal) {
-                        document.body.removeChild(modal);
+                        actionStatus.set({
+                            action: "logs",
+                            status: "success",
+                            message: "Logs downloaded successfully",
+                        });
+                        toast.success("Device logs downloaded successfully");
+                        responseReceived = true;
+                    } else {
+                        throw new Error(message.data.payload?.message || "Failed to generate logs on device");
                     }
-                });
-                
-                actionStatus.set({
-                    action: "logs",
-                    status: "success",
-                    message: "Logs retrieved",
-                });
-                toast.success("Device logs retrieved successfully");
-            } else {
-                throw new Error(responsePayload?.message || "No logs received from device");
+                }
+            };
+
+            // Subscribe to device:response messages
+            const unsubscribe = sseStore.on('device:response', responseHandler);
+
+            // Send the request
+            await sseStore.sendRequest({
+                type: 'device',
+                scope: `subscription:device:${device.id}`,
+                payload: {
+                    action: 'getLogs',
+                    deviceId: device.id,
+                    format: 'zip'
+                }
+            }, 180000, 'logs'); 
+
+            await new Promise(resolve => setTimeout(resolve, 180000));
+
+            // Clean up the listener
+            unsubscribe();
+
+            if (!responseReceived) {
+                throw new Error("No response received from device");
             }
         } catch (error) {
             actionStatus.set({
@@ -549,7 +523,9 @@
         try {
             const params = new URLSearchParams({
                 page: String(page),
-                pageSize: '20'
+                pageSize: '20',
+                sort: 'createdAt',
+                order: 'desc'
             });
             if (firmwareSearch && firmwareSearch.trim().length > 0) {
                 params.set('search', firmwareSearch.trim());
