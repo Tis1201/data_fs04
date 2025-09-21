@@ -2,7 +2,7 @@
 import { createServer } from 'http';
 import { handler } from './build/handler.js';
 import { readdirSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 // Create HTTP server
 const server = createServer(handler);
@@ -11,7 +11,7 @@ const server = createServer(handler);
 async function setupWebSocket() {
   try {
     // Find the hooks.server file (name changes with each build)
-    const chunksDir = './build/server/chunks';
+    const chunksDir = resolve('./build/server/chunks');
     const files = readdirSync(chunksDir);
     const hooksFile = files.find(file => file.startsWith('hooks.server-') && file.endsWith('.js'));
     
@@ -22,7 +22,7 @@ async function setupWebSocket() {
     
     console.log(`[WS] Found hooks.server file: ${hooksFile}`);
     
-    // Import the WebSocket utilities
+    // Import the WebSocket utilities using absolute path
     const hooksPath = join(chunksDir, hooksFile);
     const { onHttpServerUpgrade } = await import(hooksPath);
     
