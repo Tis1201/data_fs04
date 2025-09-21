@@ -73,24 +73,37 @@ try {
 
     if (fs.existsSync(buildChunksDir)) {
       const files = fs.readdirSync(buildChunksDir);
+      console.log(`[WS] Searching in ${buildChunksDir} for WebSocket utilities...`);
+      console.log(`[WS] Available files: ${files.filter(f => f.includes('websocket') || f.includes('WebSocket') || f.includes('WS')).join(', ')}`);
 
       // First, try to find WebSocketUtils.js directly
       const exactMatch = files.find(file => file.startsWith('WebSocketUtils'));
       if (exactMatch) {
+        console.log(`[WS] Found exact match: ${exactMatch}`);
         return `${buildChunksDir}/${exactMatch}`;
+      }
+
+      // Look for websocket-server files
+      const serverMatch = files.find(file => file.includes('websocket-server'));
+      if (serverMatch) {
+        console.log(`[WS] Found websocket-server file: ${serverMatch}`);
+        return `${buildChunksDir}/${serverMatch}`;
       }
 
       // Otherwise, look for any file containing WebSocket
       for (const file of files) {
-        if (file.includes('WebSocket') && file.endsWith('.js')) {
+        if ((file.includes('WebSocket') || file.includes('websocket') || file.includes('WS')) && file.endsWith('.js')) {
           try {
             const wsPath = `${buildChunksDir}/${file}`;
             const content = fs.readFileSync(wsPath, 'utf8');
 
-            // Check if the file contains key WebSocket functions
-            if (content.includes('startupWebsocketServer') ||
-                content.includes('onHttpServerUpgrade') ||
-                content.includes('GlobalThisWSS')) {
+            // Check if the file contains key WebSocket functions (case insensitive)
+            if (content.toLowerCase().includes('startupwebsocketserver') ||
+                content.toLowerCase().includes('onhttpserverupgrade') ||
+                content.toLowerCase().includes('globalthiswss') ||
+                content.includes('WebSocketServer') ||
+                content.includes('handleUpgrade')) {
+              console.log(`[WS] Found WebSocket utilities in: ${file}`);
               return wsPath;
             }
           } catch (e) {
@@ -100,6 +113,7 @@ try {
       }
     }
 
+    console.log(`[WS] No WebSocket utilities found in ${buildChunksDir}`);
     return null;
   }
 
