@@ -35,8 +35,7 @@
 	let videoElement: HTMLVideoElement;
 	
 	// Connection state
-	let connecting = false;
-	let connected = false;
+	let isConnecting = false;
 	let isVideoPaused = true;
 	let currentVideoStreamId: string | null = null;
 	
@@ -49,48 +48,8 @@
 	let videoStream: MediaStream | null = null;
 	let playAttemptInProgress = false;
 	
-	// Safe play function with debounce to avoid multiple rapid play attempts
-	function safePlayVideo() {
-		if (playAttemptInProgress || !videoElement) return;
-		playAttemptInProgress = true;
-		
-		console.log('Attempting to play video safely...');
-		
-		// Ensure video is muted for autoplay
-		videoElement.muted = true;
-		
-		// Debug video element state
-		console.log('Video element state before play:', {
-			readyState: videoElement.readyState,
-			paused: videoElement.paused,
-			autoplay: videoElement.autoplay,
-			muted: videoElement.muted,
-			width: videoElement.videoWidth,
-			height: videoElement.videoHeight
-		});
-		
-		const playPromise = videoElement.play();
-		if (playPromise !== undefined) {
-			playPromise
-				.then(() => {
-					console.log('Video playback started successfully');
-					isVideoPaused = false;
-					
-					// Keep video muted to avoid autoplay policy issues
-					// Browser autoplay policy requires user interaction to unmute
-					console.log('Video will remain muted - user can unmute manually if needed');
-					
-					playAttemptInProgress = false;
-				})
-				.catch(err => {
-					console.error('Error playing video:', err);
-					isVideoPaused = true;
-					playAttemptInProgress = false;
-				});
-		} else {
-			playAttemptInProgress = false;
-		}
-	}
+	// Note: We rely on autoplay now - no manual play() calls needed for remote desktop
+	// This mimics TeamViewer/RDP behavior where video just starts automatically
 	
 	// Initialize WebRTC client
 	function initWebRTC() {
@@ -98,16 +57,31 @@
 		if (!browser) return; // Skip during SSR
 		
 		// Create WebRTC client
-		webrtcClient = new WebRTCClient(deviceId);
+		webrtcClient = new WebRTCClient(deviceId as string);
 		
 		// Function to handle a video track
 		const handleVideoTrack = (track: MediaStreamTrack) => {
 			console.log('Processing video track:', track.id, 'readyState:', track.readyState);
+			console.log('Track details:', {
+				kind: track.kind,
+				id: track.id,
+				label: track.label,
+				enabled: track.enabled,
+				muted: track.muted,
+				readyState: track.readyState,
+				settings: track.getSettings(),
+				constraints: track.getConstraints()
+			});
 			
 			// Create a MediaStream and add the track
 			const stream = new MediaStream();
 			stream.addTrack(track);
 			console.log('Created MediaStream with video track, stream ID:', stream.id);
+			console.log('MediaStream details:', {
+				id: stream.id,
+				active: stream.active,
+				tracks: stream.getTracks().length
+			});
 			
 			// Store the stream for reactive binding
 			videoStream = stream;
@@ -122,12 +96,7 @@
 			};
 			
 			track.onunmute = () => {
-				console.log('Video track unmuted');
-				// Ensure video is playing when track is unmuted
-				if (videoElement && videoElement.paused) {
-					console.log('Video is paused when track unmuted, attempting to play');
-					safePlayVideo();
-				}
+				console.log('Video track unmuted - autoplay will handle playback');
 			};
 		};
 		
@@ -195,7 +164,7 @@
 				// Attempt to reconnect after a brief delay
 				setTimeout(() => {
 					console.log('Attempting to reconnect...');
-					connecting = true;
+					isConnecting = true;
 					webrtcClient.connect();
 				}, 2000);
 			}
@@ -224,7 +193,7 @@
 		console.log("Connecting to device...");
 		if (!webrtcClient) return;
 		
-		connecting = true;
+		isConnecting = true;
 		
 		try {
 			// Connect to device
@@ -287,13 +256,12 @@
 		webrtcClient.cleanup();
 		
 		// Update state
-		connected = false;
-		connecting = false;
+		isConnecting = false;
 		
 		// Update WebRTC store
 		webRTCStore.update(state => ({
 			...state,
-			connectionState: 'closed',
+			connectionStatus: 'disconnected',
 			dataChannelStatus: 'closed'
 		}));
 	}
@@ -301,13 +269,16 @@
 	// Handle WebRTC connection state changes
     $: {
         if ($webRTCStore.connectionStatus === 'connected') {
-            connecting = false;
-            connected = true;
-        } else {
-            connecting = false;
-            connected = false;
+            isConnecting = false;
+        } else if ($webRTCStore.connectionStatus === 'error') {
+            isConnecting = false;
         }
+        // For 'disconnected' state, keep isConnecting as-is to show the connecting indicator
     }
+	
+	// Derived connection state
+	$: connected = $webRTCStore.connectionStatus === 'connected';
+	$: connecting = isConnecting && $webRTCStore.connectionStatus !== 'connected';
 	
 	// Monitor video play/pause state
 	function updateVideoState() {
@@ -315,20 +286,142 @@
 		isVideoPaused = videoElement.paused;
 	}
 	
-	// When a video stream is available, bind it to the video element
-	$: if (videoStream && videoElement && (!currentVideoStreamId || currentVideoStreamId !== videoStream.id)) {
-		console.log('[WebRTC] Setting video stream to element:', videoStream.id);
+	// Simple video stream assignment without reactive conflicts
+	$: if (videoStream && videoElement && videoStream.id !== currentVideoStreamId) {
+		console.log('[WebRTC] New video stream received:', videoStream.id);
+		console.log('[WebRTC] Video stream has', videoStream.getTracks().length, 'tracks');
+		
+		// Set stream directly - let autoplay handle the rest
+		videoElement.srcObject = videoStream;
 		currentVideoStreamId = videoStream.id;
 		
-		// Only set srcObject if it's a different stream
-		if (videoElement.srcObject !== videoStream) {
-			videoElement.srcObject = videoStream;
-			console.log('Set video element srcObject to stream');
-			// Attempt to play the video
-			safePlayVideo();
-		}
+		console.log('[WebRTC] Video stream assigned - autoplay will handle playback');
+		
+		// Debug video element state after assignment
+		setTimeout(() => {
+			console.log('[Video Debug] Element state after stream assignment:', {
+				srcObject: !!videoElement.srcObject,
+				readyState: videoElement.readyState,
+				videoWidth: videoElement.videoWidth,
+				videoHeight: videoElement.videoHeight,
+				paused: videoElement.paused,
+				muted: videoElement.muted,
+				autoplay: videoElement.autoplay,
+				currentTime: videoElement.currentTime,
+				duration: videoElement.duration
+			});
+			
+			// Try manual play if autoplay failed
+			if (videoElement.paused) {
+				console.log('[Video Debug] Video is paused, attempting manual play...');
+				videoElement.play().then(() => {
+					console.log('[Video Debug] Manual play successful');
+				}).catch(e => {
+					console.error('[Video Debug] Manual play failed:', e);
+				});
+			}
+		}, 1000);
 	}
 	
+	// Remote Desktop Input Handling Functions
+	let lastMouseMoveTime = 0;
+
+	function getVideoCoordinates(event: MouseEvent) {
+		if (!videoElement) return { x: 0, y: 0 };
+		
+		const rect = videoElement.getBoundingClientRect();
+		const scaleX = videoElement.videoWidth / rect.width;
+		const scaleY = videoElement.videoHeight / rect.height;
+		
+		const x = Math.round((event.clientX - rect.left) * scaleX);
+		const y = Math.round((event.clientY - rect.top) * scaleY);
+		
+		console.log(`[RDP] Mouse coordinates: screen(${event.clientX}, ${event.clientY}) -> video(${x}, ${y})`);
+		return { x, y };
+	}
+
+	function handleMouseClick(event: MouseEvent) {
+		if (!webrtcClient || !connected) return;
+		
+		const { x, y } = getVideoCoordinates(event);
+		console.log(`[RDP] Mouse click at (${x}, ${y})`);
+		
+		// Send mouse click to device
+		webrtcClient.sendMouseClick('left', x, y);
+		
+		// Focus the video element to capture keyboard events
+		if (videoElement) {
+			videoElement.focus();
+		}
+	}
+
+	function handleRightClick(event: MouseEvent) {
+		if (!webrtcClient || !connected) return;
+		
+		const { x, y } = getVideoCoordinates(event);
+		console.log(`[RDP] Right click at (${x}, ${y})`);
+		
+		// Send right click to device
+		webrtcClient.sendMouseClick('right', x, y);
+	}
+
+	function handleMouseMove(event: MouseEvent) {
+		if (!webrtcClient || !connected) return;
+		
+		// Throttle mouse move events to avoid flooding
+		if (Date.now() - lastMouseMoveTime < 50) return; // 20 FPS max
+		lastMouseMoveTime = Date.now();
+		
+		const { x, y } = getVideoCoordinates(event);
+		
+		// Send mouse move to device
+		webrtcClient.sendMouseMove(x, y);
+	}
+
+	function handleKeyDown(event: KeyboardEvent) {
+		if (!webrtcClient || !connected) return;
+		
+		console.log(`[RDP] Key down: ${event.key} (code: ${event.code})`);
+		
+		// Prevent default browser behavior for most keys
+		if (!['F12', 'F5'].includes(event.key)) {
+			event.preventDefault();
+		}
+		
+		// Build modifiers array
+		const modifiers: string[] = [];
+		if (event.ctrlKey) modifiers.push('ctrl');
+		if (event.altKey) modifiers.push('alt');
+		if (event.shiftKey) modifiers.push('shift');
+		if (event.metaKey) modifiers.push('meta');
+		
+		// Send key press to device
+		webrtcClient.sendKeyPress(event.key, modifiers);
+	}
+
+	function handleKeyUp(event: KeyboardEvent) {
+		if (!webrtcClient || !connected) return;
+		
+		console.log(`[RDP] Key up: ${event.key} (code: ${event.code})`);
+		
+		// For key up, we typically don't need special handling in most RDP implementations
+		// The key press already handles the full key interaction
+	}
+
+	function handleMouseWheel(event: WheelEvent) {
+		if (!webrtcClient || !connected) return;
+		
+		event.preventDefault();
+		
+		const direction = event.deltaY > 0 ? 'down' : 'up';
+		const amount = Math.abs(Math.round(event.deltaY / 10)); // Normalize scroll amount
+		
+		console.log(`[RDP] Mouse wheel: ${direction} by ${amount}`);
+		
+		// Send scroll to device
+		webrtcClient.sendMouseScroll(direction, amount);
+	}
+
 	// Set up interval and initialize on mount
 	let videoStateInterval: ReturnType<typeof setInterval> | null = null;
 	onMount(() => {
@@ -394,7 +487,7 @@
 		// Reset WebRTC store state
 		webRTCStore.update(state => ({
 			...state,
-			connectionState: 'closed',
+			connectionStatus: 'disconnected',
 			dataChannelStatus: 'closed'
 		}));
 		
@@ -414,27 +507,27 @@
 	actionHref={"/user/iot/devices/" + deviceId}
 >
 	<svelte:fragment slot="header">
-		<div class="flex items-center space-x-2">
-			<Badge variant={connected ? "success" : "destructive"}>
-				{connected ? "Connected" : "Disconnected"}
-			</Badge>
-			
-			{#if !connected}
-				<Button on:click={connectToDevice} disabled={connecting}>
-					{#if connecting}
-						<Loader2 class="mr-2 h-4 w-4 animate-spin" />
-					{:else}
-						<Monitor class="mr-2 h-4 w-4" />
-					{/if}
-					Connect
-				</Button>
-			{:else}
-				<Button on:click={disconnectFromDevice} variant="destructive">
+		<div class="flex gap-2 items-center">
+			<!-- Connection status indicator -->
+			{#if connecting}
+				<div class="flex items-center gap-2 text-sm text-muted-foreground">
+					<div class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></div>
+					Connecting to device...
+				</div>
+			{:else if connected}
+				<div class="flex items-center gap-2 text-sm text-green-600">
+					<div class="h-3 w-3 bg-green-500 rounded-full"></div>
+					Connected
+				</div>
+				<!-- Only show disconnect as an option -->
+				<Button on:click={disconnectFromDevice} variant="outline" size="sm">
 					Disconnect
 				</Button>
-				<Button on:click={requestRDP} variant="outline">
-					Request Screen
-				</Button>
+			{:else}
+				<div class="flex items-center gap-2 text-sm text-red-600">
+					<div class="h-3 w-3 bg-red-500 rounded-full"></div>
+					Disconnected
+				</div>
 			{/if}
 		</div>
 	</svelte:fragment>
@@ -459,15 +552,14 @@
 							<div class="relative w-full h-full">
 								<video 
 									bind:this={videoElement} 
-									class="w-full h-full object-contain bg-black"
+									class="w-full h-full object-contain bg-black cursor-crosshair"
 									autoplay
 									playsinline
-									controls
+									controls={false}
 									muted={true} 
+									tabindex="0"
 									on:loadedmetadata={() => {
-										console.log('[WebRTC] Video metadata loaded');
-										// Use our safe play function to handle autoplay
-										safePlayVideo();
+										console.log('[WebRTC] Video metadata loaded - autoplay should start');
 									}}
 									on:playing={() => {
 										console.log('[WebRTC] Video playback started');
@@ -478,20 +570,23 @@
 										isVideoPaused = true;
 									}}
 									on:error={(e) => console.error('[WebRTC] Video error:', e)}
+									on:click={handleMouseClick}
+									on:mousemove={handleMouseMove}
+									on:contextmenu|preventDefault={handleRightClick}
+									on:keydown={handleKeyDown}
+									on:keyup={handleKeyUp}
+									on:wheel={handleMouseWheel}
 								></video>
 								
-								<!-- Play button overlay that shows only if video is not playing -->
-			{#if isVideoPaused && videoStream}
-			<button 
-				class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 cursor-pointer"
-				type="button"
-				on:click={safePlayVideo}
-			>
-				<Button size="lg" variant="default">
-					Play Video
-				</Button>
-			</button>
-			{/if}
+								<!-- Connection status overlay -->
+								{#if !videoStream}
+									<div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
+										<div class="text-white text-center">
+											<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+											<p>Waiting for video stream...</p>
+										</div>
+									</div>
+								{/if}
 							</div>
 						{/if}
 					</div>

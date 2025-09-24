@@ -163,7 +163,7 @@ export class WebRTCClient {
     // Update the WebRTC store
     webRTCStore.update(s => ({
       ...s,
-      connectionState: state
+      connectionStatus: state === 'connected' ? 'connected' : state === 'failed' ? 'error' : 'disconnected'
     }));
     
     // Call the connection state callback if set
