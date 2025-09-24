@@ -52,7 +52,7 @@ if [ -n "${DATABASE_URL:-}" ]; then
 fi
 
 echo "[entrypoint] Starting application..."
-exec env BODY_SIZE_LIMIT=0 node prodServer.js
+exec node prodServer.js
 
 
 

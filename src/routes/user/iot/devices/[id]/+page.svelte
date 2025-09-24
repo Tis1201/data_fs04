@@ -129,7 +129,6 @@
     // Define breadcrumbs for this page
     const pageCrumbs: [string, string][] = [
         ["Home", "/user"],
-        ["IoT", "/user/iot"],
         ["Devices", "/user/iot/devices"],
         [device.name || "Device", ""],
     ];

@@ -13,7 +13,8 @@
 	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
 	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
 	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-	import { AdminPageLayout, AdminCard } from "$lib/components/admin";
+    import { AdminPageLayout, AdminCard } from "$lib/components/admin";
+    import RDPVideo from "$lib/webrtc/RDPVideo.svelte";
 
 	// Get device ID from route params
 	const deviceId = $page.params.id;
@@ -21,7 +22,6 @@
 	// Page breadcrumbs
 	const pageCrumbs: [string, string][] = [
 		["Home", "/user"],
-		["IoT", "/user/iot"],
 		["Devices", "/user/iot/devices"],
 		["Device", `/user/iot/devices/${deviceId}`],
 		["RDP", ""]
@@ -30,9 +30,7 @@
 	// WebRTC client
 	let webrtcClient: WebRTCClient;
 	
-	// Video elements
-	let videoContainer: HTMLDivElement;
-	let videoElement: HTMLVideoElement;
+    // Video rendered by shared component
 	
 	// Connection state
 	let isConnecting = false;
@@ -222,13 +220,13 @@
 		});
 		console.log('Sent RDP start request');
 
-		// If no video appears after a timeout, try requesting again
-		setTimeout(() => {
-			if (!connected && videoElement && !videoElement.srcObject) {
-				console.log('No video received, requesting again...');
-				webrtcClient.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'screen' });
-			}
-		}, 5000);
+        // If no video appears after a timeout, try requesting again
+        setTimeout(() => {
+            if (!connected && !videoStream) {
+                console.log('No video received, requesting again...');
+                webrtcClient.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'screen' });
+            }
+        }, 5000);
 	}
 	
 	// Disconnect from device
@@ -243,10 +241,7 @@
 			videoStream = null;
 		}
 		
-		// Clean up video element
-		if (videoElement && videoElement.srcObject) {
-			videoElement.srcObject = null;
-		}
+        // Video element cleanup handled by shared component
 		
 		// Reset video state
 		currentVideoStreamId = null;
@@ -280,58 +275,20 @@
 	$: connected = $webRTCStore.connectionStatus === 'connected';
 	$: connecting = isConnecting && $webRTCStore.connectionStatus !== 'connected';
 	
-	// Monitor video play/pause state
-	function updateVideoState() {
-		if (!videoElement) return;
-		isVideoPaused = videoElement.paused;
-	}
+    // Monitor video play/pause state handled by component
+    function updateVideoState() {}
 	
-	// Simple video stream assignment without reactive conflicts
-	$: if (videoStream && videoElement && videoStream.id !== currentVideoStreamId) {
-		console.log('[WebRTC] New video stream received:', videoStream.id);
-		console.log('[WebRTC] Video stream has', videoStream.getTracks().length, 'tracks');
-		
-		// Set stream directly - let autoplay handle the rest
-		videoElement.srcObject = videoStream;
-		currentVideoStreamId = videoStream.id;
-		
-		console.log('[WebRTC] Video stream assigned - autoplay will handle playback');
-		
-		// Debug video element state after assignment
-		setTimeout(() => {
-			console.log('[Video Debug] Element state after stream assignment:', {
-				srcObject: !!videoElement.srcObject,
-				readyState: videoElement.readyState,
-				videoWidth: videoElement.videoWidth,
-				videoHeight: videoElement.videoHeight,
-				paused: videoElement.paused,
-				muted: videoElement.muted,
-				autoplay: videoElement.autoplay,
-				currentTime: videoElement.currentTime,
-				duration: videoElement.duration
-			});
-			
-			// Try manual play if autoplay failed
-			if (videoElement.paused) {
-				console.log('[Video Debug] Video is paused, attempting manual play...');
-				videoElement.play().then(() => {
-					console.log('[Video Debug] Manual play successful');
-				}).catch(e => {
-					console.error('[Video Debug] Manual play failed:', e);
-				});
-			}
-		}, 1000);
-	}
+    // Stream assignment handled by shared component
 	
 	// Remote Desktop Input Handling Functions
 	let lastMouseMoveTime = 0;
 
-	function getVideoCoordinates(event: MouseEvent) {
-		if (!videoElement) return { x: 0, y: 0 };
-		
-		const rect = videoElement.getBoundingClientRect();
-		const scaleX = videoElement.videoWidth / rect.width;
-		const scaleY = videoElement.videoHeight / rect.height;
+    function getVideoCoordinates(event: MouseEvent) {
+        const target = event.currentTarget as HTMLVideoElement;
+        if (!target) return { x: 0, y: 0 };
+        const rect = target.getBoundingClientRect();
+        const scaleX = target.videoWidth / rect.width;
+        const scaleY = target.videoHeight / rect.height;
 		
 		const x = Math.round((event.clientX - rect.left) * scaleX);
 		const y = Math.round((event.clientY - rect.top) * scaleY);
@@ -350,9 +307,7 @@
 		webrtcClient.sendMouseClick('left', x, y);
 		
 		// Focus the video element to capture keyboard events
-		if (videoElement) {
-			videoElement.focus();
-		}
+        (event.currentTarget as HTMLVideoElement)?.focus();
 	}
 
 	function handleRightClick(event: MouseEvent) {
@@ -470,10 +425,8 @@
 			videoStream = null;
 		}
 		
-		// Clean up video element
-		if (videoElement && videoElement.srcObject) {
-			videoElement.srcObject = null;
-		}
+
+		// Video element cleanup handled by shared component
 		
 		// Reset video state
 		currentVideoStreamId = null;
@@ -537,59 +490,18 @@
 		description="View and interact with the device's screen through this remote desktop interface."
 		icon={Monitor}
 	>
-				<div class="flex flex-col items-center">
-					<div 
-						class="w-full aspect-video bg-muted rounded-lg overflow-hidden" 
-						bind:this={videoContainer}
-					>
-						{#if !connected}
-							<div class="h-full flex items-center justify-center">
-								<p class="text-muted-foreground">
-									{connecting ? "Connecting to device..." : "Not connected to device"}
-								</p>
-							</div>
-						{:else}
-							<div class="relative w-full h-full">
-								<video 
-									bind:this={videoElement} 
-									class="w-full h-full object-contain bg-black cursor-crosshair"
-									autoplay
-									playsinline
-									controls={false}
-									muted={true} 
-									tabindex="0"
-									on:loadedmetadata={() => {
-										console.log('[WebRTC] Video metadata loaded - autoplay should start');
-									}}
-									on:playing={() => {
-										console.log('[WebRTC] Video playback started');
-										isVideoPaused = false;
-									}}
-									on:pause={() => {
-										console.log('[WebRTC] Video playback paused');
-										isVideoPaused = true;
-									}}
-									on:error={(e) => console.error('[WebRTC] Video error:', e)}
-									on:click={handleMouseClick}
-									on:mousemove={handleMouseMove}
-									on:contextmenu|preventDefault={handleRightClick}
-									on:keydown={handleKeyDown}
-									on:keyup={handleKeyUp}
-									on:wheel={handleMouseWheel}
-								></video>
-								
-								<!-- Connection status overlay -->
-								{#if !videoStream}
-									<div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
-										<div class="text-white text-center">
-											<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
-											<p>Waiting for video stream...</p>
-										</div>
-									</div>
-								{/if}
-							</div>
-						{/if}
-					</div>
+                <div class="flex flex-col items-center">
+                    <RDPVideo
+                        videoStream={videoStream}
+                        connected={connected}
+                        connecting={connecting}
+                        onMouseClick={handleMouseClick}
+                        onMouseMove={handleMouseMove}
+                        onRightClick={handleRightClick}
+                        onKeyDown={handleKeyDown}
+                        onKeyUp={handleKeyUp}
+                        onMouseWheel={handleMouseWheel}
+                    />
 					
 					<div class="mt-4 w-full">
 						<p class="text-sm text-muted-foreground">
