@@ -34,7 +34,9 @@ class SortUtils {
         // Click to achieve desired order
         // Reset to default: usually first click asc, second click desc
         await headerLocator.click();
-        if (!ascending || isCreatedColumn) await headerLocator.click();
+        if (!ascending) {
+            await headerLocator.click();
+        }
 
         // Get all cell values from that column
         const cells = page.locator(`table tbody tr td:nth-child(${colIndex})`);

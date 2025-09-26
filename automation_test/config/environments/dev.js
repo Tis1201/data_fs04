@@ -35,6 +35,11 @@ module.exports = {
             name: 'Test factory token',
             hardwareModel: 'GeForce',
             firmwareVersion: '1.0',
+        },
+        resources: {
+            url: 'http://localhost:5173/admin/iot/resources',
+            name: 'Test resource',
+            file: 'static/resourceA.zip'
         }
     }
 };
