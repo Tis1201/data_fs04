@@ -31,16 +31,6 @@ export const load = restrict(
             ]
         });
 
-        const devices = await locals.prisma.device.findMany({
-            select: {
-                id: true,
-                name: true,
-            },
-            orderBy: [
-                { createdAt: 'desc' }
-            ]
-        });
-
         // Initialize the factory token form with the schema and defaults
         const factoryTokenForm = await superValidate(zod(factoryTokenSchema), {
             defaults: {
@@ -50,15 +40,13 @@ export const load = restrict(
                 batchNumber: '',
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Default to 30 days from now
                 notes: '',
-                factory_signing_key_id: signingKeys.length > 0 ? signingKeys[0].id : '',
-                deviceId: devices.length > 0 ? devices[0].id : ''
+                factory_signing_key_id: signingKeys.length > 0 ? signingKeys[0].id : ''
             }
         });
 
         return {
             factoryTokenForm,
-            signingKeys,
-            devices
+            signingKeys
         };
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
@@ -90,7 +78,7 @@ export const actions: Actions = {
                     );
                 }
 
-                const { name, hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id, deviceId } = form.data;
+                const { name, hardwareModel, firmwareVersion, batchNumber, expiresAt, notes, factory_signing_key_id } = form.data;
 
                 // Verify that the signing key exists and is active
                 const signingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -111,24 +99,6 @@ export const actions: Actions = {
                         400
                     );
                 }
-
-                // Verify that the device exists
-                const device = await locals.prisma.device.findUnique({
-                    where: {
-                        id: deviceId
-                    }
-                });
-
-                if (!device) {
-                    logger.warn(`Invalid device: ${deviceId}`);
-                    
-                    // Throw a FormValidationError that will be caught and handled by handleFormError
-                    throw new FormValidationError(
-                        'Selected device is invalid',
-                        'INVALID_DEVICE',
-                        400
-                    );
-                }
                 
                 // Create factory token
                 const factoryToken = await locals.prisma.factoryToken.create({
@@ -141,8 +111,7 @@ export const actions: Actions = {
                         notes,
                         issuedBy: userInfo.id,
                         issuedAt: new Date(),
-                        factory_signing_key_id,
-                        deviceId
+                        factory_signing_key_id
                     }
                 });
 

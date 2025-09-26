@@ -42,10 +42,8 @@ class SortUtils {
 
         // Handle Created / relative times as numbers
         if (dataType === 'relative' || isCreatedColumn) {
-            // Convert to minutes (smaller = newer)
             const minutesArray = values.map(v => DateUtils.relativeToMinutes(v));
-            // Negate values so newest appears first when descending
-            values = ascending ? minutesArray : minutesArray.map(v => -v);
+            values = minutesArray
             dataType = 'number';
         }
 
@@ -53,7 +51,7 @@ class SortUtils {
         const comparator = (a, b) => {
             if (dataType === 'number') return parseFloat(a) - parseFloat(b);
             // if (dataType === 'text') return SortUtils.postgresLikeCompare(a, b);
-            return a.localeCompare(b, undefined, { sensitivity: 'base' });
+            return a < b ? -1 : a > b ? 1 : 0;
         };
 
         // Generate expected sorted array

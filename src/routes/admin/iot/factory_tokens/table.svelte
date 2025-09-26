@@ -114,7 +114,7 @@
     // Column definitions
     const columns = [
         {
-            id: "tokenId",
+            id: "name",
             label: "Token ID",
             sortable: true,
             width: "15%",
@@ -199,11 +199,6 @@
                         label: "Edit",
                         icon: Pencil,
                         onClick: () => goto(`/admin/iot/factory_tokens/${record.id}`)
-                    },
-                    {
-                        label: record.isUsed ? "Mark as Available" : "Mark as Used",
-                        icon: Power,
-                        onClick: () => prepareToggleStatus(record)
                     },
                     {
                         label: "Delete",
@@ -357,6 +352,8 @@
         <DataTable
             {columns}
             props={props}
+            on:sort={handleTableSort}
+            on:pagination={handleTablePagination}
         />
     {/if}
 </div>

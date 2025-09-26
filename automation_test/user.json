@@ -1,14 +1,15 @@
 {
-  "cookies": [],
-  "origins": [
+  "cookies": [
     {
-      "origin": "http://localhost:5173",
-      "localStorage": [
-        {
-          "name": "sidebarExpandedGroups",
-          "value": "{}"
-        }
-      ]
+      "name": "auth_session",
+      "value": "swesv4g7kjvns4qdhwdnnpsntk46jazpacry6zsi",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1761490250.105491,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
     }
-  ]
+  ],
+  "origins": []
 }

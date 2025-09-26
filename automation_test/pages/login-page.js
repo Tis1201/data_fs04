@@ -89,16 +89,12 @@ class LoginPage {
     console.log("Starting login process...");
 
     try {
-      // Fill email
       const emailField = await this.findVisibleElement(this.usernameSelectors);
-      await emailField.fill(username);
-
-      // Fill password
       const passwordField = await this.findVisibleElement(this.passwordSelectors);
-      await passwordField.fill(password);
-
-      // Click login
       const loginButton = await this.findVisibleElement(this.loginButtonSelectors);
+      
+      await emailField.fill(username);
+      await passwordField.fill(password);
       await loginButton.click();
 
       this.dashboardLocator = this.page.getByText('Dashboard', { exact: false });
