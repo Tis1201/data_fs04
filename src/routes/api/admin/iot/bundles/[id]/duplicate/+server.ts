@@ -64,20 +64,33 @@ export const POST: RequestHandler = restrict(
         })
       );
 
-      // Copy all devices from the original bundle
-      const devicePromises = originalBundle.devices.map((bundleDevice) =>
-        locals.prisma.bundleDevice.create({
+      // Copy all devices from the original bundle in order to preserve device order
+      // First, get the original devices sorted by createdAt to maintain order
+      const originalDevices = await locals.prisma.bundleDevice.findMany({
+        where: { bundleId },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      // Create devices sequentially with small delays to preserve order
+      for (let i = 0; i < originalDevices.length; i++) {
+        const bundleDevice = originalDevices[i];
+        await locals.prisma.bundleDevice.create({
           data: {
             bundleId: newBundle.id,
             deviceId: bundleDevice.deviceId,
             createdBy: auth.user.id,
             updatedBy: auth.user.id
           }
-        })
-      );
+        });
+        
+        // Add a small delay (1ms) between each device creation to ensure different timestamps
+        if (i < originalDevices.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1));
+        }
+      }
 
-      // Execute all the copy operations
-      await Promise.all([...appPromises, ...devicePromises]);
+      // Execute app copy operations
+      await Promise.all(appPromises);
 
       logger.info(`Bundle ${bundleId} duplicated to ${newBundle.id} by user ${auth.user.id}`);
 

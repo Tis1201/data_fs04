@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
+import { initializeStateManager, getStateManager } from '$lib/server/state/stateManagerFactory';
 
 export const DELETE: RequestHandler = restrict(
   async ({ params, locals }: any) => {
@@ -34,14 +35,23 @@ export const DELETE: RequestHandler = restrict(
       }
     }
 
-    // Delete in a transaction in correct order
-    await prisma.$transaction([
-      prisma.bundleDeviceProgress.deleteMany({ where: { bundleId } }),
-      prisma.bundleWave.deleteMany({ where: { bundleId } }),
-      prisma.bundleDevice.deleteMany({ where: { bundleId } }),
-      prisma.bundleApp.deleteMany({ where: { bundleId } }),
-      prisma.bundle.delete({ where: { id: bundleId } })
-    ]);
+    // Delete in an interactive transaction in correct order
+    await prisma.$transaction(async (tx) => {
+      await tx.bundleDeviceProgress.deleteMany({ where: { bundleId } });
+      await tx.bundleWave.deleteMany({ where: { bundleId } });
+      await tx.bundleDevice.deleteMany({ where: { bundleId } });
+      await tx.bundleApp.deleteMany({ where: { bundleId } });
+      await tx.bundle.delete({ where: { id: bundleId } });
+    });
+
+    // Clean up bundle state from state manager
+    try {
+      await initializeStateManager();
+      const stateManager = getStateManager();
+      await stateManager.deleteBundleState(bundleId);
+    } catch (error) {
+      // State cleanup is not critical for bundle deletion
+    }
 
     return json({ success: true });
   },
