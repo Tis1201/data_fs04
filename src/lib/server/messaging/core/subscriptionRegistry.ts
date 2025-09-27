@@ -58,7 +58,7 @@ export const subscriptionRegistry: SubscriptionRegistry = {
     async getByKey(key) {
         // Get all subscriptions for a specific key (topic/channel)
         const members = await subscriptionSharedStore.getMembers(key);
-        logger.debug(`[SubscriptionRegistry] getByKey(${key}) returned ${members.length} members:`, members.map(m => `${m.scope} (id: ${m.id})`));
+        // logger.debug(`[SubscriptionRegistry] getByKey(${key}) returned ${members.length} members:`, members.map(m => `${m.scope} (id: ${m.id})`));
         return members;
     },
 

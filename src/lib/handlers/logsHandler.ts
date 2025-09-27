@@ -82,13 +82,20 @@ class LogsHandler {
       return;
     }
 
-    download.chunks[chunkIndex] = chunkData;
+    console.log(`[LogsHandler] Adding chunk: chunkIndex=${chunkIndex}, chunkData length=${chunkData?.length}, chunks array length=${download.chunks.length}`);
+    
+    // Handle null chunkIndex (default to 0)
+    const actualChunkIndex = chunkIndex ?? 0;
+    
+    download.chunks[actualChunkIndex] = chunkData;
     download.receivedSize += chunkData.length;
 
-    console.log(`[LogsHandler] Received chunk ${chunkIndex + 1}/${download.chunks.length} (${download.receivedSize}/${download.totalSize} bytes)`);
+    console.log(`[LogsHandler] Received chunk ${actualChunkIndex + 1}/${download.chunks.length} (${download.receivedSize}/${download.totalSize} bytes)`);
 
     // Check if all chunks received
     const allChunksReceived = download.chunks.every(chunk => chunk !== '');
+    console.log(`[LogsHandler] All chunks received: ${allChunksReceived}, chunks:`, download.chunks.map((chunk, i) => `[${i}]: ${chunk ? chunk.length + ' chars' : 'empty'}`));
+    
     if (allChunksReceived) {
       this.finalizeDownload(logId);
     }
@@ -106,16 +113,23 @@ class LogsHandler {
     try {
       // Combine all chunks
       const combinedData = download.chunks.join('');
+      console.log(`[LogsHandler] Combined data length: ${combinedData.length}`);
+      console.log(`[LogsHandler] First 100 chars of combined data: ${combinedData.substring(0, 100)}`);
       
       // Convert base64 to binary
       const binaryString = atob(combinedData);
+      console.log(`[LogsHandler] Binary string length: ${binaryString.length}`);
+      
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
+      console.log(`[LogsHandler] Bytes array length: ${bytes.length}`);
 
       // Create blob and trigger download
       const blob = new Blob([bytes], { type: 'application/zip' });
+      console.log(`[LogsHandler] Blob size: ${blob.size} bytes`);
+      
       const url = URL.createObjectURL(blob);
       
       const link = document.createElement('a');

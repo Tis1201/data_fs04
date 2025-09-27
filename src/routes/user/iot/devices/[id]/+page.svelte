@@ -607,11 +607,8 @@
                     console.log('Processing logs response:', message.data.payload);
                     
                     if (message.data.payload?.success && message.data.payload?.logsData) {
-                        // Trigger file download
-                        const now = new Date();
-                        const dateStr = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
-                        const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-                        const filename = `device_logs_${dateStr}_${timeStr}.zip`;
+                        // Trigger file download using filename from device
+                        const filename = message.data.payload.fileName || `device_logs_${new Date().toISOString().replace(/[:.]/g, '-').split('T')[0]}.zip`;
                         downloadLogsFile(message.data.payload.logsData, filename);
 
                         actionStatus.set({
@@ -629,6 +626,32 @@
 
             // Subscribe to device:response messages
             const unsubscribe = sseStore.on('device:response', responseHandler);
+            
+            // Also subscribe to device messages for streaming logs
+            const deviceUnsubscribe = sseStore.on('device', (message: any) => {
+                console.log('Received device message:', message);
+                
+                // Handle streaming logs data
+                if (message.data?.payload?.action === 'getLogs' && 
+                    message.data?.payload?.deviceId === device.id) {
+                    
+                    console.log('Processing streaming logs:', message.data.payload);
+                    const payload = message.data.payload;
+                    
+                    // Handle completion (logsHandler handles the actual download)
+                    if (payload.success && payload.message === 'Log file streaming completed') {
+                        console.log('Streaming logs completed, logsHandler will handle download...');
+                        
+                        actionStatus.set({
+                            action: "logs",
+                            status: "success",
+                            message: "Logs downloaded successfully",
+                        });
+                        toast.success("Device logs downloaded successfully");
+                        responseReceived = true;
+                    }
+                }
+            });
 
             // Send the request
             await sseStore.sendRequest({
@@ -660,8 +683,9 @@
             // Race between response and timeout
             await Promise.race([responsePromise, timeoutPromise]);
 
-            // Clean up the listener
+            // Clean up the listeners
             unsubscribe();
+            deviceUnsubscribe();
         } catch (error) {
             actionStatus.set({
                 action: "logs",

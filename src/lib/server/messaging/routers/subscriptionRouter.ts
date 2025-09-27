@@ -23,32 +23,22 @@ export const subscriptionRouter: Router = {
     //Lookup Subscription Registry and return the subscribers
     const subscribers = await subscriptionRegistry.getByKey(scope);
 
-    logger.debug(`[SubscriptionRouter] Found ${subscribers.length} subscribers for scope: ${scope}`);
-
     const subscriberScopes = subscribers.map(sub => sub.scope);
-
-    logger.debug(`[SubscriptionRouter] Subscriber scopes: ${JSON.stringify(subscriberScopes)}`);
 
     const result = new Set<string>();
 
     for(const subscriberScope of subscriberScopes) {
-      console.log(`[SubscriptionRouter] ===== PROCESSING SUBSCRIBER SCOPE =====`);
-      console.log(`[SubscriptionRouter] Subscriber scope: ${subscriberScope}`);
-      
       const [kind, ...rest] = subscriberScope.split(':');
       const scope_of_interest = rest.join(':');
-      console.log(`[SubscriptionRouter] Kind: ${kind}, Scope of interest: ${scope_of_interest}`);
       
       const connectionIds = await router.resolve(senderInfo, scope_of_interest);
-      console.log(`[SubscriptionRouter] Resolved connection IDs:`, connectionIds);
       
       connectionIds.forEach(id => {
-        console.log(`[SubscriptionRouter] Adding connection ID to result: ${id}`);
         result.add(id);
       });
     }
 
-    logger.debug(`[SubscriptionRouter] Found ${result.size} connections for scope: ${scope}`);
+    // logger.debug(`[SubscriptionRouter] Found ${result.size} connections for scope: ${scope}`);
 
     return Array.from(result);
     // let targeted_user_id = id;

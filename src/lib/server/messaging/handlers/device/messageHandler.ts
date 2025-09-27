@@ -34,23 +34,16 @@ export async function handleDeviceMessage(message: InMessage): Promise<void> {
   const payload: any = (message as any).payload || {};
   const type: string = payload.type || '';
   
-  // Enhanced debugging
-  console.log(`[DeviceMessageHandler] ===== DEVICE MESSAGE HANDLER =====`);
-  console.log(`[DeviceMessageHandler] Full message:`, JSON.stringify(message, null, 2));
-  console.log(`[DeviceMessageHandler] Payload type: ${type}`);
-  console.log(`[DeviceMessageHandler] Device ID: ${payload.deviceId}`);
-  console.log(`[DeviceMessageHandler] Message scope: ${message.scope}`);
+  // Enhanced debugging - commented out for cleaner logs
   
   const isKnown = typeof type === 'string' && (type.startsWith('webrtc:') || type.startsWith('screenshot:') || type.startsWith('terminal:'));
   if (!isKnown) {
     logger.info(`[DeviceHandler] Delegating to messageHandler for non-WebRTC/screenshot message`);
-    console.log(`[DeviceMessageHandler] Unknown message type, delegating to messageHandler`);
     await messageHandler.handle(message);
     return;
   }
 
   logger.info(`[DeviceHandler] Handling ${type.split(':')[0]} message: ${type}`);
-  console.log(`[DeviceMessageHandler] Processing known message type: ${type}`);
 
   const isResponse = type.endsWith(':response');
   const isConnScoped = String((message as any)?.scope || '').startsWith('connection:') && type.startsWith('webrtc:');
@@ -187,16 +180,9 @@ export async function handleDeviceMessage(message: InMessage): Promise<void> {
 
   // Forward other WebRTC messages to device (answer, ice-candidate, etc.)
   if (type.startsWith('webrtc:') && type !== 'webrtc:connect') {
-    console.log(`[DeviceMessageHandler] Processing WebRTC message: ${type}`);
-    console.log(`[DeviceMessageHandler] WebRTC message payload:`, payload);
-    console.log(`[DeviceMessageHandler] WebRTC message overrides:`, overrides);
-    console.log(`[DeviceMessageHandler] WebRTC using scope: ${defaultScope}`);
-    
     const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(message, overrides);
-    console.log(`[DeviceMessageHandler] WebRTC routing message:`, JSON.stringify(routingMessage, null, 2));
     
     await publisher.publish(routingMessage);
-    console.log(`[DeviceMessageHandler] WebRTC message published successfully`);
     return; // Don't process further
   }
 

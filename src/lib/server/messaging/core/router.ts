@@ -16,7 +16,7 @@ export const router: Router = {
 
     const [kind, id] = scope.split(':');
 
-    logger.debug(`[Router] Resolving scope: ${scope} (kind: ${kind})`);
+    // logger.debug(`[Router] Resolving scope: ${scope} (kind: ${kind})`);
 
     switch (kind) {
       case 'user':

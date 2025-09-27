@@ -496,10 +496,9 @@
                         
                         // Trigger file download
                         if (payload.logsData) {
-                            const now = new Date();
-                            const dateStr = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
-                            const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-                            downloadLogsFile(payload.logsData, `device_logs_${dateStr}_${timeStr}.zip`);
+                            // Use filename from device response
+                            const filename = payload.fileName || `device_logs_${new Date().toISOString().replace(/[:.]/g, '-').split('T')[0]}.zip`;
+                            downloadLogsFile(payload.logsData, filename);
                         }
                         
                         actionStatus.set({
@@ -518,6 +517,29 @@
                         });
                         updateTempActionLog(tempId, 'failed', payload.message || "Failed to retrieve logs");
                         toast.error(payload.message || "Failed to retrieve device logs");
+                        responseReceived = true;
+                    }
+                }
+                
+                // Handle device messages for streaming logs
+                if (message.event === 'device' && 
+                    message.data?.payload?.action === 'getLogs' && 
+                    message.data?.payload?.deviceId === device.id) {
+                    
+                    console.log('Processing streaming logs:', message.data.payload);
+                    const payload = message.data.payload;
+                    
+                    // Handle completion (logsHandler handles the actual download)
+                    if (payload.success && payload.message === 'Log file streaming completed') {
+                        console.log('Streaming logs completed, logsHandler will handle download...');
+                        
+                        actionStatus.set({
+                            action: "logs",
+                            status: "success",
+                            message: "Logs downloaded successfully",
+                        });
+                        updateTempActionLog(tempId, 'success', 'Logs downloaded successfully');
+                        toast.success("Device logs downloaded successfully");
                         responseReceived = true;
                     }
                 }

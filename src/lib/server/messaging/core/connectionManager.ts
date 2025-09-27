@@ -29,9 +29,6 @@ class DefaultConnectionManager {
   }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
-
-    logger.debug(`Registering connection: ${JSON.stringify(connection.meta)}`)
-
     // Set a UUID in connection.meta if not present
     if (!('id' in connection.meta)) {
       (connection.meta as any).id = uuidv4();
@@ -43,9 +40,6 @@ class DefaultConnectionManager {
 
     const connSet = this.userConnections.get(userInfo.id) ?? new Set();
     connSet.add(id);
-
-    logger.info(`[ConnectionManager] Registered connection: ${id}, [${connection.meta.protocol}] for user: ${userInfo.id}`);
-    // logger.info(`[ConnectionManager] Total connections: ${this.liveConnections.size}, Users with connections: ${this.userConnections.size}`);
 
     this.userConnections.set(userInfo.id, connSet);
 
@@ -77,33 +71,10 @@ class DefaultConnectionManager {
     }
 
     connectionSharedStore.remove(connId);
-
-    logger.info(`[ConnectionManager] Unregistered connection: ${connId}`);
-    logger.info(`[ConnectionManager] Remaining connections: ${this.liveConnections.size}, Users: ${this.userConnections.size}`);
-    
-    // Log remaining connection IDs if any
-    if (this.liveConnections.size > 0) {
-      logger.info(`[ConnectionManager] Remaining connection IDs: ${Array.from(this.liveConnections.keys()).join(', ')}`);
-    }
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {
-    console.log(`[ConnectionManager] ===== GETTING CONNECTION =====`);
-    console.log(`[ConnectionManager] Looking for connection ID: ${connId}`);
-    console.log(`[ConnectionManager] Available connections:`, Array.from(this.liveConnections.keys()));
-    
-    const connection = this.liveConnections.get(connId);
-    console.log(`[ConnectionManager] Connection found: ${!!connection}`);
-    if (connection) {
-      console.log(`[ConnectionManager] Connection details:`, {
-        id: connection.meta.id,
-        protocol: connection.meta.protocol,
-        userInfo: connection.meta.userInfo?.id,
-        createdAt: connection.meta.createdAt
-      });
-    }
-    
-    return connection;
+    return this.liveConnections.get(connId);
   }
 
   getUserConnections(userId: UserId): Connection[] {
@@ -115,20 +86,13 @@ class DefaultConnectionManager {
   }
 
   async sendTo(connId: ConnectionId, payload: any): Promise<void> {
-    console.log(`[ConnectionManager] ===== SENDING TO CONNECTION =====`);
-    console.log(`[ConnectionManager] Connection ID: ${connId}`);
-    console.log(`[ConnectionManager] Payload:`, JSON.stringify(payload, null, 2));
-    
     const conn = this.liveConnections.get(connId);
     if (!conn) {
-      console.warn(`[ConnectionManager] Missing connection: ${connId}`);
-      console.log(`[ConnectionManager] Available connections:`, Array.from(this.liveConnections.keys()));
+      logger.warn(`[ConnectionManager] Missing connection: ${connId}`);
       return;
     }
     
-    console.log(`[ConnectionManager] Found connection, sending message...`);
     await conn.send(payload);
-    console.log(`[ConnectionManager] Message sent successfully to ${connId}`);
   }
 
   async sendToUser(userId: UserId, payload: any): Promise<void> {
@@ -159,18 +123,7 @@ class DefaultConnectionManager {
 
   // Debug method to list all connections
   listAllConnections(): void {
-    console.log(`[ConnectionManager] ===== ALL CONNECTIONS DEBUG =====`);
-    console.log(`[ConnectionManager] Total connections: ${this.liveConnections.size}`);
-    
-    for (const [connId, connection] of this.liveConnections) {
-      console.log(`[ConnectionManager] Connection ${connId}:`, {
-        id: connection.meta.id,
-        protocol: connection.meta.protocol,
-        userInfo: connection.meta.userInfo?.id,
-        deviceId: connection.meta.deviceId,
-        createdAt: connection.meta.createdAt
-      });
-    }
+    // logger.debug(`[ConnectionManager] Total connections: ${this.liveConnections.size}`);
   }
 
   getConnectionCount(): number {
@@ -178,37 +131,8 @@ class DefaultConnectionManager {
   }
 
   async getConnectionByDeviceId(deviceId: string): Promise<Connection | undefined> {
-    console.log(`[ConnectionManager] ===== GETTING CONNECTION BY DEVICE ID =====`);
-    console.log(`[ConnectionManager] Looking for device ID: ${deviceId}`);
-    console.log(`[ConnectionManager] Total connections: ${this.liveConnections.size}`);
-    
     const allConnections = Array.from(this.liveConnections.values());
-    
-    // Debug: Log all connections and their deviceIds
-    allConnections.forEach((conn, index) => {
-      console.log(`[ConnectionManager] Connection ${index}:`, {
-        id: conn.meta.id,
-        deviceId: conn.meta.deviceId,
-        protocol: conn.meta.protocol,
-        userInfo: conn.meta.userInfo?.id,
-        nodeId: conn.meta.nodeId
-      });
-    });
-    
-    const foundConnection = allConnections.find(conn => conn.meta.deviceId === deviceId);
-    
-    if (foundConnection) {
-      console.log(`[ConnectionManager] Found connection for device ${deviceId}:`, {
-        id: foundConnection.meta.id,
-        protocol: foundConnection.meta.protocol,
-        userInfo: foundConnection.meta.userInfo?.id
-      });
-    } else {
-      console.log(`[ConnectionManager] No connection found for device ${deviceId}`);
-      console.log(`[ConnectionManager] Available device IDs:`, allConnections.map(conn => conn.meta.deviceId).filter(Boolean));
-    }
-    
-    return foundConnection;
+    return allConnections.find(conn => conn.meta.deviceId === deviceId);
   }
 }
 

@@ -134,9 +134,9 @@ export async function handleGetLogs(message: InMessage): Promise<void> {
 
 export async function handleGetLogsResponse(message: InMessage): Promise<void> {
   const { userInfo, requestId, protocol, connectionId, scope } = message as any;
-  const { deviceId, success, message: responseMessage, logs, logsData, format, durationMs } = ((message as any).payload ?? {}) as any;
+  const { deviceId, success, message: responseMessage, logs, logsData, format, durationMs, logId, chunkData, chunkIndex, chunkCount, totalSize, fileName } = ((message as any).payload ?? {}) as any;
 
-  logger.info(`[DeviceHandler] Received logs response from device ${deviceId}: success=${success}`);
+  logger.info(`[DeviceHandler] Received logs response from device ${deviceId}: success=${success}, logId=${logId}, chunkData=${!!chunkData}`);
 
   try {
     // Find the original action log by requestId
@@ -147,6 +147,41 @@ export async function handleGetLogsResponse(message: InMessage): Promise<void> {
       },
       orderBy: { initiatedAt: 'desc' }
     });
+
+    // Forward streaming messages (metadata, chunks) to UI
+    if (logId && (chunkData !== undefined || totalSize !== undefined)) {
+      logger.info(`[DeviceHandler] Forwarding streaming message to UI: logId=${logId}, chunkIndex=${chunkIndex}, chunkCount=${chunkCount}`);
+      
+      // Forward the streaming message to the UI
+      const streamingMessage = MessageFactory.createSystemMessage(
+        'device',
+        `subscription:device:${deviceId}`,
+        {
+          action: 'getLogs',
+          deviceId,
+          success: success || true,
+          message: responseMessage || 'Streaming logs...',
+          format: format || 'zip',
+          logId: logId,
+          chunkData: chunkData || null,
+          chunkIndex: chunkIndex || null,
+          chunkCount: chunkCount || null,
+          totalSize: totalSize || null,
+          fileName: fileName ? (() => {
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+            const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '');
+            return `device_logs_${dateStr}_${timeStr}.zip`;
+          })() : null,
+          requestId: requestId || (message as any).requestId,
+          timestamp: new Date().toISOString()
+        },
+        SystemUser,
+        { echoToSender: false }
+      );
+      await publisher.publish(streamingMessage);
+      logger.info(`[DeviceHandler] Streaming message forwarded to UI`);
+    }
 
     if (originalLog) {
       if (success) {

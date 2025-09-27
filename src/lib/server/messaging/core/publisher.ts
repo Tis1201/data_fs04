@@ -10,24 +10,10 @@ import { AuditLogger } from './auditLogger';
 export const publisher: Publisher = {
   
   async publish(message: RoutingMessage): Promise<void> {
-    console.log(`[Publisher] ===== PUBLISHING MESSAGE =====`);
-    console.log(`[Publisher] Message type: ${message.type}`);
-    console.log(`[Publisher] Message scope: ${message.scope}`);
-    console.log(`[Publisher] Message payload:`, message.payload);
-    console.log(`[Publisher] Full message:`, JSON.stringify(message, null, 2));
-
     const { type, scope, payload, userInfo, connectionId, sudo } = message;
-
-    // Debug log for sudo property
-    logger.debug(`[Publisher] Message sudo property: ${sudo}, type: ${typeof sudo}`);
-    
-    // Debug: List all connections before resolving
-    console.log(`[Publisher] ===== LISTING ALL CONNECTIONS BEFORE RESOLVE =====`);
-    ConnectionManager.listAllConnections();
     
     // Resolve recipients
     const connectionIds = await router.resolve(userInfo, scope);
-    console.log(`[Publisher] Resolved connection IDs:`, connectionIds);
 
     if (connectionIds.length === 0) {
       logger.debug(`[Publisher] No recipients for scope: ${scope}`);
