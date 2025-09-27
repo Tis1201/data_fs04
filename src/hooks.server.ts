@@ -12,6 +12,7 @@ import { ensureActiveSetting } from "$lib/server/settings";
 import prisma from "$lib/server/prisma";
 import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
 import { _publishBundleDirect } from "./routes/api/admin/iot/bundles/[id]/publish/+server";
+import { startFileStatusPoller, cleanupFileStatusPoller } from "$lib/server/scheduler/fileStatusPoller";
 
 // Initialize WhatsApp clients on server startup (not during build)
 // Use a self-executing async function to avoid blocking the main thread
@@ -39,6 +40,14 @@ if (!building) {
                 logger.info('Bundle auto-publish scheduler started');
             } catch (e:any) {
                 logger.warn(`Failed to start auto-publish scheduler: ${e?.message || String(e)}`);
+            }
+
+            // Start file-backed status poller (ClickHouse simulation)
+            try {
+                await startFileStatusPoller();
+                logger.info('File status poller started');
+            } catch (e:any) {
+                logger.warn(`Failed to start file status poller: ${e?.message || String(e)}`);
             }
         } catch (error: unknown) {
             const e = error as any;
@@ -118,12 +127,13 @@ export const handle: Handle = async ({ event, resolve }) => {
     (event.locals as any).ipAddress = ip;
 
     // Chain the middleware functions properly
-    // First apply auth middleware, then pushpin middleware if needed
+    // First apply auth middleware, then pushpin middleware if enabled
     return authMiddleware({
         event,
         resolve: async (authEvent) => {
-            // After auth middleware, apply pushpin middleware if Redis is available
-            if (redis) {
+            // Respect REALTIME_TRANSPORT env for enabling Pushpin
+            const enablePushpin = String(process.env.REALTIME_TRANSPORT || 'sse').toLowerCase() === 'pushpin';
+            if (redis && enablePushpin) {
                 return pushpinMiddleware({
                     event: authEvent,
                     resolve: async (pushpinEvent) => {
@@ -135,7 +145,7 @@ export const handle: Handle = async ({ event, resolve }) => {
                     }
                 });
             }
-            // If no Redis, apply WebSocket middleware directly after auth
+            // If Pushpin disabled or no Redis, apply WebSocket middleware directly after auth
             return websocketMiddleware({
                 event: authEvent,
                 resolve

@@ -14,12 +14,19 @@ export interface MessageDispatcher {
 
 export const MessageDispatcher: MessageDispatcher = {
   async dispatch(message: InMessage): Promise<void> {
+    console.log(`[Dispatcher] ===== DISPATCHER CALLED =====`);
+    console.log(`[Dispatcher] Full message received:`, JSON.stringify(message, null, 2));
+    
     const { type, payload, scope } = message;
     
-    console.log(`[Dispatcher] Received message type: ${type}, action: ${payload?.action}`);
+    console.log(`[Dispatcher] Extracted - type: ${type}, action: ${payload?.action}, scope: ${scope}`);
+    console.log(`[Dispatcher] Message connectionId: ${message.connectionId}`);
+    console.log(`[Dispatcher] Message protocol: ${message.protocol}`);
     
     // Log the received message for auditing
+    console.log(`[Dispatcher] Calling AuditLogger.logReceived...`);
     AuditLogger.logReceived(message);
+    console.log(`[Dispatcher] AuditLogger.logReceived completed`);
 
     // Route based on message type prefix
     if (type == 'webrtc') {
@@ -43,10 +50,20 @@ export const MessageDispatcher: MessageDispatcher = {
     }
 
     if ( type === 'device'){
-      console.log(`[Dispatcher] Routing device message to deviceHandler`);
-      return deviceHandler.handle(message);
+      console.log(`[Dispatcher] ===== ROUTING TO DEVICE HANDLER =====`);
+      console.log(`[Dispatcher] Calling deviceHandler.handle with message:`, message);
+      try {
+        await deviceHandler.handle(message);
+        console.log(`[Dispatcher] deviceHandler.handle completed successfully`);
+      } catch (error) {
+        console.error(`[Dispatcher] Error in deviceHandler.handle:`, error);
+        console.error(`[Dispatcher] Error stack:`, error.stack);
+      }
+      return;
     }
 
-    console.warn(`[Dispatcher] Unhandled message type: ${type}: ${JSON.stringify(message)}`);
+    console.warn(`[Dispatcher] ===== UNHANDLED MESSAGE TYPE =====`);
+    console.warn(`[Dispatcher] Unhandled message type: ${type}`);
+    console.warn(`[Dispatcher] Full message:`, JSON.stringify(message, null, 2));
   }
 };
