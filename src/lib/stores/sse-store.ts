@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { generateRequestId } from "$lib/utils/ApiUtils";
+import { logsHandler } from '$lib/handlers/logsHandler';
 
 
 export type SSEMessage = {
@@ -190,6 +191,11 @@ function createSSEStore() {
                         resolve(data);
                     } else {
                         console.log(`[SSE] Received non-request message:`, data);
+                    }
+
+                    // Handle logs streaming
+                    if (data.type === 'device' && data.payload?.action === 'getLogs') {
+                        logsHandler.handleLogsMessage(data);
                     }
 
                     addMessage(message);

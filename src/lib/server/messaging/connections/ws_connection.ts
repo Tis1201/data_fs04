@@ -36,10 +36,17 @@ export class WSConnection implements Connection {
 
 
   async send(payload: any): Promise<void> {
+    console.log(`[WSConnection] ===== SENDING MESSAGE =====`);
+    console.log(`[WSConnection] Connection ID: ${this.meta.id}`);
+    console.log(`[WSConnection] Socket readyState: ${this.socket.readyState}`);
+    console.log(`[WSConnection] Payload:`, JSON.stringify(payload, null, 2));
+    
     if (this.socket.readyState === this.socket.OPEN) {
+      console.log(`[WSConnection] Socket is open, sending message...`);
       this.socket.send(JSON.stringify(payload));
+      console.log(`[WSConnection] Message sent successfully to ${this.meta.id}`);
     } else {
-      console.warn(`[WSConnection] Tried to send to closed socket: ${this.meta.id}`);
+      console.warn(`[WSConnection] Tried to send to closed socket: ${this.meta.id}, readyState: ${this.socket.readyState}`);
     }
   }
 

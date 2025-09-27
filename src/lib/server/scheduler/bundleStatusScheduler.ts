@@ -5,7 +5,7 @@ import { eventDeduplication } from '$lib/server/state/eventDeduplication';
 import { processEventsWithStateValidation, checkAndTransitionBundleState } from './bundleEventProcessor';
 import { applyTimeouts } from './bundleTimeoutManager';
 import { cleanupCompletedBundles } from './bundleCleanupManager';
-import { startFileBasedPoller } from './fileBasedPoller';
+import { startFileBasedPoller, stopFileBasedPoller } from './fileBasedPoller';
 
 const POLL_MS = Number(process.env.FILE_STATUS_POLL_MS || 10000);
 const USE_CLICKHOUSE = process.env.USE_CLICKHOUSE === 'true' || process.env.CLICKHOUSE_URL !== undefined;
@@ -115,6 +115,8 @@ export function stopBundleStatusScheduler() {
     timer = null;
     logger.info('[BundleStatusScheduler] Stopped');
   }
+  // Also stop file-based poller if it's running
+  stopFileBasedPoller();
 }
 
 export async function cleanupBundleStatusScheduler() {

@@ -70,8 +70,13 @@ export function createSSEStream({
                 const deviceSubscriptionKey = `subscription:device:${device.id}`;
                 const connectionScope = `subscriber:connection:${connectionId}`;
                 
-                await subscriptionRegistry.addSubscription(deviceSubscriptionKey, connectionScope);
-                logger.debug('Subscription added successfully');
+                try {
+                    await subscriptionRegistry.addSubscription(deviceSubscriptionKey, connectionScope);
+                    logger.info(`[Device SSE] Successfully subscribed device ${device.id} (connection ${connectionId}) to ${deviceSubscriptionKey}`);
+                } catch (error) {
+                    logger.error(`[Device SSE] Failed to subscribe device ${device.id} to ${deviceSubscriptionKey}: ${error}`);
+                    throw error; // Re-throw to ensure the connection fails if subscription fails
+                }
                 
                 // Notify that connection is established
                 await onConnectionEstablished(connectionId);

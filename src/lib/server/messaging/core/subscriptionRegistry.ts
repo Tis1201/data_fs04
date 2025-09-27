@@ -12,14 +12,21 @@ export const subscriptionRegistry: SubscriptionRegistry = {
 
     async addSubscription(key, scope) {
 
-        logger.debug(`Adding subscription: ${key} for scope: ${scope}`);
+        logger.debug(`[SubscriptionRegistry] Adding subscription: ${key} for scope: ${scope}`);
 
         const subscription: SubscriptionMeta = {
             id: uuidv4(),
             key,
             scope
         };
-        return subscriptionSharedStore.addMember(key, subscription);
+        
+        try {
+            await subscriptionSharedStore.addMember(key, subscription);
+            logger.info(`[SubscriptionRegistry] Successfully added subscription: ${key} for scope: ${scope} (id: ${subscription.id})`);
+        } catch (error) {
+            logger.error(`[SubscriptionRegistry] Failed to add subscription: ${key} for scope: ${scope}: ${error}`);
+            throw error;
+        }
     },
 
     async remove(key) {
@@ -50,7 +57,9 @@ export const subscriptionRegistry: SubscriptionRegistry = {
 
     async getByKey(key) {
         // Get all subscriptions for a specific key (topic/channel)
-        return subscriptionSharedStore.getMembers(key);
+        const members = await subscriptionSharedStore.getMembers(key);
+        logger.debug(`[SubscriptionRegistry] getByKey(${key}) returned ${members.length} members:`, members.map(m => `${m.scope} (id: ${m.id})`));
+        return members;
     },
 
     async getByScope(scope) {

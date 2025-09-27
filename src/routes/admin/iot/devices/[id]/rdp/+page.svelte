@@ -5,7 +5,7 @@
 	import { goto } from "$app/navigation";
 	import { ArrowLeft } from "lucide-svelte";
 	import { Button } from "$lib/components/ui/button";
-	import { WebRTCClient } from "../terminal/webrtc-client";
+	import { WebRTCClient } from '$lib/webrtc/WebRTCClient';
 	import { webRTCStore } from "$lib/stores/webrtc-store";
 	import { deviceStore } from "$lib/stores/device-store";
     import { AdminPageLayout, AdminCard } from "$lib/components/admin";
@@ -21,6 +21,8 @@
 
 	// State variables
 	let isConnecting = false;
+	let connecting = false;
+	let connected = false;
 	let currentVideoStreamId: string | null = null;
 	let isVideoPaused = true;
 
@@ -42,9 +44,16 @@
 	let unsubscribeDevice: () => void;
 	let previousWebRTCMessage: any = null;
 
-	// Video stream handling
-	let videoStream: MediaStream | null = null;
+	// Video stream handling - get from WebRTC store
+	let videoStream: MediaStream | null = $webRTCStore.videoStream;
 	let playAttemptInProgress = false;
+	
+	// Reactive statement to update videoStream when WebRTC store changes
+	$: videoStream = $webRTCStore.videoStream;
+	
+	// Reactive statement to update connection state from WebRTC store
+	$: connected = $webRTCStore.connectionStatus === 'connected';
+	$: connecting = $webRTCStore.connectionStatus !== 'connected' && isConnecting;
 	
 	// Note: We rely on autoplay now - no manual play() calls needed for remote desktop
 	// This mimics TeamViewer/RDP behavior where video just starts automatically
@@ -57,68 +66,15 @@
 		// Create WebRTC client
 		webrtcClient = new WebRTCClient(deviceId as string);
 		
-		// Function to handle a video track
-		const handleVideoTrack = (track: MediaStreamTrack) => {
-			console.log('Processing video track:', track.id, 'readyState:', track.readyState);
-			console.log('Track details:', {
-				kind: track.kind,
-				id: track.id,
-				label: track.label,
-				enabled: track.enabled,
-				muted: track.muted,
-				readyState: track.readyState,
-				settings: track.getSettings(),
-				constraints: track.getConstraints()
-			});
-			
-			// Create a MediaStream and add the track
-			const stream = new MediaStream();
-			stream.addTrack(track);
-			console.log('Created MediaStream with video track, stream ID:', stream.id);
-			console.log('MediaStream details:', {
-				id: stream.id,
-				active: stream.active,
-				tracks: stream.getTracks().length
-			});
-			
-			// Store the stream for reactive binding
-			videoStream = stream;
-			
-			// Track events
-			track.onended = () => {
-				console.log('Video track ended');
-			};
-			
-			track.onmute = () => {
-				console.log('Video track muted');
-			};
-			
-			track.onunmute = () => {
-				console.log('Video track unmuted - autoplay will handle playback');
-			};
-		};
+		// Video track handling is now done automatically by WebRTC client
+		// The WebRTC store will be updated with the video stream
 		
-		// Set up track handler for video streams
-		webrtcClient.onTrackHandler = (track) => {
-			console.log('Received track:', track.kind, track, 'Track ID:', track.id, 'Track readyState:', track.readyState);
-			
-			if (track.kind === 'video') {
-				console.log('Video track received! Track settings:', track.getSettings());
-				
-				// Call our handler function to process the video track
-				handleVideoTrack(track);
-			} else {
-				console.log('Non-video track received, kind:', track.kind);
-			}
-			
-			// Update UI to show connected state
-			connecting = false;
-			connected = true;
-		};
+		// Track handler is no longer needed - WebRTC client handles video streams automatically
+		// The video stream will be available in $webRTCStore.videoStream
 		
 		// Set up data channel open callback
 		webrtcClient.setDataChannelOpenCallback((dataChannel) => {
-			console.log('Data channel is open and ready for RDP');
+			// Data channel is ready for RDP
 			
 			// Update WebRTC store to reflect the open data channel
 			webRTCStore.update(state => ({
@@ -159,13 +115,13 @@
 		});
 
 		// Subscribe to device store for WebRTC signaling messages
-		unsubscribeDevice = deviceStore.subscribe(state => {
+		unsubscribeDevice = deviceStore.subscribe(async (state) => {
 			// Process new WebRTC messages
 			if (state.latestWebRTCMessage && 
 			    state.latestWebRTCMessage !== previousWebRTCMessage) {
 				previousWebRTCMessage = state.latestWebRTCMessage;
 				console.log('Processing WebRTC message from device store:', state.latestWebRTCMessage);
-				webrtcClient?.handleWebRTCMessage(state.latestWebRTCMessage);
+				await webrtcClient?.handleWebRTCMessage(state.latestWebRTCMessage);
 			}
 		});
 	}
@@ -177,7 +133,7 @@
 			return;
 		}
 		
-		console.log('Requesting RDP stream from device...');
+		// Requesting RDP stream from device
 		
 		// Request device to start RDP video over the data channel
 		webrtcClient.sendRDPStart({
@@ -185,23 +141,25 @@
 			quality: 80,
 			captureMode: 'screen'
 		});
-		console.log('Sent RDP start request');
+		// RDP start request sent
 		
 		// Also set up a fallback retry in case the first request fails
 		setTimeout(() => {
-			if (webrtcClient && connected && !videoStream) {
-				console.log('Retrying RDP start...');
-				webrtcClient.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'screen' });
+			if (webrtcClient && connected && !$webRTCStore.videoStream) {
+				// Retrying RDP start
+				webrtcClient.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'test' });
 			}
 		}, 3000);
 	}
 
     // Monitor for video stream availability
     $: {
+        // WebRTC store updated
+        
         setTimeout(() => {
-            if ($webRTCStore.connectionStatus !== 'connected' && !videoStream) {
+            if ($webRTCStore.connectionStatus !== 'connected' && !$webRTCStore.videoStream) {
                 console.log('No video received, requesting again...');
-                webrtcClient?.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'screen' });
+                webrtcClient?.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'test' });
             }
         }, 5000);
     }
@@ -210,13 +168,7 @@
 	function disconnectFromDevice() {
 		if (!webrtcClient) return;
 		
-		// Clean up video stream
-		if (videoStream) {
-			videoStream.getTracks().forEach(track => {
-				track.stop();
-			});
-			videoStream = null;
-		}
+		// Video stream cleanup is handled by WebRTC store
 		
         // Video element cleanup handled by shared component
 		
@@ -242,25 +194,13 @@
 			dataChannelStatus: 'closed',
 			peerConnection: null,
 			dataChannel: null,
-			videoStream: null,
+			videoStream: null,  // Clear the video stream to prevent reuse
 			latestMessage: null,
 			error: null
 		}));
 	}
 
-	// Handle WebRTC connection state changes
-    $: {
-        if ($webRTCStore.connectionStatus === 'connected') {
-            isConnecting = false;
-        } else if ($webRTCStore.connectionStatus === 'error') {
-            isConnecting = false;
-        }
-        // For 'disconnected' state, keep isConnecting as-is to show the connecting indicator
-    }
-	
-	// Derived connection state
-	$: connected = $webRTCStore.connectionStatus === 'connected';
-	$: connecting = isConnecting && $webRTCStore.connectionStatus !== 'connected';
+	// Note: Connection state is now handled by reactive statement above
 	
     // Stream assignment handled by shared component
 	
@@ -277,7 +217,7 @@
 		const x = Math.round((event.clientX - rect.left) * scaleX);
 		const y = Math.round((event.clientY - rect.top) * scaleY);
 		
-		console.log(`[RDP] Mouse coordinates: screen(${event.clientX}, ${event.clientY}) -> video(${x}, ${y})`);
+		// Mouse coordinates calculated
 		return { x, y };
 	}
 
@@ -285,7 +225,7 @@
 		if (!webrtcClient || !connected) return;
 		
 		const { x, y } = getVideoCoordinates(event);
-		console.log(`[RDP] Mouse click at (${x}, ${y})`);
+		// Mouse click sent
 		
 		// Send mouse click to device
 		webrtcClient.sendMouseClick('left', x, y);
@@ -297,7 +237,7 @@
 		if (!webrtcClient || !connected) return;
 		
 		const { x, y } = getVideoCoordinates(event);
-		console.log(`[RDP] Right click at (${x}, ${y})`);
+		// Right click sent
 		
 		// Send right click to device
 		webrtcClient.sendMouseClick('right', x, y);
@@ -319,7 +259,7 @@
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!webrtcClient || !connected) return;
 		
-		console.log(`[RDP] Key down: ${event.key} (code: ${event.code})`);
+		// Key down sent
 		
 		// Prevent default browser behavior for most keys
 		if (!['F12', 'F5'].includes(event.key)) {
@@ -340,7 +280,7 @@
 	function handleKeyUp(event: KeyboardEvent) {
 		if (!webrtcClient || !connected) return;
 		
-		console.log(`[RDP] Key up: ${event.key} (code: ${event.code})`);
+		// Key up sent
 		
 		// For key up, we typically don't need special handling in most RDP implementations
 		// The key press already handles the full key interaction
@@ -354,7 +294,7 @@
 		const direction = event.deltaY > 0 ? 'down' : 'up';
 		const amount = Math.abs(Math.round(event.deltaY / 10)); // Normalize scroll amount
 		
-		console.log(`[RDP] Mouse wheel: ${direction} by ${amount}`);
+		// Mouse wheel sent
 		
 		// Send scroll to device
 		webrtcClient.sendMouseScroll(direction, amount);
@@ -390,20 +330,10 @@
 			try {
 				webrtcClient.sendRDPStop();
 			} catch (error) {
-				console.log('RDP stop command failed (expected if connection already closed):', error);
+				// RDP stop command failed (expected if connection already closed)
 			}
 			
-			// Clean up video stream
-			if (videoStream) {
-				videoStream.getTracks().forEach(track => {
-					try {
-						track.stop();
-					} catch (error) {
-						console.log('Error stopping video track:', error);
-					}
-				});
-				videoStream = null;
-			}
+			// Video stream cleanup is handled by WebRTC store
 			
             // Video element cleanup handled by shared component
 			
@@ -439,7 +369,7 @@
 			console.log('Error resetting connection:', error);
 		}
 		
-		console.log('RDP component destroyed, WebRTC resources cleaned up');
+		// RDP component destroyed, WebRTC resources cleaned up
 	});
 </script>
 

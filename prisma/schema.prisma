@@ -25,33 +25,34 @@ enum SetStatus {
 }
 
 model Account {
-  id               String              @id() @default(cuid())
-  name             String
-  slug             String              @unique()
-  status           String              @default("ACTIVE")
-  isSystem         Boolean             @default(false)
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt()
-  description      String?
-  logoUrl          String?
-  settings         String?
-  companies        Company[]
-  members          AccountMembership[]
-  groups           Group[]
-  devices          Device[]
-  deviceTags       DeviceTag[]
-  apiKeys          ApiKey[]
-  primaryUsers     User[]              @relation("UserPrimaryAccount")
-  resources        Resource[]
-  bunles           Bundle[]
-  refreshTokens    RefreshToken[]
-  tokenUsageLogs   TokenUsageLog[]
-  whatsappAccounts WhatsAppAccount[]
-  preclaimSets     PreclaimSet[]
-  preclaimDevices  PreclaimDevice[]
-  licenses         License[]
-  entitlements     Entitlement[]
-  deviceProfiles   DeviceProfile[]
+  id                 String              @id() @default(cuid())
+  name               String
+  slug               String              @unique()
+  status             String              @default("ACTIVE")
+  isSystem           Boolean             @default(false)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt()
+  description        String?
+  logoUrl            String?
+  settings           String?
+  companies          Company[]
+  members            AccountMembership[]
+  groups             Group[]
+  devices            Device[]
+  deviceTags         DeviceTag[]
+  apiKeys            ApiKey[]
+  primaryUsers       User[]              @relation("UserPrimaryAccount")
+  resources          Resource[]
+  bunles             Bundle[]
+  refreshTokens      RefreshToken[]
+  tokenUsageLogs     TokenUsageLog[]
+  whatsappAccounts   WhatsAppAccount[]
+  preclaimSets       PreclaimSet[]
+  preclaimDevices    PreclaimDevice[]
+  licenses           License[]
+  entitlements       Entitlement[]
+  deviceProfiles     DeviceProfile[]
+  deviceAppSummaries DeviceAppSummary[]
 
   @@index([slug])
 }
@@ -367,6 +368,7 @@ model Device {
   disconnectedAt       DateTime?
   licenses             License[]
   profileAssignment    DeviceProfileAssignment?
+  appSummaries         DeviceAppSummary[]
 
   @@index([createdBy])
   @@index([hardwareId])
@@ -1026,4 +1028,23 @@ model DeviceProfileAssignment {
   @@unique([deviceId])
   @@index([profileId])
   @@index([deviceId])
+}
+
+model DeviceAppSummary {
+  id              String    @id() @default(cuid())
+  deviceId        String    @unique()
+  accountId       String
+  totalAppsCount  Int       @default(0)
+  systemAppsCount Int       @default(0)
+  normalAppsCount Int       @default(0)
+  lastAppSync     DateTime?
+  lastProcessedAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt()
+  device          Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([accountId])
+  @@index([lastProcessedAt])
 }

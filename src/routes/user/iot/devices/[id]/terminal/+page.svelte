@@ -254,7 +254,7 @@
 			if (state.latestWebRTCMessage && 
 			    state.latestWebRTCMessage !== previousWebRTCMessage) {
 				previousWebRTCMessage = state.latestWebRTCMessage;
-				webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
+				await webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
 			}
 		});
 		

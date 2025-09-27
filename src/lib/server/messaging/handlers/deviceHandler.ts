@@ -13,6 +13,7 @@ import {
   handleDeviceMessage, 
   handleBundleStatus 
 } from './device';
+import { handleRestart, handleRestartResponse } from './device/restartHandler';
 
 export const deviceHandler: Handler = {
   supports(type: string): boolean {
@@ -61,6 +62,14 @@ export const deviceHandler: Handler = {
           await handleGetLogsResponse(message);
         } else {
           await handleGetLogs(message);
+        }
+        break;
+      case 'restart':
+        // Check if this is a response from the device (has success field)
+        if ((payload as any)?.success !== undefined) {
+          await handleRestartResponse(message);
+        } else {
+          await handleRestart(message);
         }
         break;
       case 'message':

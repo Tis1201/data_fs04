@@ -52,6 +52,9 @@ model Account {
   // Device profiles
   deviceProfiles DeviceProfile[]
   
+  // Device app summaries
+  deviceAppSummaries DeviceAppSummary[]
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   
@@ -509,6 +512,8 @@ model Device {
   // Device profile assignment
   profileAssignment DeviceProfileAssignment?
   
+  // Device app data summaries
+  appSummaries DeviceAppSummary[]
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('delete', auth() != null && createdBy == auth().id)
@@ -1499,4 +1504,32 @@ model DeviceProfileAssignment {
   // Permissions - any account member can read/write/delete
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('all', profile.account.members?[userId == auth().id])
+}
+
+// Device App Data Summary Model
+// Stores processed summaries of device app data from ClickHouse
+model DeviceAppSummary {
+  id                String   @id @default(cuid())
+  deviceId          String   @unique
+  accountId         String
+  totalAppsCount    Int      @default(0)
+  systemAppsCount   Int      @default(0)
+  normalAppsCount   Int      @default(0)
+  lastAppSync       DateTime?
+  lastProcessedAt   DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  device            Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'MEMBER']])
+  
+  @@index([deviceId])
+  @@index([accountId])
+  @@index([lastProcessedAt])
 }

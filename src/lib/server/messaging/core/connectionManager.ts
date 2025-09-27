@@ -88,7 +88,22 @@ class DefaultConnectionManager {
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {
-    return this.liveConnections.get(connId);
+    console.log(`[ConnectionManager] ===== GETTING CONNECTION =====`);
+    console.log(`[ConnectionManager] Looking for connection ID: ${connId}`);
+    console.log(`[ConnectionManager] Available connections:`, Array.from(this.liveConnections.keys()));
+    
+    const connection = this.liveConnections.get(connId);
+    console.log(`[ConnectionManager] Connection found: ${!!connection}`);
+    if (connection) {
+      console.log(`[ConnectionManager] Connection details:`, {
+        id: connection.meta.id,
+        protocol: connection.meta.protocol,
+        userInfo: connection.meta.userInfo?.id,
+        createdAt: connection.meta.createdAt
+      });
+    }
+    
+    return connection;
   }
 
   getUserConnections(userId: UserId): Connection[] {
@@ -100,12 +115,20 @@ class DefaultConnectionManager {
   }
 
   async sendTo(connId: ConnectionId, payload: any): Promise<void> {
+    console.log(`[ConnectionManager] ===== SENDING TO CONNECTION =====`);
+    console.log(`[ConnectionManager] Connection ID: ${connId}`);
+    console.log(`[ConnectionManager] Payload:`, JSON.stringify(payload, null, 2));
+    
     const conn = this.liveConnections.get(connId);
     if (!conn) {
       console.warn(`[ConnectionManager] Missing connection: ${connId}`);
+      console.log(`[ConnectionManager] Available connections:`, Array.from(this.liveConnections.keys()));
       return;
     }
+    
+    console.log(`[ConnectionManager] Found connection, sending message...`);
     await conn.send(payload);
+    console.log(`[ConnectionManager] Message sent successfully to ${connId}`);
   }
 
   async sendToUser(userId: UserId, payload: any): Promise<void> {
@@ -132,6 +155,60 @@ class DefaultConnectionManager {
     return connectionSharedStore.getAllMembers().then(metas =>
       metas.filter(meta => meta.userInfo?.id === userId)
     );
+  }
+
+  // Debug method to list all connections
+  listAllConnections(): void {
+    console.log(`[ConnectionManager] ===== ALL CONNECTIONS DEBUG =====`);
+    console.log(`[ConnectionManager] Total connections: ${this.liveConnections.size}`);
+    
+    for (const [connId, connection] of this.liveConnections) {
+      console.log(`[ConnectionManager] Connection ${connId}:`, {
+        id: connection.meta.id,
+        protocol: connection.meta.protocol,
+        userInfo: connection.meta.userInfo?.id,
+        deviceId: connection.meta.deviceId,
+        createdAt: connection.meta.createdAt
+      });
+    }
+  }
+
+  getConnectionCount(): number {
+    return this.liveConnections.size;
+  }
+
+  async getConnectionByDeviceId(deviceId: string): Promise<Connection | undefined> {
+    console.log(`[ConnectionManager] ===== GETTING CONNECTION BY DEVICE ID =====`);
+    console.log(`[ConnectionManager] Looking for device ID: ${deviceId}`);
+    console.log(`[ConnectionManager] Total connections: ${this.liveConnections.size}`);
+    
+    const allConnections = Array.from(this.liveConnections.values());
+    
+    // Debug: Log all connections and their deviceIds
+    allConnections.forEach((conn, index) => {
+      console.log(`[ConnectionManager] Connection ${index}:`, {
+        id: conn.meta.id,
+        deviceId: conn.meta.deviceId,
+        protocol: conn.meta.protocol,
+        userInfo: conn.meta.userInfo?.id,
+        nodeId: conn.meta.nodeId
+      });
+    });
+    
+    const foundConnection = allConnections.find(conn => conn.meta.deviceId === deviceId);
+    
+    if (foundConnection) {
+      console.log(`[ConnectionManager] Found connection for device ${deviceId}:`, {
+        id: foundConnection.meta.id,
+        protocol: foundConnection.meta.protocol,
+        userInfo: foundConnection.meta.userInfo?.id
+      });
+    } else {
+      console.log(`[ConnectionManager] No connection found for device ${deviceId}`);
+      console.log(`[ConnectionManager] Available device IDs:`, allConnections.map(conn => conn.meta.deviceId).filter(Boolean));
+    }
+    
+    return foundConnection;
   }
 }
 

@@ -32,10 +32,20 @@ export const subscriptionRouter: Router = {
     const result = new Set<string>();
 
     for(const subscriberScope of subscriberScopes) {
+      console.log(`[SubscriptionRouter] ===== PROCESSING SUBSCRIBER SCOPE =====`);
+      console.log(`[SubscriptionRouter] Subscriber scope: ${subscriberScope}`);
+      
       const [kind, ...rest] = subscriberScope.split(':');
       const scope_of_interest = rest.join(':');
+      console.log(`[SubscriptionRouter] Kind: ${kind}, Scope of interest: ${scope_of_interest}`);
+      
       const connectionIds = await router.resolve(senderInfo, scope_of_interest);
-      connectionIds.forEach(id => result.add(id));
+      console.log(`[SubscriptionRouter] Resolved connection IDs:`, connectionIds);
+      
+      connectionIds.forEach(id => {
+        console.log(`[SubscriptionRouter] Adding connection ID to result: ${id}`);
+        result.add(id);
+      });
     }
 
     logger.debug(`[SubscriptionRouter] Found ${result.size} connections for scope: ${scope}`);

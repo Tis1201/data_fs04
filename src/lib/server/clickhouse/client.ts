@@ -2,15 +2,15 @@ import { createClient } from '@clickhouse/client';
 import { logger } from '$lib/server/logger';
 
 export type ClickHouseEvent = {
-  deviceId: string;
-  waveId: string;
-  bundleId: string;
+  device_id: string;
+  wave_id: string;
+  bundle_id: string;
   status: string;
-  progress: string;
+  progress: number;
   message: string;
   ts: string;
   type: string;
-  eventId?: string; // Generated for deduplication
+  event_id?: string; // Generated for deduplication
 };
 
 let clickhouseClient: ReturnType<typeof createClient> | null = null;
@@ -60,18 +60,18 @@ export async function queryClickHouseEvents(
     // Query events from the sliding window for processable bundles only
     const query = `
       SELECT 
-        deviceId,
-        waveId,
-        bundleId,
+        device_id,
+        wave_id,
+        bundle_id,
         status,
-        toString(progress) as progress,
+        progress,
         message,
         ts,
         type,
-        concat(deviceId, ':', waveId, ':', bundleId, ':', toString(ts)) as eventId
+        event_id
       FROM mv_bundle_logs 
       WHERE ts >= '${windowStartStr}'
-        AND bundleId IN (${bundleIdList})
+        AND bundle_id IN (${bundleIdList})
         AND status IN ('IN_PROGRESS', 'COMPLETED', 'FAILED')
       ORDER BY ts ASC
       LIMIT 10000
@@ -85,7 +85,7 @@ export async function queryClickHouseEvents(
     });
 
     const data = await result.json();
-    return data.data || [];
+    return (data.data || []) as ClickHouseEvent[];
   } catch (error) {
     logger.error(`[ClickHouse] Query failed: ${error instanceof Error ? error.message : String(error)}`);
     return [];

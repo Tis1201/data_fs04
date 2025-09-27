@@ -82,7 +82,14 @@ async function writeOffset(offsetPath: string, value: number) {
   }
 }
 
+let fileBasedPollerTimer: NodeJS.Timeout | null = null;
+
 export function startFileBasedPoller() {
+  if (fileBasedPollerTimer) {
+    logger.warn(`[FileBasedPoller] Already running, skipping start (timer=${!!fileBasedPollerTimer})`);
+    return fileBasedPollerTimer;
+  }
+
   const POLL_MS = Number(process.env.FILE_STATUS_POLL_MS || 10000);
   
   logger.info(`[FileBasedPoller] Starting with file-based polling (interval=${POLL_MS}ms, file=${DEFAULT_LOG_PATH})`);
@@ -92,7 +99,7 @@ export function startFileBasedPoller() {
     fs.mkdirSync(path.dirname(DEFAULT_OFFSET_PATH), { recursive: true });
   } catch {}
 
-  const timer = setInterval(async () => {
+  fileBasedPollerTimer = setInterval(async () => {
     try {
       await pollOnce(DEFAULT_LOG_PATH, DEFAULT_OFFSET_PATH);
     } catch (e: any) {
@@ -102,5 +109,13 @@ export function startFileBasedPoller() {
 
   logger.info(`[FileBasedPoller] Started successfully with file-based polling (file=${DEFAULT_LOG_PATH}, interval=${POLL_MS}ms)`);
   
-  return timer;
+  return fileBasedPollerTimer;
+}
+
+export function stopFileBasedPoller() {
+  if (fileBasedPollerTimer) {
+    clearInterval(fileBasedPollerTimer);
+    fileBasedPollerTimer = null;
+    logger.info('[FileBasedPoller] Stopped');
+  }
 }

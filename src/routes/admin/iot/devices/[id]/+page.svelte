@@ -48,6 +48,7 @@
     import { subscribeDeviceDetailEvents } from "$lib/client/deviceDetailRealtime";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
+    import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
@@ -369,31 +370,36 @@
         const tempId = addActionLogRow('restart', 'Sending restart command…', 'in_progress');
 
         try {
-            // Send restart command to the device via SSE
-            const responsePayload = await sseStore.sendRequest(
-                {
+            // Send restart command to the device via SSE message
+            const response = await fetch('/api/sse', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
                     type: 'device',
                     scope: `subscription:device:${device.id}`,
                     payload: {
                         action: 'restart',
-                        deviceId: device.id
+                        deviceId: device.id,
+                        timestamp: new Date().toISOString()
                     }
-                },
-                /* timeoutMs = */ 30000,
-                /* requestIdPrefix = */ 'restart'
-            );
+                })
+            });
 
-            if (responsePayload?.success) {
-                actionStatus.set({
-                    action: "restart",
-                    status: "success",
-                    message: responsePayload.message || "Restart command sent",
-                });
-                toast.success("Device restart initiated");
-                updateTempActionLog(tempId, 'success', 'Restart command sent');
-            } else {
-                throw new Error(responsePayload?.message || "Failed to restart device");
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Failed to restart device: ${response.statusText}`);
             }
+
+            actionStatus.set({
+                action: "restart",
+                status: "success",
+                message: "Restart command sent",
+            });
+            toast.success("Device restart initiated");
+            updateTempActionLog(tempId, 'success', 'Restart command sent');
+            
         } catch (error) {
             actionStatus.set({
                 action: "restart",
@@ -417,64 +423,108 @@
         await confirmFirmwareUpdate();
     }
 
+    // Utility function to download logs file
+    function downloadLogsFile(base64Data: string, filename: string) {
+        try {
+            // Decode the base64 zip data and download it
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: 'application/zip' });
+            
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error downloading logs file:', error);
+            toast.error('Failed to download logs file');
+        }
+    }
+
     async function viewLogs() {
         isLoading.set(true);
         actionStatus.set({
             action: "logs",
             status: "loading",
-            message: "Generating device logs...",
+            message: "Requesting device logs...",
         });
+        const tempId = addActionLogRow('logs', 'Requesting device logs…', 'in_progress');
 
         try {
             // Send the request to the device using sendRequest (this will trigger the device)
             console.log('Sending logs request to device:', device.id);
             
-            // Set up a listener for the device:response message that contains the actual logs data
+            // Set up a listener for the device:logsStatus message that contains the actual logs data
             let responseReceived = false;
+            let progress = 0;
+            let statusMessage = "Requesting device logs...";
+            
             const responseHandler = (message: any) => {
-                console.log('Received device:response message:', message);
-                if (message.event === 'device:response' && 
-                    message.data?.payload?.action === 'getLogs' && 
+                console.log('Received message:', message);
+                
+                // Handle device:logsStatus messages (progress updates and completion)
+                if (message.event === 'device:logsStatus' && 
                     message.data?.payload?.deviceId === device.id) {
                     
-                    console.log('Processing logs response:', message.data.payload);
+                    console.log('Processing logs status:', message.data.payload);
+                    const payload = message.data.payload;
                     
-                    if (message.data.payload?.success && message.data.payload?.logsData) {
-                        // Decode the base64 zip data and download it
-                        const zipData = message.data.payload.logsData;
-                        const binaryString = atob(zipData);
-                        const bytes = new Uint8Array(binaryString.length);
-                        for (let i = 0; i < binaryString.length; i++) {
-                            bytes[i] = binaryString.charCodeAt(i);
-                        }
-                        const blob = new Blob([bytes], { type: 'application/zip' });
+                    // Update progress and status
+                    if (payload.progress !== undefined) {
+                        progress = payload.progress;
+                        statusMessage = payload.message || statusMessage;
                         
-                        // Create download link
-                        const filename = `device-${device.id}-logs-${new Date().toISOString().split('T')[0]}.zip`;
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        window.URL.revokeObjectURL(url);
-
+                        actionStatus.set({
+                            action: "logs",
+                            status: "loading",
+                            message: `${statusMessage} (${progress}%)`,
+                        });
+                        // Note: We don't update the temp action log for progress updates as it only supports 'success' or 'failed'
+                    }
+                    
+                    // Handle completion
+                    if (payload.status === 'success' && payload.logsData) {
+                        console.log('Logs completed successfully, processing download...');
+                        
+                        // Trigger file download
+                        if (payload.logsData) {
+                            const now = new Date();
+                            const dateStr = now.toISOString().replace(/[:.]/g, '-').split('T')[0];
+                            const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+                            downloadLogsFile(payload.logsData, `device_logs_${dateStr}_${timeStr}.zip`);
+                        }
+                        
                         actionStatus.set({
                             action: "logs",
                             status: "success",
                             message: "Logs downloaded successfully",
                         });
+                        updateTempActionLog(tempId, 'success', 'Logs downloaded successfully');
                         toast.success("Device logs downloaded successfully");
                         responseReceived = true;
-                    } else {
-                        throw new Error(message.data.payload?.message || "Failed to generate logs on device");
+                    } else if (payload.status === 'error') {
+                        actionStatus.set({
+                            action: "logs",
+                            status: "error",
+                            message: payload.message || "Failed to retrieve logs",
+                        });
+                        updateTempActionLog(tempId, 'failed', payload.message || "Failed to retrieve logs");
+                        toast.error(payload.message || "Failed to retrieve device logs");
+                        responseReceived = true;
                     }
                 }
             };
 
-            // Subscribe to device:response messages
-            const unsubscribe = sseStore.on('device:response', responseHandler);
+            // Subscribe to SSE messages
+            const unsubscribe = sseStore.on('*', responseHandler);
 
             // Send the request
             await sseStore.sendRequest({
@@ -508,14 +558,16 @@
 
             // Clean up the listener
             unsubscribe();
+            
         } catch (error) {
             actionStatus.set({
                 action: "logs",
                 status: "error",
-                message: error instanceof Error ? error.message : "Failed to retrieve logs",
+                message: error instanceof Error ? error.message : "Failed to request device logs",
             });
-            toast.error("Failed to retrieve device logs");
-            console.error("Error retrieving logs:", error);
+            toast.error("Failed to request device logs");
+            console.error("Error requesting device logs:", error);
+            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to request device logs');
         } finally {
             isLoading.set(false);
         }
@@ -732,209 +784,20 @@
 
 <ScreenshotModal open={screenshotOpen} imageData={screenshotData} format={screenshotFormat} onClose={() => { screenshotOpen = false; screenshotData = null; }} />
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <!-- Device Info Card -->
-        <AdminCard
-            title="Device Information"
-            description="Basic details about this device"
-            icon={Info}
-            compact={true}
-            class_name="md:col-span-2"
-        >
-            <!-- View Mode: Read-only display -->
-            <div class="space-y-4">
-                <!-- Basic Info -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="md:col-span-2">
-                        <DeviceInformationContent {device} />
-                    </div>
-
-                    <!-- Metadata Section -->
-                    <div
-                        class="border-l-0 md:border-l border-muted pl-0 md:pl-4"
-                    >
-                        {#if device}
-                            <CompactInfoGrid columns={1} gap="gap-1">
-                                <CompactInfoItem label="Created" icon={Clock}>
-                                    <div class="text-xs">
-                                        <RelativeDate date={device.createdAt} />
-                                        {#if device.createdBy && device.user}
-                                            <span
-                                                class="block text-muted-foreground"
-                                                >by {device.user.name ||
-                                                    device.user.email}</span
-                                            >
-                                        {/if}
-                                    </div>
-                                </CompactInfoItem>
-
-                                {#if device.updatedAt && device.updatedAt.toString() !== device.createdAt.toString()}
-                                    <CompactInfoItem
-                                        label="Updated"
-                                        icon={Clock}
-                                    >
-                                        <div class="text-xs">
-                                            <RelativeDate
-                                                date={device.updatedAt}
-                                            />
-                                        </div>
-                                    </CompactInfoItem>
-                                {/if}
-
-                                {#if device.lastUsedAt}
-                                    <CompactInfoItem
-                                        label="Last used"
-                                        icon={Clock}
-                                    >
-                                        <div class="text-xs">
-                                            <RelativeDate
-                                                date={device.lastUsedAt}
-                                            />
-                                        </div>
-                                    </CompactInfoItem>
-                                {/if}
-                            </CompactInfoGrid>
-                        {:else}
-                            <div class="space-y-2">
-                                <Skeleton class="h-3 w-3/4" />
-                                <Skeleton class="h-3 w-1/2" />
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-            <svelte:fragment slot="footer">
-                <MetadataFooter
-                    items={[
-                        {
-                            label: "Created",
-                            date: device.createdAt,
-                            icon: "calendar",
-                        },
-                        {
-                            label: "Created By",
-                            value: device.user?.name || "Unknown",
-                            icon: "user",
-                        },
-                        {
-                            label: "Account",
-                            value: device.account?.name || "None",
-                            icon: "tag",
-                        },
-                        {
-                            label: "Last Updated",
-                            date: device.updatedAt,
-                            icon: "clock",
-                        },
-                    ]}
-                />
-            </svelte:fragment>
-        </AdminCard>
-
-        <!-- Combined Connection & Security Card -->
-        <AdminCard
-            title="Device Status"
-            icon={Server}
-            compact={true}
-            class_name="md:col-span-2"
-        >
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Connection Status Section -->
-                    <ConnectionStatusCard {device} />
-
-                <!-- Security Section -->
-                <div
-                    class="border-t md:border-t-0 md:border-l border-muted pt-4 md:pt-0 md:pl-4"
-                >
-                    <SecurityCard {device} apiKeyEnhance={apiKeyEnhance} apiKeySubmitting={apiKeySubmitting} />
-                </div>
-            </div>
-        </AdminCard>
-
-        <!-- Device Technical Details Card -->
-        <AdminCard
-            title="Technical Details"
-            description="Hardware and software information"
-            icon={Info}
-            compact={true}
-            class_name="md:col-span-2"
-        >
-            <TechnicalDetailsContent {device} />
-        </AdminCard>
-    </div>
-
-    <!-- Device License -->
-    <AdminCard
-        title="Device Licenses"
-        description="Licenses of this device"
-        icon={FileText}
-        class_name="mt-4"
-        compact={true}
-    >
-        {#if actionLogs && actionLogs.length > 0}
-            <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                <tr class="text-left border-b">
-                    <th class="py-2 pr-4">License ID</th>
-                    <th class="py-2 pr-4">Status</th>
-                    <th class="py-2 pr-4">Issued At</th>
-                    <th class="py-2 pr-4">Expires At</th>
-                    <th class="py-2 pr-4">Key ID</th>
-                    <th class="py-2 pr-4">Algorithm</th>
-                </tr>
-                </thead>
-                <tbody>
-                {#each licenses as license}
-                    <tr class="border-b last:border-b-0">
-                        <td class="py-2 pr-4">{license.id}</td>
-                        <td class="py-2 pr-4">
-                            <Badge variant={getLicenseStatusBadgeVariant(license.status)}>
-                                {getLicenseStatusLabel(license.status)}
-                            </Badge>
-                        </td>
-                        <td class="py-2 pr-4 text-neutral-500">{new Date(license.issuedAt).toLocaleString()}</td>
-                        <td class="py-2 pr-4 text-neutral-500">{new Date(license.expiresAt).toLocaleString()}</td>
-                        <td class="py-2 pr-4">{license.keyId}</td>
-                        <td class="py-2 pr-4">{license.algorithm}</td>
-                    </tr>
-                {/each}
-                </tbody>
-            </table>
-            </div>
-        {:else}
-            <div class="text-sm text-neutral-500">No licenses.</div>
-        {/if}
-    </AdminCard>
-
-    <!-- Device Tags -->
-    <AdminCard>
-        <svelte:fragment slot="header">
-            <h3 class="text-lg font-medium">Device Tags</h3>
-            <p class="text-sm text-muted-foreground">Device Tags attached to this device</p>
-        </svelte:fragment>
-        
-        <DeviceDeviceTagComponent 
-            deviceId={device.id}
-            deviceTags={device.tags || []}
-            loading={false}
+    <!-- Tabbed Device Detail Interface -->
+    {#if device?.id}
+        <DeviceDetailTabs 
+            {device} 
+            {actionLogs} 
+            {licenses} 
+            {apiKeyEnhance} 
+            {apiKeySubmitting}
         />
-    </AdminCard>
-
-    <!-- Device Action History -->
-    <AdminCard
-        title="Action History"
-        description="Recent actions performed on this device"
-        icon={FileText}
-        class_name="mt-4"
-        compact={true}
-    >
-        {#if actionLogs && actionLogs.length > 0}
-            <ActionHistory {actionLogs} />
         {:else}
-            <div class="text-sm text-neutral-500">No recent actions.</div>
+        <div class="text-center py-8">
+            <p class="text-gray-500">Loading device information...</p>
+        </div>
         {/if}
-    </AdminCard>
 </AdminPageLayout>
 
 <!-- Terminal Dialog has been replaced with a dedicated terminal page -->

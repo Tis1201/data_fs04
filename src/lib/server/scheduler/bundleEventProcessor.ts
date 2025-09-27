@@ -324,7 +324,7 @@ export async function processEventsWithStateValidation(events: ClickHouseEvent[]
       const shouldProcess = await shouldProcessEvent(event);
       
       if (!shouldProcess) {
-        logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundleId} - not processable`);
+        logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - not processable`);
         continue;
       }
       
@@ -334,10 +334,10 @@ export async function processEventsWithStateValidation(events: ClickHouseEvent[]
       }
       
       // 3. Group by bundle for batch processing
-      if (!eventsByBundle.has(event.bundleId)) {
-        eventsByBundle.set(event.bundleId, []);
+      if (!eventsByBundle.has(event.bundle_id)) {
+        eventsByBundle.set(event.bundle_id, []);
       }
-      eventsByBundle.get(event.bundleId)!.push(event);
+      eventsByBundle.get(event.bundle_id)!.push(event);
       
     } catch (e: any) {
       logger.warn(`[BundleEventProcessor] Failed to validate event: ${String(e?.message || e)}`);
@@ -359,12 +359,12 @@ async function processBatchEvents(bundleId: string, events: ClickHouseEvent[]) {
   
   // Convert events to FileStatusEvent format
   const fileEvents: FileStatusEvent[] = events.map(event => ({
-    deviceId: event.deviceId,
-    waveId: event.waveId,
-    bundleId: event.bundleId,
+    deviceId: event.device_id,
+    waveId: event.wave_id,
+    bundleId: event.bundle_id,
     logId: undefined,
     status: event.status,
-    progress: event.progress ? parseInt(event.progress) : undefined,
+    progress: event.progress,
     message: event.message,
     error: event.status === 'FAILED' ? event.message : null,
     timestamp: event.ts
@@ -573,23 +573,23 @@ async function batchUpdateDatabase(deviceUpdates: Map<string, any>, waveUpdates:
 
 async function shouldProcessEvent(event: ClickHouseEvent): Promise<boolean> {
   const stateManager = getStateManager();
-  const bundleState = await stateManager.getBundleState(event.bundleId);
+  const bundleState = await stateManager.getBundleState(event.bundle_id);
   
   if (!bundleState) {
     // If bundle doesn't exist in state, check if it exists in database
     const bundle = await (prisma as any).bundle.findUnique({
-      where: { id: event.bundleId },
+      where: { id: event.bundle_id },
       select: { id: true, status: true }
     });
     
     if (!bundle) {
-      logger.debug(`[BundleEventProcessor] Bundle ${event.bundleId} not found in database`);
+      logger.debug(`[BundleEventProcessor] Bundle ${event.bundle_id} not found in database`);
       return false;
     }
     
     // Initialize bundle state as ACTIVE if it exists in database
-    await stateManager.setBundleState(event.bundleId, {
-      bundleId: event.bundleId,
+    await stateManager.setBundleState(event.bundle_id, {
+      bundleId: event.bundle_id,
       state: BundleProcessingState.ACTIVE,
       timeoutAt: null,
       gracePeriodHours: 2,
@@ -615,7 +615,7 @@ async function shouldProcessEvent(event: ClickHouseEvent): Promise<boolean> {
     case BundleProcessingState.COMPLETED:
     case BundleProcessingState.FAILED:
     case BundleProcessingState.CANCELLED:
-      logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundleId} - bundle is in terminal state: ${bundleState.state}`);
+      logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - bundle is in terminal state: ${bundleState.state}`);
       return false;
       
     default:

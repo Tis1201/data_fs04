@@ -125,18 +125,25 @@ export class WebRTCClient {
     webRTCStore.update(state => ({ ...state, dataChannelStatus: 'closed', dataChannel: null }));
   }
 
-  handleWebRTCMessage(message: WebRTCMessage) {
+  async handleWebRTCMessage(message: WebRTCMessage) {
+    console.log('[WebRTCClient] ===== HANDLING WEBRTC MESSAGE =====');
+    console.log('[WebRTCClient] Received message:', message);
     const msg_type = message.type;
+    console.log('[WebRTCClient] Message type:', msg_type);
     switch (msg_type) {
       case 'webrtc:offer':
+        console.log('[WebRTCClient] Processing webrtc:offer');
         this.handleOffer(message);
         break;
       case 'webrtc:answer':
+        console.log('[WebRTCClient] Processing webrtc:answer');
         break;
       case 'webrtc:ice-candidate':
-        this.handleIceCandidate(message);
+        console.log('[WebRTCClient] Processing webrtc:ice-candidate');
+        await this.handleIceCandidate(message);
         break;
       default:
+        console.log('[WebRTCClient] Unknown message type:', msg_type);
         break;
     }
   }
@@ -163,15 +170,34 @@ export class WebRTCClient {
   }
 
   private async handleIceCandidate(message: any) {
-    const cand = message.payload.candidate;
-    await this.peerConnection?.addIceCandidate(cand);
+    console.log('[WebRTCClient] ===== HANDLING ICE CANDIDATE =====');
+    console.log('[WebRTCClient] ICE candidate message:', message);
+    const cand = message.candidate || message.payload?.candidate;
+    console.log('[WebRTCClient] ICE candidate:', cand);
+    
+    if (cand) {
+      await this.peerConnection?.addIceCandidate(cand);
+      console.log('[WebRTCClient] ICE candidate added successfully');
+    } else {
+      console.warn('[WebRTCClient] No ICE candidate found in message');
+    }
   }
 
   private handleOffer(message: any) {
+    console.log('[WebRTCClient] ===== HANDLING OFFER =====');
+    console.log('[WebRTCClient] Offer message:', message);
     try {
-      if (this.peerConnection && this.peerConnection.signalingState !== 'stable') return;
+      if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
+        console.log('[WebRTCClient] PeerConnection not stable, current state:', this.peerConnection.signalingState);
+        return;
+      }
       if (!this.peerConnection) {
+        console.log('[WebRTCClient] Creating new PeerConnection');
         this.peerConnection = new RTCPeerConnection({ iceServers: this.config.iceServers || [{ urls: 'stun:stun.l.google.com:19302' }] });
+        
+        // Add video transceiver to receive video from device
+        this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
+        
         this.peerConnection.onicecandidate = (event) => {
           const iceMessage = {
             type: 'device',
@@ -182,18 +208,26 @@ export class WebRTCClient {
         };
         this.peerConnection.oniceconnectionstatechange = () => {};
         this.peerConnection.ondatachannel = (event) => {
+          console.log('[WebRTCClient] Data channel received:', event.channel.label);
           this.dataChannel = event.channel;
           this.dataChannel.onmessage = (msgEvent) => {
+            console.log('[WebRTCClient] Data channel message received:', msgEvent.data);
             if (msgEvent.data instanceof ArrayBuffer) {
               const decoder = new TextDecoder('utf-8');
               const text = decoder.decode(msgEvent.data);
+              console.log('[WebRTCClient] Decoded ArrayBuffer message:', text);
               this.handleDataChannelMessage(text);
             } else {
+              console.log('[WebRTCClient] Text message received:', msgEvent.data);
               this.handleDataChannelMessage(msgEvent.data);
             }
           };
-          this.dataChannel.onopen = this.handleDataChannelOpen;
+          this.dataChannel.onopen = () => {
+            console.log('[WebRTCClient] Data channel opened');
+            this.handleDataChannelOpen();
+          };
           this.dataChannel.onclose = () => {
+            console.log('[WebRTCClient] Data channel closed');
             webRTCStore.update(state => ({ ...state, dataChannelStatus: 'closed' }));
           };
           webRTCStore.update(state => ({ ...state, dataChannel: this.dataChannel }));
@@ -204,6 +238,21 @@ export class WebRTCClient {
           if (this.onConnectionStateCB) this.onConnectionStateCB(state);
         };
         this.peerConnection.ontrack = (event) => {
+          console.log('[WebRTCClient] Video track received:', event.track.kind, event.track.readyState);
+          
+          if (event.streams && event.streams.length > 0) {
+            const videoStream = event.streams[0];
+            console.log('[WebRTCClient] Video stream received, active:', videoStream.active, 'tracks:', videoStream.getTracks().length);
+            
+            // Update the WebRTC store with the video stream
+            webRTCStore.update(state => ({
+              ...state,
+              videoStream: videoStream
+            }));
+          } else {
+            console.warn('[WebRTCClient] No streams in track event');
+          }
+          
           if (this.onTrackHandler) this.onTrackHandler(event.track);
         };
       }
