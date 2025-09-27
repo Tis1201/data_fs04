@@ -42,21 +42,9 @@ export const POST: RequestHandler = restrict(
           locals.prisma.bundle.findUnique({ where: { id: bundleId }, select: { id: true, name: true } }),
           locals.prisma.bundleDeviceProgress.findMany({
             where: { bundleId, waveId },
-            include: { bundleDevice: true },
-            orderBy: { createdAt: 'asc' } // Ensure devices are processed in assignment order
+            include: { bundleDevice: true }
           })
         ]);
-
-        // Set startedAt for all devices in the wave when sending commands
-        const startTime = new Date();
-        await locals.prisma.bundleDeviceProgress.updateMany({
-          where: { bundleId, waveId, status: 'PENDING' },
-          data: { 
-            startedAt: startTime,
-            status: 'IN_PROGRESS',
-            updatedBy: auth.user.id
-          }
-        });
 
         for (const prog of progresses) {
           const deviceId = prog.bundleDevice.deviceId;

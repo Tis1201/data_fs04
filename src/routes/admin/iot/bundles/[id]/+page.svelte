@@ -58,7 +58,7 @@
     import BundleDeviceComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device/BundleDeviceComponent.svelte";
     import WaveComponent from "$lib/components/ui_components_sveltekit/bundles/waves/WaveComponent.svelte";
     import BundleDeviceProgressComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device_progress/BundleDeviceProgressComponent.svelte";
-    import { subscribeBundleWave } from '$lib/bundles/realtime';
+    import { sseStore } from '$lib/stores/sse-store';
     import { onMount, onDestroy } from 'svelte';
 
     export let data: any;
@@ -231,8 +231,9 @@
     
     let activeTab = "info";
 
-    // Live update: listen for bundle:waveStatus and update in-memory wave stats
-    let unsubscribeRealtime: (() => void) | null = null;
+    // Live update: listen for device:bundleStatus and update in-memory wave stats
+    let unsubBundleRealtime: (() => void) | null = null;
+    let unsubConnected: (() => void) | null = null;
     let waveStats: Record<string, { devicesTotal: number; devicesCompleted: number; devicesFailed: number; progress: number }> = {};
     let wavesVersion = 0;
     let derivedWaves: Array<{
@@ -249,113 +250,188 @@
     // Trigger device list reloads in child component when a matching wave update arrives
     let deviceProgressReloadToken = 0;
     
-    // Reactive subscription to bundle changes
-    $: if (bundle?.id) {
-        console.log('[AdminBundleDetail] Bundle changed, updating SSE subscription for bundle:', bundle.id);
-        console.log('[AdminBundleDetail] Available waves:', bundle?.waves?.map((w: any) => ({ id: w.id, name: w.name, status: w.status })));
-        console.log('[AdminBundleDetail] Previous subscription exists:', !!unsubscribeRealtime);
+    // Track subscriptions to prevent duplicates
+    let subscribedDevices = new Set<string>();
+    let subscribedBundle = false;
+    
+    onMount(() => {
+        // Ensure SSE is connected (only once)
+        try { 
+            sseStore.connect('/api/sse', { withCredentials: true }); 
+        } catch {}
         
-        // Clean up previous subscription
-        if (unsubscribeRealtime) {
-            console.log('[AdminBundleDetail] Cleaning up previous subscription');
-            unsubscribeRealtime();
-            unsubscribeRealtime = null;
-        }
+        // Subscribe this connection to all device channels used by this bundle
+        let lastSubscribedConnectionId: string | null = null;
+        const deviceIds: string[] = Array.isArray(data?.bundleDevices)
+          ? Array.from(new Set((data.bundleDevices as any[]).map((bd: any) => bd.deviceId)))
+          : [];
+          
+        // Subscribe to connected events
+        unsubConnected = sseStore.on('connected', (msg: any) => {
+            const connId = msg?.data?.connectionId;
+            if (!connId || connId === lastSubscribedConnectionId) return;
+            
+            // Subscribe to each device channel for live bundle events (only if not already subscribed)
+            const devicePromises = deviceIds
+                .filter(id => !subscribedDevices.has(id))
+                .map((id) => fetch(`/api/sse/subscribe/device/${id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: connId })
+                }).then(() => {
+                    subscribedDevices.add(id);
+                    return null;
+                }).catch(() => null));
+                
+            // Subscribe to bundle channel (only if not already subscribed)
+            const bundlePromise = subscribedBundle ? Promise.resolve(null) : 
+                fetch(`/api/sse/subscribe/bundle/${bundle.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: connId })
+                }).then(() => {
+                    subscribedBundle = true;
+                    return null;
+                }).catch(() => null);
+                
+            Promise.all([...devicePromises, bundlePromise]).then(() => {
+                lastSubscribedConnectionId = connId;
+            }).catch(() => {});
+        });
         
-        // Subscribe to new bundle
-        console.log('[AdminBundleDetail] Creating new subscription for bundle:', bundle.id);
-        unsubscribeRealtime = subscribeBundleWave(bundle.id, (payload) => {
-            console.log('[AdminBundleDetail] Wave update received:', payload);
+        // Subscribe to all events
+        unsubBundleRealtime = sseStore.on('*', async (msg: any) => {
+            const evt = msg?.data ?? msg;
+            const evtType = evt?.type || msg?.event || evt?.payload?.type;
+            const data = evt?.payload?.action === 'bundleStatus' ? { ...evt.payload, type: 'device:bundleStatus' } : evt;
             
-            const waveId = payload.waveId;
-            const waveStatus = payload.status;
-            const devicesTotal = payload.devicesTotal;
-            const devicesCompleted = payload.devicesCompleted;
-            const devicesFailed = payload.devicesFailed;
-            const progress = payload.progress;
-            
-            console.log('[AdminBundleDetail] Processing wave update:', {
-                waveId,
-                waveStatus,
-                devicesTotal,
-                devicesCompleted,
-                devicesFailed,
-                progress,
-                selectedWaveId: selectedWave?.id
-            });
-            
-            if (waveId && (bundle?.waves || []).some((w: any) => w.id === waveId)) {
-                console.log('[AdminBundleDetail] Wave found in bundle, updating stats');
-                
-                const oldStats = waveStats[waveId];
-                waveStats[waveId] = {
-                    devicesTotal: devicesTotal ?? (waveStats[waveId]?.devicesTotal ?? 0),
-                    devicesCompleted: devicesCompleted ?? (waveStats[waveId]?.devicesCompleted ?? 0),
-                    devicesFailed: devicesFailed ?? (waveStats[waveId]?.devicesFailed ?? 0),
-                    progress: progress ?? (waveStats[waveId]?.progress ?? 0)
-                };
-                
-                console.log('[AdminBundleDetail] Wave stats updated:', {
-                    waveId,
-                    oldStats,
-                    newStats: waveStats[waveId]
-                });
-                
-                wavesVersion = wavesVersion + 1;
-                console.log('[AdminBundleDetail] wavesVersion incremented to:', wavesVersion);
-                
-                if (selectedWave?.id && selectedWave.id === waveId) {
-                    deviceProgressReloadToken = deviceProgressReloadToken + 1;
-                    console.log('[AdminBundleDetail] Selected wave updated, deviceProgressReloadToken incremented to:', deviceProgressReloadToken);
+
+            if (evtType === 'device:bundleStatus' || data?.type === 'device:bundleStatus') {
+                const waveId = data?.waveId as string | undefined;
+                const devicesTotal = typeof data?.devicesTotal === 'number' ? data.devicesTotal : undefined;
+                const devicesCompleted = typeof data?.devicesCompleted === 'number' ? data.devicesCompleted : undefined;
+                const devicesFailed = typeof data?.devicesFailed === 'number' ? data.devicesFailed : undefined;
+                const progress = typeof data?.progress === 'number'
+                  ? data.progress
+                  : (devicesTotal && ((devicesCompleted ?? 0) + (devicesFailed ?? 0)) > 0)
+                    ? Math.round(((devicesCompleted ?? 0) + (devicesFailed ?? 0)) / devicesTotal * 100)
+                    : 0;
+                if (waveId && (bundle?.waves || []).some((w: any) => w.id === waveId)) {
+                    waveStats[waveId] = {
+                        devicesTotal: devicesTotal ?? (waveStats[waveId]?.devicesTotal ?? 0),
+                        devicesCompleted: devicesCompleted ?? (waveStats[waveId]?.devicesCompleted ?? 0),
+                        devicesFailed: devicesFailed ?? (waveStats[waveId]?.devicesFailed ?? 0),
+                        progress
+                    };
+                    // bump version to trigger reactive recompute
+                    wavesVersion = wavesVersion + 1;
+                    // If the selected wave matches, ask device list to reload
+                    if (selectedWave?.id && selectedWave.id === waveId) {
+                        deviceProgressReloadToken = deviceProgressReloadToken + 1;
+                    }
+                    // If this wave appears finished (completed+failed >= total), refresh server data so bundle/wave statuses update
+                    const stats = waveStats[waveId];
+                    if (
+                      typeof stats?.devicesTotal === 'number' &&
+                      (stats.devicesCompleted + stats.devicesFailed) >= stats.devicesTotal &&
+                      stats.devicesTotal > 0
+                    ) {
+                      try { await invalidate('app:bundle'); } catch {}
+                    }
                 }
-                
-                if (waveStatus) {
+            }
+            // Also catch device-level timeout/offline events routed as generic device:bundleStatus without aggregates
+            if (data?.action === 'bundleStatus' && !data?.devicesTotal && selectedWave?.id) {
+                // Force a quick refresh of the selected wave's device table
+                deviceProgressReloadToken = deviceProgressReloadToken + 1;
+            }
+            // Listen for bundle status terminal updates to refresh quickly (optional improvement)
+            if (evtType === 'bundle:status' || data?.type === 'bundle:status') {
+                try { await invalidate('app:bundles'); } catch {}
+                try { await invalidate('app:bundle'); } catch {}
+            }
+            
+            // Listen for wave status changes to refresh bundle data
+            if (evtType === 'device:bundleStatus' && data?.action === 'bundleStatus') {
+                // If we receive a wave status update, refresh the bundle data to get updated wave statuses
+                try { await invalidate('app:bundle'); } catch {}
+            }
+            
+            // Listen for wave status updates (like auto-start)
+            if (evtType === 'bundle:waveStatus' || data?.type === 'bundle:waveStatus') {
+                const waveId = data?.waveId as string | undefined;
+                const waveStatus = data?.status as string | undefined;
+                if (waveId && waveStatus && (bundle?.waves || []).some((w: any) => w.id === waveId)) {
+                    // Update the wave status in real-time
                     const waveIndex = (bundle?.waves || []).findIndex((w: any) => w.id === waveId);
-                    console.log('[AdminBundleDetail] Updating wave status in bundle, waveIndex:', waveIndex);
-                    
                     if (waveIndex !== -1) {
-                        const oldStatus = bundle.waves[waveIndex].status;
+                        // Update the bundle waves array to reflect the new status
                         bundle = {
                             ...bundle,
                             waves: bundle.waves.map((w: any, idx: number) => 
                                 idx === waveIndex ? { ...w, status: waveStatus } : w
                             )
                         };
-                        console.log('[AdminBundleDetail] Wave status updated:', {
-                            waveId,
-                            oldStatus,
-                            newStatus: waveStatus
-                        });
                     }
                 }
-            } else {
-                console.log('[AdminBundleDetail] Wave not found in bundle or invalid waveId:', {
-                    waveId,
-                    availableWaveIds: bundle?.waves?.map((w: any) => w.id)
-                });
+                // Refresh bundle data when wave status changes
+                try { await invalidate('app:bundle'); } catch {}
             }
             
-            try { 
-                console.log('[AdminBundleDetail] Calling invalidate(app:bundle)');
-                invalidate('app:bundle'); 
-                console.log('[AdminBundleDetail] invalidate(app:bundle) completed');
-            } catch (e) {
-                console.error('[AdminBundleDetail] Error calling invalidate:', e);
+            // Listen for device connection events to update device status counts
+            if (evtType === 'device:connection' || data?.type === 'device:connection') {
+                const c = data as any;
+                if (!c?.payload?.deviceId) return;
+                
+                if (dataPage?.bundleDevices && dataPage.bundleDevices.length > 0) {
+                    const deviceIndex = dataPage.bundleDevices.findIndex((d: any) => d.deviceId === c.payload.deviceId);
+                    if (deviceIndex >= 0) {
+                        dataPage.bundleDevices[deviceIndex].device.connected = !!c.payload.connected;
+                        // Increment version to trigger reactive recomputation of device status counts
+                        deviceStatusVersion = deviceStatusVersion + 1;
+                    }
+                }
             }
         });
-        
-        console.log('[AdminBundleDetail] SSE subscription setup completed');
-    }
+    });
     
     onDestroy(() => { 
-        console.log('[AdminBundleDetail] onDestroy - Cleaning up SSE subscription');
         try { 
-            unsubscribeRealtime && unsubscribeRealtime();
-            console.log('[AdminBundleDetail] SSE subscription cleaned up successfully');
-        } catch (e) {
-            console.error('[AdminBundleDetail] Error cleaning up SSE subscription:', e);
-        } 
-        unsubscribeRealtime = null;
+            unsubBundleRealtime && unsubBundleRealtime(); 
+            unsubConnected && unsubConnected();
+        } catch {} 
+        unsubBundleRealtime = null; 
+        unsubConnected = null;
+        
+        // Clean up subscriptions on server
+        const connectionId = sseStore.connectionId;
+        if (connectionId) {
+            // Unsubscribe from all device channels
+            subscribedDevices.forEach(deviceId => {
+                fetch(`/api/sse/unsubscribe/device/${deviceId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId })
+                }).catch(() => {});
+            });
+            
+            // Unsubscribe from bundle channel
+            if (subscribedBundle) {
+                fetch(`/api/sse/unsubscribe/bundle/${bundle.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId })
+                }).catch(() => {});
+            }
+        }
+        
+        // Clean up local tracking
+        subscribedDevices.clear();
+        subscribedBundle = false;
     });
 
     // Derive waves passed to WaveComponent from server bundle data and live waveStats
@@ -468,8 +544,6 @@
             toast.success('Bundle duplicated successfully');
             // Navigate to the new bundle
             goto(`/admin/iot/bundles/${response.data.id}`);
-            // Auto-refresh to load complete data and ensure SSE subscription works
-            setTimeout(() => window.location.reload(), 100);
           } catch (e) {
             toast.error('Failed to duplicate bundle');
           }
@@ -541,8 +615,8 @@
                 </div>
 
                 <div class="space-y-1">
-                    <p class="text-xs text-muted-foreground">Batches</p>
-                    <p class="text-sm">{wavesCount} batch{wavesCount !== 1 ? 'es' : ''}</p>
+                    <p class="text-xs text-muted-foreground">Waves</p>
+                    <p class="text-sm">{wavesCount} wave{wavesCount !== 1 ? 's' : ''}</p>
                 </div>
 
                 <div class="space-y-1">
@@ -600,7 +674,7 @@
                 </Tabs.Trigger>
                 <Tabs.Trigger value="waves">
                     <BarChart3 class="h-4 w-4 mr-2" />
-                    Batches
+                    Waves
                 </Tabs.Trigger>
             </Tabs.List>
             
@@ -652,14 +726,14 @@
                 </AdminCard>
             </Tabs.Content>
             
-            <!-- Batches Tab -->
+            <!-- Waves Tab -->
             <Tabs.Content value="waves" class="space-y-6">
                 {#if wavesCount === 0}
                     <AdminCard>
                         <div class="p-8 text-center text-muted-foreground">
                             <BarChart3 class="h-12 w-12 mx-auto mb-4 opacity-50" />
-                            <p class="text-lg font-medium mb-2">No batches configured</p>
-                            <p class="text-sm">Batches will be created automatically when the bundle is published</p>
+                            <p class="text-lg font-medium mb-2">No waves configured</p>
+                            <p class="text-sm">Waves will be created automatically when the bundle is published</p>
                         </div>
                     </AdminCard>
                 {:else}
@@ -696,4 +770,3 @@
     useFormSubmission={false}
     on:close={() => state.update((s) => ({ ...s, confirmationOpen: false }))}
 />
-

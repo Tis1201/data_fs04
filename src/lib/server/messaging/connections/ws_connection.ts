@@ -7,18 +7,12 @@ export class WSConnection implements Connection {
   private socket: WebSocket;
 
   constructor(meta: ConnectionMeta, socket: WebSocket) {
-    console.log(`[WSConnection] Constructor called with meta:`, meta);
-    console.log(`[WSConnection] Socket readyState:`, socket.readyState);
     this.meta = meta;
     this.socket = socket;
-    console.log(`[WSConnection] WSConnection instance created with ID: ${this.meta.id}`);
   }
 
   start(): void {
-    console.log(`[WSConnection] Starting connection ${this.meta.id}`);
-    
     this.socket.on('message', async (msg) => {
-      console.log(`[WSConnection] Raw message received on ${this.meta.id}:`, msg.toString());
       await this.handleMessage(msg);
     });
 
@@ -30,8 +24,6 @@ export class WSConnection implements Connection {
       console.info(`[WSConnection] connection closed: ${this.meta.id}`);
       ConnectionManager.unregisterConnection(this.meta.id);
     });
-    
-    console.log(`[WSConnection] Event listeners attached for ${this.meta.id}`);
   }
 
 
@@ -44,17 +36,14 @@ export class WSConnection implements Connection {
   }
 
   async handleMessage(raw: string): Promise<void> {
-    console.log(`[WSConnection] handleMessage called for ${this.meta.id} with raw data:`, raw);
-    
     // Here you can parse and dispatch the message
     let parsed: any;
 
     try {
       parsed = JSON.parse(raw.toString());
-      console.log(`[WSConnection] Successfully parsed JSON for ${this.meta.id}:`, parsed);
+      console.log(`[WSConnection] Received message: ${JSON.stringify(parsed)}`);
     } catch (e) {
       console.warn(`[WSConnection] Invalid JSON from ${this.meta.id}:`, raw);
-      console.warn(`[WSConnection] Parse error:`, e);
       return;
     }
 
@@ -70,24 +59,17 @@ export class WSConnection implements Connection {
       requestId: parsed.requestId,
     };
 
-    console.log(`[WSConnection] Composed message for ${this.meta.id}:`, message);
+    console.log(`[WSConnection] Composed message: ${JSON.stringify(message)}`);
 
     if(parsed.type === 'ping') {
-      console.log(`[WSConnection] Handling ping message for ${this.meta.id}`);
       this.send({ type: 'pong' });
       return;
     }
 
-    console.log(`[WSConnection] Dispatching message to MessageDispatcher for ${this.meta.id}`);
-    try {
-      const { MessageDispatcher } = await import("../core/dispatcher");
-      console.log(`[WSConnection] MessageDispatcher imported successfully for ${this.meta.id}`);
-      await MessageDispatcher.dispatch(message);
-      console.log(`[WSConnection] Message dispatched successfully for ${this.meta.id}`);
-    } catch (error) {
-      console.error(`[WSConnection] Error dispatching message for ${this.meta.id}:`, error);
-      console.error(`[WSConnection] Error stack:`, error.stack);
-    }
+    console.log(`[WSConnection] Dispatching message to MessageDispatcher`);
+    const { MessageDispatcher } = await import("../core/dispatcher");
+    await MessageDispatcher.dispatch(message);
+
   }
 
   close(): void {

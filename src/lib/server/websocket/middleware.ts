@@ -34,8 +34,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
       logger.info(`[WS Middleware] WebSocket server initialized, setting up connection handler`);
       logger.info(`[WS Middleware] WebSocket server instance: ${wss}`);
       wss.on('connection', async (ws: ExtendedWebSocket, request) => {
-        logger.info(`[WS Middleware] New WebSocket connection attempt from ${request.socket.remoteAddress}`);
-        logger.debug(`[WS Middleware] Request headers:`, request.headers);
+        logger.info(`[WS Middleware] New WebSocket connection attempt`);
         
         const rawCookieHeader = request.headers.cookie || '';
         logger.debug(`[WS] Raw Cookie header: ${rawCookieHeader}`);
@@ -56,9 +55,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
         // logger.debug(`[WS Middleware] [validate()] Session ID from cookie: ${currentSessionId}`);
         
 
-        logger.info(`[WS Middleware] Extracting user info from request...`);
         const userInfo = await extractUserInfoFromRequest(request, event);
-        logger.info(`[WS Middleware] User info extracted:`, userInfo);
 
         if ('error' in userInfo) {
           logger.warn(`[wss:kit] ${userInfo.error}`);
@@ -74,18 +71,12 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
           socketId: ws.socketId,
         };
 
-        logger.info(`[WS Middleware] Creating WSConnection with meta:`, meta);
         const connection = new WSConnection(meta, ws);
-        
-        logger.info(`[WS Middleware] Registering connection with ConnectionManager...`);
         ConnectionManager.registerConnection(connection);
-        logger.info(`[WS Middleware] Connection registered with ID: ${connection.meta.id}`);
 
         // WebSocketManager.getInstance().addClient(ws);
         ws.sessionId = currentSessionId;
-        logger.info(`[WS Middleware] Adding client to WSManager...`);
         const clientId = addClient(ws, meta.userInfo?.id);
-        logger.info(`[WS Middleware] Client added with ID: ${clientId}`);
 
         
         // Set up cleanup on close
@@ -132,14 +123,10 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
         // The WSConnection will handle messages properly
         
         try {
-            logger.info(`[WS] Starting connection for client ${clientId} with connection ID: ${connection.meta.id}`);
-            logger.info(`[WS] WebSocket readyState before start: ${ws.readyState}`);
             connection.start(); // start event listeners inside WSConnection
             logger.info(`[WS] Successfully started connection for client ${clientId}`);
-            logger.info(`[WS] WebSocket readyState after start: ${ws.readyState}`);
         } catch (error) {
             logger.error(`[WS] Failed to start connection for client ${clientId}:`, error);
-            logger.error(`[WS] Error stack:`, error.stack);
             ws.close(1011, 'Internal server error');
         }
       });

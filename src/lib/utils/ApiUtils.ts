@@ -82,10 +82,8 @@ export async function api_delete<T = any>(
         
         const result = await response.json();
         
-        // Check both HTTP status and response success flag
-        if (!response.ok || (!result.success && result.error)) {
-            const errorMsg = result.error || `HTTP ${response.status}: ${response.statusText}`;
-            throw new Error(errorMsg);
+        if (!result.success && result.error) {
+            throw new Error(result.error);
         }
         
         return result;
@@ -118,10 +116,8 @@ export async function api_patch<T = any>(
         
         const result = await response.json();
         
-        // Check both HTTP status and response success flag
-        if (!response.ok || (!result.success && result.error)) {
-            const errorMsg = result.error || `HTTP ${response.status}: ${response.statusText}`;
-            throw new Error(errorMsg);
+        if (!result.success && result.error) {
+            throw new Error(result.error);
         }
         
         return result;

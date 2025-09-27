@@ -5,8 +5,6 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
-import { initializeStateManager, getStateManager } from '$lib/server/state/stateManagerFactory';
-import { BundleProcessingState } from '$lib/server/state/types';
 
 // Core implementation that can be called from HTTP route and from scheduler
 export async function _publishBundleCore(prisma: any, bundleId: string, userId = 'system') {
@@ -24,23 +22,6 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
     data: { status: 'PUBLISHED', updatedBy: userId },
     select: { id: true, status: true }
   });
-
-  // Initialize bundle state in state manager
-  try {
-    await initializeStateManager();
-    const stateManager = getStateManager();
-    await stateManager.setBundleState(bundleId, {
-      bundleId,
-      state: BundleProcessingState.ACTIVE,
-      timeoutAt: null,
-      gracePeriodHours: 2,
-      lastDeviceResponse: null,
-      updatedAt: new Date()
-    });
-    logger.info(`[PublishBundle] Initialized bundle state for ${bundleId} as ACTIVE`);
-  } catch (error) {
-    logger.warn(`[PublishBundle] Failed to initialize bundle state for ${bundleId}: ${error instanceof Error ? error.message : String(error)}`);
-  }
 
   // Notify UI that bundle moved to PUBLISHED so detail/list can refresh in real-time
   try {
@@ -108,18 +89,6 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
             prisma.bundle.findUnique({ where: { id: bundleId }, include: { apps: { include: { resource: true }, orderBy: { order: 'asc' } } } }),
             prisma.bundleDeviceProgress.findMany({ where: { bundleId, waveId: firstWaveId }, include: { bundleDevice: true } })
           ]);
-
-          // Set startedAt for all devices in the first wave when sending commands
-          const startTime = new Date();
-          await prisma.bundleDeviceProgress.updateMany({
-            where: { bundleId, waveId: firstWaveId, status: 'PENDING' },
-            data: { 
-              startedAt: startTime,
-              status: 'IN_PROGRESS',
-              updatedBy: userId
-            }
-          });
-          logger.info(`Set startedAt for all PENDING devices in first wave ${firstWaveId}`);
 
           for (const prog of progresses) {
             const deviceId = (prog as any).bundleDevice.deviceId as string;
@@ -201,7 +170,7 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
             await publisher.publish(routing);
 
             const numApps = Math.max(1, apps.length || 1);
-            const timeoutMs = numApps * 10 * 60 * 1000;
+            const timeoutMs = numApps * 1 * 60 * 1000;
             setTimeout(async () => {
               try {
                 const current = await prisma.bundleDeviceProgress.findUnique({ where: { id: (prog as any).id } });

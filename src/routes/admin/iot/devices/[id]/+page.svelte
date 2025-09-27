@@ -487,9 +487,9 @@
                 }
             }, 180000, 'logs'); 
 
-            // Wait for response with timeout (match server: 10 minutes)
+            // Wait for response with timeout
             const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Request timed out after 10 minutes")), 10 * 60 * 1000)
+                setTimeout(() => reject(new Error("Request timed out after 3 minutes")), 180000)
             );
             
             const responsePromise = new Promise<void>((resolve) => {

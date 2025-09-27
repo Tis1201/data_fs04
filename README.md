@@ -35,6 +35,8 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 - Persistence via svelte-persisted-store
 - Table utilities with svelte-headless-table
 - Test data generation with @faker-js/faker
+- **Scalable event processing for 100k+ devices** with ClickHouse integration
+- **Real-time bundle installation monitoring** with fault tolerance
 
 ## Tech Stack
 
@@ -45,6 +47,7 @@ FS04 Web is a SvelteKit-based application for real-time video streaming, room ma
 - Real-time: Server-Sent Events (SSE), WebRTC
 - Testing: Vitest, Playwright
 - Streaming: OpenCV, FFmpeg, RTP
+- Event Processing: ClickHouse, Redis (production)
 
 ## Prerequisites
 
@@ -79,6 +82,23 @@ Open http://localhost:5173
 ## Deployment
 
 See [PRODUCTION.md](./PRODUCTION.md) for production deployment instructions.
+
+## Documentation
+
+### Core Documentation
+- [Scalable Event Processing](./docs/SCALABLE_EVENT_PROCESSING.md) - Design for handling 100k+ devices with ClickHouse
+- [Bundle Status Pipeline](./docs/BUNDLE_STATUS_PIPELINE.md) - Real-time bundle installation monitoring
+- [Bundle Detail Unification](./docs/BUNDLE_DETAIL_UNIFICATION.md) - Admin/User bundle detail page unification
+
+### API Documentation
+- [API Reference](./docs/API.md) - Complete API documentation
+- [Device Management](./docs/DEVICE.md) - Device registration and management
+- [Device Claim Process](./docs/DEVICE_CLAIM.md) - Device ownership and claiming
+
+### Technical Documentation
+- [WebRTC Integration](./docs/NVR_WEBRTC.md) - Real-time video streaming
+- [JWT Authentication](./docs/JWT.md) - Token-based authentication
+- [Pushpin Integration](./docs/PUSHPIN.md) - Real-time communication proxy
 
 ## Directory Structure
 

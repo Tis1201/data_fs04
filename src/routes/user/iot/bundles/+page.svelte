@@ -1,5 +1,5 @@
 <script lang="ts">
-    import BundleTable from "$lib/bundles/BundleTable.svelte";
+    import BundleTable from "./table.svelte";
     import { Plus, Package, Monitor, Settings, Play } from "lucide-svelte";
     import type { PageData } from "./$types";
     import { goto } from "$app/navigation";
@@ -74,7 +74,14 @@
         }
     ]}
 >
-    <BundleTable baseUrl="/user/iot/bundles" {records} {pagination} {sort} {loading} />
+    <BundleTable
+        props={{
+            records,
+            pagination,
+            sort,
+            loading
+        }}
+    />
 </AdminPageLayout>
 
 <!-- Bundle Installation Modal -->

@@ -12,52 +12,6 @@ import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
-// Helper function to update bundle status based on wave statuses
-async function updateBundleStatus(prisma: any, bundleId: string) {
-  try {
-    // Get all waves for this bundle
-    const waves = await (prisma as any).bundleWave.findMany({
-      where: { bundleId },
-      select: { id: true, status: true, startTime: true, endTime: true }
-    });
-    
-    if (!waves || waves.length === 0) {
-      return;
-    }
-    
-    // Calculate bundle status based on wave statuses
-    const anyInProgress = waves.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
-    const anyFailed = waves.some((w: any) => w.status === 'FAILED');
-    const allCompleted = waves.every((w: any) => w.status === 'COMPLETED');
-    const allTerminal = waves.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(w.status));
-    
-    let bundleStatus: string;
-    if (anyInProgress) {
-      bundleStatus = 'IN_PROGRESS';
-    } else if (allCompleted) {
-      bundleStatus = 'COMPLETED';
-    } else if (anyFailed && allTerminal) {
-      bundleStatus = 'FAILED';
-    } else {
-      // All waves are terminal but mix of completed/cancelled (no failed)
-      bundleStatus = 'COMPLETED';
-    }
-    
-    // Update bundle status
-    await (prisma as any).bundle.update({
-      where: { id: bundleId },
-      data: { 
-        status: bundleStatus
-        // Note: Bundle model doesn't have endTime field - this is tracked at wave level
-      }
-    });
-    
-    logger.info(`[PageLoad] Updated bundle ${bundleId} status to ${bundleStatus} (waves: ${waves.length}, inProgress: ${anyInProgress}, failed: ${anyFailed}, allCompleted: ${allCompleted})`);
-  } catch (e: any) {
-    logger.warn(`[PageLoad] Failed to update bundle status for ${bundleId}: ${String(e?.message || e)}`);
-  }
-}
-
 export const load = restrict(
   async ({ params, locals, depends }) => {
     // Mark this load for client-side invalidation when devices are added/removed
@@ -95,10 +49,8 @@ export const load = restrict(
               (locals.prisma as any).bundleDeviceProgress.count({ where: { waveId: w.id, status: 'COMPLETED' } }),
               (locals.prisma as any).bundleDeviceProgress.count({ where: { waveId: w.id, status: 'FAILED' } })
             ]);
-
-            // Wave progress = percentage of devices that have been processed (completed + failed)
-            // NOT the average of individual device progress percentages
-            const progress = total > 0 ? Math.round(((completed + failed) / total) * 100) : 0;
+            // Progress is percentage of successful devices only
+            const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
             enrichedWaves.push({ ...w, devicesTotal: total, devicesCompleted: completed, devicesFailed: failed, progress });
           } catch {
             enrichedWaves.push({ ...w, devicesTotal: 0, devicesCompleted: 0, devicesFailed: 0, progress: 0 });
@@ -145,7 +97,7 @@ export const load = restrict(
                   select: { id: true }
                 });
                 const numApps = bundleApps.length;
-                const timeoutMs = numApps * 10 * 60 * 1000; // 5 minutes per app
+                const timeoutMs = numApps * 1 * 60 * 1000; // 5 minutes per app
                 
                 for (const prog of pendingDevices) {
                   // Check if this device has been running for more than the timeout period
@@ -174,9 +126,6 @@ export const load = restrict(
           }
         }
       }
-      
-      // Update bundle status based on all waves
-      await updateBundleStatus(locals.prisma, id);
       
       // Fetch bundle devices with device information
       const bundleDevices = await locals.prisma.bundleDevice.findMany({

@@ -20,14 +20,8 @@ export const deviceHandler: Handler = {
   },
 
   async handle(message: InMessage): Promise<void> {
-    console.log(`[DeviceHandler] ===== DEVICE HANDLER CALLED =====`);
-    console.log(`[DeviceHandler] Full message received:`, JSON.stringify(message, null, 2));
-    
     const { payload } = message;
     const { action } = payload;
-
-    console.log(`[DeviceHandler] Extracted payload:`, payload);
-    console.log(`[DeviceHandler] Extracted action:`, action);
 
     // Compact, structured logging instead of dumping whole message
     logger.debug('[DeviceHandler] Received message', {
