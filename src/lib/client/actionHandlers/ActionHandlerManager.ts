@@ -11,6 +11,7 @@ import { SnapshotHandler } from './SnapshotHandler';
 import { TerminalHandler } from './TerminalHandler';
 import { FileOperationHandler } from './FileOperationHandler';
 import { BundleStatusHandler } from './BundleStatusHandler';
+import { SimpleActionHandler } from './SimpleActionHandler';
 
 /**
  * Manages all action handlers for device real-time updates
@@ -31,6 +32,11 @@ export class ActionHandlerManager {
     this.handlers.set('file_operation', new FileOperationHandler(params, 'push')); // For push operations
     this.handlers.set('pull_file', new FileOperationHandler(params, 'pull')); // For pull operations
     this.handlers.set('bundle_status', new BundleStatusHandler(params)); // For bundle status updates
+    
+    // App action handlers
+    this.handlers.set('uninstall', new SimpleActionHandler(params, 'uninstall'));
+    this.handlers.set('restartApp', new SimpleActionHandler(params, 'restartApp'));
+    this.handlers.set('config', new SimpleActionHandler(params, 'config'));
   }
 
   /**
