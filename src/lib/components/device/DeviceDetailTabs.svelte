@@ -34,6 +34,8 @@
   export let licenses: any[] = [];
   export let apiKeyEnhance: any;
   export let apiKeySubmitting: any;
+  export let isLoading: any;
+  export let actionStatus: any;
 
   let activeTab = "overview";
   let loading = false;
@@ -275,7 +277,10 @@
       {#if device?.id}
         <DeviceAppList 
           deviceId={device.id} 
-          accountId={device.accountId} 
+          accountId={device.accountId}
+          {actionLogs}
+          {isLoading}
+          {actionStatus}
         />
       {:else}
         <div class="text-center py-8">

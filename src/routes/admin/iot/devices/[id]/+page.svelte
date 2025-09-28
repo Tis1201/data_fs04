@@ -1320,6 +1320,8 @@
             {licenses} 
             {apiKeyEnhance} 
             {apiKeySubmitting}
+            {isLoading}
+            {actionStatus}
         />
         {:else}
         <div class="text-center py-8">

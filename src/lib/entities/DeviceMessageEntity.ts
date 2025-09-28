@@ -153,7 +153,10 @@ export class MessageEntityMapper {
       'updateFirmware': 'firmware_update',
       'getLogs': 'logs',
       'bundleStatus': 'bundle_status',
-      'progressUpdate': 'file_operation' // Map progressUpdate to file_operation handler
+      'progressUpdate': 'file_operation', // Map progressUpdate to file_operation handler
+      'uninstall': 'uninstall', // Map uninstall to uninstall handler
+      'restartApp': 'restartApp', // Map restartApp to restartApp handler
+      'config': 'config' // Map config to config handler
     };
 
     const handlerKey = actionMap[entity.action];

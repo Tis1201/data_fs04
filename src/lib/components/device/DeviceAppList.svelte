@@ -2,8 +2,15 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { toast } from 'svelte-sonner';
+  import { writable } from 'svelte/store';
+  import { sseStore } from '$lib/stores/sse-store';
+  import { subscribeDeviceDetailEvents } from '$lib/client/actionHandlers';
+  import ActionHistory from '$lib/components/ui_components_sveltekit/devices/ActionHistory.svelte';
 
   export let deviceId: string;
+  export let actionLogs: any[] = []; // Accept action logs from parent
+  export let isLoading: any = writable(false); // Accept loading state from parent
+  export let actionStatus: any = writable({ action: "", status: "", message: "" }); // Accept action status from parent
 
   interface DeviceApp {
     device_id: string;
@@ -65,6 +72,47 @@
   $: if (isInitialized && (searchTerm !== undefined || filterType !== undefined || sortBy !== undefined || sortOrder !== undefined)) {
     currentPage = 1; // Reset to first page when filters change
     loadData();
+  }
+
+  // Handle parent's action status changes for real-time updates
+  $: if ($actionStatus && $actionStatus.action) {
+    const action = $actionStatus.action;
+    const status = $actionStatus.status;
+    const message = $actionStatus.message;
+    
+    // Handle app action status updates from parent
+    if (['uninstall', 'restartApp', 'config'].includes(action)) {
+      if (status === 'success') {
+        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+        toast.success(`${displayAction} completed`, {
+          description: message || `${displayAction} operation completed successfully`
+        });
+        
+        // Clear loading state
+        const actionKey = Object.keys(actionLoading).find(key => 
+          actionLoading[key] === action
+        );
+        if (actionKey) {
+          delete actionLoading[actionKey];
+          actionLoading = { ...actionLoading };
+        }
+        
+      } else if (status === 'error') {
+        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+        toast.error(`${displayAction} failed`, {
+          description: message || `${displayAction} operation failed`
+        });
+        
+        // Clear loading state
+        const actionKey = Object.keys(actionLoading).find(key => 
+          actionLoading[key] === action
+        );
+        if (actionKey) {
+          delete actionLoading[actionKey];
+          actionLoading = { ...actionLoading };
+        }
+      }
+    }
   }
 
   onMount(async () => {
@@ -203,6 +251,7 @@
     });
   }
 
+
   function handleSSEMessage(data: any) {
     if (data.type === 'ping') {
       // Handle ping messages
@@ -240,8 +289,8 @@
     // Handle app action status updates
     if (['uninstall', 'restartApp', 'config'].includes(action)) {
       if (status === 'complete') {
-        const displayAction = action === 'restartApp' ? 'restart' : action;
-        toast.success(`${displayAction.charAt(0).toUpperCase() + displayAction.slice(1)} completed`, {
+        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+        toast.success(`${displayAction} completed`, {
           description: message || `${displayAction} operation completed successfully`
         });
         
@@ -255,8 +304,8 @@
         }
         
       } else if (status === 'failed') {
-        const displayAction = action === 'restartApp' ? 'restart' : action;
-        toast.error(`${displayAction.charAt(0).toUpperCase() + displayAction.slice(1)} failed`, {
+        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+        toast.error(`${displayAction} failed`, {
           description: message || `${displayAction} operation failed`
         });
         
@@ -328,8 +377,20 @@
     const actionKey = `${packageName}-${action}`;
     
     try {
+      // Set loading state for real-time tracking
+      isLoading.set(true);
+      actionStatus.set({
+        action: action === 'restart' ? 'restartApp' : action,
+        status: "loading",
+        message: `Sending ${action} command for ${packageName}...`,
+      });
+      
       actionLoading[actionKey] = action;
       actionLoading = { ...actionLoading }; // Trigger reactivity
+      
+      // Create temporary log entry for real-time tracking
+      const displayAction = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+      const tempId = addActionLogRow(action === 'restart' ? 'restartApp' : action, `Sending ${displayAction} command for ${packageName}...`, 'in_progress');
       
       // Use the unified action API instead of direct SSE (following architecture)
       const response = await fetch(`/api/devices/${deviceId}/actions`, {
@@ -350,16 +411,33 @@
 
       const result = await response.json();
       
-      toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} command sent`, {
+      // Update status to success
+      actionStatus.set({
+        action: action === 'restart' ? 'restartApp' : action,
+        status: "success",
+        message: `${displayAction} command sent`,
+      });
+      
+      toast.success(`${displayAction} command sent`, {
         description: `Action sent to device for ${packageName}`
       });
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to send action';
-      toast.error(`Failed to ${action} app`, {
+      
+      // Update status to error
+      const displayAction = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+      actionStatus.set({
+        action: action === 'restart' ? 'restartApp' : action,
+        status: "error",
+        message: errorMessage,
+      });
+      
+      toast.error(`Failed to ${displayAction.toLowerCase()} app`, {
         description: errorMessage
       });
     } finally {
+      isLoading.set(false);
       delete actionLoading[actionKey];
       actionLoading = { ...actionLoading }; // Trigger reactivity
     }
@@ -367,6 +445,26 @@
 
   function isActionLoading(packageName: string, action: string): boolean {
     return actionLoading[`${packageName}-${action}`] === action;
+  }
+
+  function addActionLogRow(actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed' = 'initiated', logId?: string) {
+    const id = logId || `temp-${actionType}-${Date.now()}`;
+    actionLogs = [
+      {
+        id,
+        deviceId: deviceId,
+        actionType,
+        status,
+        message,
+        initiatedAt: new Date().toISOString(),
+        completedAt: status === 'success' || status === 'failed' ? new Date().toISOString() : null,
+        durationMs: null,
+        progress: status === 'in_progress' ? 0 : null,
+        user: null
+      },
+      ...actionLogs
+    ].slice(0, 15);
+    return id;
   }
 </script>
 
@@ -519,15 +617,15 @@
                     {/if}
                     
                     <!-- Action Buttons -->
-                    <div class="flex items-center space-x-1 ml-2">
+                    <div class="flex items-center space-x-4 ml-2">
                       <!-- Uninstall Button -->
                       <button
                         on:click={() => sendDeviceAction('uninstall', app.package_name)}
-                        disabled={isActionLoading(app.package_name, 'uninstall') || app.is_system_app}
-                        class="px-3 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        disabled={isActionLoading(app.package_name, 'uninstall') || app.is_system_app || ($isLoading && $actionStatus.action === 'uninstall')}
+                        class="px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px] h-10 flex items-center justify-center"
                         title={app.is_system_app ? 'Cannot uninstall system app' : 'Uninstall app'}
                       >
-                        {#if isActionLoading(app.package_name, 'uninstall')}
+                        {#if isActionLoading(app.package_name, 'uninstall') || ($isLoading && $actionStatus.action === 'uninstall')}
                           <div class="animate-spin rounded-full h-4 w-4 border-b border-red-700"></div>
                         {:else}
                           <span class="text-lg">🗑️</span>
@@ -537,11 +635,11 @@
                       <!-- Restart Button -->
                       <button
                         on:click={() => sendDeviceAction('restart', app.package_name)}
-                        disabled={isActionLoading(app.package_name, 'restart')}
-                        class="px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        title="Restart app"
+                        disabled={isActionLoading(app.package_name, 'restart') || ($isLoading && $actionStatus.action === 'restartApp')}
+                        class="px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px] h-10 flex items-center justify-center"
+                        title="Restart App"
                       >
-                        {#if isActionLoading(app.package_name, 'restart')}
+                        {#if isActionLoading(app.package_name, 'restart') || ($isLoading && $actionStatus.action === 'restartApp')}
                           <div class="animate-spin rounded-full h-4 w-4 border-b border-blue-700"></div>
                         {:else}
                           <span class="text-lg">🔄</span>
@@ -551,11 +649,11 @@
                       <!-- Config Button -->
                       <button
                         on:click={() => sendDeviceAction('config', app.package_name)}
-                        disabled={isActionLoading(app.package_name, 'config')}
-                        class="px-3 py-2 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        disabled={isActionLoading(app.package_name, 'config') || ($isLoading && $actionStatus.action === 'config')}
+                        class="px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px] h-10 flex items-center justify-center"
                         title="Configure app"
                       >
-                        {#if isActionLoading(app.package_name, 'config')}
+                        {#if isActionLoading(app.package_name, 'config') || ($isLoading && $actionStatus.action === 'config')}
                           <div class="animate-spin rounded-full h-4 w-4 border-b border-green-700"></div>
                         {:else}
                           <span class="text-lg">⚙️</span>
@@ -644,5 +742,15 @@
         Last updated: {formatDate(lastSync.toISOString())}
       </div>
     {/if}
+  {/if}
+
+  <!-- Action History Section -->
+  {#if actionLogs && actionLogs.length > 0}
+    <div class="mt-8">
+      <h3 class="text-lg font-medium text-gray-900 mb-4">Recent Actions</h3>
+      <div class="bg-white shadow rounded-lg overflow-hidden">
+        <ActionHistory {actionLogs} />
+      </div>
+    </div>
   {/if}
 </div>
