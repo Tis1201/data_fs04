@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
-import { deviceAppProcessor } from '$lib/server/processing/deviceAppProcessor';
+import { createDeviceAppProcessor } from '$lib/server/processing/deviceAppProcessor';
 import type { RequestHandler } from './$types';
 
 export const POST = restrict(
@@ -37,7 +37,7 @@ export const POST = restrict(
       }
 
       // Process device app data
-      const processor = deviceAppProcessor(locals.prisma);
+      const processor = createDeviceAppProcessor(locals.prisma);
       const result = await processor.processDeviceApps(deviceId);
 
       if (!result.success) {

@@ -250,12 +250,14 @@
 				handleTerminalMessage(state.latestTerminalMessage);
 			}
 			
-			// Process new WebRTC messages
-			if (state.latestWebRTCMessage && 
-			    state.latestWebRTCMessage !== previousWebRTCMessage) {
-				previousWebRTCMessage = state.latestWebRTCMessage;
+		// Process new WebRTC messages
+		if (state.latestWebRTCMessage && 
+		    state.latestWebRTCMessage !== previousWebRTCMessage) {
+			previousWebRTCMessage = state.latestWebRTCMessage;
+			(async () => {
 				await webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
-			}
+			})();
+		}
 		});
 		
 		// Start ping interval

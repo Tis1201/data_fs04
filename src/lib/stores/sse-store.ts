@@ -1,7 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { generateRequestId } from "$lib/utils/ApiUtils";
-import { logsHandler } from '$lib/handlers/logsHandler';
 
 
 export type SSEMessage = {
@@ -147,6 +146,17 @@ function createSSEStore() {
                         sender: data.sender
                     };
 
+                    // Debug logging for device messages
+                    if (data.type && data.type.startsWith('device:')) {
+                        console.log('[SSE] Received device message:', {
+                            eventType: event.type,
+                            messageEvent: message.event,
+                            dataType: data.type,
+                            payload: data.payload,
+                            fullData: data
+                        });
+                    }
+
                     // Handle connection ID from connected event
                     if (message.event === 'connected' && message.data?.connectionId) {
                         update(state => ({
@@ -193,10 +203,6 @@ function createSSEStore() {
                         console.log(`[SSE] Received non-request message:`, data);
                     }
 
-                    // Handle logs streaming
-                    if (data.type === 'device' && data.payload?.action === 'getLogs') {
-                        logsHandler.handleLogsMessage(data);
-                    }
 
                     addMessage(message);
                 } catch (err) {

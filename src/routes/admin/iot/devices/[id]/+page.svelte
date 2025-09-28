@@ -35,6 +35,9 @@
     import ActionHistory from "$lib/components/ui_components_sveltekit/devices/ActionHistory.svelte";
     import DeviceActions from "$lib/components/ui_components_sveltekit/devices/DeviceActions.svelte";
     import FirmwareModal from "$lib/components/ui_components_sveltekit/devices/FirmwareModal.svelte";
+    import InstallAppModal from "$lib/components/ui_components_sveltekit/devices/InstallAppModal.svelte";
+    import PullFileModal from "$lib/components/ui_components_sveltekit/devices/PullFileModal.svelte";
+    import PushFileModal from "$lib/components/ui_components_sveltekit/devices/PushFileModal.svelte";
     import StatusBanner from "$lib/components/ui_components_sveltekit/devices/StatusBanner.svelte";
     import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
     import { CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_sveltekit/layout";
@@ -45,7 +48,7 @@
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
     import { sseStore } from "$lib/stores/sse-store";
-    import { subscribeDeviceDetailEvents } from "$lib/client/deviceDetailRealtime";
+    import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
@@ -149,6 +152,45 @@
     // Realtime updates subscription handles
     let unsubscribeDeviceRealtime: (() => void) | null = null;
     let unsubConnectionLight: (() => void) | null = null;
+    let statusUnsubscribe: (() => void) | null = null;
+
+    // Utility function to download push file
+    function downloadPushFile(base64Data: string, filename: string) {
+        try {
+            // Decode the base64 data and download it
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // Determine MIME type based on file extension
+            const extension = filename.split('.').pop()?.toLowerCase();
+            let mimeType = 'application/octet-stream';
+            if (extension === 'txt') mimeType = 'text/plain';
+            else if (extension === 'json') mimeType = 'application/json';
+            else if (extension === 'pdf') mimeType = 'application/pdf';
+            else if (extension === 'jpg' || extension === 'jpeg') mimeType = 'image/jpeg';
+            else if (extension === 'png') mimeType = 'image/png';
+            else if (extension === 'zip') mimeType = 'application/zip';
+            
+            const blob = new Blob([bytes], { type: mimeType });
+            
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error downloading push file:', error);
+            toast.error('Failed to download file');
+        }
+    }
+
     onMount(() => {
         console.log('[AdminDeviceDetail] onMount started for device:', device.id);
         console.log('[AdminDeviceDetail] Initial device state:', {
@@ -189,7 +231,8 @@
             unsubscribeDeviceRealtime = subscribeDeviceDetailEvents(
                 device.id,
                 () => actionLogs,
-                (logs) => { actionLogs = logs; }
+                (logs) => { actionLogs = logs; },
+                actionStatus
             );
         }
 
@@ -237,6 +280,77 @@
                 console.warn('[DeviceDetail:SSE] Error processing message', e);
             }
         });
+
+        // Add status message handlers for push file, pull file, and install app
+        const statusUnsubscribe = sseStore.on('*', (msg: any) => {
+            try {
+                const evt = msg?.data ?? msg;
+                const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                
+                // Handle push file status updates - only for modal closing and loading state
+                if (evtType === 'device:pushFileStatus' && evt?.payload?.deviceId === device.id) {
+                    const payload = evt.payload;
+                    
+                    // Update modal progress
+                    if (payload.progress !== undefined) {
+                        pushFileProgress = payload.progress;
+                        pushFileStatusMessage = payload.message || pushFileStatusMessage;
+                    }
+                    
+                    // Close modal and reset loading on success/failure
+                    if (payload.status === 'success' || payload.status === 'failed') {
+                        showPushFileModal = false;
+                        isLoading.set(false);
+                    }
+                }
+                
+                // Handle pull file status updates - only for modal closing and loading state
+                if (evtType === 'device:pullFileStatus' && evt?.payload?.deviceId === device.id) {
+                    const payload = evt.payload;
+                    
+                    // Close modal and reset loading on success/failure
+                    if (payload.status === 'success' || payload.status === 'failed') {
+                        showPullFileModal = false;
+                        isLoading.set(false);
+                    }
+                }
+                
+                // Handle install app status updates - only for modal closing and loading state
+                if (evtType === 'device:installAppStatus' && evt?.payload?.deviceId === device.id) {
+                    const payload = evt.payload;
+                    
+                    // Close modal and reset loading on success/failure
+                    if (payload.status === 'success' || payload.status === 'failed') {
+                        showInstallAppModal = false;
+                        isLoading.set(false);
+                    }
+                }
+                
+                // Handle push file data (file download)
+                if (evtType === 'device:pushFileData' && evt?.payload?.deviceId === device.id) {
+                    const payload = evt.payload;
+                    console.log('[AdminDeviceDetail] Push file data received:', payload);
+                    
+                    // Trigger file download
+                    if (payload.fileData && payload.fileName) {
+                        downloadPushFile(payload.fileData, payload.fileName);
+                        
+                        actionStatus.set({
+                            action: "pushFile",
+                            status: "success",
+                            message: "File downloaded successfully",
+                        });
+                        toast.success(`File downloaded: ${payload.fileName}`);
+                        
+                        // Close the modal and reset loading state
+                        showPushFileModal = false;
+                        isLoading.set(false);
+                    }
+                }
+            } catch (e) {
+                console.warn('[AdminDeviceDetail] Error processing status message:', e);
+            }
+        });
     });
 
     onDestroy(() => {
@@ -248,14 +362,18 @@
             try { unsubConnectionLight(); } catch {}
             unsubConnectionLight = null;
         }
+        if (statusUnsubscribe) {
+            try { statusUnsubscribe(); } catch {}
+            statusUnsubscribe = null;
+        }
     });
 
     // Device action handlers
-    function addActionLogRow(actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed' = 'initiated') {
-        const tempId = `temp-${actionType}-${Date.now()}`;
+    function addActionLogRow(actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed' = 'initiated', logId?: string) {
+        const id = logId || `temp-${actionType}-${Date.now()}`;
         actionLogs = [
             {
-                id: tempId,
+                id,
                 deviceId: device.id,
                 actionType,
                 status,
@@ -268,7 +386,7 @@
             },
             ...actionLogs
         ].slice(0, MAX_ACTION_LOGS);
-        return tempId;
+        return id;
     }
 
     function updateTempActionLog(tempId: string | null, status: 'success' | 'failed', message?: string) {
@@ -370,35 +488,33 @@
         const tempId = addActionLogRow('restart', 'Sending restart command…', 'in_progress');
 
         try {
-            // Send restart command to the device via SSE message
-            const response = await fetch('/api/sse', {
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    type: 'device',
-                    scope: `subscription:device:${device.id}`,
-                    payload: {
-                        action: 'restart',
-                        deviceId: device.id,
-                        timestamp: new Date().toISOString()
-                    }
+                    action: 'restart'
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || `Failed to restart device: ${response.statusText}`);
+                throw new Error(errorData.error?.message || `Failed to restart device: ${response.statusText}`);
             }
 
+            const result = await response.json();
+            
             actionStatus.set({
                 action: "restart",
                 status: "success",
                 message: "Restart command sent",
             });
             toast.success("Device restart initiated");
-            updateTempActionLog(tempId, 'success', 'Restart command sent');
+            
+            // The real-time handler will update the temp log with the server's log ID
+            // when it receives the device:statusUpdate message
             
         } catch (error) {
             actionStatus.set({
@@ -409,6 +525,54 @@
             toast.error("Failed to restart device");
             console.error("Error restarting device:", error);
             updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to restart device');
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    async function rebootDevice() {
+        isLoading.set(true);
+        actionStatus.set({
+            action: "reboot",
+            status: "loading",
+            message: "Sending reboot command...",
+        });
+        const tempId = addActionLogRow('reboot', 'Sending reboot command…', 'in_progress');
+
+        try {
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'reboot'
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `Failed to reboot device: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            actionStatus.set({
+                action: "reboot",
+                status: "success",
+                message: "Reboot command sent",
+            });
+            toast.success("Device reboot initiated");
+        } catch (error) {
+            actionStatus.set({
+                action: "reboot",
+                status: "error",
+                message: error instanceof Error ? error.message : "Failed to reboot device",
+            });
+            toast.error("Failed to reboot device");
+            console.error("Error rebooting device:", error);
+            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to reboot device');
         } finally {
             isLoading.set(false);
         }
@@ -450,150 +614,92 @@
     }
 
     async function viewLogs() {
+        if ($isLoading) return;
+        
         isLoading.set(true);
         actionStatus.set({
             action: "logs",
-            status: "loading",
-            message: "Requesting device logs...",
+            status: "in_progress",
+            message: "Requesting logs from device...",
         });
-        const tempId = addActionLogRow('logs', 'Requesting device logs…', 'in_progress');
 
         try {
-            // Send the request to the device using sendRequest (this will trigger the device)
-            console.log('Sending logs request to device:', device.id);
-            
-            // Set up a listener for the device:logsStatus message that contains the actual logs data
-            let responseReceived = false;
-            let progress = 0;
-            let statusMessage = "Requesting device logs...";
-            
-            const responseHandler = (message: any) => {
-                console.log('Received message:', message);
-                
-                // Handle device:logsStatus messages (progress updates and completion)
-                if (message.event === 'device:logsStatus' && 
-                    message.data?.payload?.deviceId === device.id) {
-                    
-                    console.log('Processing logs status:', message.data.payload);
-                    const payload = message.data.payload;
-                    
-                    // Update progress and status
-                    if (payload.progress !== undefined) {
-                        progress = payload.progress;
-                        statusMessage = payload.message || statusMessage;
-                        
-                        actionStatus.set({
-                            action: "logs",
-                            status: "loading",
-                            message: `${statusMessage} (${progress}%)`,
-                        });
-                        // Note: We don't update the temp action log for progress updates as it only supports 'success' or 'failed'
-                    }
-                    
-                    // Handle completion
-                    if (payload.status === 'success' && payload.logsData) {
-                        console.log('Logs completed successfully, processing download...');
-                        
-                        // Trigger file download
-                        if (payload.logsData) {
-                            // Use filename from device response
-                            const filename = payload.fileName || `device_logs_${new Date().toISOString().replace(/[:.]/g, '-').split('T')[0]}.zip`;
-                            downloadLogsFile(payload.logsData, filename);
-                        }
-                        
-                        actionStatus.set({
-                            action: "logs",
-                            status: "success",
-                            message: "Logs downloaded successfully",
-                        });
-                        updateTempActionLog(tempId, 'success', 'Logs downloaded successfully');
-                        toast.success("Device logs downloaded successfully");
-                        responseReceived = true;
-                    } else if (payload.status === 'error') {
-                        actionStatus.set({
-                            action: "logs",
-                            status: "error",
-                            message: payload.message || "Failed to retrieve logs",
-                        });
-                        updateTempActionLog(tempId, 'failed', payload.message || "Failed to retrieve logs");
-                        toast.error(payload.message || "Failed to retrieve device logs");
-                        responseReceived = true;
-                    }
-                }
-                
-                // Handle device messages for streaming logs
-                if (message.event === 'device' && 
-                    message.data?.payload?.action === 'getLogs' && 
-                    message.data?.payload?.deviceId === device.id) {
-                    
-                    console.log('Processing streaming logs:', message.data.payload);
-                    const payload = message.data.payload;
-                    
-                    // Handle completion (logsHandler handles the actual download)
-                    if (payload.success && payload.message === 'Log file streaming completed') {
-                        console.log('Streaming logs completed, logsHandler will handle download...');
-                        
-                        actionStatus.set({
-                            action: "logs",
-                            status: "success",
-                            message: "Logs downloaded successfully",
-                        });
-                        updateTempActionLog(tempId, 'success', 'Logs downloaded successfully');
-                        toast.success("Device logs downloaded successfully");
-                        responseReceived = true;
-                    }
-                }
-            };
-
-            // Subscribe to SSE messages
-            const unsubscribe = sseStore.on('*', responseHandler);
-
-            // Send the request
-            await sseStore.sendRequest({
-                type: 'device',
-                scope: `subscription:device:${device.id}`,
-                payload: {
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
                     action: 'getLogs',
-                    deviceId: device.id,
                     format: 'zip'
-                }
-            }, 180000, 'logs'); 
-
-            // Wait for response with timeout (match server: 10 minutes)
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error("Request timed out after 10 minutes")), 10 * 60 * 1000)
-            );
-            
-            const responsePromise = new Promise<void>((resolve) => {
-                const checkResponse = () => {
-                    if (responseReceived) {
-                        resolve();
-                    } else {
-                        setTimeout(checkResponse, 100); // Check every 100ms
-                    }
-                };
-                checkResponse();
+                })
             });
 
-            // Race between response and timeout
-            await Promise.race([responsePromise, timeoutPromise]);
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `Failed to get logs: ${response.statusText}`);
+            }
 
-            // Clean up the listener
-            unsubscribe();
+            const result = await response.json();
+            
+            // Use the real log ID from the server response
+            const realLogId = result.data?.operationId;
+            if (realLogId) {
+                addActionLogRow('getLogs', 'Logs request initiated…', 'in_progress', realLogId);
+            }
+            
+            actionStatus.set({
+                action: "logs",
+                status: "success",
+                message: "Logs request initiated",
+            });
+            toast.success("Logs request initiated");
+            
+            // The real-time handler will update the log with the real log ID
+            // when it receives the device:statusUpdate message
             
         } catch (error) {
             actionStatus.set({
                 action: "logs",
                 status: "error",
-                message: error instanceof Error ? error.message : "Failed to request device logs",
+                message: error instanceof Error ? error.message : "Failed to get logs",
             });
-            toast.error("Failed to request device logs");
-            console.error("Error requesting device logs:", error);
-            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to request device logs');
+            toast.error("Failed to get device logs");
+            console.error('Error getting logs:', error);
+            // Create a temp log for error display
+            const tempId = addActionLogRow('getLogs', 'Failed to get logs', 'failed');
         } finally {
             isLoading.set(false);
         }
     }
+
+    // -------------------- Install App selection modal --------------------
+    let showInstallAppModal = false;
+    let installAppItems: any[] = [];
+    let selectedInstallAppId: string | null = null;
+    let selectedInstallApp: any | null = null;
+    let loadingInstallApp = false;
+    let installAppPage = 1;
+    let installAppTotalPages = 1;
+    let installAppSearch = '';
+
+    // -------------------- Pull File selection modal --------------------
+    let showPullFileModal = false;
+    let pullFileItems: any[] = [];
+    let selectedPullFileId: string | null = null;
+    let selectedPullFile: any | null = null;
+    let loadingPullFile = false;
+    let pullFilePage = 1;
+    let pullFileTotalPages = 1;
+    let pullFileSearch = '';
+    let pullFileDestinationPath = '';
+
+    // -------------------- Push File modal --------------------
+    let showPushFileModal = false;
+    let pushFileSourcePath = '';
+    let pushFileProgress = 0;
+    let pushFileStatusMessage = '';
 
     // -------------------- Firmware selection modal (Part 2 UI) --------------------
     let showFirmwareModal = false;
@@ -688,48 +794,53 @@
         } catch {}
 
         try {
-            const responsePayload = await sseStore.sendRequest(
-                {
-                    type: 'device',
-                    scope: `subscription:device:${device.id}`,
-                    payload: {
-                        action: 'updateFirmware',
-                        deviceId: device.id,
-                        firmware: {
-                            resourceId: selectedFirmware.id,
-                            resourceName: selectedFirmware.name,
-                            packageName: selectedFirmware.packageName ?? null,
-                            size: selectedFirmware.size,
-                            path: selectedFirmware.path,
-                            version: selectedFirmware.version ?? null,
-                            format: selectedFirmware.format ?? null
-                        }
-                    }
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
                 },
-                /* timeoutMs = */ 30000,
-                /* requestIdPrefix = */ 'firmware'
-            );
+                body: JSON.stringify({
+                    action: 'updateFirmware',
+                    firmwareVersion: selectedFirmware.version ?? '1.0.0'
+                })
+            });
 
-            const ok = responsePayload?.success ?? responsePayload?.payload?.success ?? false;
-            if (ok) {
-                actionStatus.set({
-                    action: 'firmware',
-                    status: 'success',
-                    message: responsePayload.message || responsePayload?.payload?.message || 'Firmware update initiated'
-                });
-                toast.success('Firmware update has been initiated');
-                showFirmwareModal = false;
-            } else {
-                const errMsg = responsePayload?.message || responsePayload?.payload?.message || 'Failed to update firmware';
-                throw new Error(errMsg);
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `Failed to update firmware: ${response.statusText}`);
             }
+
+            const result = await response.json();
+            
+            // Use the real log ID from the server response
+            const realLogId = result.data?.operationId;
+            if (realLogId) {
+                // Update the temp log with the real log ID
+                const logIndex = actionLogs.findIndex(log => log.id === pendingFirmwareTempId);
+                if (logIndex !== -1) {
+                    actionLogs[logIndex].id = realLogId;
+                }
+            }
+            
+            actionStatus.set({
+                action: 'firmware',
+                status: 'success',
+                message: 'Firmware update initiated',
+            });
+            toast.success('Firmware update initiated');
+            showFirmwareModal = false;
+            
+            // The real-time handler will update the log with progress
+            // when it receives the device:statusUpdate message
+            
         } catch (error) {
             actionStatus.set({
                 action: 'firmware',
                 status: 'error',
-                message: error instanceof Error ? error.message : 'Failed to update firmware'
+                message: error instanceof Error ? error.message : 'Failed to update firmware',
             });
-            toast.error('Failed to initiate firmware update');
+            toast.error('Failed to update firmware');
             console.error('Error updating firmware:', error);
             // Mark the optimistic row as failed so the user still sees an entry
             if (pendingFirmwareTempId) {
@@ -746,6 +857,358 @@
                 }
                 pendingFirmwareTempId = null;
             }
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    // -------------------- Install App functions --------------------
+    async function loadInstallAppResources(page = 1) {
+        console.log('Loading install app resources, page:', page);
+        loadingInstallApp = true;
+        try {
+            const params = new URLSearchParams({
+                page: String(page),
+                pageSize: '20'
+            });
+            if (installAppSearch && installAppSearch.trim().length > 0) {
+                params.set('search', installAppSearch.trim());
+            }
+            const url = `/api/admin/resources/apps?${params.toString()}`;
+            console.log('Fetching from URL:', url);
+            const res = await fetch(url, { credentials: 'include' });
+            console.log('Response status:', res.status);
+            if (!res.ok) {
+                throw new Error('Failed to load app resources');
+            }
+            const data = await res.json();
+            console.log('Received data:', data);
+            installAppItems = data.items || [];
+            installAppPage = data.meta?.page || 1;
+            installAppTotalPages = data.meta?.totalPages || 1;
+            console.log('Set installAppItems:', installAppItems.length, 'items');
+        } catch (err) {
+            console.error('App list error:', err);
+            toast.error('Failed to load app resources');
+        } finally {
+            loadingInstallApp = false;
+        }
+    }
+
+    async function openInstallAppModal() {
+        console.log('=== openInstallAppModal function called ===');
+        console.log('Opening install app modal...');
+        showInstallAppModal = true;
+        selectedInstallAppId = selectedInstallApp?.id || null;
+        console.log('Modal state set to true, loading resources...');
+        await loadInstallAppResources(1);
+        console.log('Resources loaded, modal should be visible');
+    }
+
+    function onSelectInstallApp(id: string) {
+        selectedInstallAppId = id;
+        selectedInstallApp = installAppItems.find((it) => it.id === id) || null;
+    }
+
+    function onInstallAppSearch(p?: number) {
+        loadInstallAppResources(p ?? 1);
+    }
+
+    function onSelectInstallAppFromList(id: string) {
+        onSelectInstallApp(id);
+    }
+
+    async function confirmInstallApp() {
+        if (!selectedInstallApp) {
+            toast.error('Please select an app');
+            return;
+        }
+
+        isLoading.set(true);
+        try {
+            const tempId = `temp-${Date.now()}`;
+            actionStatus.set({
+                action: 'installApp',
+                status: 'in_progress',
+                message: 'Initiating app installation...'
+            });
+
+            // Add optimistic log entry
+            actionLogs = [
+                {
+                    id: tempId,
+                    deviceId: device.id,
+                    actionType: 'install',
+                    status: 'in_progress',
+                    initiatedBy: 'current_user',
+                    initiatedAt: new Date().toISOString(),
+                    message: 'Initiating app installation…',
+                    metadata: {
+                        app: {
+                            resourceId: selectedInstallApp.id,
+                            resourceName: selectedInstallApp.name,
+                            packageName: selectedInstallApp.packageName ?? null,
+                            sizeBytes: selectedInstallApp.size,
+                            path: selectedInstallApp.path,
+                            version: selectedInstallApp.version ?? null,
+                            format: selectedInstallApp.format ?? null
+                        }
+                    }
+                },
+                ...actionLogs
+            ];
+
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'installApp',
+                    packageName: selectedInstallApp.packageName ?? 'unknown'
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `Failed to install app: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            // Use the real log ID from the server response
+            const realLogId = result.data?.operationId;
+            if (realLogId) {
+                // Update the temp log with the real log ID
+                const logIndex = actionLogs.findIndex(log => log.id === tempId);
+                if (logIndex !== -1) {
+                    actionLogs[logIndex].id = realLogId;
+                }
+            }
+            
+            actionStatus.set({
+                action: 'installApp',
+                status: 'success',
+                message: 'App installation initiated',
+            });
+            toast.success('App installation initiated');
+            showInstallAppModal = false;
+            
+            // The real-time handler will update the log with progress
+            // when it receives the device:statusUpdate message
+            
+        } catch (error) {
+            actionStatus.set({
+                action: 'installApp',
+                status: 'failed',
+                message: error instanceof Error ? error.message : 'Failed to install app',
+            });
+            toast.error('Failed to install app');
+            console.error('Error installing app:', error);
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    // -------------------- Pull File functions --------------------
+    async function loadPullFileResources(page = 1) {
+        console.log('Loading pull file resources, page:', page);
+        loadingPullFile = true;
+        try {
+            const params = new URLSearchParams({
+                page: String(page),
+                pageSize: '20'
+            });
+            if (pullFileSearch && pullFileSearch.trim().length > 0) {
+                params.set('search', pullFileSearch.trim());
+            }
+            const url = `/api/admin/resources/files?${params.toString()}`;
+            console.log('Fetching from URL:', url);
+            const res = await fetch(url, { credentials: 'include' });
+            console.log('Response status:', res.status);
+            if (!res.ok) {
+                throw new Error('Failed to load file resources');
+            }
+            const data = await res.json();
+            console.log('Received data:', data);
+            pullFileItems = data.items || [];
+            pullFilePage = data.meta?.page || 1;
+            pullFileTotalPages = data.meta?.totalPages || 1;
+            console.log('Set pullFileItems:', pullFileItems.length, 'items');
+        } catch (err) {
+            console.error('File list error:', err);
+            toast.error('Failed to load file resources');
+        } finally {
+            loadingPullFile = false;
+        }
+    }
+
+    async function openPullFileModal() {
+        console.log('=== openPullFileModal function called ===');
+        console.log('Opening pull file modal...');
+        showPullFileModal = true;
+        selectedPullFileId = selectedPullFile?.id || null;
+        pullFileDestinationPath = '';
+        console.log('Modal state set to true, loading resources...');
+        await loadPullFileResources(1);
+        console.log('Resources loaded, modal should be visible');
+    }
+
+    function onSelectPullFile(id: string) {
+        selectedPullFileId = id;
+        selectedPullFile = pullFileItems.find((it) => it.id === id) || null;
+    }
+
+    function onPullFileSearch(p?: number) {
+        loadPullFileResources(p ?? 1);
+    }
+
+    function onSelectPullFileFromList(id: string) {
+        onSelectPullFile(id);
+    }
+
+    async function confirmPullFile() {
+        if (!selectedPullFile) {
+            toast.error('Please select a file');
+            return;
+        }
+
+        if (!pullFileDestinationPath.trim()) {
+            toast.error('Please enter destination path');
+            return;
+        }
+
+        isLoading.set(true);
+        try {
+            actionStatus.set({
+                action: 'pullFile',
+                status: 'in_progress',
+                message: 'Initiating file pull...'
+            });
+
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'pullFile',
+                    sourcePath: selectedPullFile.path,
+                    destinationPath: pullFileDestinationPath.trim()
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `Failed to pull file: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            // Use the real log ID from the server response
+            const realLogId = result.data?.operationId;
+            if (realLogId) {
+                addActionLogRow('pullFile', 'File pull initiated…', 'in_progress', realLogId);
+            }
+            
+            actionStatus.set({
+                action: 'pullFile',
+                status: 'success',
+                message: 'File pull initiated',
+            });
+            toast.success('File pull initiated');
+            showPullFileModal = false;
+            
+            // The real-time handler will update the log with progress
+            // when it receives the device:statusUpdate message
+            
+        } catch (error) {
+            actionStatus.set({
+                action: 'pullFile',
+                status: 'failed',
+                message: error instanceof Error ? error.message : 'Failed to pull file',
+            });
+            toast.error('Failed to pull file');
+            console.error('Error pulling file:', error);
+        } finally {
+            isLoading.set(false);
+        }
+    }
+
+    // -------------------- Push File functions --------------------
+    async function openPushFileModal() {
+        console.log('=== openPushFileModal function called ===');
+        console.log('Opening push file modal...');
+        showPushFileModal = true;
+        pushFileSourcePath = '';
+        pushFileProgress = 0;
+        pushFileStatusMessage = '';
+        console.log('Modal state set to true');
+    }
+
+    async function confirmPushFile() {
+        if (!pushFileSourcePath.trim()) {
+            toast.error('Please enter source file path');
+            return;
+        }
+
+        isLoading.set(true);
+        actionStatus.set({
+            action: 'pushFile',
+            status: 'in_progress',
+            message: 'Initiating file push...'
+        });
+
+        try {
+            // Use the unified action API instead of direct SSE
+            const response = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'pushFile',
+                    sourcePath: pushFileSourcePath.trim(),
+                    destinationPath: pushFileSourcePath.trim() // Use same path as destination for now
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || `Failed to push file: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            // Use the real log ID from the server response
+            const realLogId = result.data?.operationId;
+            if (realLogId) {
+                addActionLogRow('pushFile', 'File push initiated…', 'in_progress', realLogId);
+            }
+            
+            actionStatus.set({
+                action: 'pushFile',
+                status: 'success',
+                message: 'File push initiated',
+            });
+            toast.success('File push initiated');
+            showPushFileModal = false;
+            
+            // The real-time handler will update the log with the real log ID
+            // when it receives the device:statusUpdate message
+            
+        } catch (error) {
+            actionStatus.set({
+                action: 'pushFile',
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Failed to push file',
+            });
+            toast.error('Failed to push file');
+            console.error('Error pushing file:', error);
+            // Create a temp log for error display
+            const tempId = addActionLogRow('pushFile', 'Failed to push file', 'failed');
         } finally {
             isLoading.set(false);
         }
@@ -780,6 +1243,10 @@
             {actionStatus}
             onSnapshot={retrieveSnapshot}
             onRestart={restartDevice}
+            onReboot={rebootDevice}
+            onOpenInstallAppModal={openInstallAppModal}
+            onOpenPullFileModal={openPullFileModal}
+            onOpenPushFileModal={openPushFileModal}
             onOpenFirmwareModal={openFirmwareModal}
             onViewLogs={viewLogs}
             onTerminal={accessRemoteTerminal}
@@ -789,6 +1256,45 @@
         <!-- Status message for actions -->
         <StatusBanner status={$actionStatus} />
     </AdminCard>
+
+<InstallAppModal
+    show={showInstallAppModal}
+    items={installAppItems}
+    loading={loadingInstallApp}
+    page={installAppPage}
+    totalPages={installAppTotalPages}
+    search={installAppSearch}
+    selectedId={selectedInstallAppId}
+    searchFn={onInstallAppSearch}
+    selectFn={onSelectInstallAppFromList}
+    onClose={() => (showInstallAppModal = false)}
+    onConfirm={confirmInstallApp}
+/>
+
+<PullFileModal
+    show={showPullFileModal}
+    items={pullFileItems}
+    loading={loadingPullFile}
+    page={pullFilePage}
+    totalPages={pullFileTotalPages}
+    search={pullFileSearch}
+    selectedId={selectedPullFileId}
+    bind:destinationPath={pullFileDestinationPath}
+    searchFn={onPullFileSearch}
+    selectFn={onSelectPullFileFromList}
+    onClose={() => (showPullFileModal = false)}
+    onConfirm={confirmPullFile}
+/>
+
+<PushFileModal
+    show={showPushFileModal}
+    bind:sourcePath={pushFileSourcePath}
+    loading={$isLoading && $actionStatus.action === 'pushFile'}
+    progress={pushFileProgress}
+    statusMessage={pushFileStatusMessage}
+    onClose={() => (showPushFileModal = false)}
+    onConfirm={confirmPushFile}
+/>
 
 <FirmwareModal
     show={showFirmwareModal}

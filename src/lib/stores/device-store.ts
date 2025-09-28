@@ -193,7 +193,7 @@ function createDeviceStore() {
                     
                     update(state => ({
                         ...state,
-                        deviceId: message.payload.id,
+                        deviceId: message.payload.id || null,
                         claimStatus: 'claimed'
                     }));
                     break;
@@ -204,8 +204,8 @@ function createDeviceStore() {
                         
                         update(state => ({
                             ...state,
-                            deviceId: message.payload.deviceId,
-                            name: message.payload.deviceName,
+                            deviceId: message.payload.deviceId || null,
+                            name: message.payload.deviceName || null,
                             claimStatus: 'claimed',
                             error: null
                         }));
@@ -221,16 +221,16 @@ function createDeviceStore() {
         sseStore.on('device', (message: any) => {
             console.log('[DEVICE_STORE] ===== DEVICE STORE RECEIVED SSE MESSAGE =====');
             console.log('[DEVICE_STORE] Full SSE message:', message);
-            console.log('[DEVICE_STORE] Message type:', message.type);
-            console.log('[DEVICE_STORE] Message data:', message.data);
-            console.log('[DEVICE_STORE] Data action:', message.data?.action);
-            console.log('[DEVICE_STORE] Data type:', message.data?.type);
-            console.log('[DEVICE_STORE] Data payload:', message.data?.payload);
-            console.log('[DEVICE_STORE] Data payload action:', message.data?.payload?.action);
-            console.log('[DEVICE_STORE] Data payload type:', message.data?.payload?.type);
             
             // SSE messages have payload in message.data.payload, not message.payload
             const payload = message.data?.payload || message.data || message.payload;
+            
+            // Check if this is a WebRTC message (old structure)
+            if (payload?.type && payload.type.startsWith('webrtc:')) {
+                console.log('[DEVICE_STORE] ===== WEBRTC MESSAGE DETECTED IN SSE (OLD STRUCTURE) =====');
+                console.log('[DEVICE_STORE] WebRTC message type:', payload.type);
+                console.log('[DEVICE_STORE] WebRTC device ID:', payload.deviceId);
+            }
             console.log('[DEVICE_STORE] Final payload:', payload);
             
             if (!payload?.action) {

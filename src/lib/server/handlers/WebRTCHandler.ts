@@ -5,7 +5,7 @@
  * Provides clean separation of concerns for WebRTC functionality.
  */
 
-import type { InMessage } from '../messaging/interfaces/message';
+import type { InMessage, RoutingMessage } from '../messaging/interfaces/message';
 import type { Handler } from '../messaging/interfaces/handler';
 import { MessageFactory, MessageValidator, MessageRouter } from '../../types/unified';
 import { getLoggingManager } from '../../managers/LoggingManager';
@@ -18,54 +18,45 @@ import { publisher } from '../messaging/core/publisher';
 class WebRTCHandlerClass implements Handler {
   private logger = getLoggingManager();
 
-  supports(type: string): boolean {
+  supports(type: string, message?: any): boolean {
     return type === 'webrtc' || 
-           (type === 'device' && this.isWebRTCMessage(type));
+           (type === 'device' && message && this.isWebRTCMessage(message));
   }
 
   async handle(message: InMessage): Promise<void> {
-    this.logger?.logWebRTC('handle', message.deviceId || 'unknown', 'Handling WebRTC message', {
-      messageType: message.type,
-      payloadType: (message as any)?.payload?.type
-    });
+    this.logger?.logWebRTC('handle', message.deviceId || 'unknown', 'Handling WebRTC message');
 
     try {
       // Validate message
       if (!MessageValidator.validate(message)) {
-        this.logger?.logError('webrtc', 'Invalid WebRTC message format', { message });
+        this.logger?.error('webrtc', 'Invalid WebRTC message format', { message });
         throw new Error('Invalid message format');
       }
 
       const webrtcMessage = message as any as InMessage & { payload: { type: string; deviceId: string; [key: string]: any } };
       const deviceId = webrtcMessage.payload?.deviceId || webrtcMessage.deviceId || 'unknown';
+      const messageType = webrtcMessage.payload?.type;
 
-      // Handle different WebRTC actions
-      switch (webrtcMessage.payload?.type) {
+      switch (messageType) {
         case 'webrtc:connect':
-          await this.handleConnect(webrtcMessage);
-          break;
-        case 'webrtc:disconnect':
-          await this.handleDisconnect(webrtcMessage);
+          await this.handleConnect(message);
           break;
         case 'webrtc:offer':
-          await this.handleOffer(webrtcMessage);
+          await this.handleOffer(message);
           break;
         case 'webrtc:answer':
-          await this.handleAnswer(webrtcMessage);
+          await this.handleAnswer(message);
           break;
         case 'webrtc:ice-candidate':
-          await this.handleIceCandidate(webrtcMessage);
-          break;
-        case 'webrtc:error':
-          await this.handleError(webrtcMessage);
+          await this.handleIceCandidate(message);
           break;
         default:
-          this.logger?.logWarn('webrtc', `Unknown WebRTC message type: ${webrtcMessage.payload?.type}`);
+          this.logger?.warn('webrtc', `Unknown WebRTC message type: ${messageType}`);
       }
 
       this.logger?.logWebRTC('handle', deviceId, 'WebRTC message handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC message', { error, message });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC message', { error, message });
       throw error;
     }
   }
@@ -74,8 +65,8 @@ class WebRTCHandlerClass implements Handler {
   // PRIVATE METHODS
   // ============================================================================
 
-  private isWebRTCMessage(type: string): boolean {
-    return type === 'device' && this.isWebRTCPayload(type);
+  private isWebRTCMessage(message: any): boolean {
+    return message?.type === 'device' && this.isWebRTCPayload(message.payload);
   }
 
   private isWebRTCPayload(payload: any): boolean {
@@ -100,7 +91,7 @@ class WebRTCHandlerClass implements Handler {
       const isDeviceOnline = true; // Mock for now
 
       if (!isDeviceOnline) {
-        this.logger?.logWarn('webrtc', 'Device is offline', { deviceId });
+        this.logger?.warn('webrtc', 'Device is offline', { deviceId });
         await this.sendErrorResponse(deviceId, 'Device is offline', message);
         return;
       }
@@ -114,7 +105,7 @@ class WebRTCHandlerClass implements Handler {
 
       this.logger?.logWebRTC('connect', deviceId, 'WebRTC connect handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC connect', { error, deviceId });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC connect', { error, deviceId });
       throw error;
     }
   }
@@ -140,26 +131,36 @@ class WebRTCHandlerClass implements Handler {
 
       this.logger?.logWebRTC('disconnect', deviceId, 'WebRTC disconnect handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC disconnect', { error, deviceId });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC disconnect', { error, deviceId });
       throw error;
     }
   }
 
   private async handleOffer(message: InMessage): Promise<void> {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
-    this.logger?.logWebRTC('offer', deviceId, 'Handling WebRTC offer');
+    const sdp = (message as any)?.payload?.sdp;
+    
+    console.log(`[WebRTCHandler] ===== HANDLING WEBRTC OFFER =====`);
+    console.log(`[WebRTCHandler] Device ID: ${deviceId}`);
+    console.log(`[WebRTCHandler] Message scope: ${message.scope}`);
+    console.log(`[WebRTCHandler] SDP length: ${sdp ? sdp.length : 'undefined'}`);
+    console.log(`[WebRTCHandler] Message payload:`, (message as any)?.payload);
+    
+    this.logger?.debug('webrtc', 'Handling WebRTC offer', { deviceId, scope: message.scope });
 
     try {
-      // Forward offer to device
+      // Forward offer to web client via SSE
       await this.forwardToDevice(message, {
         action: 'webrtc:offer',
         deviceId,
-        sdp: (message as any)?.payload?.sdp
+        sdp: sdp
       });
 
-      this.logger?.logWebRTC('offer', deviceId, 'WebRTC offer handled successfully');
+      console.log(`[WebRTCHandler] WebRTC offer forwarded successfully`);
+      this.logger?.debug('webrtc', 'WebRTC offer handled successfully', { deviceId });
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC offer', { error, deviceId });
+      console.error(`[WebRTCHandler] Error handling WebRTC offer:`, error);
+      this.logger?.error('webrtc', 'Failed to handle WebRTC offer', { error, deviceId });
       throw error;
     }
   }
@@ -178,7 +179,7 @@ class WebRTCHandlerClass implements Handler {
 
       this.logger?.logWebRTC('answer', deviceId, 'WebRTC answer handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC answer', { error, deviceId });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC answer', { error, deviceId });
       throw error;
     }
   }
@@ -197,7 +198,7 @@ class WebRTCHandlerClass implements Handler {
 
       this.logger?.logWebRTC('ice-candidate', deviceId, 'WebRTC ICE candidate handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC ICE candidate', { error, deviceId });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC ICE candidate', { error, deviceId });
       throw error;
     }
   }
@@ -206,7 +207,7 @@ class WebRTCHandlerClass implements Handler {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
     const error = (message as any)?.payload?.error || 'Unknown WebRTC error';
     
-    this.logger?.logError('webrtc', 'WebRTC error received', { error, deviceId });
+    this.logger?.error('webrtc', 'WebRTC error received', { error, deviceId });
 
     try {
       // Update action log
@@ -226,13 +227,14 @@ class WebRTCHandlerClass implements Handler {
 
       this.logger?.logWebRTC('error', deviceId, 'WebRTC error handled successfully');
     } catch (err) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC error', { error: err, deviceId });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC error', { error: err, deviceId });
       throw err;
     }
   }
 
   private async forwardToDevice(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
+    
     const scope = MessageRouter.getScope({
       type: 'webrtc',
       action: data.action,
@@ -241,18 +243,23 @@ class WebRTCHandlerClass implements Handler {
       timestamp: Date.now()
     } as any);
 
-    const routingMessage = MessageFactory.createWebRTC(
-      data.action.replace('webrtc:', '') as any,
-      deviceId,
-      data,
-      {
-        userId: message.userInfo.id,
-        requestId: message.requestId,
-        connectionId: (message as any).connectionId,
-        protocol: (message as any).protocol,
-        scope
-      }
-    );
+    const routingMessage: RoutingMessage = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      type: 'device',
+      scope,
+      payload: {
+        type: data.action,
+        deviceId,
+        ...data,
+        action: 'message' // Ensure action is always 'message' for device compatibility
+      },
+      userInfo: message.userInfo,
+      protocol: message.protocol,
+      connectionId: message.connectionId,
+      requestId: message.requestId,
+      systemGenerated: false,
+      sudo: (message as any).sudo
+    };
 
     await publisher.publish(routingMessage);
   }
@@ -266,18 +273,23 @@ class WebRTCHandlerClass implements Handler {
       timestamp: Date.now()
     } as any);
 
-    const errorMessage = MessageFactory.createWebRTC(
-      'error',
-      deviceId,
-      { error },
-      {
-        userId: originalMessage.userInfo.id,
-        requestId: originalMessage.requestId,
-        connectionId: (originalMessage as any).connectionId,
-        protocol: (originalMessage as any).protocol,
-        scope
-      }
-    );
+    const errorMessage: RoutingMessage = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      type: 'device',
+      scope,
+      payload: {
+        action: 'message',
+        type: 'webrtc:error',
+        deviceId,
+        error
+      },
+      userInfo: originalMessage.userInfo,
+      protocol: originalMessage.protocol,
+      connectionId: originalMessage.connectionId,
+      requestId: originalMessage.requestId,
+      systemGenerated: false,
+      sudo: (originalMessage as any).sudo
+    };
 
     await publisher.publish(errorMessage);
   }

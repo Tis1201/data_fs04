@@ -341,8 +341,11 @@ export class MessageValidator {
       return false;
     }
 
-    // Check required fields
-    if (!message.id || !message.type || !message.deviceId || !message.timestamp) {
+    // Check required fields - handle both flat and nested structures
+    const deviceId = message.deviceId || message.payload?.deviceId;
+    const timestamp = message.timestamp || Date.now(); // Use current timestamp if not provided
+    
+    if (!message.type || !deviceId) {
       return false;
     }
 
@@ -389,9 +392,16 @@ export class MessageValidator {
   }
 
   private static validateDevice(message: any): message is DeviceMessage {
+    // Check if it's a nested payload structure (new format)
+    if (message.payload && message.payload.action) {
+      return ['claim', 'register', 'status', 'updateFirmware', 'bundleStatus', 'getLogs', 'message', 'error'].includes(message.payload.action) &&
+             message.payload && typeof message.payload === 'object';
+    }
+    
+    // Check if it's a flat structure (legacy format)
     return message.action && 
            ['claim', 'register', 'status', 'updateFirmware', 'bundleStatus', 'getLogs', 'message', 'error'].includes(message.action) &&
-           message.data && typeof message.data === 'object';
+           (message.data && typeof message.data === 'object' || message.payload && typeof message.payload === 'object');
   }
 
   private static validateSystem(message: any): message is SystemMessage {

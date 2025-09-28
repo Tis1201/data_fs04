@@ -60,8 +60,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     data.payload.deviceId = device.id;
     data.userInfo = userInfo;
+    
+    // Preserve sudo field from device messages
+    if (data.sudo === true) {
+        data.sudo = true;
+    }
 
-    MessageDispatcher.dispatch(data);
+    await MessageDispatcher.dispatch(data);
     
     return json({
         success: true,

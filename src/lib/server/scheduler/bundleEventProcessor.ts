@@ -3,7 +3,7 @@ import prisma from '$lib/server/prisma';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
-import { checkAndAutoStartNextWave } from '$lib/server/messaging/handlers/device/bundleHandler';
+import { checkAndAutoStartNextWave } from '$lib/server/messaging/handlers/device/bundleUtils';
 import type { ClickHouseEvent } from '$lib/server/clickhouse/client';
 import { eventDeduplication } from '$lib/server/state/eventDeduplication';
 import { getStateManager } from '$lib/server/state/stateManagerFactory';

@@ -1,7 +1,7 @@
 import type { InMessage } from '../interfaces/message';
 import type { Handler } from '../interfaces/handler';
 import { logger } from '$lib/server/logger';
-import { handleDeviceMessage } from './device/messageHandler';
+import { handleDeviceMessage } from './device';
 
 export const terminalHandler: Handler = {
   supports(type: string): boolean {

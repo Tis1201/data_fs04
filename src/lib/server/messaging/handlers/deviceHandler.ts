@@ -7,13 +7,11 @@ import {
   handleClaim, 
   handleRegistration, 
   handleStatusUpdate, 
-  handleFirmwareUpdate, 
   handleGetLogs, 
   handleGetLogsResponse, 
-  handleDeviceMessage, 
-  handleBundleStatus 
+  handleDeviceMessage
 } from './device';
-import { handleRestart, handleRestartResponse } from './device/restartHandler';
+import { handleProgressUpdate } from './device/progressHandler';
 
 export const deviceHandler: Handler = {
   supports(type: string): boolean {
@@ -44,11 +42,8 @@ export const deviceHandler: Handler = {
       case 'status':
         await handleStatusUpdate(message);
         break;
-      case 'updateFirmware':
-        await handleFirmwareUpdate(message);
-        break;
-      case 'bundleStatus':
-        await handleBundleStatus(message);
+      case 'progressUpdate':
+        await handleProgressUpdate(message);
         break;
       case 'getLogs':
         // Check if this is a response from the device (has logs data, logId, or chunk data)
@@ -58,13 +53,21 @@ export const deviceHandler: Handler = {
           await handleGetLogs(message);
         }
         break;
-      case 'restart':
-        // Check if this is a response from the device (has success field)
-        if ((payload as any)?.success !== undefined) {
-          await handleRestartResponse(message);
-        } else {
-          await handleRestart(message);
-        }
+      case 'pushFile':
+        // These actions should be handled by the unified action API, not SSE dispatcher
+        logger.warn(`[DeviceHandler] pushFile action should use unified action API, not SSE dispatcher`);
+        break;
+      case 'pullFile':
+        // These actions should be handled by the unified action API, not SSE dispatcher
+        logger.warn(`[DeviceHandler] pullFile action should use unified action API, not SSE dispatcher`);
+        break;
+      case 'installApp':
+        // These actions should be handled by the unified action API, not SSE dispatcher
+        logger.warn(`[DeviceHandler] installApp action should use unified action API, not SSE dispatcher`);
+        break;
+      case 'updateFirmware':
+        // These actions should be handled by the unified action API, not SSE dispatcher
+        logger.warn(`[DeviceHandler] updateFirmware action should use unified action API, not SSE dispatcher`);
         break;
       case 'message':
         await handleDeviceMessage(message);

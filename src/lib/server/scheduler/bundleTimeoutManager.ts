@@ -3,7 +3,7 @@ import prisma from '$lib/server/prisma';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
-import { checkAndAutoStartNextWave } from '$lib/server/messaging/handlers/device/bundleHandler';
+import { checkAndAutoStartNextWave } from '$lib/server/messaging/handlers/device/bundleUtils';
 import { updateBundleStatus } from './bundleEventProcessor';
 
 // Marks devices as FAILED due to inactivity if wave has exceeded the timeout window

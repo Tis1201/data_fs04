@@ -116,7 +116,7 @@ export const load = restrict(
           if ((currentWave.status === 'COMPLETED' || currentWave.status === 'FAILED') && nextWave.status === 'PENDING') {
             try {
               // Import the helper function (we'll need to make it available)
-              const { checkAndAutoStartNextWave } = await import('$lib/server/messaging/handlers/deviceHandler');
+              const { checkAndAutoStartNextWave } = await import('$lib/server/messaging/handlers/device/bundleUtils');
               await checkAndAutoStartNextWave(bundle.id, currentWave.id);
               logger.info(`[PageLoad] Auto-started wave ${nextWave.id} for bundle ${bundle.id} during page load`);
             } catch (autoStartErr: any) {

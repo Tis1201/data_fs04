@@ -127,9 +127,9 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
       logger.warn(`[DeviceHandler] Failed to recompute bundle status after wave update: ${String(e)}`);
     }
 
-    // Broadcast to UI via messaging pipeline
+    // Broadcast to UI via unified status update (following new architecture)
     const routing = MessageFactory.createSystemMessage(
-      'device:bundleStatus',
+      'device:statusUpdate',
       `subscription:device:${deviceId}`,
       {
         action: 'bundleStatus',
@@ -140,7 +140,8 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
         progress: waveProgress,
         devicesTotal,
         devicesCompleted,
-        devicesFailed
+        devicesFailed,
+        timestamp: new Date().toISOString()
       },
       SystemUser,
       { echoToSender: false }

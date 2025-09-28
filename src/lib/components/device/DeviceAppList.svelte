@@ -4,7 +4,6 @@
   import { toast } from 'svelte-sonner';
 
   export let deviceId: string;
-  export let accountId: string;
 
   interface DeviceApp {
     device_id: string;
@@ -24,7 +23,6 @@
 
   interface AppSummary {
     deviceId: string;
-    accountId: string;
     totalAppsCount: number;
     systemAppsCount: number;
     normalAppsCount: number;
@@ -157,7 +155,6 @@
 
     summary = {
       deviceId: deviceId,
-      accountId: '', // We don't have accountId in apps data
       totalAppsCount: apps.length,
       systemAppsCount: systemApps.length,
       normalAppsCount: normalApps.length,
@@ -211,6 +208,11 @@
       // Handle ping messages
       return;
     }
+    
+    // Handle app action status updates
+    if (data.type === 'device:statusUpdate' || data.type === 'device:progressUpdate') {
+      handleAppActionUpdate(data);
+    }
   }
 
   function handleAppUpdate(data: any) {
@@ -225,6 +227,52 @@
       toast.error('App sync failed', {
         description: data.error || 'Unknown error occurred'
       });
+    }
+  }
+
+  function handleAppActionUpdate(data: any) {
+    const payload = data.payload || data;
+    const action = payload.action;
+    const status = payload.status;
+    const progress = payload.progress;
+    const message = payload.message;
+    
+    // Handle app action status updates
+    if (['uninstall', 'restartApp', 'config'].includes(action)) {
+      if (status === 'complete') {
+        const displayAction = action === 'restartApp' ? 'restart' : action;
+        toast.success(`${displayAction.charAt(0).toUpperCase() + displayAction.slice(1)} completed`, {
+          description: message || `${displayAction} operation completed successfully`
+        });
+        
+        // Clear loading state
+        const actionKey = Object.keys(actionLoading).find(key => 
+          actionLoading[key] === action
+        );
+        if (actionKey) {
+          delete actionLoading[actionKey];
+          actionLoading = { ...actionLoading };
+        }
+        
+      } else if (status === 'failed') {
+        const displayAction = action === 'restartApp' ? 'restart' : action;
+        toast.error(`${displayAction.charAt(0).toUpperCase() + displayAction.slice(1)} failed`, {
+          description: message || `${displayAction} operation failed`
+        });
+        
+        // Clear loading state
+        const actionKey = Object.keys(actionLoading).find(key => 
+          actionLoading[key] === action
+        );
+        if (actionKey) {
+          delete actionLoading[actionKey];
+          actionLoading = { ...actionLoading };
+        }
+        
+      } else if (progress !== undefined) {
+        // Show progress updates
+        console.log(`${action} progress: ${progress}% - ${message}`);
+      }
     }
   }
 
@@ -283,27 +331,25 @@
       actionLoading[actionKey] = action;
       actionLoading = { ...actionLoading }; // Trigger reactivity
       
-      // Send SSE message to device
-      const response = await fetch('/api/sse/send', {
+      // Use the unified action API instead of direct SSE (following architecture)
+      const response = await fetch(`/api/devices/${deviceId}/actions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          deviceId: deviceId,
-          type: 'device_action',
-          data: {
-            action: action,
-            package_name: packageName,
-            timestamp: new Date().toISOString()
-          }
+          action: action === 'restart' ? 'restartApp' : action,
+          packageName: packageName
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to send action: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || `Failed to send action: ${response.statusText}`);
       }
 
+      const result = await response.json();
+      
       toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} command sent`, {
         description: `Action sent to device for ${packageName}`
       });
@@ -534,7 +580,7 @@
             id="pageSize"
             bind:value={pageSize}
             on:change={() => { 
-              pageSize = parseInt(pageSize);
+              pageSize = parseInt(pageSize.toString());
               currentPage = 1; 
               loadData(); 
             }}

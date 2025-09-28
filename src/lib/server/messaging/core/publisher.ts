@@ -31,7 +31,7 @@ export const publisher: Publisher = {
 
     // Verify permission
     if (!isAllowed) {
-      logger.warn(`[Publisher] Not authorized: ${userInfo.id} → ${scope} (${payload.type})`);
+      logger.warn(`[Publisher] Not authorized: ${userInfo?.id} → ${scope} (${payload.type})`);
       
       // Log authorization failure for each intended recipient
       connectionIds.forEach(connId => {

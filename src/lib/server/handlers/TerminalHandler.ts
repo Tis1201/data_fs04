@@ -5,7 +5,7 @@
  * Provides clean separation of concerns for Terminal functionality.
  */
 
-import type { InMessage } from '../messaging/interfaces/message';
+import type { InMessage, RoutingMessage } from '../messaging/interfaces/message';
 import type { Handler } from '../messaging/interfaces/handler';
 import { MessageFactory, MessageValidator, MessageRouter } from '../../types/unified';
 import { getLoggingManager } from '../../managers/LoggingManager';
@@ -18,9 +18,12 @@ import { publisher } from '../messaging/core/publisher';
 class TerminalHandlerClass implements Handler {
   private logger = getLoggingManager();
 
-  supports(type: string): boolean {
-    return type === 'terminal' || 
-           (type === 'device' && this.isTerminalMessage(type));
+  supports(type: string, message?: any): boolean {
+    console.log(`[TerminalHandler] supports called with:`, { type, message: message ? { type: message.type, payload: message.payload } : null });
+    const result = type === 'terminal' || 
+           (type === 'device' && message && this.isTerminalMessage(message));
+    console.log(`[TerminalHandler] supports result:`, result);
+    return result;
   }
 
   async handle(message: InMessage): Promise<void> {
@@ -74,12 +77,21 @@ class TerminalHandlerClass implements Handler {
   // PRIVATE METHODS
   // ============================================================================
 
-  private isTerminalMessage(type: string): boolean {
-    return type === 'device' && this.isTerminalPayload(type);
+  private isTerminalMessage(message: any): boolean {
+    console.log(`[TerminalHandler] isTerminalMessage called with:`, { 
+      messageType: message?.type, 
+      payload: message?.payload 
+    });
+    const result = message?.type === 'device' && this.isTerminalPayload(message.payload);
+    console.log(`[TerminalHandler] isTerminalMessage result:`, result);
+    return result;
   }
 
   private isTerminalPayload(payload: any): boolean {
-    return payload?.type && payload.type.startsWith('terminal:');
+    console.log(`[TerminalHandler] isTerminalPayload called with:`, { payload });
+    const result = payload?.type && payload.type.startsWith('terminal:');
+    console.log(`[TerminalHandler] isTerminalPayload result:`, result);
+    return result;
   }
 
   private async handleConnect(message: InMessage): Promise<void> {
@@ -248,18 +260,23 @@ class TerminalHandlerClass implements Handler {
       timestamp: Date.now()
     } as any);
 
-    const routingMessage = MessageFactory.createTerminal(
-      data.action.replace('terminal:', '') as any,
-      deviceId,
-      data,
-      {
-        userId: message.userInfo.id,
-        requestId: message.requestId,
-        connectionId: (message as any).connectionId,
-        protocol: (message as any).protocol,
-        scope
-      }
-    );
+    // Create a proper RoutingMessage for the publisher
+    const routingMessage = {
+      id: MessageFactory.generateId(),
+      type: 'device', // Device expects 'device' type messages, not 'terminal'
+      scope,
+      payload: {
+        ...data, // Spread data first
+        action: 'message', // Override action to 'message' after spreading
+        type: data.action, // Keep the full terminal:connect action
+        deviceId,
+      },
+      userInfo: message.userInfo,
+      protocol: message.protocol,
+      connectionId: message.connectionId,
+      requestId: message.requestId,
+      systemGenerated: false
+    };
 
     await publisher.publish(routingMessage);
   }
@@ -274,18 +291,23 @@ class TerminalHandlerClass implements Handler {
       timestamp: Date.now()
     } as any);
 
-    const routingMessage = MessageFactory.createTerminal(
-      data.action.replace('terminal:', '') as any,
-      deviceId,
-      data,
-      {
-        userId: message.userInfo.id,
-        requestId: message.requestId,
-        connectionId: (message as any).connectionId,
-        protocol: (message as any).protocol,
-        scope
-      }
-    );
+    // Create a proper RoutingMessage for the publisher
+    const routingMessage = {
+      id: MessageFactory.generateId(),
+      type: 'device', // Device expects 'device' type messages, not 'terminal'
+      scope,
+      payload: {
+        action: 'message',
+        type: data.action, // Keep the full terminal:output action
+        deviceId,
+        ...data
+      },
+      userInfo: message.userInfo,
+      protocol: message.protocol,
+      connectionId: message.connectionId,
+      requestId: message.requestId,
+      systemGenerated: false
+    };
 
     await publisher.publish(routingMessage);
   }
@@ -299,18 +321,23 @@ class TerminalHandlerClass implements Handler {
       timestamp: Date.now()
     } as any);
 
-    const errorMessage = MessageFactory.createTerminal(
-      'error',
-      deviceId,
-      { error },
-      {
-        userId: originalMessage.userInfo.id,
-        requestId: originalMessage.requestId,
-        connectionId: (originalMessage as any).connectionId,
-        protocol: (originalMessage as any).protocol,
-        scope
-      }
-    );
+    // Create a proper RoutingMessage for the publisher
+    const errorMessage = {
+      id: MessageFactory.generateId(),
+      type: 'device', // Device expects 'device' type messages, not 'terminal'
+      scope,
+      payload: {
+        action: 'message',
+        type: 'terminal:error',
+        deviceId,
+        error
+      },
+      userInfo: originalMessage.userInfo,
+      protocol: originalMessage.protocol,
+      connectionId: originalMessage.connectionId,
+      requestId: originalMessage.requestId,
+      systemGenerated: false
+    };
 
     await publisher.publish(errorMessage);
   }
