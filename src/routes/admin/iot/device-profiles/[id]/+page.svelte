@@ -52,6 +52,13 @@
         goto(`/admin/iot/device-profiles/${profile.id}/edit?tab=devices`);
     }
 
+    function capitalizeFirstLetter(str) {
+      if (!str || typeof str !== 'string' || str.length === 0) {
+        return str;
+      }
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
     // Breadcrumbs
     const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
@@ -151,22 +158,28 @@
             </CardHeader>
             <CardContent>
                 {#if profile.settings && profile.settings.length > 0}
-                    <div class="space-y-4">
-                        {#each profile.settings as setting}
-                            <div class="flex items-center justify-between p-3 border rounded-lg">
-                                <div>
-                                    <div class="font-medium">{setting.label}</div>
-                                    <div class="text-sm text-muted-foreground">
-                                        {setting.category} • {setting.dataType}
-                                    </div>
-                                </div>
-                                <div class="text-right">
-                                    <div class="font-mono text-sm">
-                                        {setting.dataType === 'password' ? '••••••' : setting.value}
-                                    </div>
-                                </div>
-                            </div>
-                        {/each}
+                    <div class="border border-gray-300 rounded-lg overflow-hidden">
+                        <table class="w-full border-collapse">
+                            <tbody>
+                            {#each profile.settings as setting, i}
+                                <tr
+                                class="{i % 2 === 0 ? 'bg-gray-50' : 'bg-white'} border-b border-gray-300 last:border-b-0"
+                                >
+                                <!-- label -->
+                                <td
+                                    class="w-1/3 text-sm font-medium text-gray-600 border-r border-gray-300 p-4 align-top"
+                                >
+                                    {setting.label}
+                                </td>
+
+                                <!-- value -->
+                                <td class="text-sm text-gray-900 p-4 whitespace-normal">
+                                    {setting.dataType === 'password' ? '••••••' : capitalizeFirstLetter(setting.value)}
+                                </td>
+                                </tr>
+                            {/each}
+                            </tbody>
+                        </table>
                     </div>
                 {:else}
                     <div class="text-center py-8 text-muted-foreground">
