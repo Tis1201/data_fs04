@@ -372,7 +372,6 @@ model Device {
   licenses             License[]
   profileAssignment    DeviceProfileAssignment?
   appSummaries         DeviceAppSummary[]
-  appPins              DeviceAppPin[]
   userActions          UserAppAction[]
 
   @@index([createdBy])
@@ -1070,7 +1069,6 @@ model PinRule {
   updatedAt     DateTime        @updatedAt()
   createdByUser User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   account       Account?        @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  devicePins    DeviceAppPin[]
   userActions   UserAppAction[]
 
   @@index([ruleType])
@@ -1078,21 +1076,6 @@ model PinRule {
   @@index([createdBy])
   @@index([priority])
   @@index([isActive])
-}
-
-model DeviceAppPin {
-  id             String   @id() @default(cuid())
-  deviceId       String
-  packageName    String
-  pinnedByRuleId String?
-  pinnedAt       DateTime @default(now())
-  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  rule           PinRule? @relation(fields: [pinnedByRuleId], references: [id], onDelete: SetNull)
-
-  @@unique([deviceId, packageName])
-  @@index([deviceId])
-  @@index([packageName])
-  @@index([pinnedByRuleId])
 }
 
 model UserAppAction {

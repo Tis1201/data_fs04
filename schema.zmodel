@@ -523,7 +523,6 @@ model Device {
   appSummaries DeviceAppSummary[]
   
   // Pin management relations
-  appPins      DeviceAppPin[]
   userActions  UserAppAction[]
 
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -1550,7 +1549,7 @@ model DeviceAppSummary {
 
 model PinRule {
   id          String   @id @default(cuid())
-  ruleType    String   // 'admin_default', 'account_default', 'user_custom'
+  ruleType    String   // 'admin_default', 'user_default', 'admin_custom', 'user_custom'
   createdBy   String   // user_id who created it
   accountId   String?  // null for admin_default, required for others
   name        String
@@ -1558,7 +1557,7 @@ model PinRule {
   apps        String[] // ["com.app1", "com.app2"]
   targetType  String?  // 'all', 'tags', 'os', 'devices'
   targetValue String[] // ["tag:retail"] or ["android"] or ["device-1"]
-  priority    Int      // 1=admin_default, 2=account_default, 3=user_custom
+  priority    Int      // 1=default (admin_default/user_default), higher numbers override
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt()
@@ -1566,16 +1565,17 @@ model PinRule {
   // Relationships
   createdByUser User @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   account       Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  devicePins    DeviceAppPin[]
   userActions   UserAppAction[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read', ruleType == 'admin_default')
-  @@allow('read', ruleType == 'account_default' && account.members?[userId == auth().id])
-  @@allow('read', ruleType == 'user_custom' && createdBy == auth().id)
+  // Allow any account member to read account-scoped defaults and customs
+  @@allow('read', (ruleType == 'user_default' || ruleType == 'user_custom') && account.members?[userId == auth().id])
+  // Creator can manage their own user_custom rules
   @@allow('create,update,delete', ruleType == 'user_custom' && createdBy == auth().id)
-  @@allow('create,update,delete', ruleType == 'account_default' && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  // Account OWNER/ADMIN can manage account default rules
+  @@allow('create,update,delete', ruleType == 'user_default' && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
   
   @@index([ruleType])
   @@index([accountId])
@@ -1584,27 +1584,6 @@ model PinRule {
   @@index([isActive])
 }
 
-model DeviceAppPin {
-  id              String   @id @default(cuid())
-  deviceId        String
-  packageName     String
-  pinnedByRuleId  String?  // which rule caused this pin
-  pinnedAt        DateTime @default(now())
-  
-  // Relationships
-  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  rule            PinRule? @relation(fields: [pinnedByRuleId], references: [id], onDelete: SetNull)
-  
-  // Authorization rules
-  @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read', device.account.members?[userId == auth().id])
-  @@allow('create,update,delete', device.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'MEMBER']])
-  
-  @@unique([deviceId, packageName])
-  @@index([deviceId])
-  @@index([packageName])
-  @@index([pinnedByRuleId])
-}
 
 model UserAppAction {
   id           String   @id @default(cuid())

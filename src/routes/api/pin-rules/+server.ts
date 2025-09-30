@@ -14,9 +14,11 @@ export const GET = restrict(
       const ruleType = url.searchParams.get('ruleType') || '';
       const accountId = url.searchParams.get('accountId') || '';
       const isActive = url.searchParams.get('isActive');
+      logger.info(`[PinRulesAPI][GET] incoming params: ${JSON.stringify({ ruleType, accountId, isActive })}`);
+      logger.info(`[PinRulesAPI][GET] user context: ${JSON.stringify({ userId: auth?.user?.id, systemRole: auth?.user?.systemRole })}`);
       
       // Build where clause based on user permissions
-      const whereClause: any = {};
+      let whereClause: any = {};
       
       // Filter by rule type if specified
       if (ruleType) {
@@ -33,6 +35,64 @@ export const GET = restrict(
         whereClause.isActive = isActive === 'true';
       }
       
+      // Permission-based scoping
+      if (auth.user.systemRole === 'ADMIN') {
+        // Admins: return only admin-level rules
+        logger.info('[PinRulesAPI][GET] applying ADMIN scoping (admin_default/admin_custom only)');
+        whereClause = {
+          ...whereClause,
+          OR: [
+            { ruleType: 'admin_default' },
+            { ruleType: 'admin_custom' }
+          ]
+        };
+      } else {
+        // Non-admins: scope to account, and only see
+        // - user_default for their account (all account users can see)
+        // - user_custom created by themselves in their account
+        logger.info('[PinRulesAPI][GET] applying NON-ADMIN scoping');
+        const membership = await prisma.accountMembership.findFirst({
+          where: { userId: auth.user.id },
+          select: { accountId: true }
+        });
+        logger.info(`[PinRulesAPI][GET] membership lookup: ${JSON.stringify({ membership })}`);
+        const userAccountId = membership?.accountId || '';
+        logger.info(`[PinRulesAPI][GET] derived userAccountId (membership only): ${JSON.stringify({ userAccountId, fromMembership: membership?.accountId })}`);
+
+        // If we cannot determine an account, return empty result to avoid leaking data
+        if (!userAccountId) {
+          logger.info(`[PinRulesAPI][GET] No account determined for non-admin; returning empty list. userId=${auth.user.id}`);
+          return json({ success: true, data: { rules: [], total: 0, timestamp: new Date().toISOString() } });
+        }
+
+        // Debug: Check availability per branch before combined query
+        try {
+          const [cntUserDefault, cntUserCustom] = await Promise.all([
+            prisma.pinRule.count({ where: { ruleType: 'user_default', accountId: userAccountId } }),
+            prisma.pinRule.count({ where: { ruleType: 'user_custom', accountId: userAccountId, createdBy: auth.user.id } })
+          ]);
+          logger.info(`[PinRulesAPI][GET] pre-query counts: ${JSON.stringify({ userAccountId, cntUserDefault, cntUserCustom })}`);
+        } catch (e) {
+          logger.error('[PinRulesAPI][GET] pre-query count failed', { error: e instanceof Error ? e.message : String(e) });
+        }
+
+        whereClause = {
+          ...whereClause,
+          OR: [
+            {
+              ruleType: 'user_default',
+              accountId: userAccountId
+            },
+            {
+              ruleType: 'user_custom',
+              accountId: userAccountId,
+              createdBy: auth.user.id
+            }
+          ]
+        };
+      }
+      logger.info(`[PinRulesAPI][GET] final whereClause: ${JSON.stringify(whereClause)}`);
+        
       // Get rules based on user permissions
       const rules = await prisma.pinRule.findMany({
         where: whereClause,
@@ -53,23 +113,24 @@ export const GET = restrict(
           },
           _count: {
             select: {
-              devicePins: true,
               userActions: true
             }
           }
         },
         orderBy: [
-          { priority: 'asc' },
+          { ruleType: 'desc' },
+          { priority: 'desc' },
           { createdAt: 'desc' }
         ]
       });
       
-      logger.info(`Retrieved ${rules.length} pin rules for user ${auth.user.id}`, {
-        userId: auth.user.id,
-        ruleType,
-        accountId,
-        isActive
-      });
+      try {
+        const summary = {
+          count: rules.length,
+          sample: rules.slice(0, 10).map((r: any) => ({ id: r.id, ruleType: r.ruleType, accountId: r.accountId, createdBy: r.createdBy }))
+        };
+        logger.info(`[PinRulesAPI][GET] query result summary: ${JSON.stringify(summary)}`);
+      } catch {}
       
       return json({
         success: true,
@@ -85,7 +146,6 @@ export const GET = restrict(
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      
       return json({
         success: false,
         error: 'Failed to retrieve pin rules',
@@ -115,22 +175,23 @@ export const POST = restrict(
       }
       
       // Validate rule type
-      const validRuleTypes = ['admin_default', 'account_default', 'user_custom'];
+      const validRuleTypes = ['admin_default', 'user_default', 'admin_custom', 'user_custom'];
       if (!validRuleTypes.includes(ruleType)) {
         return json({
           success: false,
           error: 'Invalid rule type',
-          message: 'ruleType must be one of: admin_default, account_default, user_custom'
+          message: 'ruleType must be one of: admin_default, user_default, admin_custom, user_custom'
         }, { status: 400 });
       }
       
-      // Set priority based on rule type
-      const priority = ruleType === 'admin_default' ? 1 : 
-                     ruleType === 'account_default' ? 2 : 3;
+      // Set default priority if not provided: 1 for *_default, 2 for *_custom (higher overrides)
+      const priority = typeof body.priority === 'number' 
+        ? body.priority 
+        : (ruleType.endsWith('_default') ? 1 : 2);
       
-      // Get user's account ID for account_default and user_custom rules
+      // Get user's account ID for user-scoped rules
       let accountId = null;
-      if (ruleType !== 'admin_default') {
+      if (ruleType === 'user_custom' || ruleType === 'user_default') {
         const userMembership = await prisma.accountMembership.findFirst({
           where: { userId: auth.user.id },
           select: { accountId: true }
@@ -140,7 +201,7 @@ export const POST = restrict(
           return json({
             success: false,
             error: 'User not associated with any account',
-            message: 'Cannot create account or user rules without account membership'
+            message: 'Cannot create user rules without account membership'
           }, { status: 400 });
         }
         

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the hierarchical pin management system for device apps, including admin default rules, account default rules, and user custom rules with real-time updates via Server-Sent Events (SSE).
+This document describes the hierarchical pin management system for device apps, including admin custom rules and user custom rules with real-time updates via Server-Sent Events (SSE).
 
 > **Related Documentation**: For the complete device data flow and app data ingestion, see [Device Data Flow Architecture](./DEVICE_DATA_FLOW.md)
 
@@ -31,78 +31,87 @@ User Creates Rule → PostgreSQL → Rule Engine → Device Commands → Device 
 
 ## Hierarchical Pin Management System
 
-### Rule Hierarchy (Priority Order)
-```
-1. Admin Default Rules (Priority 1) - Highest
-   ↓
-2. Account Default Rules (Priority 2) - Account Level
-   ↓  
-3. User Custom Rules (Priority 3) - Lowest
-```
+### Rule Hierarchy & Priority
+
+- Priority values are integers where **1 is the lowest** and higher numbers take precedence.
+- When multiple rules pin the same package, the rule with the higher priority number wins.
+- We implement "first-writer wins" after sorting by `priority DESC`.
+
+Rule Types (only two):
+- `admin_custom`
+- `user_custom`
 
 ### User Types & Permissions
 
 #### Admin Users
-- ✅ Can create **Admin Default Rules** (applies to ALL accounts)
-- ✅ Can create **Custom Rules** (only visible to them)
+- ✅ Can create **Admin Custom Rules** (can be global or targeted)
 - ✅ Can manage any account's rules
-- ✅ Can override any rule
+- ✅ Higher priority values override lower ones
 
 #### Account Users
-- ✅ Can create **Account Default Rules** (applies to their account only)
-- ✅ Can create **Custom Rules** (only visible to them)
+- ✅ Can create **User Custom Rules** (scoped to their account and permissions)
 - ✅ Cannot see other users' custom rules
-- ✅ Cannot override admin rules
+- ✅ Admin rules with higher priority still take precedence
 
 ### Rule Types & Examples
 
-#### 1. Admin Default Rule (Priority 1)
+#### 1. Admin Custom Rule (Priority 1 = default, Priority 2 = override)
 ```json
 {
   "id": "rule-admin-1",
-  "rule_type": "admin_default",
+  "rule_type": "admin_custom",
   "created_by": "admin-user",
   "account_id": null,
-  "name": "System Security Apps",
+  "name": "System Security Apps (Default)",
   "apps": ["com.security.app", "com.antivirus.app"],
   "target_type": "all",
   "target_value": null,
   "priority": 1
 }
 ```
-**Applies to**: ALL devices across ALL accounts
 
-#### 2. Account Default Rule (Priority 2)
 ```json
 {
-  "id": "rule-account-1", 
-  "rule_type": "account_default",
-  "created_by": "account-admin",
-  "account_id": "account-retail",
-  "name": "Retail Account Apps",
-  "apps": ["com.retail.app", "com.pos.app"],
-  "target_type": "all",
-  "target_value": null,
+  "id": "rule-admin-2",
+  "rule_type": "admin_custom",
+  "created_by": "admin-user",
+  "account_id": null,
+  "name": "System Security Apps (Override)",
+  "apps": ["com.security.app"],
+  "target_type": "tags",
+  "target_value": ["highrisk"],
   "priority": 2
 }
 ```
-**Applies to**: ALL devices in "retail" account
 
-#### 3. User Custom Rule (Priority 3)
+#### 2. User Custom Rule (Priority 1 = default for user, Priority 2 = user's own override)
 ```json
 {
   "id": "rule-user-1",
   "rule_type": "user_custom", 
   "created_by": "user-john",
   "account_id": "account-retail",
-  "name": "John's Kiosk Apps",
+  "name": "John's Kiosk Apps (Default)",
   "apps": ["com.kiosk.app"],
   "target_type": "tags",
   "target_value": ["kiosk"],
-  "priority": 3
+  "priority": 1
 }
 ```
-**Applies to**: Only devices with "kiosk" tag in retail account
+
+```json
+{
+  "id": "rule-user-2",
+  "rule_type": "user_custom", 
+  "created_by": "user-john",
+  "account_id": "account-retail",
+  "name": "John's Kiosk Apps (Override)",
+  "apps": ["com.kiosk.app", "com.display.app"],
+  "target_type": "devices",
+  "target_value": ["device-1"],
+  "priority": 2
+}
+```
 
 ### Rule Application Logic
 ```typescript
@@ -115,19 +124,11 @@ async function applyPinRules(deviceId: string, currentUserId: string) {
     where: {
       is_active: true,
       OR: [
-        { rule_type: 'admin_default' },
-        { 
-          rule_type: 'account_default', 
-          account_id: device.accountId 
-        },
-        { 
-          rule_type: 'user_custom',
-          account_id: device.accountId,
-          created_by: currentUserId // Only current user's custom rules
-        }
+        { rule_type: 'admin_custom' },
+        { rule_type: 'user_custom', account_id: device.accountId, created_by: currentUserId }
       ]
     },
-    orderBy: { priority: 'asc' }
+    orderBy: { priority: 'desc' } // higher number wins; 1 is lowest
   });
   
   // Apply rules in order (admin → account → user)
@@ -266,32 +267,22 @@ const rawApps = await clickhouse.query(`
 `);
 ```
 
-### Step 3: Load Pin Status from PostgreSQL
+### Step 3: Build Pin Status from Rules (no pin table persistence)
 ```typescript
-// Get current pin status from PostgreSQL
-const pinnedApps = await prisma.deviceAppPins.findMany({
-  where: { device_id: deviceId },
-  include: { 
-    rule: { 
-      select: { 
-        name: true, 
-        rule_type: true, 
-        created_by: true 
-      } 
-    } 
+// Build pin status based on applicable rules (first writer wins after ordering by priority DESC)
+const pinStatusMap = new Map<string, any>();
+for (const rule of rules /* already priority DESC */) {
+  for (const pkg of rule.apps || []) {
+    if (!pinStatusMap.has(pkg)) {
+      pinStatusMap.set(pkg, {
+        isPinned: true,
+        pinnedBy: rule.name,
+        ruleType: rule.rule_type,
+        pinnedAt: new Date().toISOString()
+      });
+    }
   }
-});
-
-// Create pin status map
-const pinStatusMap = new Map();
-pinnedApps.forEach(pin => {
-  pinStatusMap.set(pin.package_name, {
-    isPinned: true,
-    pinnedBy: pin.rule.name,
-    ruleType: pin.rule.rule_type,
-    pinnedAt: pin.pinned_at
-  });
-});
+}
 ```
 
 ### Step 4: Combine Data for UI
@@ -334,28 +325,18 @@ return {
 -- Hierarchical pin rules system
 CREATE TABLE pin_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    rule_type VARCHAR(50) NOT NULL, -- 'admin_default', 'account_default', 'user_custom'
+    rule_type VARCHAR(50) NOT NULL, -- 'admin_custom', 'user_custom'
     created_by VARCHAR(255) NOT NULL, -- user_id who created it
-    account_id VARCHAR(255), -- null for admin_default, required for others
+    account_id VARCHAR(255), -- null for admin_custom, required for user_custom
     name VARCHAR(255) NOT NULL,
     description TEXT,
     apps JSONB NOT NULL, -- ["com.app1", "com.app2"]
     target_type VARCHAR(50), -- 'all', 'tags', 'os', 'devices'
     target_value JSONB, -- ["tag:retail"] or ["android"] or ["device-1"]
-    priority INTEGER NOT NULL, -- 1=admin_default, 2=account_default, 3=user_custom
+    priority INTEGER NOT NULL, -- 1=lowest (default), higher number overrides
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Device app pins (current state after applying all rules)
-CREATE TABLE device_app_pins (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id VARCHAR(255) NOT NULL,
-    package_name VARCHAR(255) NOT NULL,
-    pinned_by_rule_id UUID, -- which rule caused this pin
-    pinned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(device_id, package_name)
 );
 
 -- User app management actions (audit trail)

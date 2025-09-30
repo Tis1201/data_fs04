@@ -145,6 +145,7 @@
             icon: Settings, 
             initialExpanded: false,
             subItems: [
+                { href: "/user/settings/pin-rules", label: "Pin Rules", icon: Settings },
                 { href: "/user/settings/account", label: "Account", icon: Building2 },
                 { href: "/user/settings/users", label: "Users", icon: Users2 },
                 { href: "/user/profile", label: "Profile", icon: User },

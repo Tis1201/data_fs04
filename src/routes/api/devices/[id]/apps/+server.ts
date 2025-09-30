@@ -7,6 +7,7 @@ import type { RequestHandler } from './$types';
 export const GET = restrict(
   async ({ params, url, locals, auth }: any) => {
     try {
+      const { prisma } = locals;
       const { id: deviceId } = params;
       
       // Get pagination parameters from query string
@@ -24,6 +25,33 @@ export const GET = restrict(
           error: 'Invalid pagination parameters',
           message: 'Page must be >= 1, limit must be between 1 and 100'
         }, { status: 400 });
+      }
+
+      // Check if device exists and user has access
+      const device = await prisma.device.findUnique({
+        where: { id: deviceId },
+        include: {
+          account: {
+            select: {
+              members: {
+                where: { userId: auth.user.id },
+                select: { role: true }
+              }
+            }
+          }
+        }
+      });
+
+      if (!device) {
+        return json({ success: false, error: 'Device not found', message: 'The requested device does not exist' }, { status: 404 });
+      }
+
+      const hasPermission =
+        auth.user.systemRole === 'ADMIN' ||
+        (device.account?.members && device.account.members.length > 0);
+
+      if (!hasPermission) {
+        return json({ success: false, error: 'Insufficient permissions', message: 'You do not have permission to view this device' }, { status: 403 });
       }
 
       // Get device app data from ClickHouse with pagination and filters
@@ -79,5 +107,5 @@ export const GET = restrict(
       }, { status: 500 });
     }
   },
-  ['ADMIN'] // Restrict to admin users
+  ['ADMIN', 'USER']
 );

@@ -1,11 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
-import { getClickHouseClient } from '$lib/server/clickhouse/client';
+// Switched to Prisma Resource as the source of truth for user-uploaded apps
 import { restrict } from '$lib/server/security/guards';
 import type { RequestHandler } from './$types';
 
 export const GET = restrict(
-  async ({ url, auth }: any) => {
+  async ({ url, auth, locals }: any) => {
     try {
       const search = url.searchParams.get('search') || '';
       const page = parseInt(url.searchParams.get('page') || '1');
@@ -20,58 +20,53 @@ export const GET = restrict(
         }, { status: 400 });
       }
 
-      const clickhouse = getClickHouseClient();
+      const { prisma } = locals;
       const offset = (page - 1) * limit;
-      
-      // Build query with proper ClickHouse syntax
-      let whereClause = "WHERE package_name IS NOT NULL AND package_name != ''";
-      let searchParam = '';
-      
-      if (search) {
-        whereClause += " AND package_name ILIKE {search:String}";
-        searchParam = `%${search}%`;
-      }
-      
-      // First, get total count
-      const countQuery = `
-        SELECT COUNT(DISTINCT package_name) as total
-        FROM mv_device_apps
-        ${whereClause}
-      `;
-      
-      const countResult = await clickhouse.query({
-        query: countQuery,
-        query_params: search ? { search: searchParam } : {},
-        format: 'JSONEachRow'
+
+      // Count user-uploaded apps (Resource with packageName)
+      const total = await prisma.resource.count({
+        where: {
+          createdBy: auth.user.id,
+          packageName: { not: null },
+          OR: search
+            ? [
+                { packageName: { contains: search, mode: 'insensitive' } },
+                { name: { contains: search, mode: 'insensitive' } }
+              ]
+            : undefined
+        }
       });
-      
-      const countData = await countResult.json() as Array<{total: number}>;
-      const total = countData[0]?.total || 0;
-      
-      // Then get paginated results
-      const dataQuery = `
-        SELECT DISTINCT package_name
-        FROM mv_device_apps
-        ${whereClause}
-        ORDER BY package_name ASC
-        LIMIT {limit:UInt32} OFFSET {offset:UInt32}
-      `;
-      
-      const dataResult = await clickhouse.query({
-        query: dataQuery,
-        query_params: {
-          ...(search ? { search: searchParam } : {}),
-          limit,
-          offset
+
+      // Fetch paginated list
+      const resources = await prisma.resource.findMany({
+        where: {
+          createdBy: auth.user.id,
+          packageName: { not: null },
+          OR: search
+            ? [
+                { packageName: { contains: search, mode: 'insensitive' } },
+                { name: { contains: search, mode: 'insensitive' } }
+              ]
+            : undefined
         },
-        format: 'JSONEachRow'
+        orderBy: [
+          { packageName: 'asc' }
+        ],
+        skip: offset,
+        take: limit,
+        select: {
+          packageName: true,
+          name: true
+        }
       });
 
-      const apps = await dataResult.json() as Array<{package_name: string}>;
-      const packageNames = apps.map(row => row.package_name);
+      const apps = resources.map((r: any) => ({
+        package_name: r.packageName,
+        app_name: r.name ?? r.packageName
+      }));
 
-      logger.info(`Retrieved ${packageNames.length} unique package names from ClickHouse`, {
-        count: packageNames.length,
+      logger.info(`Retrieved ${apps.length} user-uploaded apps`, {
+        count: apps.length,
         total,
         page,
         limit,
@@ -82,7 +77,7 @@ export const GET = restrict(
       return json({
         success: true,
         data: {
-          apps: packageNames,
+          apps,
           pagination: {
             page,
             limit,
@@ -109,5 +104,5 @@ export const GET = restrict(
       }, { status: 500 });
     }
   },
-  ['ADMIN', 'MEMBER'] // Allow both admin and member users
+  ['ADMIN', 'MEMBER', 'USER'] // Allow admin, member, and regular users
 );

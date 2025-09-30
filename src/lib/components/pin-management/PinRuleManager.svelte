@@ -5,7 +5,7 @@
 
   interface PinRule {
     id: string;
-    ruleType: 'admin_default' | 'account_default' | 'user_custom';
+    ruleType: 'admin_default' | 'user_default' | 'admin_custom' | 'user_custom';
     name: string;
     description: string | null;
     apps: string[];
@@ -31,6 +31,7 @@
     };
   }
 
+  export let mode: 'admin' | 'user' = 'admin';
   let rules: PinRule[] = [];
   let loading = false;
   let error: string | null = null;
@@ -54,7 +55,7 @@
   };
 
   // Available apps for selection
-  let availableApps: string[] = [];
+  let availableApps: Array<{ package_name: string; app_name: string }>= [];
   let loadingApps = false;
   let appSearchTerm = '';
   let currentAppPage = 1;
@@ -127,7 +128,7 @@
       const result = await response.json();
 
       if (result.success) {
-        availableApps = result.data.apps;
+        availableApps = (result.data.apps || []) as Array<{ package_name: string; app_name: string }>;
         totalApps = result.data.pagination.total;
         totalAppPages = result.data.pagination.totalPages;
         
@@ -215,7 +216,7 @@
 
   async function deleteRule(rule: PinRule) {
     // Prevent deletion of admin default rules
-    if (rule.ruleType === 'admin_default') {
+    if (rule.ruleType === 'admin_default' || rule.ruleType === 'user_default') {
       toast.error('Cannot delete admin default rules', {
         description: 'Admin default rules are system-managed and cannot be deleted'
       });
@@ -297,7 +298,8 @@
   function getRuleTypeColor(ruleType: string): string {
     switch (ruleType) {
       case 'admin_default': return 'text-red-600 bg-red-50';
-      case 'account_default': return 'text-blue-600 bg-blue-50';
+      case 'user_default': return 'text-blue-600 bg-blue-50';
+      case 'admin_custom': return 'text-red-600 bg-red-50';
       case 'user_custom': return 'text-green-600 bg-green-50';
       default: return 'text-gray-600 bg-gray-50';
     }
@@ -306,7 +308,8 @@
   function getRuleTypeLabel(ruleType: string): string {
     switch (ruleType) {
       case 'admin_default': return 'Admin Default';
-      case 'account_default': return 'Account Default';
+      case 'user_default': return 'Account Default';
+      case 'admin_custom': return 'Admin Custom';
       case 'user_custom': return 'User Custom';
       default: return ruleType;
     }
@@ -357,9 +360,22 @@
       }
     }
   }
-</script>
 
-<div class="space-y-6" on:keydown={handleKeydown}>
+  // A11y: provide keyboard equivalent for backdrop click (Enter/Space)
+  function handleModalBackdropKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (showCreateForm || showEditForm) {
+        resetForm();
+      } else if (showRuleDetails) {
+        showRuleDetails = false;
+        selectedRule = null;
+      }
+    }
+  }
+</script>
+<svelte:window on:keydown={handleKeydown} />
+
+<div class="space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
     <div>
@@ -394,7 +410,7 @@
     <select bind:value={filterType} on:change={loadRules} class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
       <option value="">All Rule Types</option>
       <option value="admin_default">Admin Default</option>
-      <option value="account_default">Account Default</option>
+      <option value="user_default">Account Default</option>
       <option value="user_custom">User Custom</option>
     </select>
     
@@ -433,20 +449,23 @@
     </div>
   {:else}
     <div class="space-y-8">
-      <!-- Admin Default Rules -->
-      {#if rules.filter(r => r.ruleType === 'admin_default').length > 0}
+      <!-- Admin Rules (visible for admins; in user mode only as fallback when no user_custom exists) -->
+      {#if (rules.filter(r => r.ruleType === 'admin_default' ).length > 0)
+          || (mode === 'user' && rules.filter(r => r.ruleType === 'user_custom').length === 0 && rules.filter(r => r.ruleType === 'admin_custom').length > 0)}
         <div>
           <div class="flex items-center space-x-3 mb-4">
-            <h2 class="text-xl font-semibold text-gray-900">Admin Default Rules</h2>
+            <h2 class="text-xl font-semibold text-gray-900">{mode === 'admin' ? 'Admin Rules' : 'Default Rules (Admin)'}</h2>
             <span class="px-2 py-1 text-xs rounded-full bg-red-100 text-red-800">
               System Managed
             </span>
           </div>
           <p class="text-sm text-gray-600 mb-4">
-            These rules are created by system administrators and apply to all devices. They cannot be deleted but can be edited by admins.
+            {mode === 'admin'
+              ? 'These rules are created by system administrators and apply based on targeting. They cannot be deleted but can be edited by admins.'
+              : 'Your account has no default rules yet. Admin defaults are currently applied.'}
           </p>
           <div class="grid gap-4">
-            {#each rules.filter(r => r.ruleType === 'admin_default') as rule}
+            {#each rules.filter(r => r.ruleType === 'admin_custom' || r.ruleType === 'admin_default') as rule}
               <div class="bg-white border border-red-200 rounded-lg p-6 hover:shadow-md transition-shadow">
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
@@ -500,14 +519,23 @@
                     >
                       <Edit class="w-4 h-4" />
                     </button>
-                    
-                    <button
-                      disabled
-                      class="p-2 text-gray-300 cursor-not-allowed"
-                      title="Cannot delete admin default rules"
-                    >
-                      <Trash2 class="w-4 h-4" />
-                    </button>
+                    {#if rule.ruleType === 'admin_default'}
+                      <button
+                        disabled
+                        class="p-2 text-gray-300 cursor-not-allowed"
+                        title="Cannot delete admin default rules"
+                      >
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    {:else}
+                      <button
+                        on:click={() => deleteRule(rule)}
+                        class="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                        title="Delete Rule"
+                      >
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    {/if}
                   </div>
                 </div>
               </div>
@@ -516,94 +544,9 @@
         </div>
       {/if}
 
-      <!-- Account Default Rules -->
-      {#if rules.filter(r => r.ruleType === 'account_default').length > 0}
-        <div>
-          <div class="flex items-center space-x-3 mb-4">
-            <h2 class="text-xl font-semibold text-gray-900">Account Default Rules</h2>
-            <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-              Account Managed
-            </span>
-          </div>
-          <p class="text-sm text-gray-600 mb-4">
-            These rules are created by account administrators and apply to all devices in the account.
-          </p>
-          <div class="grid gap-4">
-            {#each rules.filter(r => r.ruleType === 'account_default') as rule}
-              <div class="bg-white border border-blue-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                <div class="flex items-start justify-between">
-                  <div class="flex-1">
-                    <div class="flex items-center space-x-3 mb-2">
-                      <h3 class="text-lg font-semibold text-gray-900">{rule.name}</h3>
-                      <span class="px-2 py-1 text-xs rounded-full {getRuleTypeColor(rule.ruleType)}">
-                        {getRuleTypeLabel(rule.ruleType)}
-                      </span>
-                      <span class="px-2 py-1 text-xs rounded-full {rule.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                        {rule.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                    
-                    {#if rule.description}
-                      <p class="text-gray-600 mb-3">{rule.description}</p>
-                    {/if}
-                    
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600">
-                      <div>
-                        <span class="font-medium">Apps:</span> {rule.apps.length}
-                      </div>
-                      <div>
-                        <span class="font-medium">Target:</span> {rule.targetType || 'all'}
-                      </div>
-                      <div>
-                        <span class="font-medium">Priority:</span> {rule.priority}
-                      </div>
-                      <div>
-                        <span class="font-medium">Devices:</span> {rule._count.devicePins}
-                      </div>
-                    </div>
-                    
-                    <div class="mt-3 text-xs text-gray-500">
-                      Created by {rule.createdByUser.name} on {formatDate(rule.createdAt)}
-                      {#if rule.account}
-                        • Account: {rule.account.name}
-                      {/if}
-                    </div>
-                  </div>
-                  
-                  <div class="flex items-center space-x-2 ml-4">
-                    <button
-                      on:click={() => showDetails(rule)}
-                      class="p-2 text-gray-400 hover:text-gray-600 transition-colors"
-                      title="View Details"
-                    >
-                      <Eye class="w-4 h-4" />
-                    </button>
-                    
-                    <button
-                      on:click={() => startEdit(rule)}
-                      class="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-                      title="Edit Rule"
-                    >
-                      <Edit class="w-4 h-4" />
-                    </button>
-                    
-                    <button
-                      on:click={() => deleteRule(rule)}
-                      class="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                      title="Delete Rule"
-                    >
-                      <Trash2 class="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
 
       <!-- User Custom Rules -->
-      {#if rules.filter(r => r.ruleType === 'user_custom').length > 0}
+      {#if rules.filter(r => r.ruleType === 'user_custom' || r.ruleType === 'user_default').length > 0}
         <div>
           <div class="flex items-center space-x-3 mb-4">
             <h2 class="text-xl font-semibold text-gray-900">My Custom Rules</h2>
@@ -615,7 +558,7 @@
             These are your personal pin rules that you can create, edit, and delete as needed.
           </p>
           <div class="grid gap-4">
-            {#each rules.filter(r => r.ruleType === 'user_custom') as rule}
+            {#each rules.filter(r => r.ruleType === 'user_custom'|| r.ruleType === 'user_default') as rule}
               <div class="bg-white border border-green-200 rounded-lg p-6 hover:shadow-md transition-shadow">
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
@@ -672,14 +615,24 @@
                     >
                       <Edit class="w-4 h-4" />
                     </button>
-                    
-                    <button
-                      on:click={() => deleteRule(rule)}
-                      class="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                      title="Delete Rule"
-                    >
-                      <Trash2 class="w-4 h-4" />
-                    </button>
+
+                    {#if rule.ruleType === 'user_default'}
+                      <button
+                        disabled
+                        class="p-2 text-gray-300 cursor-not-allowed"
+                        title="Cannot delete account default rules"
+                      >
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    {:else}
+                      <button
+                        on:click={() => deleteRule(rule)}
+                        class="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                        title="Delete Rule"
+                      >
+                        <Trash2 class="w-4 h-4" />
+                      </button>
+                    {/if}
                   </div>
                 </div>
               </div>
@@ -695,7 +648,10 @@
     <div 
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       on:click={handleModalBackdropClick}
-      role="dialog"
+      on:keydown={handleModalBackdropKeydown}
+      role="button"
+      tabindex="0"
+      aria-label="Close modal"
       aria-modal="true"
     >
       <div class="bg-white rounded-lg p-6 w-full max-w-6xl max-h-[95vh] overflow-y-auto">
@@ -717,7 +673,7 @@
               <label for="ruleType" class="block text-sm font-medium text-gray-700 mb-1">Rule Type</label>
               <select id="ruleType" bind:value={formData.ruleType} class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                 <option value="user_custom">User Custom</option>
-                <option value="account_default">Account Default</option>
+                <option value="user_default">Account Default</option>
                 {#if true} <!-- Admin check would go here -->
                   <option value="admin_default">Admin Default</option>
                 {/if}
@@ -768,7 +724,7 @@
                 <input
                   type="text"
                   bind:value={appSearchTerm}
-                  placeholder="Search apps by name..."
+                  placeholder="Search apps by name or package..."
                   class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
@@ -821,12 +777,15 @@
                     <label class="flex items-center space-x-3 p-2 hover:bg-gray-50 rounded-lg cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={formData.apps.includes(app)}
-                        on:change={() => toggleAppSelection(app)}
+                        checked={formData.apps.includes(app.package_name)}
+                        on:change={() => toggleAppSelection(app.package_name)}
                         class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
-                      <span class="text-sm text-gray-700 flex-1">{app}</span>
-                      {#if formData.apps.includes(app)}
+                      <span class="text-sm text-gray-700 flex-1">
+                        {app.app_name || app.package_name}
+                        <span class="text-gray-400"> — {app.package_name}</span>
+                      </span>
+                      {#if formData.apps.includes(app.package_name)}
                         <span class="text-xs text-blue-600 font-medium">Selected</span>
                       {/if}
                     </label>
@@ -894,7 +853,10 @@
     <div 
       class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       on:click={handleModalBackdropClick}
-      role="dialog"
+      on:keydown={handleModalBackdropKeydown}
+      role="button"
+      tabindex="0"
+      aria-label="Close modal"
       aria-modal="true"
     >
       <div class="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">

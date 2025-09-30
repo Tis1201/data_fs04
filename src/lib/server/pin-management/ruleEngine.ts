@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 
 export interface PinRule {
   id: string;
-  ruleType: 'admin_default' | 'account_default' | 'user_custom';
+  ruleType: string;
   createdBy: string;
   accountId: string | null;
   name: string;
@@ -80,19 +80,8 @@ export class PinRuleEngine {
         this.ruleMatchesDevice(rule, device)
       );
 
-      // Get current pins for this device
-      const currentPins = await this.prisma.deviceAppPin.findMany({
-        where: { deviceId },
-        select: {
-          packageName: true,
-          pinnedByRuleId: true
-        }
-      });
-
-      const currentPinMap = new Map();
-      currentPins.forEach(pin => {
-        currentPinMap.set(pin.packageName, pin.pinnedByRuleId);
-      });
+      // Compute current pins based on matching rules only (no persistence)
+      const currentPinMap = new Map<string, string | null>();
 
       // Apply rules in priority order
       const appliedPins = [];
@@ -100,61 +89,17 @@ export class PinRuleEngine {
 
       for (const rule of matchingRules) {
         for (const packageName of rule.apps) {
-          const currentRuleId = currentPinMap.get(packageName);
-
+          const currentRuleId = currentPinMap.get(packageName) || null;
           if (currentRuleId !== rule.id) {
-            // Remove existing pin if it's from a different rule
             if (currentRuleId) {
-              await this.prisma.deviceAppPin.deleteMany({
-                where: {
-                  deviceId,
-                  packageName,
-                  pinnedByRuleId: currentRuleId
-                }
-              });
-
-              removedPins.push({
-                packageName,
-                previousRuleId: currentRuleId
-              });
+              removedPins.push({ packageName, previousRuleId: currentRuleId });
             }
-
-            // Add new pin from this rule
-            await this.prisma.deviceAppPin.upsert({
-              where: {
-                device_id_package_name: {
-                  deviceId,
-                  packageName
-                }
-              },
-              update: {
-                pinnedByRuleId: rule.id,
-                pinnedAt: new Date()
-              },
-              create: {
-                deviceId,
-                packageName,
-                pinnedByRuleId: rule.id,
-                pinnedAt: new Date()
-              }
-            });
-
-            appliedPins.push({
-              packageName,
-              ruleId: rule.id,
-              ruleName: rule.name
-            });
-
+            appliedPins.push({ packageName, ruleId: rule.id, ruleName: rule.name });
             // Record user action
             await this.prisma.userAppAction.create({
-              data: {
-                userId,
-                deviceId,
-                action: 'pin',
-                packageName,
-                ruleId: rule.id
-              }
+              data: { userId, deviceId, action: 'pin', packageName, ruleId: rule.id }
             });
+            currentPinMap.set(packageName, rule.id);
           }
         }
       }
@@ -268,11 +213,7 @@ export class PinRuleEngine {
       where: {
         isActive: true,
         OR: [
-          { ruleType: 'admin_default' },
-          { 
-            ruleType: 'account_default', 
-            accountId: device.accountId 
-          },
+          { ruleType: 'admin_custom' },
           { 
             ruleType: 'user_custom',
             accountId: device.accountId,
@@ -280,7 +221,10 @@ export class PinRuleEngine {
           }
         ]
       },
-      orderBy: { priority: 'asc' }
+      orderBy: [
+        { priority: 'desc' },
+        { createdAt: 'desc' }
+      ] // higher number has higher precedence; latest created wins on tie; 1 is lowest
     });
   }
 
@@ -386,11 +330,9 @@ export class PinRuleEngine {
       const matchingDevices = await this.findMatchingDevices(rule);
       const totalDevices = matchingDevices.length;
 
-      // Get pinned apps count
-      const pinnedApps = await this.prisma.deviceAppPin.count({
-        where: {
-          pinnedByRuleId: ruleId
-        }
+      // Estimate pinned apps count by counting user actions for this rule (best-effort)
+      const pinnedApps = await this.prisma.userAppAction.count({
+        where: { ruleId, action: 'pin' }
       });
 
       // Get last applied date

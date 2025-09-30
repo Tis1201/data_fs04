@@ -77,6 +77,15 @@ export const GET = restrict(
         }, { status: 404 });
       }
       
+      // If ADMIN, restrict visibility to admin_* rules only
+      if (auth.user.systemRole === 'ADMIN' && !(rule.ruleType === 'admin_default' || rule.ruleType === 'admin_custom')) {
+        return json({
+          success: false,
+          error: 'Insufficient permissions',
+          message: 'Admins can only access admin-level rules'
+        }, { status: 403 });
+      }
+
       logger.info(`Retrieved pin rule ${id} for user ${auth.user.id}`, {
         ruleId: id,
         userId: auth.user.id,
@@ -140,10 +149,11 @@ export const PUT = restrict(
       }
       
       // Check permissions
+      const memberRole = existingRule.account?.members?.[0]?.role as string | undefined;
       const canEdit = 
         auth.user.systemRole === 'ADMIN' || // Admin can edit any rule
         (existingRule.ruleType === 'user_custom' && existingRule.createdBy === auth.user.id) || // User can edit their own custom rules
-        (existingRule.ruleType === 'account_default' && existingRule.account?.members?.[0]?.role === 'ADMIN'); // Account admin can edit account rules
+        (existingRule.ruleType === 'user_default' && !!memberRole && ['OWNER', 'ADMIN'].includes(memberRole)); // Account OWNER/ADMIN can edit account default rules
       
       if (!canEdit) {
         return json({
@@ -274,10 +284,11 @@ export const DELETE = restrict(
       }
       
       // Check permissions
+      const memberRole = existingRule.account?.members?.[0]?.role as string | undefined;
       const canDelete = 
         auth.user.systemRole === 'ADMIN' || // Admin can delete any rule
         (existingRule.ruleType === 'user_custom' && existingRule.createdBy === auth.user.id) || // User can delete their own custom rules
-        (existingRule.ruleType === 'account_default' && existingRule.account?.members?.[0]?.role === 'ADMIN'); // Account admin can delete account rules
+        (existingRule.ruleType === 'user_default' && !!memberRole && ['OWNER', 'ADMIN'].includes(memberRole)); // Account OWNER/ADMIN can delete account default rules
       
       if (!canDelete) {
         return json({
