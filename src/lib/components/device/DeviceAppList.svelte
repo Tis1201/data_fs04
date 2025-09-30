@@ -262,22 +262,39 @@
 
     const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
 
-    if (status === 'complete') {
-      toast.success(`${displayAction} completed`, { description: message || `${displayAction} operation completed successfully` });
-    } else if (status === 'failed') {
-      toast.error(`${displayAction} failed`, { description: message || `${displayAction} operation failed` });
+    // The parent component is no longer responsible for the final toast.
+    // We update the actionStatus for external listeners, but also show the toast here.
+    actionStatus.set({
+      action: action,
+      status: status, // 'complete' or 'failed'
+      message: message || `${displayAction} operation ${status}`,
+      packageName: extractPackageFromMessage(message) || ''
+    });
+
+    // Show toast only when the action completes/fails, and only if we were tracking it.
+    const pkg = extractPackageFromMessage(message);
+    if (pkg) {
+      const key = `${pkg}-${normalizeActionKey(action)}`;
+      if (actionLoading[key]) {
+        if (status === 'complete') {
+          toast.success(`${displayAction} completed`, { description: message || `${displayAction} operation completed successfully` });
+        } else if (status === 'failed') {
+          toast.error(`${displayAction} failed`, { description: message || `${displayAction} operation failed` });
+        }
+      }
     }
 
-    // Try to extract package name from message if present
-    const pkg = extractPackageFromMessage(message);
-    console.log(`[DeviceAppList:SSE] extracted package: ${pkg}`);
-    if (pkg) {
+    // For final states, clear the loading spinner for the specific action row.
+    const finalPkg = extractPackageFromMessage(message);
+    if (finalPkg) {
       const normalized = normalizeActionKey(action);
-      const key = `${pkg}-${normalized}`;
-      console.log(`[DeviceAppList:SSE] checking key: ${key}, exists: ${!!actionLoading[key]}`);
+      const key = `${finalPkg}-${normalized}`;
       if (actionLoading[key]) {
-        delete actionLoading[key];
-        actionLoading = { ...actionLoading };
+        actionLoadingStore.update(state => {
+          const newState = { ...state };
+          delete newState[key];
+          return newState;
+        });
         console.log(`[DeviceAppList:SSE] cleared ${key} from actionLoading`);
       }
     }
@@ -317,10 +334,12 @@
     }
   }
 
-  function normalizeActionKey(action: string): 'restart' | 'uninstall' | 'config' {
+  function normalizeActionKey(action: string): 'restart' | 'uninstall' | 'config' | null {
     if (action === 'restartApp' || action === 'restart') return 'restart';
     if (action === 'uninstall') return 'uninstall';
-    return 'config';
+    if (action === 'config') return 'config';
+    // For other actions like 'progressUpdate', we don't want to map to a key.
+    return null;
   }
 
   // Extract package name from strings like:
@@ -397,12 +416,7 @@
       actionStatus.set({ action: action === 'restart' ? 'restartApp' : action, status: 'success', message: `${pretty} command sent`, packageName });
       toast.success(`${pretty} command sent`, { description: `Action sent to device for ${packageName}` });
 
-      // Clear loading state immediately after success
-      actionLoadingStore.update(state => {
-        const newState = { ...state };
-        delete newState[actionKey];
-        return newState;
-      });
+      // The loading state will be cleared by the SSE handler when a 'complete' or 'failed' message is received.
 
     } catch (err) {
       const pretty = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
