@@ -55,6 +55,9 @@ model Account {
   // Device app summaries
   deviceAppSummaries DeviceAppSummary[]
   
+  // Pin management
+  pinRules         PinRule[]
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   
@@ -231,6 +234,10 @@ model User {
   // Relations to action logs (user as initiator)
   actionLogs     DeviceActionLog[] @relation("UserToActionLogs")
   bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
+  
+  // Pin management relations
+  pinRules       PinRule[]
+  userAppActions UserAppAction[]
 
 
 
@@ -514,6 +521,10 @@ model Device {
   
   // Device app data summaries
   appSummaries DeviceAppSummary[]
+  
+  // Pin management relations
+  appPins      DeviceAppPin[]
+  userActions  UserAppAction[]
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('delete', auth() != null && createdBy == auth().id)
@@ -1532,4 +1543,91 @@ model DeviceAppSummary {
   @@index([deviceId])
   @@index([accountId])
   @@index([lastProcessedAt])
+}
+
+// Pin Management System Models
+// Hierarchical pin rules for device app management
+
+model PinRule {
+  id          String   @id @default(cuid())
+  ruleType    String   // 'admin_default', 'account_default', 'user_custom'
+  createdBy   String   // user_id who created it
+  accountId   String?  // null for admin_default, required for others
+  name        String
+  description String?
+  apps        String[] // ["com.app1", "com.app2"]
+  targetType  String?  // 'all', 'tags', 'os', 'devices'
+  targetValue String[] // ["tag:retail"] or ["android"] or ["device-1"]
+  priority    Int      // 1=admin_default, 2=account_default, 3=user_custom
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
+  
+  // Relationships
+  createdByUser User @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  account       Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  devicePins    DeviceAppPin[]
+  userActions   UserAppAction[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', ruleType == 'admin_default')
+  @@allow('read', ruleType == 'account_default' && account.members?[userId == auth().id])
+  @@allow('read', ruleType == 'user_custom' && createdBy == auth().id)
+  @@allow('create,update,delete', ruleType == 'user_custom' && createdBy == auth().id)
+  @@allow('create,update,delete', ruleType == 'account_default' && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
+  @@index([ruleType])
+  @@index([accountId])
+  @@index([createdBy])
+  @@index([priority])
+  @@index([isActive])
+}
+
+model DeviceAppPin {
+  id              String   @id @default(cuid())
+  deviceId        String
+  packageName     String
+  pinnedByRuleId  String?  // which rule caused this pin
+  pinnedAt        DateTime @default(now())
+  
+  // Relationships
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  rule            PinRule? @relation(fields: [pinnedByRuleId], references: [id], onDelete: SetNull)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', device.account.members?[userId == auth().id])
+  @@allow('create,update,delete', device.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'MEMBER']])
+  
+  @@unique([deviceId, packageName])
+  @@index([deviceId])
+  @@index([packageName])
+  @@index([pinnedByRuleId])
+}
+
+model UserAppAction {
+  id           String   @id @default(cuid())
+  userId        String
+  deviceId      String
+  action        String   // 'pin', 'unpin', 'install', 'uninstall'
+  packageName   String
+  ruleId        String?  // which rule triggered this action
+  createdAt     DateTime @default(now())
+  
+  // Relationships
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  rule          PinRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', user == auth())
+  @@allow('read', device.account.members?[userId == auth().id])
+  @@allow('create', user == auth())
+  
+  @@index([userId])
+  @@index([deviceId])
+  @@index([action])
+  @@index([createdAt])
 }

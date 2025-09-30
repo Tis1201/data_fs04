@@ -27,6 +27,7 @@
 		"db:setup-auth": "tsx scripts/setup-auth-tables.ts",
 		"seed": "tsx scripts/seed-admin.ts",
 		"seed:all": "tsx scripts/seed-all.ts",
+		"seed:pin-rules": "tsx scripts/seed-pin-rules.ts",
 		"maildev": "maildev --smtp 1025 --web 1080",
 		"dev:all": "concurrently \"npm run dev\" \"npm run maildev\"",
 		"start:socket": "node socket.js",

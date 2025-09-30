@@ -10,13 +10,17 @@
     Shield, 
     FileText, 
     Tag,
-    RefreshCw
+    RefreshCw,
+    Clock
   } from "lucide-svelte";
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+
+  /* Reused lists */
   import DeviceAppList from './DeviceAppList.svelte';
+
   import DeviceInformationContent from "$lib/components/ui_components_sveltekit/devices/DeviceInformationContent.svelte";
   import ConnectionStatusCard from "$lib/components/ui_components_sveltekit/devices/ConnectionStatusCard.svelte";
   import SecurityCard from "$lib/components/ui_components_sveltekit/devices/SecurityCard.svelte";
@@ -27,7 +31,6 @@
   import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
   import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
   import { Skeleton } from "$lib/components/ui/skeleton";
-  import { Clock } from "lucide-svelte";
 
   export let device: any;
   export let actionLogs: any[] = [];
@@ -107,60 +110,61 @@
   }
 </script>
 
-<div class="space-y-6">
+<div class="space-y-4">
   <!-- Header with Device Name and Sync Button -->
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-3xl font-bold text-gray-900">{device.name || "Device Details"}</h1>
-      <p class="text-sm text-gray-600 mt-1">
+      <h1 class="text-2xl font-bold text-gray-900">{device.name || "Device Details"}</h1>
+      <p class="text-xs text-gray-600 mt-0.5">
         Device ID: {device.id}
         {#if device.connected}
-          <Badge variant="success" class="ml-2">Connected</Badge>
+          <Badge variant="success" class="ml-2 text-xs py-0 px-1.5">Connected</Badge>
         {:else}
-          <Badge variant="destructive" class="ml-2">Disconnected</Badge>
+          <Badge variant="destructive" class="ml-2 text-xs py-0 px-1.5">Disconnected</Badge>
         {/if}
       </p>
     </div>
-    <div class="flex items-center space-x-3">
+    <div class="flex items-center space-x-2">
       <Button
         on:click={syncDevice}
         disabled={loading}
-        class="flex items-center space-x-2"
+        size="sm"
+        class="flex items-center space-x-1.5"
       >
-        <RefreshCw class="h-4 w-4 {loading ? 'animate-spin' : ''}" />
-        <span>{loading ? 'Syncing...' : 'Sync Now'}</span>
+        <RefreshCw class="h-3.5 w-3.5 {loading ? 'animate-spin' : ''}" />
+        <span class="text-xs">{loading ? 'Syncing...' : 'Sync Now'}</span>
       </Button>
     </div>
   </div>
 
   <!-- Tabs Navigation -->
   <Tabs bind:value={activeTab} class="w-full">
-    <TabsList class="grid w-full grid-cols-5">
-      <TabsTrigger value="overview" class="flex items-center space-x-2">
-        <Info class="h-4 w-4" />
+    <TabsList class="grid w-full grid-cols-5 h-9">
+      <TabsTrigger value="overview" class="flex items-center space-x-1.5 text-xs py-1.5">
+        <Info class="h-3.5 w-3.5" />
         <span>Overview</span>
       </TabsTrigger>
-      <TabsTrigger value="apps" class="flex items-center space-x-2">
-        <Monitor class="h-4 w-4" />
+      <TabsTrigger value="apps" class="flex items-center space-x-1.5 text-xs py-1.5">
+        <Monitor class="h-3.5 w-3.5" />
         <span>Apps</span>
       </TabsTrigger>
-      <TabsTrigger value="technical" class="flex items-center space-x-2">
-        <Cpu class="h-4 w-4" />
+      <TabsTrigger value="technical" class="flex items-center space-x-1.5 text-xs py-1.5">
+        <Cpu class="h-3.5 w-3.5" />
         <span>Technical</span>
       </TabsTrigger>
-      <TabsTrigger value="security" class="flex items-center space-x-2">
-        <Shield class="h-4 w-4" />
+      <TabsTrigger value="security" class="flex items-center space-x-1.5 text-xs py-1.5">
+        <Shield class="h-3.5 w-3.5" />
         <span>Security</span>
       </TabsTrigger>
-      <TabsTrigger value="tags" class="flex items-center space-x-2">
-        <Tag class="h-4 w-4" />
+      <TabsTrigger value="tags" class="flex items-center space-x-1.5 text-xs py-1.5">
+        <Tag class="h-3.5 w-3.5" />
         <span>Tags</span>
       </TabsTrigger>
     </TabsList>
 
     <!-- Overview Tab -->
-    <TabsContent value="overview" class="space-y-6">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <TabsContent value="overview" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Device Information Card -->
         <AdminCard
           title="Device Information"
@@ -169,8 +173,8 @@
           compact={true}
           class_name="md:col-span-2"
         >
-          <div class="space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="space-y-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div class="md:col-span-2">
                 <DeviceInformationContent {device} />
               </div>
@@ -248,40 +252,67 @@
           compact={true}
           class_name="md:col-span-2"
         >
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <ConnectionStatusCard {device} />
-            <div class="border-t md:border-t-0 md:border-l border-muted pt-4 md:pt-0 md:pl-4">
+            <div class="border-t md:border-t-0 md:border-l border-muted pt-3 md:pt-0 md:pl-3">
               <SecurityCard {device} {apiKeyEnhance} {apiKeySubmitting} />
             </div>
           </div>
         </AdminCard>
       </div>
-
-      <!-- Action History Section -->
-      <AdminCard
-        title="Action History"
-        description="Recent actions performed on this device"
-        icon={FileText}
-        compact={true}
-      >
-        {#if actionLogs && actionLogs.length > 0}
-          <ActionHistory {actionLogs} />
-        {:else}
-          <div class="text-sm text-neutral-500">No recent actions.</div>
-        {/if}
-      </AdminCard>
     </TabsContent>
 
     <!-- Apps Tab -->
-    <TabsContent value="apps" class="space-y-6">
+    <TabsContent value="apps" class="space-y-4">
       {#if device?.id}
-        <DeviceAppList 
-          deviceId={device.id} 
-          accountId={device.accountId}
-          {actionLogs}
-          {isLoading}
-          {actionStatus}
-        />
+        <!-- Pinned Apps (favorite) -->
+        <AdminCard
+          title="Pinned Apps"
+          description="Your favorite apps on this device"
+          icon={Monitor}
+          compact={true}
+        >
+          <DeviceAppList 
+            deviceId={device.id}
+            accountId={device.accountId}
+            {actionLogs}
+            {isLoading}
+            {actionStatus}
+            endpoint={`/api/devices/${device.id}/apps-with-pins`}
+            initialQuery={{ filter: 'pinned' }}
+          />
+        </AdminCard>
+
+        <!-- All Apps -->
+        <AdminCard
+          title="All Apps"
+          description="Complete list of apps installed on this device"
+          icon={Monitor}
+          compact={true}
+        >
+          <DeviceAppList 
+            deviceId={device.id} 
+            accountId={device.accountId}
+            {actionLogs}
+            {isLoading}
+            {actionStatus}
+            endpoint={`/api/devices/${device.id}/apps`}
+            initialQuery={{ filter: 'all' }}
+          />
+        </AdminCard>
+
+        <!-- Action History: render ONCE on this page -->
+        {#if actionLogs && actionLogs.length > 0}
+          <AdminCard
+            title="Action History"
+            description="Recent actions performed on this device"
+            icon={FileText}
+            compact={true}
+            class_name="text-sm"
+          >
+            <ActionHistory {actionLogs} />
+          </AdminCard>
+        {/if}
       {:else}
         <div class="text-center py-8">
           <p class="text-gray-500">Device information not available</p>
@@ -290,7 +321,7 @@
     </TabsContent>
 
     <!-- Technical Tab -->
-    <TabsContent value="technical" class="space-y-6">
+    <TabsContent value="technical" class="space-y-4">
       <AdminCard
         title="Technical Details"
         description="Hardware and software information"
@@ -302,65 +333,64 @@
     </TabsContent>
 
     <!-- Security Tab -->
-    <TabsContent value="security" class="space-y-6">
+    <TabsContent value="security" class="space-y-4">
       <AdminCard
         title="Security & Licenses"
         description="API keys, licenses, and security settings"
         icon={Shield}
         compact={true}
       >
-        <div class="space-y-6">
+        <div class="space-y-4">
           <!-- Security Section -->
           <div>
-            <h3 class="text-lg font-medium mb-4">Security Settings</h3>
+            <h3 class="text-sm font-medium mb-2">Security Settings</h3>
             <SecurityCard {device} {apiKeyEnhance} {apiKeySubmitting} />
           </div>
 
           <!-- Licenses Section -->
           <div>
-            <h3 class="text-lg font-medium mb-4">Device Licenses</h3>
+            <h3 class="text-sm font-medium mb-2">Device Licenses</h3>
             {#if licenses && licenses.length > 0}
               <div class="overflow-x-auto">
-                <table class="w-full text-sm">
+                <table class="w-full text-xs">
                   <thead>
                     <tr class="text-left border-b">
-                      <th class="py-2 pr-4">License ID</th>
-                      <th class="py-2 pr-4">Status</th>
-                      <th class="py-2 pr-4">Issued At</th>
-                      <th class="py-2 pr-4">Expires At</th>
-                      <th class="py-2 pr-4">Key ID</th>
-                      <th class="py-2 pr-4">Algorithm</th>
+                      <th class="py-1.5 pr-3">License ID</th>
+                      <th class="py-1.5 pr-3">Status</th>
+                      <th class="py-1.5 pr-3">Issued At</th>
+                      <th class="py-1.5 pr-3">Expires At</th>
+                      <th class="py-1.5 pr-3">Key ID</th>
+                      <th class="py-1.5 pr-3">Algorithm</th>
                     </tr>
                   </thead>
                   <tbody>
                     {#each licenses as license}
                       <tr class="border-b last:border-b-0">
-                        <td class="py-2 pr-4">{license.id}</td>
-                        <td class="py-2 pr-4">
-                          <Badge variant={getLicenseStatusBadgeVariant(license.status)}>
+                        <td class="py-1.5 pr-3">{license.id}</td>
+                        <td class="py-1.5 pr-3">
+                          <Badge variant={getLicenseStatusBadgeVariant(license.status)} class="text-xs py-0 px-1.5">
                             {getLicenseStatusLabel(license.status)}
                           </Badge>
                         </td>
-                        <td class="py-2 pr-4 text-neutral-500">{new Date(license.issuedAt).toLocaleString()}</td>
-                        <td class="py-2 pr-4 text-neutral-500">{new Date(license.expiresAt).toLocaleString()}</td>
-                        <td class="py-2 pr-4">{license.keyId}</td>
-                        <td class="py-2 pr-4">{license.algorithm}</td>
+                        <td class="py-1.5 pr-3 text-neutral-500">{new Date(license.issuedAt).toLocaleString()}</td>
+                        <td class="py-1.5 pr-3 text-neutral-500">{new Date(license.expiresAt).toLocaleString()}</td>
+                        <td class="py-1.5 pr-3">{license.keyId}</td>
+                        <td class="py-1.5 pr-3">{license.algorithm}</td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
               </div>
             {:else}
-              <div class="text-sm text-neutral-500">No licenses.</div>
+              <div class="text-xs text-neutral-500">No licenses.</div>
             {/if}
           </div>
         </div>
       </AdminCard>
     </TabsContent>
 
-
     <!-- Tags Tab -->
-    <TabsContent value="tags" class="space-y-6">
+    <TabsContent value="tags" class="space-y-4">
       <AdminCard
         title="Device Tags"
         description="Device tags attached to this device"

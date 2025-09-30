@@ -1,31 +1,46 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
+  import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { writable } from 'svelte/store';
-  import { sseStore } from '$lib/stores/sse-store';
-  import { subscribeDeviceDetailEvents } from '$lib/client/actionHandlers';
-  import ActionHistory from '$lib/components/ui_components_sveltekit/devices/ActionHistory.svelte';
 
+  // ===== Props =====
   export let deviceId: string;
-  export let actionLogs: any[] = []; // Accept action logs from parent
-  export let isLoading: any = writable(false); // Accept loading state from parent
-  export let actionStatus: any = writable({ action: "", status: "", message: "" }); // Accept action status from parent
+  export let accountId: string | undefined;
+  export let actionLogs: any[] = []; // not rendered here (only in detail page)
+  export let isLoading: any = writable(false);
+  // IMPORTANT: include packageName so we can clear the right row
+  export let actionStatus: any = writable({ action: '', status: '', message: '', packageName: '' });
 
+  // Use this component for both pinned/all by changing the endpoint & initialQuery
+  export let endpoint: string | undefined;
+  export let initialQuery: Partial<Record<'search' | 'filter' | 'sortBy' | 'sortOrder', string>> = {};
+
+  // ===== Types =====
   interface DeviceApp {
     device_id: string;
     account_id: string;
     app_name: string;
     package_name: string;
     version: string;
-    app_type: 'System' | 'Normal' | 'User';
+    app_type: 'System' | 'Normal' | 'User' | string;
     last_modified: string;
     install_date: string;
     size_bytes: number;
-    is_pinned: boolean;
+    is_pinned?: boolean;
     is_system_app: boolean;
+    is_pinned_rule?: boolean;
     permissions: string[];
     metadata: Record<string, string>;
+    pinInfo?: {
+      isPinned?: boolean;
+      pinnedBy?: string;
+      ruleType?: string;
+      pinnedAt?: string;
+      ruleId?: string;
+      createdBy?: string;
+      createdByUser?: { name?: string; email?: string };
+    } | null;
   }
 
   interface AppSummary {
@@ -45,75 +60,55 @@
     };
   }
 
+  // ===== Local state =====
   let apps: DeviceApp[] = [];
   let summary: AppSummary | null = null;
   let loading = true;
   let error: string | null = null;
   let lastSync: Date | null = null;
-  let sseConnection: EventSource | null = null;
-  let searchTerm = '';
-  let filterType = 'all';
-  let sortBy = 'name';
-  let sortOrder: 'asc' | 'desc' = 'asc';
-  let actionLoading: Record<string, string> = {}; // Track which action is loading for which app
-  
-  // Pagination state
+
+  // UI state (defaults from initialQuery)
+  let searchTerm = initialQuery.search ?? '';
+  let filterType = initialQuery.filter ?? 'all';
+  let sortBy = initialQuery.sortBy ?? 'name';
+  let sortOrder: 'asc' | 'desc' = (initialQuery.sortOrder as 'asc' | 'desc') ?? 'asc';
+
+  // Per-row loading: key = `${packageName}-${action}` where action ∈ {'uninstall','restart','config'}
+  // Using writable store to ensure reactivity
+  const actionLoadingStore = writable<Record<string, string>>({});
+  $: actionLoading = $actionLoadingStore;
+
+  // Confirmation modal state
+  let showUninstallConfirm = false;
+  let confirmUninstallApp: { name: string; packageName: string } | null = null;
+
+  // Pagination
   let currentPage = 1;
   let pageSize = 10;
   let totalApps = 0;
   let totalPages = 0;
 
-  // Computed properties - apps are already filtered and sorted on server
+  // SSE
+  let sseConnection: EventSource | null = null;
+
+  // Derived
   $: sortedApps = apps;
-  
-  // Reactive statements to reload data when filters change
+
+  // Reload when UI filters change
   let isInitialized = false;
-  
   $: if (isInitialized && (searchTerm !== undefined || filterType !== undefined || sortBy !== undefined || sortOrder !== undefined)) {
-    currentPage = 1; // Reset to first page when filters change
+    currentPage = 1;
     loadData();
   }
 
-  // Handle parent's action status changes for real-time updates
-  $: if ($actionStatus && $actionStatus.action) {
-    const action = $actionStatus.action;
-    const status = $actionStatus.status;
-    const message = $actionStatus.message;
-    
-    // Handle app action status updates from parent
-    if (['uninstall', 'restartApp', 'config'].includes(action)) {
-      if (status === 'success') {
-        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-        toast.success(`${displayAction} completed`, {
-          description: message || `${displayAction} operation completed successfully`
-        });
-        
-        // Clear loading state
-        const actionKey = Object.keys(actionLoading).find(key => 
-          actionLoading[key] === action
-        );
-        if (actionKey) {
-          delete actionLoading[actionKey];
-          actionLoading = { ...actionLoading };
-        }
-        
-      } else if (status === 'error') {
-        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-        toast.error(`${displayAction} failed`, {
-          description: message || `${displayAction} operation failed`
-        });
-        
-        // Clear loading state
-        const actionKey = Object.keys(actionLoading).find(key => 
-          actionLoading[key] === action
-        );
-        if (actionKey) {
-          delete actionLoading[actionKey];
-          actionLoading = { ...actionLoading };
-        }
-      }
-    }
+  // Update from initialQuery after first load
+  $: if (isInitialized) {
+    searchTerm = initialQuery.search ?? searchTerm;
+    filterType = initialQuery.filter ?? filterType;
+    sortBy = initialQuery.sortBy ?? sortBy;
+    sortOrder = (initialQuery.sortOrder as 'asc' | 'desc') ?? sortOrder;
   }
+
 
   onMount(async () => {
     if (!deviceId) {
@@ -128,81 +123,60 @@
   });
 
   onDestroy(() => {
-    if (sseConnection) {
-      sseConnection.close();
-    }
+    if (sseConnection) sseConnection.close();
   });
 
+  // ===== Data loading =====
   async function loadData() {
     try {
       loading = true;
       error = null;
 
-      // Build query parameters
       const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: pageSize.toString()
+        page: String(currentPage),
+        limit: String(pageSize),
       });
-      
-      if (searchTerm) {
-        params.append('search', searchTerm);
-      }
-      
-      if (filterType !== 'all') {
-        params.append('filter', filterType);
-      }
-      
-      if (sortBy) {
-        params.append('sortBy', sortBy);
-      }
-      
-      if (sortOrder) {
-        params.append('sortOrder', sortOrder);
+
+      if (searchTerm) params.set('search', searchTerm);
+      if (filterType) params.set('filter', filterType);
+      if (sortBy) params.set('sortBy', sortBy);
+      if (sortOrder) params.set('sortOrder', sortOrder);
+
+      if (initialQuery) {
+        Object.entries(initialQuery).forEach(([k, v]) => {
+          if (v != null && v !== '' && !params.has(k)) params.set(k, String(v));
+        });
       }
 
-      // Load apps data with pagination and filters
-      const appsResponse = await fetch(`/api/devices/${deviceId}/apps?${params.toString()}`);
+      const base = endpoint ?? `/api/devices/${deviceId}/apps`;
+      const res = await fetch(`${base}?${params.toString()}`);
+      if (!res.ok) throw new Error(`Failed to load apps: ${res.statusText}`);
 
-      if (!appsResponse.ok) {
-        throw new Error(`Failed to load apps: ${appsResponse.statusText}`);
-      }
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.error || 'Failed to load apps');
 
-      const appsData = await appsResponse.json();
-
-      if (appsData.success) {
-        apps = appsData.data.apps;
-        totalApps = appsData.data.pagination.total;
-        totalPages = appsData.data.pagination.totalPages;
-        lastSync = new Date(appsData.data.timestamp);
-        
-        // Calculate summary from apps data
-        calculateSummary();
-      } else {
-        throw new Error(appsData.error || 'Failed to load apps');
-      }
-
-    } catch (err) {
-      error = err instanceof Error ? err.message : 'Failed to load data';
-      toast.error('Failed to load device apps', {
-        description: error
-      });
+      apps = data.data.apps;
+      totalApps = data.data.pagination.total;
+      totalPages = data.data.pagination.totalPages;
+      lastSync = new Date(data.data.timestamp);
+      calculateSummary();
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Failed to load data';
+      toast.error('Failed to load device apps', { description: error });
     } finally {
       loading = false;
     }
   }
 
   function calculateSummary() {
-    if (!apps || apps.length === 0) {
+    if (!apps?.length) {
       summary = null;
       return;
     }
-
-    const systemApps = apps.filter(app => app.app_type?.toLowerCase() === 'system');
-    const normalApps = apps.filter(app => app.app_type?.toLowerCase() === 'user' || app.app_type?.toLowerCase() === 'normal');
-    const otherApps = apps.filter(app => !['system', 'user', 'normal'].includes(app.app_type?.toLowerCase() || ''));
-
+    const systemApps = apps.filter(a => (a.app_type || '').toLowerCase() === 'system');
+    const normalApps = apps.filter(a => ['user', 'normal'].includes((a.app_type || '').toLowerCase()));
     summary = {
-      deviceId: deviceId,
+      deviceId,
       totalAppsCount: apps.length,
       systemAppsCount: systemApps.length,
       normalAppsCount: normalApps.length,
@@ -210,7 +184,7 @@
       lastProcessedAt: lastSync?.toISOString() || new Date().toISOString(),
       device: {
         id: deviceId,
-        name: 'Device', // We don't have device name in apps data
+        name: 'Device',
         status: 'ACTIVE',
         connected: true,
         connectedAt: lastSync?.toISOString() || null,
@@ -219,6 +193,7 @@
     };
   }
 
+  // ===== SSE handling =====
   function setupSSE() {
     if (!browser) return;
 
@@ -236,12 +211,10 @@
 
     sseConnection.onerror = (event) => {
       console.error('SSE connection error:', event);
-      toast.error('Connection lost', {
-        description: 'Real-time updates may not work properly'
-      });
+      toast.error('Connection lost', { description: 'Real-time updates may not work properly' });
     };
 
-    sseConnection.addEventListener('device-apps-changed', (event) => {
+    sseConnection.addEventListener('device-apps-changed', (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         handleAppUpdate(data);
@@ -251,100 +224,75 @@
     });
   }
 
-
   function handleSSEMessage(data: any) {
-    if (data.type === 'ping') {
-      // Handle ping messages
-      return;
-    }
-    
-    // Handle app action status updates
-    if (data.type === 'device:statusUpdate' || data.type === 'device:progressUpdate') {
+    if (data?.type === 'ping') return;
+
+    if (data?.type === 'device:statusUpdate' || data?.type === 'device:progressUpdate') {
       handleAppActionUpdate(data);
     }
   }
 
   function handleAppUpdate(data: any) {
-    if (data.type === 'apps_updated' || data.type === 'apps_processed') {
-      // Reload data when apps are updated
+    if (data?.type === 'apps_updated' || data?.type === 'apps_processed') {
       loadData();
-      
-      toast.success('Apps updated', {
-        description: `${data.appCount || 0} apps synchronized`
-      });
-    } else if (data.type === 'apps_error') {
-      toast.error('App sync failed', {
-        description: data.error || 'Unknown error occurred'
-      });
+      toast.success('Apps updated', { description: `${data.appCount || 0} apps synchronized` });
+    } else if (data?.type === 'apps_error') {
+      toast.error('App sync failed', { description: data.error || 'Unknown error occurred' });
     }
   }
 
+  // Example payload you gave:
+  // {
+  //   "type": "device:statusUpdate",
+  //   "payload": {
+  //     "action": "restartApp",
+  //     "status": "complete",
+  //     "message": "App com.microsoft.teams2 restarted successfully"
+  //   }
+  // }
   function handleAppActionUpdate(data: any) {
-    const payload = data.payload || data;
-    const action = payload.action;
-    const status = payload.status;
-    const progress = payload.progress;
-    const message = payload.message;
-    
-    // Handle app action status updates
-    if (['uninstall', 'restartApp', 'config'].includes(action)) {
-      if (status === 'complete') {
-        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-        toast.success(`${displayAction} completed`, {
-          description: message || `${displayAction} operation completed successfully`
-        });
-        
-        // Clear loading state
-        const actionKey = Object.keys(actionLoading).find(key => 
-          actionLoading[key] === action
-        );
-        if (actionKey) {
-          delete actionLoading[actionKey];
-          actionLoading = { ...actionLoading };
-        }
-        
-      } else if (status === 'failed') {
-        const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-        toast.error(`${displayAction} failed`, {
-          description: message || `${displayAction} operation failed`
-        });
-        
-        // Clear loading state
-        const actionKey = Object.keys(actionLoading).find(key => 
-          actionLoading[key] === action
-        );
-        if (actionKey) {
-          delete actionLoading[actionKey];
-          actionLoading = { ...actionLoading };
-        }
-        
-      } else if (progress !== undefined) {
-        // Show progress updates
-        console.log(`${action} progress: ${progress}% - ${message}`);
+    console.log(`[DeviceAppList:SSE] update received:`, JSON.stringify(data));
+    const payload = data?.payload || {};
+    const action = payload.action as string;          // e.g. 'restartApp' | 'uninstall' | 'config'
+    const status = payload.status as string;          // 'complete' | 'failed' | ...
+    const message = payload.message as string | undefined;
+
+    console.log(`[DeviceAppList:SSE] action: ${action}, status: ${status}`);
+    if (!action) return;
+
+    const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+
+    if (status === 'complete') {
+      toast.success(`${displayAction} completed`, { description: message || `${displayAction} operation completed successfully` });
+    } else if (status === 'failed') {
+      toast.error(`${displayAction} failed`, { description: message || `${displayAction} operation failed` });
+    }
+
+    // Try to extract package name from message if present
+    const pkg = extractPackageFromMessage(message);
+    console.log(`[DeviceAppList:SSE] extracted package: ${pkg}`);
+    if (pkg) {
+      const normalized = normalizeActionKey(action);
+      const key = `${pkg}-${normalized}`;
+      console.log(`[DeviceAppList:SSE] checking key: ${key}, exists: ${!!actionLoading[key]}`);
+      if (actionLoading[key]) {
+        delete actionLoading[key];
+        actionLoading = { ...actionLoading };
+        console.log(`[DeviceAppList:SSE] cleared ${key} from actionLoading`);
       }
     }
   }
 
+  // ===== UI helpers =====
   async function syncDevice() {
     try {
-      const response = await fetch(`/api/devices/${deviceId}/sync`, {
-        method: 'POST'
-      });
+      const res = await fetch(`/api/devices/${deviceId}/sync`, { method: 'POST' });
+      const data = await res.json();
+      if (!data?.success) throw new Error(data?.error || 'Sync failed');
 
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success('Sync initiated', {
-          description: 'Device app data is being synchronized'
-        });
-        // Data will be reloaded via SSE
-      } else {
-        throw new Error(data.error || 'Sync failed');
-      }
+      toast.success('Sync initiated', { description: 'Device app data is being synchronized' });
     } catch (err) {
-      toast.error('Sync failed', {
-        description: err instanceof Error ? err.message : 'Unknown error'
-      });
+      toast.error('Sync failed', { description: err instanceof Error ? err.message : 'Unknown error' });
     }
   }
 
@@ -353,7 +301,7 @@
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   }
 
   function formatDate(dateString: string): string {
@@ -361,121 +309,128 @@
   }
 
   function getAppTypeColor(type: string): string {
-    switch (type.toLowerCase()) {
-      case 'system':
-        return 'bg-red-100 text-red-800';
-      case 'normal':
-        return 'bg-blue-100 text-blue-800';
-      case 'user':
-        return 'bg-green-100 text-green-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+    switch ((type || '').toLowerCase()) {
+      case 'system': return 'bg-red-100 text-red-800';
+      case 'normal': return 'bg-blue-100 text-blue-800';
+      case 'user':   return 'bg-green-100 text-green-800';
+      default:       return 'bg-gray-100 text-gray-800';
     }
   }
 
-  async function sendDeviceAction(action: string, packageName: string) {
+  function normalizeActionKey(action: string): 'restart' | 'uninstall' | 'config' {
+    if (action === 'restartApp' || action === 'restart') return 'restart';
+    if (action === 'uninstall') return 'uninstall';
+    return 'config';
+  }
+
+  // Extract package name from strings like:
+  // "App com.microsoft.teams2 restarted successfully"
+  function extractPackageFromMessage(msg?: string): string | null {
+    if (!msg) return null;
+    // Look for typical package patterns (com.example.app, io.company.product, etc.)
+    const match = msg.match(/\b([a-zA-Z][\w.]+(?:\.[a-zA-Z0-9_]+)+)\b/);
+    return match ? match[1] : null;
+  }
+
+  // ===== Actions =====
+  function handleUninstallClick(appName: string, packageName: string) {
+    confirmUninstallApp = { name: appName, packageName };
+    showUninstallConfirm = true;
+  }
+
+  function confirmUninstall() {
+    if (confirmUninstallApp) {
+      sendDeviceAction('uninstall', confirmUninstallApp.packageName);
+      showUninstallConfirm = false;
+      confirmUninstallApp = null;
+    }
+  }
+
+  function cancelUninstall() {
+    showUninstallConfirm = false;
+    confirmUninstallApp = null;
+  }
+
+  function handleModalKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      cancelUninstall();
+    }
+  }
+
+  async function sendDeviceAction(action: 'uninstall' | 'restart' | 'config', packageName: string) {
     const actionKey = `${packageName}-${action}`;
     
     try {
-      // Set loading state for real-time tracking
+      // Set row loading state
+      actionLoadingStore.update(state => ({ ...state, [actionKey]: action }));
+
+      // Global flag for parent-level UX
       isLoading.set(true);
+
       actionStatus.set({
         action: action === 'restart' ? 'restartApp' : action,
-        status: "loading",
+        status: 'loading',
         message: `Sending ${action} command for ${packageName}...`,
+        packageName
       });
-      
-      actionLoading[actionKey] = action;
-      actionLoading = { ...actionLoading }; // Trigger reactivity
-      
-      // Create temporary log entry for real-time tracking
-      const displayAction = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-      const tempId = addActionLogRow(action === 'restart' ? 'restartApp' : action, `Sending ${displayAction} command for ${packageName}...`, 'in_progress');
-      
-      // Use the unified action API instead of direct SSE (following architecture)
-      const response = await fetch(`/api/devices/${deviceId}/actions`, {
+
+      const res = await fetch(`/api/devices/${deviceId}/actions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: action === 'restart' ? 'restartApp' : action,
-          packageName: packageName
+          packageName
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || `Failed to send action: ${response.statusText}`);
+      if (!res.ok) {
+        let msg = `Failed to send action: ${res.statusText}`;
+        try {
+          const j = await res.json();
+          msg = j?.error?.message || j?.message || msg;
+        } catch {}
+        throw new Error(msg);
       }
 
-      const result = await response.json();
-      
-      // Update status to success
-      actionStatus.set({
-        action: action === 'restart' ? 'restartApp' : action,
-        status: "success",
-        message: `${displayAction} command sent`,
-      });
-      
-      toast.success(`${displayAction} command sent`, {
-        description: `Action sent to device for ${packageName}`
+      // Success - show toast and clear loading immediately
+      const pretty = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+      actionStatus.set({ action: action === 'restart' ? 'restartApp' : action, status: 'success', message: `${pretty} command sent`, packageName });
+      toast.success(`${pretty} command sent`, { description: `Action sent to device for ${packageName}` });
+
+      // Clear loading state immediately after success
+      actionLoadingStore.update(state => {
+        const newState = { ...state };
+        delete newState[actionKey];
+        return newState;
       });
 
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to send action';
-      
-      // Update status to error
-      const displayAction = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-      actionStatus.set({
-        action: action === 'restart' ? 'restartApp' : action,
-        status: "error",
-        message: errorMessage,
-      });
-      
-      toast.error(`Failed to ${displayAction.toLowerCase()} app`, {
-        description: errorMessage
+      const pretty = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+      const msg = err instanceof Error ? err.message : 'Failed to send action';
+      actionStatus.set({ action: action === 'restart' ? 'restartApp' : action, status: 'error', message: msg, packageName });
+      toast.error(`Failed to ${pretty.toLowerCase()} app`, { description: msg });
+
+      // Clear row on error
+      actionLoadingStore.update(state => {
+        const newState = { ...state };
+        delete newState[actionKey];
+        return newState;
       });
     } finally {
       isLoading.set(false);
-      delete actionLoading[actionKey];
-      actionLoading = { ...actionLoading }; // Trigger reactivity
     }
   }
 
-  function isActionLoading(packageName: string, action: string): boolean {
-    return actionLoading[`${packageName}-${action}`] === action;
-  }
-
-  function addActionLogRow(actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed' = 'initiated', logId?: string) {
-    const id = logId || `temp-${actionType}-${Date.now()}`;
-    actionLogs = [
-      {
-        id,
-        deviceId: deviceId,
-        actionType,
-        status,
-        message,
-        initiatedAt: new Date().toISOString(),
-        completedAt: status === 'success' || status === 'failed' ? new Date().toISOString() : null,
-        durationMs: null,
-        progress: status === 'in_progress' ? 0 : null,
-        user: null
-      },
-      ...actionLogs
-    ].slice(0, 15);
-    return id;
-  }
 </script>
 
-<div class="space-y-6">
-  <!-- Summary Info -->
-  {#if summary}
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+<div class="space-y-3">
+  <!-- Summary (only for the 'all' list) -->
+  {#if summary && (initialQuery?.filter ?? filterType) === 'all'}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
       <div class="flex items-center justify-between">
         <div>
-          <h3 class="text-lg font-medium text-blue-900">App Summary</h3>
-          <p class="text-sm text-blue-700">
+          <h3 class="text-sm font-medium text-blue-900">App Summary</h3>
+          <p class="text-xs text-blue-700">
             {summary.totalAppsCount} total apps • 
             {summary.systemAppsCount} system • 
             {summary.normalAppsCount} normal
@@ -488,17 +443,18 @@
     </div>
   {/if}
 
-  <!-- Filters and Search -->
-  <div class="flex flex-col sm:flex-row gap-4">
+  <!-- Filters -->
+  <div class="flex flex-col sm:flex-row gap-2">
     <div class="flex-1">
       <input
         type="text"
         placeholder="Search apps..."
         bind:value={searchTerm}
-        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        class="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       />
     </div>
-    <div class="flex gap-2">
+    <div class="flex gap-1.5">
+      <!-- If you want client-side filter switching, uncomment this block
       <select
         bind:value={filterType}
         class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -507,10 +463,12 @@
         <option value="system">System</option>
         <option value="normal">Normal</option>
         <option value="user">User</option>
+        <option value="pinned">Pinned</option>
       </select>
+      -->
       <select
         bind:value={sortBy}
-        class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        class="px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
       >
         <option value="name">Name</option>
         <option value="package">Package</option>
@@ -519,149 +477,146 @@
         <option value="modified">Modified</option>
       </select>
       <button
-        on:click={() => sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'}
-        class="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        on:click={() => (sortOrder = sortOrder === 'asc' ? 'desc' : 'asc')}
+        class="px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
       >
         {sortOrder === 'asc' ? '↑' : '↓'}
       </button>
     </div>
   </div>
 
-  <!-- Loading State -->
+  <!-- States -->
   {#if loading}
-    <div class="flex items-center justify-center py-12">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      <span class="ml-2 text-gray-600">Loading apps...</span>
+    <div class="flex items-center justify-center py-8">
+      <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+      <span class="ml-2 text-sm text-gray-600">Loading apps...</span>
     </div>
   {:else if error}
-    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
-      <p class="text-red-800">{error}</p>
+    <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+      <p class="text-sm text-red-800">{error}</p>
       <button
         on:click={loadData}
-        class="mt-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+        class="mt-2 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
       >
         Retry
       </button>
     </div>
-  {:else if sortedApps.length === 0}
-    <div class="text-center py-12">
-      <p class="text-gray-500">No apps found</p>
+  {:else if !sortedApps.length}
+    <div class="text-center py-8">
+      <p class="text-sm text-gray-500">No apps found</p>
     </div>
   {:else}
-    <!-- Apps List -->
+    <!-- App table -->
     <div class="bg-white shadow rounded-lg overflow-hidden">
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                App
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Version
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Size
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Modified
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">App</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Version</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Size</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Modified</th>
+              <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
             {#each sortedApps as app (app.package_name)}
               <tr class="hover:bg-gray-50">
-                <td class="px-6 py-4 whitespace-nowrap">
+                <td class="px-4 py-2.5 whitespace-nowrap">
                   <div class="flex items-center">
-                    <div class="flex-shrink-0 h-10 w-10">
-                      <div class="h-10 w-10 rounded-lg bg-gray-200 flex items-center justify-center">
-                        <span class="text-sm font-medium text-gray-600">
-                          {app.app_name.charAt(0).toUpperCase()}
+                    <div class="flex-shrink-0 h-8 w-8">
+                      <div class="h-8 w-8 rounded-lg bg-gray-200 flex items-center justify-center">
+                        <span class="text-xs font-medium text-gray-600">
+                          {app.app_name?.charAt(0)?.toUpperCase() || 'A'}
                         </span>
                       </div>
                     </div>
-                    <div class="ml-4">
-                      <div class="text-sm font-medium text-gray-900">{app.app_name}</div>
-                      <div class="text-sm text-gray-500">{app.package_name}</div>
+                    <div class="ml-3">
+                      <div class="flex items-center gap-1.5">
+                        <div class="text-xs font-medium text-gray-900">{app.app_name}</div>
+                        {#if app.is_pinned || app.pinInfo?.isPinned}
+                          <span class="text-yellow-500" title={app.pinInfo?.pinnedBy ? `Pinned by ${app.pinInfo.pinnedBy}` : 'Pinned'}>★</span>
+                        {/if}
+                      </div>
+                      <div class="text-xs text-gray-500">{app.package_name}</div>
                     </div>
                   </div>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap">
-                  <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {getAppTypeColor(app.app_type)}">
+
+                <td class="px-4 py-2.5 whitespace-nowrap">
+                  <span class="inline-flex px-1.5 py-0.5 text-xs font-semibold rounded-full {getAppTypeColor(app.app_type)}">
                     {app.app_type}
                   </span>
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+
+                <td class="px-4 py-2.5 whitespace-nowrap text-xs text-gray-900">
                   {app.version}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+
+                <td class="px-4 py-2.5 whitespace-nowrap text-xs text-gray-900">
                   {formatBytes(app.size_bytes)}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+
+                <td class="px-4 py-2.5 whitespace-nowrap text-xs text-gray-500">
                   {formatDate(app.last_modified)}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <div class="flex items-center space-x-2">
-                    <!-- Status Icons -->
-                    {#if app.is_pinned}
+
+                <td class="px-4 py-2.5 whitespace-nowrap text-xs font-medium">
+                  <div class="flex items-center space-x-1.5">
+                    {#if app.is_pinned || app.pinInfo?.isPinned}
                       <span class="text-yellow-600" title="Pinned">📌</span>
                     {/if}
                     {#if app.is_system_app}
                       <span class="text-red-600" title="System App">⚙️</span>
                     {/if}
-                    
-                    <!-- Action Buttons -->
-                    <div class="flex items-center space-x-4 ml-2">
-                      <!-- Uninstall Button -->
+
+                    <div class="flex items-center space-x-3 ml-2">
+                      <!-- Uninstall -->
                       <button
-                        on:click={() => sendDeviceAction('uninstall', app.package_name)}
-                        disabled={isActionLoading(app.package_name, 'uninstall') || app.is_system_app || ($isLoading && $actionStatus.action === 'uninstall')}
-                        class="px-3 py-2 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px] h-10 flex items-center justify-center"
+                        on:click={() => handleUninstallClick(app.app_name, app.package_name)}
+                        disabled={actionLoading[`${app.package_name}-uninstall`] === 'uninstall' || app.is_system_app}
+                        class="px-2.5 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
                         title={app.is_system_app ? 'Cannot uninstall system app' : 'Uninstall app'}
                       >
-                        {#if isActionLoading(app.package_name, 'uninstall') || ($isLoading && $actionStatus.action === 'uninstall')}
-                          <div class="animate-spin rounded-full h-4 w-4 border-b border-red-700"></div>
+                        {#if actionLoading[`${app.package_name}-uninstall`] === 'uninstall'}
+                          <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-red-700"></div>
                         {:else}
-                          <span class="text-lg">🗑️</span>
+                          <span class="text-base">🗑️</span>
                         {/if}
                       </button>
-                      
-                      <!-- Restart Button -->
+
+                      <!-- Restart -->
                       <button
                         on:click={() => sendDeviceAction('restart', app.package_name)}
-                        disabled={isActionLoading(app.package_name, 'restart') || ($isLoading && $actionStatus.action === 'restartApp')}
-                        class="px-3 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px] h-10 flex items-center justify-center"
+                        disabled={actionLoading[`${app.package_name}-restart`] === 'restart'}
+                        class="px-2.5 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
                         title="Restart App"
                       >
-                        {#if isActionLoading(app.package_name, 'restart') || ($isLoading && $actionStatus.action === 'restartApp')}
-                          <div class="animate-spin rounded-full h-4 w-4 border-b border-blue-700"></div>
+                        {#if actionLoading[`${app.package_name}-restart`] === 'restart'}
+                          <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-blue-700"></div>
                         {:else}
-                          <span class="text-lg">🔄</span>
+                          <span class="text-base">🔄</span>
                         {/if}
                       </button>
-                      
-                      <!-- Config Button -->
+
+                      <!-- Config -->
                       <button
                         on:click={() => sendDeviceAction('config', app.package_name)}
-                        disabled={isActionLoading(app.package_name, 'config') || ($isLoading && $actionStatus.action === 'config')}
-                        class="px-3 py-2 text-sm bg-green-100 text-green-700 rounded-lg hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[40px] h-10 flex items-center justify-center"
+                        disabled={actionLoading[`${app.package_name}-config`] === 'config'}
+                        class="px-2.5 py-1.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
                         title="Configure app"
                       >
-                        {#if isActionLoading(app.package_name, 'config') || ($isLoading && $actionStatus.action === 'config')}
-                          <div class="animate-spin rounded-full h-4 w-4 border-b border-green-700"></div>
+                        {#if actionLoading[`${app.package_name}-config`] === 'config'}
+                          <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-green-700"></div>
                         {:else}
-                          <span class="text-lg">⚙️</span>
+                          <span class="text-base">⚙️</span>
                         {/if}
                       </button>
                     </div>
                   </div>
                 </td>
+
               </tr>
             {/each}
           </tbody>
@@ -669,88 +624,103 @@
       </div>
     </div>
 
-    <!-- Pagination Controls -->
+    <!-- Pagination -->
     <div class="flex items-center justify-between">
-      <div class="flex items-center space-x-4">
-        <div class="flex items-center space-x-2">
-          <label for="pageSize" class="text-sm text-gray-700">Show:</label>
+      <div class="flex items-center space-x-3">
+        <div class="flex items-center space-x-1.5">
+          <label for="pageSize" class="text-xs text-gray-700">Show:</label>
           <select
             id="pageSize"
             bind:value={pageSize}
-            on:change={() => { 
-              pageSize = parseInt(pageSize.toString());
-              currentPage = 1; 
-              loadData(); 
+            on:change={() => {
+              pageSize = parseInt(String(pageSize));
+              currentPage = 1;
+              loadData();
             }}
-            class="px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            class="px-1.5 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value={10}>10</option>
             <option value={25}>25</option>
             <option value={50}>50</option>
           </select>
-          <span class="text-sm text-gray-700">per page</span>
+          <span class="text-xs text-gray-700">per page</span>
         </div>
-        
-        <div class="text-sm text-gray-700">
+
+        <div class="text-xs text-gray-700">
           Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalApps)} of {totalApps} apps
         </div>
       </div>
 
-      <!-- Page Navigation -->
-      <div class="flex items-center space-x-2">
-        <button
-          on:click={() => { currentPage = 1; loadData(); }}
-          disabled={currentPage === 1}
-          class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          First
-        </button>
-        
-        <button
-          on:click={() => { currentPage = Math.max(1, currentPage - 1); loadData(); }}
-          disabled={currentPage === 1}
-          class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Previous
-        </button>
-        
-        <span class="px-3 py-1 text-sm text-gray-700">
-          Page {currentPage} of {totalPages}
-        </span>
-        
-        <button
-          on:click={() => { currentPage = Math.min(totalPages, currentPage + 1); loadData(); }}
-          disabled={currentPage === totalPages}
-          class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Next
-        </button>
-        
-        <button
-          on:click={() => { currentPage = totalPages; loadData(); }}
-          disabled={currentPage === totalPages}
-          class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Last
-        </button>
+      <div class="flex items-center space-x-1.5">
+        <button on:click={() => { currentPage = 1; loadData(); }} disabled={currentPage === 1} class="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">First</button>
+        <button on:click={() => { currentPage = Math.max(1, currentPage - 1); loadData(); }} disabled={currentPage === 1} class="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+        <span class="px-2.5 py-1 text-xs text-gray-700">Page {currentPage} of {totalPages}</span>
+        <button on:click={() => { currentPage = Math.min(totalPages, currentPage + 1); loadData(); }} disabled={currentPage === totalPages} class="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+        <button on:click={() => { currentPage = totalPages; loadData(); }} disabled={currentPage === totalPages} class="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Last</button>
       </div>
     </div>
 
-    <!-- Last Updated Info -->
     {#if lastSync}
-      <div class="text-sm text-gray-500 text-center">
+      <div class="text-xs text-gray-500 text-center">
         Last updated: {formatDate(lastSync.toISOString())}
       </div>
     {/if}
   {/if}
+</div>
 
-  <!-- Action History Section -->
-  {#if actionLogs && actionLogs.length > 0}
-    <div class="mt-8">
-      <h3 class="text-lg font-medium text-gray-900 mb-4">Recent Actions</h3>
-      <div class="bg-white shadow rounded-lg overflow-hidden">
-        <ActionHistory {actionLogs} />
+<!-- Uninstall Confirmation Modal -->
+{#if showUninstallConfirm && confirmUninstallApp}
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div 
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+    on:click={cancelUninstall}
+    on:keydown={handleModalKeydown}
+    role="presentation"
+  >
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div 
+      class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6" 
+      on:click|stopPropagation
+      on:keydown|stopPropagation
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
+      <div class="flex items-start space-x-3">
+        <div class="flex-shrink-0">
+          <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div class="flex-1">
+          <h3 id="modal-title" class="text-lg font-medium text-gray-900 mb-2">Confirm Uninstall</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Are you sure you want to uninstall <strong>{confirmUninstallApp.name}</strong>?
+          </p>
+          <p class="text-xs text-gray-500 mb-4">
+            Package: {confirmUninstallApp.packageName}
+          </p>
+          <p class="text-xs text-red-600 mb-6">
+            This action cannot be undone. The app will be permanently removed from the device.
+          </p>
+          <div class="flex justify-end space-x-3">
+            <button
+              type="button"
+              on:click={cancelUninstall}
+              class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              on:click={confirmUninstall}
+              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Uninstall
+            </button>
+          </div>
+        </div>
       </div>
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
