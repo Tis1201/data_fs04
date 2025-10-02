@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 import type { RequestHandler } from './$types';
 
-export const POST: RequestHandler = async ({ params, locals, request }) => {
+export const POST: RequestHandler = async ({ params, locals, request, fetch }) => {
   try {
     const auth = await locals.auth.validate();
     if (!auth?.user) {
@@ -73,6 +73,22 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
       data: assignments,
       skipDuplicates: true
     });
+
+    const deviceIds = devices.map(device => device.id);
+    const response = await fetch(`/api/device-profiles/${profileId}/assign`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            deviceIds
+        })
+    });
+
+    if (!response.ok) {
+        const data = await response.json();
+        console.error('Error broadcasting device profile settings: ', data);
+    }
 
     return json({
       success: true,

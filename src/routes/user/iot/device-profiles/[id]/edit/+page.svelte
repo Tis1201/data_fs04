@@ -21,6 +21,7 @@
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
     import { onMount } from "svelte";
+    import { sseStore } from "$lib/stores/sse-store";
     
     export let data;
     const title = "Edit Device Profile";
@@ -56,6 +57,37 @@
 
     // Update form settings when localSettings changes
     $: $form.settings = JSON.stringify(localSettings);
+    let lastSubscribedConnectionId: string | null = null;
+    
+    onMount(() => {
+        console.log('[AdminDeviceProfileDetail] onMount started for profile:', data.profile.id);
+
+        try {
+            console.debug('[AdminDeviceProfileDetail] Connecting SSE to /api/sse ...');
+            sseStore.connect(`/api/sse`, { withCredentials: true });
+        } catch (e) {
+            console.warn('[AdminDeviceProfileDetail] SSE connect failed (may already be connected):', e);
+        }
+
+        sseStore.on('connected', (msg: any) => {
+            const connId = msg?.data?.connectionId;
+            if (!connId) return;
+            if (connId === lastSubscribedConnectionId) {
+                console.debug('[DeviceProfileDetail] SSE connected event but already subscribed for', connId);
+                return;
+            }
+            console.debug('[DeviceProfileDetail] SSE (re)connected. Subscribing device channel', { profileId: data.profile.id, connId });
+            fetch(`/api/sse/subscribe/device-profile/${data.profile.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ connectionId: connId })
+            }).then(() => {
+                lastSubscribedConnectionId = connId;
+                console.log('[DeviceProfileDetail] Subscribed to device channel for', connId);
+            }).catch((err) => console.warn('Subscribe failed', err));
+        });
+    });
 </script>
 
 <UserPageLayout
