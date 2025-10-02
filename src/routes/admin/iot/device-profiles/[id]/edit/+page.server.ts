@@ -49,6 +49,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
         }
     });
 
+
     if (!hasAccess && auth.user.systemRole !== 'ADMIN') {
         throw error(403, 'Access denied');
     }
@@ -110,11 +111,11 @@ export const actions: Actions = {
                     settings: {
                         create: settingsArray.map((setting: any, index: number) => ({
                             key: setting.key,
-                            value: setting.value,
+                            value: String(setting.value || ''),
                             dataType: setting.dataType,
                             label: setting.label,
-                            category: setting.category,
-                            order: setting.order || index
+                            category: setting.category || 'General',
+                            order: setting.order !== undefined ? setting.order : index
                         }))
                     }
                 }
@@ -142,22 +143,26 @@ export const actions: Actions = {
                 }
             });
 
-            if (deviceProfile?.assignments) {
-                const config = mapToConfigPayload(deviceProfile);
+            if (deviceProfile?.assignments && deviceProfile.assignments.length > 0) {
+                const config = mapToConfigPayload(deviceProfile as any);
 
-                const response = await fetch(`/api/device-profiles/${profileId}/broadcast-config`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        config
-                    })
-                });
+                try {
+                    const response = await fetch(`/api/device-profiles/${profileId}/broadcast-config`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            config
+                        })
+                    });
 
-                if (!response.ok) {
-                    const data = await response.json();
-                    console.error('Error broadcasting device profile settings: ', data);
+                    if (!response.ok) {
+                        const data = await response.json();
+                        console.error('Error broadcasting device profile settings: ', data);
+                    }
+                } catch (err) {
+                    console.error('Error broadcasting device profile settings: ', err);
                 }
             }
 

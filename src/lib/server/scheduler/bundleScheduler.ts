@@ -17,7 +17,9 @@ export function startBundleAutoPublishScheduler(prisma: any, publisherFn: (bundl
       
       // Create a simple Redis client for distributed locking
       const IORedis = (await import('ioredis')).default;
-      const redisClient = new IORedis(redisUrl);
+      const redisClient = new IORedis(redisUrl, {
+        password: redisPassword
+      });
       
       const redisService = { client: redisClient };
       await distributedLockManager.initialize(redisService);

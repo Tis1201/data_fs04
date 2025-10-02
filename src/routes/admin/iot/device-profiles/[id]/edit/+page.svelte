@@ -31,16 +31,17 @@
         ["Admin", "/admin"],
         ["IOT", "/admin/iot"],
         ["Device Profiles", "/admin/iot/device-profiles"],
-        [data.profile.name, `/admin/iot/device-profiles/${data.profile.id}`],
         ["Edit", `/admin/iot/device-profiles/${data.profile.id}/edit`]
     ];
     
     // Initialize form handler
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-        successRedirect: `/admin/iot/device-profiles/${data.profile.id}`,
         validateOnInput: true,
         onSuccess: () => {
-            toast.success('Device profile updated successfully');
+            // Use setTimeout to ensure toast renders after DOM updates
+            setTimeout(() => {
+                toast.success('Device profile updated successfully');
+            }, 0);
         }
     });
 
@@ -58,6 +59,9 @@
     // Update form settings when localSettings changes
     $: $form.settings = JSON.stringify(localSettings);
     let lastSubscribedConnectionId: string | null = null;
+    
+    // Reference to ProfileSettingsEditor component for validation
+    let profileSettingsEditor: any;
     
     onMount(() => {
         console.log('[AdminDeviceProfileDetail] onMount started for profile:', data.profile.id);
@@ -97,13 +101,24 @@
         {
             label: "Cancel",
             icon: ArrowLeft,
-            onClick: () => goto(`/admin/iot/device-profiles/${data.profile.id}`),
+            onClick: () => goto(`/admin/iot/device-profiles`),
             variant: "outline"
         },
         {
             label: "Save Changes",
             icon: Save,
             onClick: () => {
+                // Validate settings before submitting
+                if (profileSettingsEditor && typeof profileSettingsEditor.validateSettings === 'function') {
+                    const isValid = profileSettingsEditor.validateSettings();
+                    if (!isValid) {
+                        toast.error('Please fix validation errors before saving');
+                        // Switch to settings tab if not already there
+                        activeTab = 'settings';
+                        return;
+                    }
+                }
+                
                 const formElement = document.querySelector('form[action="?/update"]');
                 if (formElement) {
                     // Use dispatchEvent to trigger form submission
@@ -175,7 +190,7 @@
                     </Card>
                     
                     <!-- Settings Configuration -->
-                    <ProfileSettingsEditor bind:settings={localSettings} {availableSettings} />
+                    <ProfileSettingsEditor bind:this={profileSettingsEditor} bind:settings={localSettings} {availableSettings} />
                     
                     <!-- Hidden input for settings JSON -->
                     <input type="hidden" name="settings" bind:value={$form.settings} />

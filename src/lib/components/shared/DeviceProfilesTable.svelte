@@ -144,12 +144,6 @@
         goto(`${basePath}/device-profiles/${profile.id}/edit`);
     }
 
-    // Function to handle view
-    function handleView(profile: DeviceProfile) {
-        const basePath = context === 'admin' ? '/admin/iot' : '/user/iot';
-        goto(`${basePath}/device-profiles/${profile.id}`);
-    }
-
 
     // Table columns configuration
     const columns = [
@@ -165,8 +159,9 @@
                         id: record.id,
                         name: record.name || 'Unnamed Profile'
                     },
-                    baseUrl: context === 'admin' ? '/admin/iot/device-profiles' : '/user/iot/device-profiles',
-                    showId: true
+                    baseUrl: `${context === 'admin' ? '/admin/iot/device-profiles' : '/user/iot/device-profiles'}/${record.id}/edit`,
+                    showId: true,
+                    useDirectUrl: true
                 }
             })
         },
@@ -224,11 +219,6 @@
             width: '10%',
             render: (record: DeviceProfile) => {
                 const actionItems = [
-                    {
-                        label: 'View',
-                        icon: Pencil,
-                        onClick: () => handleView(record)
-                    },
                     {
                         label: 'Edit',
                         icon: Pencil,
