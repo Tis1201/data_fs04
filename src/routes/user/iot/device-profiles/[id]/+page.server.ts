@@ -10,8 +10,6 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
         }
 
         const { id: profileId } = params;
-        
-        console.log('Loading profile with ID:', profileId);
 
         // Get profile details with settings and assignments
         const profile = await locals.prisma.deviceProfile.findUnique({
@@ -42,11 +40,6 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
             }
         });
 
-        console.log('Profile found:', profile ? 'Yes' : 'No');
-        if (profile) {
-            console.log('Profile data:', { id: profile.id, name: profile.name, accountId: profile.accountId });
-        }
-
         if (!profile) {
             throw error(404, 'Profile not found');
         }
@@ -65,7 +58,6 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
             throw error(403, 'Access denied');
         }
 
-        console.log('Returning profile data');
         return {
             profile
         };

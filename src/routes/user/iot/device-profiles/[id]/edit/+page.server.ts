@@ -1,3 +1,4 @@
+import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 import type { PageServerLoad, Actions } from './$types';
 import { fail, redirect, error } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms';
@@ -118,6 +119,47 @@ export const actions: Actions = {
                     }
                 }
             });
+
+            const deviceProfile = await locals.prisma.deviceProfile.findUnique({
+                where: { id: profileId },
+                select: {
+                    id: true,
+                    name: true,
+                    settings: {
+                        select: {
+                            id: true,
+                            key: true,
+                            value: true,
+                            dataType: true,
+                            category: true
+                        }
+                    },
+                    assignments: {
+                        select: {
+                            id: true
+                        }
+                    }
+                }
+            });
+
+            if (deviceProfile?.assignments) {
+                const config = mapToConfigPayload(deviceProfile);
+
+                const response = await fetch(`/api/device-profiles/${profileId}/broadcast-config`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        config
+                    })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    console.error('Error broadcasting device profile settings: ', data);
+                }
+            }
 
             return { form, success: true, message: 'Device profile updated successfully' };
 

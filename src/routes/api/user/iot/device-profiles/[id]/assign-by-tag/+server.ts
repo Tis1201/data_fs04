@@ -84,6 +84,22 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
       skipDuplicates: true
     });
 
+    const deviceIds = devices.map(device => device.id);
+    const response = await fetch(`/api/device-profiles/${profileId}/assign`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            deviceIds
+        })
+    });
+
+    if (!response.ok) {
+        const data = await response.json();
+        console.error('Error broadcasting device profile settings: ', data);
+    }
+
     return json({
       success: true,
       message: `Successfully assigned ${result.count} devices with this tag`,
