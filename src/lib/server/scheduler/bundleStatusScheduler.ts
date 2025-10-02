@@ -6,12 +6,14 @@ import { processEventsWithStateValidation, checkAndTransitionBundleState } from 
 import { applyTimeouts } from './bundleTimeoutManager';
 import { cleanupCompletedBundles } from './bundleCleanupManager';
 import { startFileBasedPoller, stopFileBasedPoller } from './fileBasedPoller';
+import { distributedLockManager, withDistributedLock, LOCK_CONFIG } from './distributedLock';
 
 const POLL_MS = Number(process.env.FILE_STATUS_POLL_MS || 10000);
 const USE_CLICKHOUSE = process.env.USE_CLICKHOUSE === 'true' || process.env.CLICKHOUSE_URL !== undefined;
 
 let timer: NodeJS.Timeout | null = null;
 let stateManagerInitialized = false;
+let lockManagerInitialized = false;
 
 export async function startBundleStatusScheduler() {
   if (timer) {
@@ -33,6 +35,24 @@ export async function startBundleStatusScheduler() {
       return;
     }
     
+    // Initialize distributed lock manager after state manager is ready
+    try {
+      const stateManager = getStateManager();
+      if (stateManager && 'client' in stateManager && stateManager.client) {
+        // Create a RedisService wrapper around the existing Redis client
+        const redisService = {
+          client: stateManager.client
+        };
+        await distributedLockManager.initialize(redisService);
+        lockManagerInitialized = true;
+        logger.info('[BundleStatusScheduler] Distributed lock manager initialized with existing Redis connection');
+      } else {
+        logger.warn('[BundleStatusScheduler] Redis not available, running without distributed locking');
+      }
+    } catch (error) {
+      logger.warn(`[BundleStatusScheduler] Failed to initialize distributed lock manager: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
     // Test ClickHouse connection
     const connected = await testClickHouseConnection();
     if (!connected) {
@@ -43,7 +63,7 @@ export async function startBundleStatusScheduler() {
     
     timer = setInterval(async () => {
       try {
-        await pollClickHouse();
+        await pollClickHouseWithLock();
       } catch (e: any) {
         logger.warn(`[BundleStatusScheduler] ClickHouse poll error: ${String(e?.message || e)}`);
       }
@@ -52,6 +72,22 @@ export async function startBundleStatusScheduler() {
     logger.info(`[BundleStatusScheduler] Started successfully with ClickHouse (interval=${POLL_MS}ms)`);
   } else {
     timer = startFileBasedPoller();
+  }
+}
+
+// ClickHouse polling function with distributed locking
+async function pollClickHouseWithLock() {
+  // Use distributed locking if available, otherwise run without lock
+  if (lockManagerInitialized) {
+    await withDistributedLock(
+      LOCK_CONFIG.BUNDLE_STATUS_SCHEDULER.RESOURCE,
+      LOCK_CONFIG.BUNDLE_STATUS_SCHEDULER.TTL,
+      pollClickHouse,
+      { skipIfLocked: true }
+    );
+  } else {
+    // Fallback to running without lock (single instance or Redis unavailable)
+    await pollClickHouse();
   }
 }
 

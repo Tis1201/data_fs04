@@ -16,6 +16,9 @@ export interface SchedulerConfig {
   olderThanDays: number;
 }
 
+// Derive the metrics type without referencing `this` in a type position
+type DeviceAppMetrics = ReturnType<ReturnType<typeof createDeviceAppMonitoring>['getMetrics']>;
+
 export class DeviceAppScheduler {
   private processor: ReturnType<typeof createDeviceAppProcessor>;
   private monitoring: ReturnType<typeof createDeviceAppMonitoring>;
@@ -287,7 +290,7 @@ export class DeviceAppScheduler {
   getStatus(): {
     isRunning: boolean;
     config: SchedulerConfig;
-    metrics: ReturnType<typeof this.monitoring.getMetrics>;
+    metrics: DeviceAppMetrics;
   } {
     return {
       isRunning: this.isRunning,
