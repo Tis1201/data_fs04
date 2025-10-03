@@ -523,6 +523,7 @@ model JwtSigningKey {
 model FactoryToken {
   id                     String        @id() @default(cuid())
   name                   String?
+  token                  String?
   hardwareModel          String
   firmwareVersion        String
   batchNumber            String?

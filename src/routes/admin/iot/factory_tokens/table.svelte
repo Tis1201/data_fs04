@@ -22,6 +22,7 @@
     import { enhance } from "$app/forms";
     import { Badge } from "$lib/components/ui/badge";
     import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
+    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     
     import { invalidate } from '$app/navigation';
     
@@ -143,6 +144,24 @@
             sortable: true,
             width: "10%",
             render: (record: FactoryToken) => record.hardwareModel || "N/A"
+        },
+
+        {
+            id: "token",
+            label: "Token",
+            sortable: true,
+            field: "token",
+            width: "50%",
+            render: (record: FactoryToken) => ({
+                component: SecureKeyDisplay,
+                props: {
+                    apiKey: record.token || "",
+                   
+                    showCopyButton: true,
+                    showVisibilityToggle: true,
+                    className: "py-1"
+                }
+            })
         },
        
         {

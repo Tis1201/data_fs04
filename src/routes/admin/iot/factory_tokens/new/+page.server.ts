@@ -11,6 +11,8 @@ import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 
 export const load = restrict(
     async ({ locals }:any) => {
@@ -130,10 +132,33 @@ export const actions: Actions = {
                     );
                 }
                 
-                // Create factory token
+                // Build factory JWT claims for mass production
+                const now = Math.floor(Date.now() / 1000);
+                const exp = Math.floor(new Date(expiresAt).getTime() / 1000);
+                const jti = randomUUID();
+                const payload: Record<string, unknown> = {
+                    aud: 'device-register',
+                    typ: 'factory',
+                    iat: now,
+                    exp,
+                    jti,
+                    scope: 'device:register',
+                    sub: deviceId,
+                    hardwareModel,
+                    firmwareVersion
+                };
+
+                // Sign token with FACTORY signing key
+                const signedToken = jwt.sign(payload, signingKey.privateKey, {
+                    algorithm: (signingKey.algorithm as jwt.Algorithm) || 'RS256',
+                    keyid: signingKey.keyId
+                });
+
+                // Create factory token (persist signed token)
                 const factoryToken = await locals.prisma.factoryToken.create({
                     data: {
                         name,
+                        token: signedToken,
                         hardwareModel,
                         firmwareVersion,
                         batchNumber,
