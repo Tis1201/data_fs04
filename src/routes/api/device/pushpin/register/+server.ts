@@ -67,7 +67,12 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
                 'Pragma': 'no-cache',
                 'Expires': '0',
-                'Surrogate-Control': 'no-store'
+                'Surrogate-Control': 'no-store',
+                // GRIP headers for Pushpin streaming
+                'Grip-Hold': 'stream',
+                'Grip-Channel': `registration:${deviceId}`,
+                'Grip-Keep-Alive': ':\n\n',
+                'Grip-Timeout': '60'
             }
         });
     } catch (error: any) {
