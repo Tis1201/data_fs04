@@ -40,7 +40,7 @@ def publish_test_message():
 
         # Create a test message
         test_message = {
-            'channel': 'registration:123456',
+            'channel': 'registration:26584bdb-8c6f-44af-8cb9-ef9df1e76f4f',
             'payload': {
                 'action': 'reboot',
                 'request_id': f'req_{int(time.time())}'

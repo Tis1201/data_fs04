@@ -17,30 +17,30 @@ import {
  */
 export const GET: RequestHandler = async ({ locals, request }) => {
 
-    return new Response(JSON.stringify({
-        status: ResponseStatus.SUCCESS,
-        data: {
-            status: 'UNCLAIMED'
-        }
-    })+"\n", {
-        headers: {
-            'Content-Type': 'text/event-stream',  // Changed from application/json
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'Surrogate-Control': 'no-store',
-            'X-Accel-Buffering': 'no',  // Disable nginx buffering
-            // GRIP headers for Pushpin streaming
-            'Grip-Hold': 'stream',
-            'Grip-Channel': `registration:123456`,
-            'Grip-Keep-Alive': ':\n\n',
-            'Grip-Timeout': '60'
-        }
-    });
+    // return new Response(JSON.stringify({
+    //     status: ResponseStatus.SUCCESS,
+    //     data: {
+    //         status: 'UNCLAIMED'
+    //     }
+    // })+"\n", {
+    //     headers: {
+    //         'Content-Type': 'text/event-stream',  // Changed from application/json
+    //         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    //         'Pragma': 'no-cache',
+    //         'Expires': '0',
+    //         'Surrogate-Control': 'no-store',
+    //         'X-Accel-Buffering': 'no',  // Disable nginx buffering
+    //         // GRIP headers for Pushpin streaming
+    //         'Grip-Hold': 'stream',
+    //         'Grip-Channel': `registration:123456`,
+    //         'Grip-Keep-Alive': ':\n\n',
+    //         'Grip-Timeout': '60'
+    //     }
+    // });
 
-    // try {
+    try {
 
-        /*
+        
         await verifyFactoryJWT(locals, request);
 
         logger.info(`Factory JWT verified successfully`);
@@ -87,9 +87,9 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                 pin,
                 status: 'UNCLAIMED'
             }
-        }), {
+        }) + "\n", {
             headers: {
-                'Content-Type': 'application/json',
+               'Content-Type': 'text/event-stream', 
                 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
                 'Pragma': 'no-cache',
                 'Expires': '0',
@@ -118,5 +118,5 @@ export const GET: RequestHandler = async ({ locals, request }) => {
             }
         });
     }
-    */
+    
 };
