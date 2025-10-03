@@ -16,8 +16,34 @@ import {
  * Pushpin device registration endpoint for Pushpin proxy.
  */
 export const GET: RequestHandler = async ({ locals, request }) => {
-    try {
+
+    return new Response(JSON.stringify({
+        status: ResponseStatus.SUCCESS,
+        data: {
+            status: 'UNCLAIMED'
+        }
+    })+"\n", {
+        headers: {
+            'Content-Type': 'text/event-stream',  // Changed from application/json
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'Surrogate-Control': 'no-store',
+            'X-Accel-Buffering': 'no',  // Disable nginx buffering
+            // GRIP headers for Pushpin streaming
+            'Grip-Hold': 'stream',
+            'Grip-Channel': `registration:123456`,
+            'Grip-Keep-Alive': ':\n\n',
+            'Grip-Timeout': '60'
+        }
+    });
+
+    // try {
+
+        /*
         await verifyFactoryJWT(locals, request);
+
+        logger.info(`Factory JWT verified successfully`);
 
         const pin = request.headers.get('X-Device-PIN');
         const mac = request.headers.get('X-Device-MAC');
@@ -92,4 +118,5 @@ export const GET: RequestHandler = async ({ locals, request }) => {
             }
         });
     }
+    */
 };
