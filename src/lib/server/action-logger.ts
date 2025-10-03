@@ -8,11 +8,14 @@ export type DeviceActionType =
   | 'install'
   | 'firmware_update'
   | 'restart'
+  | 'reboot'
   | 'snapshot'
   | 'ping'
   | 'status_check'
   | 'config_update'
-  | 'logs';
+  | 'logs'
+  | 'pull_file'
+  | 'push_file';
 
 export type DeviceActionStatus =
   | 'initiated'

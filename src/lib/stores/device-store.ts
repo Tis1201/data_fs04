@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import { socketStore } from './websocket-store';
+import { sseStore } from './sse-store';
 
 interface DeviceMessage {
     type: string;
@@ -88,9 +89,16 @@ function createDeviceStore() {
     // Set up WebSocket listener if in browser environment
     if (browser) {
         socketStore.on('device', (message: DeviceMessage) => {
-            console.log('[DEVICE_STORE] Received device event:', message);
+            console.log('[DEVICE_STORE] ===== DEVICE STORE RECEIVED MESSAGE =====');
+            console.log('[DEVICE_STORE] Full message:', message);
+            console.log('[DEVICE_STORE] Message type:', message.type);
+            console.log('[DEVICE_STORE] Payload action:', message.payload?.action);
+            console.log('[DEVICE_STORE] Payload type:', message.payload?.type);
             
-            if (!message?.payload?.action) return;
+            if (!message?.payload?.action) {
+                console.log('[DEVICE_STORE] No action in payload, ignoring message');
+                return;
+            }
             
             switch (message.payload.action) {
                 case 'message': {
@@ -127,6 +135,11 @@ function createDeviceStore() {
                     }
                     // Handle WebRTC-related messages
                     else if (messageType.startsWith('webrtc:')) {
+                        console.log('[DEVICE_STORE] ===== WEBRTC MESSAGE DETECTED =====');
+                        console.log('[DEVICE_STORE] Full message:', message);
+                        console.log('[DEVICE_STORE] Message type:', messageType);
+                        console.log('[DEVICE_STORE] Device ID:', deviceId);
+                        
                         const webrtcMessageType = messageType as 'webrtc:offer' | 'webrtc:answer' | 'webrtc:ice-candidate';
                         
                         // Create a WebRTC message object
@@ -141,16 +154,21 @@ function createDeviceStore() {
                             senderId: message.senderId
                         };
                         
-                        console.log('[DEVICE_STORE] WebRTC message received:', webrtcMessage);
+                        console.log('[DEVICE_STORE] WebRTC message created:', webrtcMessage);
                         
                         // Update the store with the new WebRTC message
                         update(state => {
+                            console.log('[DEVICE_STORE] Current state deviceId:', state.deviceId);
+                            console.log('[DEVICE_STORE] Target deviceId:', deviceId);
                             // Only store the latest WebRTC message for the current device
                             if (!state.deviceId || state.deviceId === deviceId) {
+                                console.log('[DEVICE_STORE] Updating WebRTC message in store');
                                 return {
                                     ...state,
                                     latestWebRTCMessage: webrtcMessage
                                 };
+                            } else {
+                                console.log('[DEVICE_STORE] Device ID mismatch, not updating store');
                             }
                             return state;
                         });
@@ -175,7 +193,7 @@ function createDeviceStore() {
                     
                     update(state => ({
                         ...state,
-                        deviceId: message.payload.id,
+                        deviceId: message.payload.id || null,
                         claimStatus: 'claimed'
                     }));
                     break;
@@ -186,8 +204,8 @@ function createDeviceStore() {
                         
                         update(state => ({
                             ...state,
-                            deviceId: message.payload.deviceId,
-                            name: message.payload.deviceName,
+                            deviceId: message.payload.deviceId || null,
+                            name: message.payload.deviceName || null,
                             claimStatus: 'claimed',
                             error: null
                         }));
@@ -199,6 +217,104 @@ function createDeviceStore() {
             }
         });
 
+        // Set up SSE listener for device messages
+        sseStore.on('device', (message: any) => {
+            console.log('[DEVICE_STORE] ===== DEVICE STORE RECEIVED SSE MESSAGE =====');
+            console.log('[DEVICE_STORE] Full SSE message:', message);
+            
+            // SSE messages have payload in message.data.payload, not message.payload
+            const payload = message.data?.payload || message.data || message.payload;
+            
+            // Check if this is a WebRTC message (old structure)
+            if (payload?.type && payload.type.startsWith('webrtc:')) {
+                console.log('[DEVICE_STORE] ===== WEBRTC MESSAGE DETECTED IN SSE (OLD STRUCTURE) =====');
+                console.log('[DEVICE_STORE] WebRTC message type:', payload.type);
+                console.log('[DEVICE_STORE] WebRTC device ID:', payload.deviceId);
+            }
+            console.log('[DEVICE_STORE] Final payload:', payload);
+            
+            if (!payload?.action) {
+                console.log('[DEVICE_STORE] No action in SSE data, ignoring message');
+                return;
+            }
+            
+            switch (payload.action) {
+                case 'message': {
+                    const messageType = payload.type || '';
+                    const deviceId = payload.deviceId || '';
+                    
+                    // Handle terminal-related messages
+                    if (messageType.startsWith('terminal-')) {
+                        const terminalMessageType = messageType as 'terminal-response' | 'terminal-connected' | 'terminal-error';
+                        
+                        // Create a terminal message object
+                        const terminalMessage: TerminalMessage = {
+                            type: terminalMessageType,
+                            deviceId,
+                            output: payload.output,
+                            error: payload.error,
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        // Update the store with the new terminal message
+                        update(state => ({
+                            ...state,
+                            terminalMessages: [...state.terminalMessages, terminalMessage],
+                            latestTerminalMessage: terminalMessage
+                        }));
+                    }
+                    // Handle WebRTC-related messages
+                    else if (messageType.startsWith('webrtc:')) {
+                        console.log('[DEVICE_STORE] ===== WEBRTC MESSAGE DETECTED VIA SSE =====');
+                        console.log('[DEVICE_STORE] Full message:', message);
+                        console.log('[DEVICE_STORE] Message type:', messageType);
+                        console.log('[DEVICE_STORE] Device ID:', deviceId);
+                        
+                        const webrtcMessageType = messageType as 'webrtc:offer' | 'webrtc:answer' | 'webrtc:ice-candidate';
+                        
+                        // Create a WebRTC message object
+                        const webrtcMessage: WebRTCMessage = {
+                            type: webrtcMessageType,
+                            deviceId,
+                            sdp: payload.sdp,
+                            candidate: payload.candidate,
+                            clientMessageId: payload._clientMessageId,
+                            timestamp: new Date().toISOString(),
+                            scope: message.scope,
+                            senderId: message.senderId
+                        };
+                        
+                        console.log('[DEVICE_STORE] WebRTC message created:', webrtcMessage);
+                        
+                        // Update the store with the new WebRTC message
+                        update(state => {
+                            console.log('[DEVICE_STORE] Current state deviceId:', state.deviceId);
+                            console.log('[DEVICE_STORE] Target deviceId:', deviceId);
+                            // Only store the latest WebRTC message for the current device
+                            if (!state.deviceId || state.deviceId === deviceId) {
+                                console.log('[DEVICE_STORE] Updating WebRTC message in store via SSE');
+                                return {
+                                    ...state,
+                                    latestWebRTCMessage: webrtcMessage
+                                };
+                            } else {
+                                console.log('[DEVICE_STORE] Device ID mismatch, not updating store via SSE');
+                            }
+                            return state;
+                        });
+                    }
+                    break;
+                }
+                
+                case 'error': {
+                    update(state => ({
+                        ...state,
+                        error: payload.error || 'Unknown error occurred'
+                    }));
+                    break;
+                }
+            }
+        });
 
     }
 

@@ -108,25 +108,44 @@ const createSocketStore = () => {
    * and also to any listener registered under 'message' (catch-all).
    */
   const dispatchMessage = (message: WebSocketMessage) => {
-    if (!message.type) return;
+    console.log('[WebSocket] ===== DISPATCHING MESSAGE =====');
+    console.log('[WebSocket] Message type:', message.type);
+    console.log('[WebSocket] Available listeners for type:', Object.keys(messageListeners));
+    console.log('[WebSocket] Listeners for this type:', messageListeners[message.type]?.length || 0);
+    console.log('[WebSocket] Listeners for "message":', messageListeners['message']?.length || 0);
+    
+    if (!message.type) {
+      console.log('[WebSocket] No message type, skipping dispatch');
+      return;
+    }
 
     // First, call any listeners for this exact message.type
-    messageListeners[message.type]?.forEach(cb => {
-      try {
-        cb(message.data ?? message);
-      } catch (err) {
-        console.error(`Listener error [${message.type}]:`, err);
-      }
-    });
+    if (messageListeners[message.type]) {
+      console.log(`[WebSocket] Calling ${messageListeners[message.type].length} listeners for type "${message.type}"`);
+      messageListeners[message.type].forEach(cb => {
+        try {
+          cb(message.data ?? message);
+        } catch (err) {
+          console.error(`Listener error [${message.type}]:`, err);
+        }
+      });
+    } else {
+      console.log(`[WebSocket] No listeners for type "${message.type}"`);
+    }
 
     // Then, call any listeners registered under 'message' (wildcard)
-    messageListeners['message']?.forEach(cb => {
-      try {
-        cb(message);
-      } catch (err) {
-        console.error(`Listener error [message]:`, err);
-      }
-    });
+    if (messageListeners['message']) {
+      console.log(`[WebSocket] Calling ${messageListeners['message'].length} listeners for wildcard "message"`);
+      messageListeners['message'].forEach(cb => {
+        try {
+          cb(message);
+        } catch (err) {
+          console.error(`Listener error [message]:`, err);
+        }
+      });
+    } else {
+      console.log('[WebSocket] No wildcard "message" listeners');
+    }
   };
 
   /**
@@ -299,6 +318,12 @@ const createSocketStore = () => {
           }
 
           // Otherwise, treat as a normal event
+          console.log('[WebSocket] ===== RECEIVED MESSAGE =====');
+          console.log('[WebSocket] Message type:', message.type);
+          console.log('[WebSocket] Message scope:', message.scope);
+          console.log('[WebSocket] Message payload:', message.payload);
+          console.log('[WebSocket] Full message:', message);
+          
           addMessage(message);
           dispatchMessage(message);
         } catch (err) {

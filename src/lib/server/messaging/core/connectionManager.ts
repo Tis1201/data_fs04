@@ -29,9 +29,6 @@ class DefaultConnectionManager {
   }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
-
-    logger.debug(`Registering connection: ${JSON.stringify(connection.meta)}`)
-
     // Set a UUID in connection.meta if not present
     if (!('id' in connection.meta)) {
       (connection.meta as any).id = uuidv4();
@@ -43,9 +40,6 @@ class DefaultConnectionManager {
 
     const connSet = this.userConnections.get(userInfo.id) ?? new Set();
     connSet.add(id);
-
-    logger.info(`[ConnectionManager] Registered connection: ${id}, [${connection.meta.protocol}] for user: ${userInfo.id}`);
-    // logger.info(`[ConnectionManager] Total connections: ${this.liveConnections.size}, Users with connections: ${this.userConnections.size}`);
 
     this.userConnections.set(userInfo.id, connSet);
 
@@ -77,14 +71,6 @@ class DefaultConnectionManager {
     }
 
     connectionSharedStore.remove(connId);
-
-    logger.info(`[ConnectionManager] Unregistered connection: ${connId}`);
-    logger.info(`[ConnectionManager] Remaining connections: ${this.liveConnections.size}, Users: ${this.userConnections.size}`);
-    
-    // Log remaining connection IDs if any
-    if (this.liveConnections.size > 0) {
-      logger.info(`[ConnectionManager] Remaining connection IDs: ${Array.from(this.liveConnections.keys()).join(', ')}`);
-    }
   }
 
   getConnection(connId: ConnectionId): Connection | undefined {
@@ -102,9 +88,10 @@ class DefaultConnectionManager {
   async sendTo(connId: ConnectionId, payload: any): Promise<void> {
     const conn = this.liveConnections.get(connId);
     if (!conn) {
-      console.warn(`[ConnectionManager] Missing connection: ${connId}`);
+      logger.warn(`[ConnectionManager] Missing connection: ${connId}`);
       return;
     }
+    
     await conn.send(payload);
   }
 
@@ -132,6 +119,20 @@ class DefaultConnectionManager {
     return connectionSharedStore.getAllMembers().then(metas =>
       metas.filter(meta => meta.userInfo?.id === userId)
     );
+  }
+
+  // Debug method to list all connections
+  listAllConnections(): void {
+    // logger.debug(`[ConnectionManager] Total connections: ${this.liveConnections.size}`);
+  }
+
+  getConnectionCount(): number {
+    return this.liveConnections.size;
+  }
+
+  async getConnectionByDeviceId(deviceId: string): Promise<Connection | undefined> {
+    const allConnections = Array.from(this.liveConnections.values());
+    return allConnections.find(conn => conn.meta.deviceId === deviceId);
   }
 }
 

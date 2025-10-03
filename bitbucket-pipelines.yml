@@ -72,10 +72,14 @@ pipelines:
                   mkdir -p ~/fs04-web && mkdir -p ~/fs04-web/docker
                   echo '✅ Folders created successfully'
                   
-                  # Append DATABASE_URL_DEV to .env file
+                  # Append DATABASE_URL_DEV and ClickHouse variables to .env file
                   cd ~/fs04-web
                   echo 'DATABASE_URL=${DATABASE_URL_DEV:-postgresql://dummy:password@localhost:5432/db}' >> .env
-                  echo '✅ .env file updated with DATABASE_URL_DEV'
+                  echo 'CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://localhost:8123}' >> .env
+                  echo 'CLICKHOUSE_USER_NAME=${CLICKHOUSE_USER_NAME:-admin}' >> .env
+                  echo 'CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-admin0823}' >> .env
+                  echo 'USE_CLICKHOUSE=${USE_CLICKHOUSE:-true}' >> .env
+                  echo '✅ .env file updated with DATABASE_URL_DEV and ClickHouse variables'
                   
                   # Activate docker group and pull image
                   newgrp docker
@@ -86,6 +90,10 @@ pipelines:
                   export IMAGE_NAME=registry.gitlab.com/fs040/web:dev-latest
                   export NODE_ENV=development
                   export DATABASE_URL_DEV=${DATABASE_URL_DEV:-postgresql://dummy:password@localhost:5432/db}
+                  export CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://localhost:8123}
+                  export CLICKHOUSE_USER_NAME=${CLICKHOUSE_USER_NAME:-admin}
+                  export CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-admin0823}
+                  export USE_CLICKHOUSE=${USE_CLICKHOUSE:-true}
                   docker compose -f docker/docker-compose.yml up -d
                   echo '✅ Application deployed'
                   

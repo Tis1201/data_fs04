@@ -45,6 +45,7 @@
 	let unsubscribeDevice: () => void;
 	let previousTerminalMessage: any = null;
 	let previousWebRTCMessage: any = null;
+
 	
 	// Define breadcrumbs for this page
 	const pageCrumbs = [
@@ -190,14 +191,23 @@
 	 * 
 	 ****************************************************************************/
 	function handleTerminalMessage(message) {
-		if (!terminalInstance || !message) return;
+		console.log("[Terminal] ===== TERMINAL MESSAGE HANDLER ======");
+		console.log("[Terminal] Received message:", message);
+		console.log("[Terminal] Terminal instance:", !!terminalInstance);
+		console.log("[Terminal] Device ID:", deviceId);
 		
-		// Only process messages for this specific device
-		if (message.deviceId !== deviceId) {
+		if (!terminalInstance || !message) {
+			console.log("[Terminal] Missing terminal instance or message");
 			return;
 		}
 		
-		console.log("Processing terminal message:", message);
+		// Only process messages for this specific device
+		if (message.deviceId !== deviceId) {
+			console.log("[Terminal] Message not for this device:", message.deviceId, "!=", deviceId);
+			return;
+		}
+		
+		console.log("[Terminal] Processing terminal message:", message);
 		
 		// Handle different terminal message types
 		switch (message.type) {
@@ -253,8 +263,14 @@
 			// Process new WebRTC messages
 			if (state.latestWebRTCMessage && 
 			    state.latestWebRTCMessage !== previousWebRTCMessage) {
+				console.log('[Terminal] ===== PROCESSING NEW WEBRTC MESSAGE =====');
+				console.log('[Terminal] Latest WebRTC message:', state.latestWebRTCMessage);
+				console.log('[Terminal] Previous WebRTC message:', previousWebRTCMessage);
 				previousWebRTCMessage = state.latestWebRTCMessage;
-				webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
+				// Handle WebRTC message without await since this is not an async function
+				webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage).catch(error => {
+					console.error('[Terminal] Error handling WebRTC message:', error);
+				});
 			}
 		});
 		
@@ -449,14 +465,15 @@
 		description="Interact with the device through this terminal interface. Commands sent here will be executed on the device."
 		icon={TerminalIcon}
 	>
-				<TerminalContainer>
-					<Xterm
-						options={options}
-						on:load={onLoad}
-						on:data={onData}
-						on:key={onKey}
-					/>
-				</TerminalContainer>
+			<TerminalContainer>
+				<Xterm
+					options={options}
+					on:load={onLoad}
+					on:data={onData}
+					on:key={onKey}
+				/>
+			</TerminalContainer>
 	</AdminCard>
+
 </AdminPageLayout>
 

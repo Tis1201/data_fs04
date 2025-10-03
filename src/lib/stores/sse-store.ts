@@ -146,6 +146,17 @@ function createSSEStore() {
                         sender: data.sender
                     };
 
+                    // Debug logging for device messages
+                    if (data.type && data.type.startsWith('device:')) {
+                        console.log('[SSE] Received device message:', {
+                            eventType: event.type,
+                            messageEvent: message.event,
+                            dataType: data.type,
+                            payload: data.payload,
+                            fullData: data
+                        });
+                    }
+
                     // Handle connection ID from connected event
                     if (message.event === 'connected' && message.data?.connectionId) {
                         update(state => ({
@@ -191,6 +202,7 @@ function createSSEStore() {
                     } else {
                         console.log(`[SSE] Received non-request message:`, data);
                     }
+
 
                     addMessage(message);
                 } catch (err) {

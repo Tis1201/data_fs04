@@ -25,33 +25,35 @@ enum SetStatus {
 }
 
 model Account {
-  id               String              @id() @default(cuid())
-  name             String
-  slug             String              @unique()
-  status           String              @default("ACTIVE")
-  isSystem         Boolean             @default(false)
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt()
-  description      String?
-  logoUrl          String?
-  settings         String?
-  companies        Company[]
-  members          AccountMembership[]
-  groups           Group[]
-  devices          Device[]
-  deviceTags       DeviceTag[]
-  apiKeys          ApiKey[]
-  primaryUsers     User[]              @relation("UserPrimaryAccount")
-  resources        Resource[]
-  bunles           Bundle[]
-  refreshTokens    RefreshToken[]
-  tokenUsageLogs   TokenUsageLog[]
-  whatsappAccounts WhatsAppAccount[]
-  preclaimSets     PreclaimSet[]
-  preclaimDevices  PreclaimDevice[]
-  licenses         License[]
-  entitlements     Entitlement[]
-  deviceProfiles   DeviceProfile[]
+  id                 String              @id() @default(cuid())
+  name               String
+  slug               String              @unique()
+  status             String              @default("ACTIVE")
+  isSystem           Boolean             @default(false)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt()
+  description        String?
+  logoUrl            String?
+  settings           String?
+  companies          Company[]
+  members            AccountMembership[]
+  groups             Group[]
+  devices            Device[]
+  deviceTags         DeviceTag[]
+  apiKeys            ApiKey[]
+  primaryUsers       User[]              @relation("UserPrimaryAccount")
+  resources          Resource[]
+  bunles             Bundle[]
+  refreshTokens      RefreshToken[]
+  tokenUsageLogs     TokenUsageLog[]
+  whatsappAccounts   WhatsAppAccount[]
+  preclaimSets       PreclaimSet[]
+  preclaimDevices    PreclaimDevice[]
+  licenses           License[]
+  entitlements       Entitlement[]
+  deviceProfiles     DeviceProfile[]
+  deviceAppSummaries DeviceAppSummary[]
+  pinRules           PinRule[]
 
   @@index([slug])
 }
@@ -173,6 +175,8 @@ model User {
   refreshTokens         RefreshToken[]
   actionLogs            DeviceActionLog[]      @relation("UserToActionLogs")
   bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
+  pinRules              PinRule[]
+  userAppActions        UserAppAction[]
 
   @@index([primaryAccountId])
 }
@@ -367,6 +371,8 @@ model Device {
   disconnectedAt       DateTime?
   licenses             License[]
   profileAssignment    DeviceProfileAssignment?
+  appSummaries         DeviceAppSummary[]
+  userActions          UserAppAction[]
 
   @@index([createdBy])
   @@index([hardwareId])
@@ -1026,4 +1032,66 @@ model DeviceProfileAssignment {
   @@unique([deviceId])
   @@index([profileId])
   @@index([deviceId])
+}
+
+model DeviceAppSummary {
+  id              String    @id() @default(cuid())
+  deviceId        String    @unique()
+  accountId       String
+  totalAppsCount  Int       @default(0)
+  systemAppsCount Int       @default(0)
+  normalAppsCount Int       @default(0)
+  lastAppSync     DateTime?
+  lastProcessedAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt()
+  device          Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  account         Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([accountId])
+  @@index([lastProcessedAt])
+}
+
+model PinRule {
+  id            String          @id() @default(cuid())
+  ruleType      String
+  createdBy     String
+  accountId     String?
+  name          String
+  description   String?
+  apps          String[]
+  targetType    String?
+  targetValue   String[]
+  priority      Int
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt()
+  createdByUser User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  account       Account?        @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  userActions   UserAppAction[]
+
+  @@index([ruleType])
+  @@index([accountId])
+  @@index([createdBy])
+  @@index([priority])
+  @@index([isActive])
+}
+
+model UserAppAction {
+  id          String   @id() @default(cuid())
+  userId      String
+  deviceId    String
+  action      String
+  packageName String
+  ruleId      String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  rule        PinRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([deviceId])
+  @@index([action])
+  @@index([createdAt])
 }

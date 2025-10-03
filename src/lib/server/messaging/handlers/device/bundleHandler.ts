@@ -127,9 +127,9 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
       logger.warn(`[DeviceHandler] Failed to recompute bundle status after wave update: ${String(e)}`);
     }
 
-    // Broadcast to UI via messaging pipeline
+    // Broadcast to UI via unified status update (following new architecture)
     const routing = MessageFactory.createSystemMessage(
-      'device:bundleStatus',
+      'device:statusUpdate',
       `subscription:device:${deviceId}`,
       {
         action: 'bundleStatus',
@@ -140,7 +140,8 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
         progress: waveProgress,
         devicesTotal,
         devicesCompleted,
-        devicesFailed
+        devicesFailed,
+        timestamp: new Date().toISOString()
       },
       SystemUser,
       { echoToSender: false }
@@ -311,12 +312,22 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
         } catch (broadcastErr: any) {
           logger.warn(`[AutoStart] Failed to broadcast wave status: ${broadcastErr?.message || String(broadcastErr)}`);
         }
-        
+
         // Send install commands to devices in the next wave
+        logger.info(`[AutoStart] Looking for devices in next wave ${nextWave.id} (${nextWave.name})`);
         const nextWaveProgresses = await (prisma as any).bundleDeviceProgress.findMany({
           where: { bundleId, waveId: nextWave.id },
-          include: { bundleDevice: true }
+          include: { bundleDevice: true },
+          orderBy: { createdAt: 'asc' } // Ensure devices are processed in the same order they were assigned
         });
+        
+        logger.info(`[AutoStart] Found ${nextWaveProgresses.length} devices in next wave ${nextWave.id}:`, 
+          nextWaveProgresses.map((p: any) => ({ 
+            progressId: p.id, 
+            deviceId: p.bundleDevice.deviceId, 
+            status: p.status 
+          }))
+        );
         
         const bundle = await (prisma as any).bundle.findUnique({
           where: { id: bundleId },
@@ -327,9 +338,32 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
             } 
           }
         });
+
+        logger.info(`[AutoStart] Bundle details for wave ${nextWave.id}:`, {
+          bundleId: bundle?.id,
+          bundleName: bundle?.name,
+          appsCount: bundle?.apps?.length || 0,
+          reboot: bundle?.reboot,
+          forceUpdate: bundle?.forceUpdate
+        });
+        
+        logger.info(`[AutoStart] Processing ${nextWaveProgresses.length} devices for next wave ${nextWave.id}`);
+        
+        // Set startedAt for all devices in the wave when sending commands
+        const startTime = new Date();
+        await (prisma as any).bundleDeviceProgress.updateMany({
+          where: { bundleId, waveId: nextWave.id, status: 'PENDING' },
+          data: { 
+            startedAt: startTime,
+            status: 'IN_PROGRESS',
+            updatedBy: 'system'
+          }
+        });
+        logger.info(`[AutoStart] Set startedAt for all PENDING devices in wave ${nextWave.id}`);
         
         for (const prog of nextWaveProgresses) {
           const deviceId = prog.bundleDevice.deviceId;
+          logger.info(`[AutoStart] Processing device ${deviceId} for wave ${nextWave.id}`);
           
           // Build the apps array with complete information
           const apps = (bundle?.apps || []).map((a: any, idx: number) => ({ 
@@ -343,6 +377,8 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
             order: a.order ?? idx + 1, 
             autoOpen: !!a.autoOpen 
           }));
+          
+          logger.info(`[AutoStart] Built ${apps.length} apps for device ${deviceId}:`, apps.map((a: any) => ({ name: a.name, packageName: a.packageName, version: a.version })));
           
           const anyAutoOpen = apps.some((a: any) => !!a.autoOpen);
           
@@ -367,8 +403,19 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
             }
           };
           
+          logger.info(`[AutoStart] Built command for device ${deviceId}:`, {
+            action: command.action,
+            type: command.type,
+            sessionId: command.sessionId,
+            batchId: command.batchId,
+            deviceId: command.deviceId,
+            bundlesCount: command.bundles.length,
+            options: command.options
+          });
+          
           try {
             // Check if device is online first
+            logger.info(`[AutoStart] Checking device ${deviceId} status...`);
             const device = await (prisma as any).device.findUnique({ 
               where: { id: deviceId }, 
               select: { connected: true, name: true } 
@@ -378,6 +425,8 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
               logger.warn(`[AutoStart] Device ${deviceId} not found in database`);
               continue;
             }
+            
+            logger.info(`[AutoStart] Device ${deviceId} (${device.name}) status: connected=${device.connected}`);
             
             if (device.connected === false) {
               logger.warn(`[AutoStart] Device ${deviceId} (${device.name}) is offline, marking as failed`);
@@ -394,12 +443,14 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
             }
             
             // Use the same messaging system as manual publish
+            logger.info(`[AutoStart] Publishing command to device ${deviceId} via subscription:device:${deviceId}`);
             const routing = MessageFactory.createSystemMessage('device', `subscription:device:${deviceId}`, command, SystemUser, { echoToSender: false });
             await publisher.publish(routing);
             
             logger.info(`[AutoStart] Successfully sent bundle_install command to device ${deviceId} (${device.name})`);
           } catch (sendErr: any) {
-            logger.warn(`Failed to send bundle_install to device ${deviceId} for wave ${nextWave.id}: ${sendErr?.message || String(sendErr)}`);
+            logger.warn(`[AutoStart] Failed to send bundle_install to device ${deviceId} for wave ${nextWave.id}: ${sendErr?.message || String(sendErr)}`);
+            logger.warn(`[AutoStart] Send error details:`, sendErr);
           }
         }
         

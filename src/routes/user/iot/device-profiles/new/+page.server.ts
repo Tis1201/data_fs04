@@ -197,6 +197,7 @@ export const actions: Actions = {
 
         try {
             // Create device profile with settings
+            // Filter out only the fields that exist in the database schema
             const profile = await locals.prisma.deviceProfile.create({
                 data: {
                     name: form.data.name,
@@ -204,13 +205,13 @@ export const actions: Actions = {
                     accountId: userAccountMembership.accountId,
                     createdBy: auth.user.id,
                     settings: {
-                        create: settings.map((setting, index) => ({
+                        create: settings.map((setting: any, index: number) => ({
                             key: setting.key,
-                            value: setting.value,
+                            value: String(setting.value || ''), // Ensure value is a string
                             dataType: setting.dataType,
                             label: setting.label,
-                            category: setting.category,
-                            order: setting.order || index
+                            category: setting.category || 'General',
+                            order: setting.order !== undefined ? setting.order : index
                         }))
                     }
                 }

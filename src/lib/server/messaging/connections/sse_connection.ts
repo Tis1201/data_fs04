@@ -54,7 +54,6 @@ export class SSEConnection implements Connection {
       message: 'Connection heartbeat',
       status: ResponseStatus.SUCCESS,
       severity: ResponseSeverity.INFO,
-      category: ResponseCategory.SYSTEM,
       meta: {
         connectionId: this.meta.id,
         deviceId: this.meta.deviceId
@@ -118,12 +117,12 @@ export class SSEConnection implements Connection {
 
     try {
       const message = typeof raw === 'string' ? raw : raw.toString();
-      logger.debug(`[SSEConnection] Received message:`, message);
+      logger.debug(`[SSEConnection] Received message: ${message}`);
 
       // Reset alive flag on any message
       this.isAlive = true;
     } catch (error) {
-      logger.error(`[SSEConnection] Error handling message:`, error);
+      logger.error(`[SSEConnection] Error handling message: ${error}`);
     }
   }
 
@@ -153,8 +152,10 @@ export class SSEConnection implements Connection {
       }
     }
 
-    ConnectionManager.unregisterConnection(this.meta.id);
-    logger.debug(`[SSEConnection] Connection closed: ${this.meta.id}`);
+    if (this.meta.id) {
+      ConnectionManager.unregisterConnection(this.meta.id);
+      logger.debug(`[SSEConnection] Connection closed: ${this.meta.id}`);
+    }
 
     //Todo: Need to clean up its own subscriptions
   }
