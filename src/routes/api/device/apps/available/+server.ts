@@ -112,7 +112,7 @@ export const GET: RequestHandler = restrictJWT(
             size: r.size,
             type: r.type,
             format: r.format,
-            download_url: `/api/resources-jwt/${r.id}`
+            download_url: `/api/device/resources/${r.id}`
           }));
 
           logger.info(`[JWT] Retrieved ${apps.length} user-uploaded apps`, {
