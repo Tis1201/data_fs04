@@ -3,36 +3,12 @@
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { writable } from "svelte/store";
-    import { Button } from "$lib/components/ui/button";
-    import * as Card from "$lib/components/ui/card";
-    import { Skeleton } from "$lib/components/ui/skeleton";
-    import { Badge } from "$lib/components/ui/badge";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
     import {
-        Clock,
-        RefreshCw,
-        Key,
-        Wifi,
-        Cpu,
-        Server,
-        Shield,
-        Info,
         Settings,
-        Tag,
-        Terminal,
-        Camera,
-        RotateCcw,
-        Upload,
-        FileText,
         Edit,
-        AlertCircle,
-        CheckCircle,
-        Loader2,
-        Monitor,
+
     } from "lucide-svelte";
     import { AdminPageLayout, AdminCard } from "$lib/components/admin";
-    import ActionHistory from "$lib/components/ui_components_sveltekit/devices/ActionHistory.svelte";
     import DeviceActions from "$lib/components/ui_components_sveltekit/devices/DeviceActions.svelte";
     import FirmwareModal from "$lib/components/ui_components_sveltekit/devices/FirmwareModal.svelte";
     import InstallAppModal from "$lib/components/ui_components_sveltekit/devices/InstallAppModal.svelte";
@@ -40,17 +16,10 @@
     import PushFileModal from "$lib/components/ui_components_sveltekit/devices/PushFileModal.svelte";
     import StatusBanner from "$lib/components/ui_components_sveltekit/devices/StatusBanner.svelte";
     import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
-    import { CompactInfoGrid, CompactInfoItem } from "$lib/components/ui_components_sveltekit/layout";
-    import DeviceInformationContent from "$lib/components/ui_components_sveltekit/devices/DeviceInformationContent.svelte";
-    import ConnectionStatusCard from "$lib/components/ui_components_sveltekit/devices/ConnectionStatusCard.svelte";
-    import SecurityCard from "$lib/components/ui_components_sveltekit/devices/SecurityCard.svelte";
-    import TechnicalDetailsContent from "$lib/components/ui_components_sveltekit/devices/TechnicalDetailsContent.svelte";
-    import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
     import { sseStore } from "$lib/stores/sse-store";
     import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
-    import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
     
     export let data: PageData;

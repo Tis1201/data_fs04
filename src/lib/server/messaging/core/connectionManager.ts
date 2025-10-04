@@ -30,11 +30,18 @@ class DefaultConnectionManager {
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
     // Set a UUID in connection.meta if not present
-    if (!('id' in connection.meta)) {
+    if (!('id' in connection.meta) || !connection.meta.id) {
       (connection.meta as any).id = uuidv4();
     }
 
-    const { id, userInfo } = connection.meta;
+    const id = connection.meta.id!; // Now guaranteed to exist
+    const { userInfo } = connection.meta;
+    
+    // Ensure userInfo.id exists
+    if (!userInfo?.id) {
+      logger.error('[ConnectionManager] Cannot register connection without userInfo.id');
+      return;
+    }
 
     this.liveConnections.set(id, connection);
 
@@ -44,7 +51,7 @@ class DefaultConnectionManager {
     this.userConnections.set(userInfo.id, connSet);
 
     // Store metadata in the shared store
-    connectionSharedStore.addMember(connection.meta.id,connection.meta);
+    connectionSharedStore.addMember(id, connection.meta);
     
     // Log connection counts every minute
     if (this.liveConnections.size === 1) {
@@ -55,7 +62,7 @@ class DefaultConnectionManager {
   unregisterConnection(connId: ConnectionId): void {
     const connection = this.liveConnections.get(connId);
     if (!connection) {
-      logger.warn(`[ConnectionManager] Attempted to unregister non-existent connection: ${connId}`);
+      logger.debug(`[ConnectionManager] Connection already unregistered: ${connId}`);
       return;
     }
 

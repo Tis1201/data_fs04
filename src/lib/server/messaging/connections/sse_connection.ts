@@ -152,9 +152,18 @@ export class SSEConnection implements Connection {
       }
     }
 
+    // FIX: Unregister connection silently to avoid race condition warnings
     if (this.meta.id) {
-      ConnectionManager.unregisterConnection(this.meta.id);
-      logger.debug(`[SSEConnection] Connection closed: ${this.meta.id}`);
+      try {
+        const connection = ConnectionManager.getConnection(this.meta.id);
+        if (connection) {
+          ConnectionManager.unregisterConnection(this.meta.id);
+          logger.debug(`[SSEConnection] Connection closed: ${this.meta.id}`);
+        }
+        // Silently ignore if already unregistered (race condition is benign)
+      } catch (error) {
+        // Ignore - connection may have been cleaned up already
+      }
     }
 
     //Todo: Need to clean up its own subscriptions

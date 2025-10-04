@@ -5,6 +5,30 @@
 import { getClickHouseClient } from './client';
 import { logger } from '$lib/server/logger';
 
+/**
+ * Parse size string like "30MB", "1.5GB" to bytes
+ */
+function parseSizeString(sizeStr: string): number {
+  if (typeof sizeStr === 'number') return sizeStr;
+  if (!sizeStr || typeof sizeStr !== 'string') return 0;
+  
+  const match = sizeStr.match(/^([\d.]+)\s*(B|KB|MB|GB|TB)?$/i);
+  if (!match) return 0;
+  
+  const value = parseFloat(match[1]);
+  const unit = (match[2] || 'B').toUpperCase();
+  
+  const multipliers: Record<string, number> = {
+    'B': 1,
+    'KB': 1024,
+    'MB': 1024 * 1024,
+    'GB': 1024 * 1024 * 1024,
+    'TB': 1024 * 1024 * 1024 * 1024
+  };
+  
+  return Math.round(value * (multipliers[unit] || 1));
+}
+
 export interface DeviceAppData {
   device_id: string;
   package_name: string;
@@ -113,7 +137,9 @@ export class DeviceAppService {
             version,
             app_type,
             metadata,
-            created_at
+            created_at,
+            last_modified,
+            size_bytes
           FROM (
             SELECT 
               device_id,
@@ -123,6 +149,8 @@ export class DeviceAppService {
               app_type,
               metadata,
               created_at,
+              last_modified,
+              size_bytes,
               ROW_NUMBER() OVER (PARTITION BY package_name ORDER BY created_at DESC) as rn
             FROM mv_device_apps 
             WHERE ${whereConditions}
@@ -137,10 +165,30 @@ export class DeviceAppService {
       const response = await result.json();
       // Extract the actual data array from the response
       const data = response?.data || [];
-      const typedData = data as unknown as DeviceAppData[];
+      
+      // Transform the data to match the expected format
+      const transformedData = data.map((app: any) => ({
+        device_id: app.device_id,
+        account_id: app.account_id || '',
+        package_name: app.package_name,
+        app_name: app.app_name,
+        version: app.version,
+        app_type: app.app_type || 'Normal',
+        metadata: app.metadata || {},
+        created_at: app.created_at,
+        last_modified: app.last_modified || app.created_at,
+        install_date: app.install_date || app.created_at,
+        // Parse size_bytes: if it's a string like "30MB", convert to bytes
+        size_bytes: typeof app.size_bytes === 'string' 
+          ? parseSizeString(app.size_bytes) 
+          : (app.size_bytes || 0),
+        is_pinned: app.is_pinned || false,
+        is_system_app: app.is_system_app || app.app_type?.toLowerCase() === 'system',
+        permissions: app.permissions || [],
+      }));
       
       return {
-        apps: typedData || [],
+        apps: transformedData || [],
         total,
         page,
         limit
