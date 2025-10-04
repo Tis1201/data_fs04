@@ -121,10 +121,17 @@ export class RedisStateManager implements StateManager {
     try {
       const bundles = await this.client.sMembers(this.processableBundlesKey);
       const now = new Date();
+      
+      // FIX: Use Promise.all() to parallelize Redis calls instead of blocking loop
+      const statePromises = bundles.map(bundleId => this.getBundleState(bundleId));
+      const states = await Promise.all(statePromises);
+      
       const processableBundles: string[] = [];
 
-      for (const bundleId of bundles) {
-        const state = await this.getBundleState(bundleId);
+      for (let i = 0; i < bundles.length; i++) {
+        const bundleId = bundles[i];
+        const state = states[i];
+        
         if (!state) continue;
 
         // ACTIVE bundles are always processable

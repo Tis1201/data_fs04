@@ -36,7 +36,7 @@ if (!building) {
 
             // Start bundle auto-publish scheduler
             try {
-                // startBundleAutoPublishScheduler(prisma as any, async (bundleId: string) => _publishBundleDirect(prisma as any, bundleId));
+                startBundleAutoPublishScheduler(prisma as any, async (bundleId: string) => _publishBundleDirect(prisma as any, bundleId));
                 logger.info('Bundle auto-publish scheduler started');
             } catch (e:any) {
                 logger.warn(`Failed to start auto-publish scheduler: ${e?.message || String(e)}`);
@@ -44,7 +44,7 @@ if (!building) {
 
             // Start file-backed status poller (ClickHouse simulation)
             try {
-                // await startFileStatusPoller();
+                await startFileStatusPoller();
                 logger.info('File status poller started');
             } catch (e:any) {
                 logger.warn(`Failed to start file status poller: ${e?.message || String(e)}`);
