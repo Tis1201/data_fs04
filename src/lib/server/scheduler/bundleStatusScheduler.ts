@@ -3,7 +3,7 @@ import { queryClickHouseEvents, testClickHouseConnection } from '$lib/server/cli
 import { initializeStateManager, getStateManager, closeStateManager } from '$lib/server/state/stateManagerFactory';
 import { eventDeduplication } from '$lib/server/state/eventDeduplication';
 import { processEventsWithStateValidation, checkAndTransitionBundleState } from './bundleEventProcessor';
-import { applyTimeouts } from './bundleTimeoutManager';
+import { applyTimeouts, syncCacheWithDatabase } from './bundleTimeoutManager';
 import { cleanupCompletedBundles } from './bundleCleanupManager';
 import { startFileBasedPoller, stopFileBasedPoller } from './fileBasedPoller';
 import { distributedLockManager, withDistributedLock, LOCK_CONFIG } from './distributedLock';
@@ -12,6 +12,7 @@ const POLL_MS = Number(process.env.FILE_STATUS_POLL_MS || 10000);
 const USE_CLICKHOUSE = process.env.USE_CLICKHOUSE === 'true' || process.env.CLICKHOUSE_URL !== undefined;
 
 let timer: NodeJS.Timeout | null = null;
+let timeoutTimer: NodeJS.Timeout | null = null;
 let stateManagerInitialized = false;
 let lockManagerInitialized = false;
 let isStarting = false; // FIX: Prevent race condition during startup
@@ -62,7 +63,27 @@ export async function startBundleStatusScheduler() {
       const connected = await testClickHouseConnection();
       if (!connected) {
         logger.error('[BundleStatusScheduler] ClickHouse connection failed, falling back to file-based polling');
-        startFileBasedPoller();
+        timer = startFileBasedPoller();
+        
+        // Start timeout manager even for file-based polling
+        try {
+          await syncCacheWithDatabase();
+          logger.info(`[BundleStatusScheduler] Timeout cache synced with database`);
+        } catch (e: any) {
+          logger.error(`[BundleStatusScheduler] Failed to sync timeout cache: ${String(e?.message || e)}`);
+        }
+        
+        // Start a separate timeout checker that runs every 30 seconds
+        timeoutTimer = setInterval(async () => {
+          try {
+            logger.info(`[BundleStatusScheduler] Running standalone timeout check`);
+            await applyTimeouts();
+          } catch (e: any) {
+            logger.error(`[BundleStatusScheduler] Standalone timeout check failed: ${String(e?.message || e)}`);
+          }
+        }, 30000); // Run every 30 seconds
+        
+        logger.info(`[BundleStatusScheduler] Started successfully with file-based polling and standalone timeout checker (30s)`);
         return;
       }
       
@@ -74,9 +95,42 @@ export async function startBundleStatusScheduler() {
         }
       }, POLL_MS);
 
-      logger.info(`[BundleStatusScheduler] Started successfully with ClickHouse (interval=${POLL_MS}ms)`);
+      // Sync timeout cache with database on startup
+      await syncCacheWithDatabase();
+
+      // Start a separate timeout checker that runs every 30 seconds
+      timeoutTimer = setInterval(async () => {
+        try {
+          logger.info(`[BundleStatusScheduler] Running standalone timeout check`);
+          await applyTimeouts();
+        } catch (e: any) {
+          logger.error(`[BundleStatusScheduler] Standalone timeout check failed: ${String(e?.message || e)}`);
+        }
+      }, 30000); // Run every 30 seconds
+
+      logger.info(`[BundleStatusScheduler] Started successfully with ClickHouse (interval=${POLL_MS}ms) and standalone timeout checker (30s)`);
     } else {
       timer = startFileBasedPoller();
+      
+      // Start timeout manager even for file-based polling
+      try {
+        await syncCacheWithDatabase();
+        logger.info(`[BundleStatusScheduler] Timeout cache synced with database`);
+      } catch (e: any) {
+        logger.error(`[BundleStatusScheduler] Failed to sync timeout cache: ${String(e?.message || e)}`);
+      }
+      
+      // Start a separate timeout checker that runs every 30 seconds
+      timeoutTimer = setInterval(async () => {
+        try {
+          logger.info(`[BundleStatusScheduler] Running standalone timeout check`);
+          await applyTimeouts();
+        } catch (e: any) {
+          logger.error(`[BundleStatusScheduler] Standalone timeout check failed: ${String(e?.message || e)}`);
+        }
+      }, 30000); // Run every 30 seconds
+      
+      logger.info(`[BundleStatusScheduler] Started successfully with file-based polling and standalone timeout checker (30s)`);
     }
   } finally {
     isStarting = false;
@@ -126,15 +180,14 @@ async function pollClickHouse() {
     
     if (events.length === 0) {
       logger.debug(`[BundleStatusScheduler] No events for processable bundles`);
-      return;
+    } else {
+      logger.info(`[BundleStatusScheduler] Processing ${events.length} events for ${processableBundles.length} processable bundles`);
+      
+      // 4. Process events with state validation and deduplication
+      await processEventsWithStateValidation(events);
     }
-
-    logger.info(`[BundleStatusScheduler] Processing ${events.length} events for ${processableBundles.length} processable bundles`);
     
-    // 4. Process events with state validation and deduplication
-    await processEventsWithStateValidation(events);
-    
-    // 5. Apply timeouts after processing events
+    // 5. Apply timeouts regardless of whether there are events (timeouts should always run)
     await applyTimeouts();
     
     // 6. Check for bundle state transitions after timeouts
@@ -155,8 +208,12 @@ export function stopBundleStatusScheduler() {
   if (timer) {
     clearInterval(timer);
     timer = null;
-    logger.info('[BundleStatusScheduler] Stopped');
   }
+  if (timeoutTimer) {
+    clearInterval(timeoutTimer);
+    timeoutTimer = null;
+  }
+  logger.info('[BundleStatusScheduler] Stopped');
   // Also stop file-based poller if it's running
   stopFileBasedPoller();
 }

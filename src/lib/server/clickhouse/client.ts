@@ -10,7 +10,6 @@ export type ClickHouseEvent = {
   message: string;
   ts: string;
   type: string;
-  event_id?: string; // Generated for deduplication
 };
 
 let clickhouseClient: ReturnType<typeof createClient> | null = null;
@@ -67,8 +66,7 @@ export async function queryClickHouseEvents(
         progress,
         message,
         ts,
-        type,
-        event_id
+        type
       FROM mv_bundle_logs 
       WHERE ts >= '${windowStartStr}'
         AND bundle_id IN (${bundleIdList})
@@ -78,7 +76,6 @@ export async function queryClickHouseEvents(
     `;
 
     logger.debug(`[ClickHouse] Querying events for ${processableBundleIds.length} processable bundles from ${windowStartStr}`);
-    logger.debug(`[ClickHouse] Querying events for ${query}`);
 
     const result = await client.query({
       query

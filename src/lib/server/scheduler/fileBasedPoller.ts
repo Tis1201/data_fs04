@@ -31,6 +31,8 @@ export async function pollOnce(logPath: string, offsetPath: string) {
       return; // no new data
     }
 
+    logger.info(`[FileBasedPoller] ${now} - Found new data: ${stat.size - offset} bytes (size=${stat.size}, offset=${offset})`);
+
     const bufSize = stat.size - offset;
     const buffer = Buffer.allocUnsafe(bufSize);
     await fd.read(buffer, 0, bufSize, offset);
@@ -42,8 +44,9 @@ export async function pollOnce(logPath: string, offsetPath: string) {
     for (const line of lines) {
       try {
         const evt = JSON.parse(line) as FileStatusEvent;
-        logger.debug(`[FileBasedPoller] Event line: ${line.slice(0, 300)}`);
+        logger.info(`[FileBasedPoller] Processing event: ${evt.deviceId} -> ${evt.bundleId} (${evt.status}, ${evt.progress}%)`);
         await processEvent(evt);
+        logger.info(`[FileBasedPoller] Successfully processed event for device ${evt.deviceId}`);
       } catch (e: any) {
         logger.warn(`[FileBasedPoller] Bad line skipped: ${line.slice(0, 200)}... (${String(e?.message || e)})`);
       }
@@ -90,7 +93,7 @@ export function startFileBasedPoller() {
     return fileBasedPollerTimer;
   }
 
-  const POLL_MS = Number(process.env.FILE_STATUS_POLL_MS || 10000);
+  const POLL_MS = Number(process.env.FILE_STATUS_POLL_MS || 60000);
   
   logger.info(`[FileBasedPoller] Starting with file-based polling (interval=${POLL_MS}ms, file=${DEFAULT_LOG_PATH})`);
   
@@ -100,10 +103,15 @@ export function startFileBasedPoller() {
   } catch {}
 
   fileBasedPollerTimer = setInterval(async () => {
+    const startTime = Date.now();
     try {
+      logger.debug(`[FileBasedPoller] Starting poll cycle at ${new Date().toISOString()}`);
       await pollOnce(DEFAULT_LOG_PATH, DEFAULT_OFFSET_PATH);
+      const duration = Date.now() - startTime;
+      logger.debug(`[FileBasedPoller] Poll cycle completed in ${duration}ms`);
     } catch (e: any) {
-      logger.warn(`[FileBasedPoller] Poll error: ${String(e?.message || e)}`);
+      const duration = Date.now() - startTime;
+      logger.warn(`[FileBasedPoller] Poll error after ${duration}ms: ${String(e?.message || e)}`);
     }
   }, POLL_MS);
 

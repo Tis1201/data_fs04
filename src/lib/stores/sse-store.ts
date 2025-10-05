@@ -122,6 +122,8 @@ function createSSEStore() {
 
             eventSource.onopen = () => {
                 console.log(`[SSE] Connected to ${url}`);
+                console.log('[SSE] EventSource readyState:', eventSource?.readyState);
+                console.log('[SSE] EventSource URL:', eventSource?.url);
                 update(state => ({
                     ...state,
                     status: 'OPEN',
@@ -212,6 +214,8 @@ function createSSEStore() {
 
             eventSource.onerror = (event) => {
                 console.error('[SSE] Connection error:', event);
+                console.error('[SSE] EventSource readyState:', eventSource?.readyState);
+                console.error('[SSE] EventSource URL:', eventSource?.url);
                 
                 update(state => ({
                     ...state,

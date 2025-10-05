@@ -9,7 +9,7 @@ import type { UserInfo } from '$lib/server/types/user';
 export const connectionRouter: Router = {
   async resolve(senderInfo: UserInfo, scope: string): Promise<string[]> {
     const [kind, id] = scope.split(':');
-    
+
     if (!id) {
       console.warn(`[ConnectionRouter] Invalid connection ID in scope: ${scope}`);
       return [];
@@ -17,12 +17,13 @@ export const connectionRouter: Router = {
 
     // Check if connection exists
     const connection = await ConnectionManager.getConnection(id);
-    
+
     if (!connection) {
       // Connection not found - this is normal for disconnected clients
       return [];
     }
     
+    logger.info(`[DEBUG] ConnectionRouter returning connection: ${id}`);
     return [id];
   }
 };

@@ -99,7 +99,8 @@
                 { href: "/admin/iot/device-profiles", label: "Device Profiles", icon: FileCog },
                 { href: "/admin/iot/resources", label: "Resources", icon: Files},
                 { href: "/admin/iot/bundles", label: "Bundles", icon: PackagePlus},
-                { href: "/admin/iot/preclaims", label: "Preclaims", icon: ShieldPlus }
+                { href: "/admin/iot/preclaims", label: "Preclaims", icon: ShieldPlus },
+                { href: "/admin/iot/pin-rules", label: "Pin Rules", icon: Pin }
             ]
         },
         { 
@@ -110,8 +111,7 @@
                 { href: "/admin/accounts/accounts", label: "Accounts", icon: Layers },
                 { href: "/admin/accounts/companies", label: "Companies", icon: Briefcase },
                 { href: "/admin/users", label: "Users", icon: Users },
-                { href: "/admin/accounts/groups", label: "Groups", icon: UserCog2 },
-                { href: "/admin/pin-rules", label: "Pin Rules", icon: Pin }
+                { href: "/admin/accounts/groups", label: "Groups", icon: UserCog2 }
             ]
         },
         {

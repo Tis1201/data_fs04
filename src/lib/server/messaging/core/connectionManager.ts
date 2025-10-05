@@ -29,9 +29,18 @@ class DefaultConnectionManager {
   }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
-    // Set a UUID in connection.meta if not present
-    if (!('id' in connection.meta) || !connection.meta.id) {
+    logger.info(`[DEBUG] ConnectionManager received connection:`, {
+      hasId: !!connection.meta.id,
+      id: connection.meta.id,
+      nodeId: connection.meta.nodeId,
+      protocol: connection.meta.protocol
+    });
+
+    if (!connection.meta.id && connection.meta.nodeId !== 'device-listen') {
       (connection.meta as any).id = uuidv4();
+      logger.info(`[DEBUG] Assigned new UUID to connection: ${connection.meta.id}`);
+    } else {
+      logger.info(`[DEBUG] Preserving existing connection ID: ${connection.meta.id}`);
     }
 
     const id = connection.meta.id!; // Now guaranteed to exist
