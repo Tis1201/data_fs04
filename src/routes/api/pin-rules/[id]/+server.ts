@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
-import { pinSSEService } from '$lib/server/pin-management/sseService';
 import type { RequestHandler } from './$types';
 
 // GET /api/pin-rules/[id] - Get a specific pin rule
@@ -221,13 +220,6 @@ export const PUT = restrict(
         changes: Object.keys(updateData)
       });
       
-      // Broadcast rule update event
-      if (updatedRule.accountId) {
-        pinSSEService.notifyRuleUpdated(updatedRule.accountId, updatedRule);
-      } else {
-        pinSSEService.notifyRuleUpdated('admin', updatedRule);
-      }
-      
       return json({
         success: true,
         data: {
@@ -317,13 +309,6 @@ export const DELETE = restrict(
         userId: auth.user.id,
         ruleType: existingRule.ruleType
       });
-      
-      // Broadcast rule deletion event
-      if (existingRule.accountId) {
-        pinSSEService.notifyRuleDeleted(existingRule.accountId, id, existingRule.ruleType);
-      } else {
-        pinSSEService.notifyRuleDeleted('admin', id, existingRule.ruleType);
-      }
       
       return json({
         success: true,

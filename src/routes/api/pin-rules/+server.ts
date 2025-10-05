@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
-import { pinSSEService } from '$lib/server/pin-management/sseService';
 import type { RequestHandler } from './$types';
 
 // GET /api/pin-rules - Get all pin rules (filtered by user permissions)
@@ -11,10 +10,11 @@ export const GET = restrict(
       const { prisma } = locals;
       
       // Get query parameters
+      const search = url.searchParams.get('search') || '';
       const ruleType = url.searchParams.get('ruleType') || '';
       const accountId = url.searchParams.get('accountId') || '';
       const isActive = url.searchParams.get('isActive');
-      logger.info(`[PinRulesAPI][GET] incoming params: ${JSON.stringify({ ruleType, accountId, isActive })}`);
+      logger.info(`[PinRulesAPI][GET] incoming params: ${JSON.stringify({ search, ruleType, accountId, isActive })}`);
       logger.info(`[PinRulesAPI][GET] user context: ${JSON.stringify({ userId: auth?.user?.id, systemRole: auth?.user?.systemRole })}`);
       
       // Build where clause based on user permissions
@@ -35,17 +35,49 @@ export const GET = restrict(
         whereClause.isActive = isActive === 'true';
       }
       
+      // Add search filter if provided
+      if (search) {
+        const searchConditions = [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { apps: { has: search } }
+        ];
+        
+        // If we already have other conditions, combine them with AND
+        if (Object.keys(whereClause).length > 0) {
+          whereClause = {
+            AND: [
+              whereClause,
+              { OR: searchConditions }
+            ]
+          };
+        } else {
+          whereClause.OR = searchConditions;
+        }
+      }
+      
       // Permission-based scoping
       if (auth.user.systemRole === 'ADMIN') {
         // Admins: return only admin-level rules
         logger.info('[PinRulesAPI][GET] applying ADMIN scoping (admin_default/admin_custom only)');
-        whereClause = {
-          ...whereClause,
+        const adminRuleTypes = {
           OR: [
             { ruleType: 'admin_default' },
             { ruleType: 'admin_custom' }
           ]
         };
+        
+        // Combine with existing whereClause
+        if (Object.keys(whereClause).length > 0) {
+          whereClause = {
+            AND: [
+              whereClause,
+              adminRuleTypes
+            ]
+          };
+        } else {
+          whereClause = adminRuleTypes;
+        }
       } else {
         // Non-admins: scope to account, and only see
         // - user_default for their account (all account users can see)
@@ -246,13 +278,6 @@ export const POST = restrict(
         userId: auth.user.id,
         accountId: newRule.accountId
       });
-      
-      // Broadcast rule creation event
-      if (newRule.accountId) {
-        pinSSEService.notifyRuleCreated(newRule.accountId, newRule);
-      } else {
-        pinSSEService.notifyRuleCreated('admin', newRule);
-      }
       
       return json({
         success: true,

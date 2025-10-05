@@ -5,7 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
 // Allowed app formats (server-enforced)
-const ALLOWED_FORMATS = new Set(['apk', 'ipa', 'app', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'zip']);
+const ALLOWED_FORMATS = new Set(['apk', 'ipa', 'app', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'cpk']);
 
 // Allowed sort fields mapping to DB columns
 const SORT_FIELDS = new Set(['createdAt', 'name', 'version', 'size']);
@@ -20,11 +20,14 @@ function parseCsvList(param: string | null): string[] | undefined {
 }
 
 export const GET: RequestHandler = restrict(
-  async ({ url, locals }: { url: URL; locals: any }) => {
+  async ({ url, locals, auth }: { url: URL; locals: any; auth: any }) => {
     try {
       const search = url.searchParams.get('search');
       const formatFilter = parseCsvList(url.searchParams.get('format'));
       const versionFilter = url.searchParams.get('version');
+      const ruleId = url.searchParams.get('ruleId');
+      const excludePackagesCsv = url.searchParams.get('excludePackages');
+      const excludePackages = excludePackagesCsv ? excludePackagesCsv.split(',').map((s) => s.trim()).filter(Boolean) : [];
       const createdAfter = url.searchParams.get('createdAfter');
       const createdBefore = url.searchParams.get('createdBefore');
       const pageParam = url.searchParams.get('page');
@@ -59,7 +62,6 @@ export const GET: RequestHandler = restrict(
       if (formatFilter && formatFilter.length) {
         where.format = { in: formatFilter };
       } else {
-        // Default to allowed app formats
         where.format = { in: Array.from(ALLOWED_FORMATS) };
       }
 
@@ -82,6 +84,23 @@ export const GET: RequestHandler = restrict(
         ];
       }
 
+      // Exclude already-selected packages from rule if provided
+      if (ruleId) {
+        const rule = await locals.prisma.pinRule.findUnique({
+          where: { id: ruleId },
+          select: { apps: true }
+        });
+        const rulePkgs = (rule?.apps ?? []).filter(Boolean);
+        if (rulePkgs.length) {
+          if (!where.NOT) where.NOT = [] as any;
+          (where.NOT as any[]).push({ packageName: { in: rulePkgs } });
+        }
+      }
+      if (excludePackages.length) {
+        if (!where.NOT) where.NOT = [] as any;
+        (where.NOT as any[]).push({ packageName: { in: excludePackages } });
+      }
+
       // Pagination calculus
       const skip = (page - 1) * pageSize;
       const take = pageSize;
@@ -100,13 +119,34 @@ export const GET: RequestHandler = restrict(
       });
       logger.info(`[AppsAPI] Where clause:`, where);
 
-      // Count total
-      const totalItems = await locals.prisma.resource.count({ where });
+      // Permission scoping: Admin sees all; others restricted to their accounts
+      if ((auth?.user?.systemRole || '').toUpperCase() !== 'ADMIN') {
+        const memberships = await locals.prisma.accountMembership.findMany({
+          where: { userId: auth?.user?.id },
+          select: { accountId: true }
+        });
+        const accountIds = memberships.map((m: any) => m.accountId);
+        // If no accounts, force empty result set safely
+        where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
+      }
+
+      // Count total (distinct by packageName)
+      // Exclude null package names from unique list
+      if (!where.NOT) where.NOT = [] as any;
+      (where.NOT as any[]).push({ packageName: null });
+
+      const grouped = await locals.prisma.resource.groupBy({
+        by: ['packageName'],
+        where,
+        _count: { _all: true }
+      });
+      const totalItems = grouped.length;
       logger.info(`[AppsAPI] Total items found: ${totalItems}`);
 
-      // Fetch items
+      // Fetch items (distinct by packageName)
       const items = await locals.prisma.resource.findMany({
         where,
+        distinct: ['packageName'],
         orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }], // stable tie-breaker
         skip,
         take,
@@ -145,5 +185,5 @@ export const GET: RequestHandler = restrict(
       return json({ success: false, error: 'Failed to fetch app resources' }, { status: 500 });
     }
   },
-  [SystemRole.ADMIN]
+  [SystemRole.ADMIN, SystemRole.USER]
 );

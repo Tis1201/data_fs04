@@ -6,23 +6,12 @@
     import { toast } from 'svelte-sonner';
     import {
         ArrowLeft,
-        Save,
         Trash2,
         Package,
         Calendar,
-        Layers,
         Settings,
         BarChart3,
-        Activity,
-        Plus,
         Play,
-        Smartphone,
-        Wifi,
-        WifiOff,
-        Info,
-        Clock,
-        User,
-        Globe,
         Copy
     } from 'lucide-svelte';
     import { api_post, api_delete } from '$lib/utils/ApiUtils';

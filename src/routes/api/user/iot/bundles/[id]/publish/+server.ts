@@ -7,6 +7,8 @@ import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 import { initializeStateManager, getStateManager } from '$lib/server/state/stateManagerFactory';
 import { BundleProcessingState } from '$lib/server/state/types';
+import { registerWaveTimeout, setBundleTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
+import { calculateBundleTimeout, getTimeoutMinutes } from '$lib/server/config/timeoutConfig';
 
 // Core implementation that can be called from HTTP route and from scheduler
 export async function _publishBundleCore(prisma: any, bundleId: string, userId = 'system') {
@@ -86,10 +88,21 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
 
       logger.info(`Bundle ${bundleId} published with ${totalWaves} waves created (size=${waveSize}, devices=${totalDevices})`);
 
+      // Set bundle timeout - will be calculated when apps are available
+      let bundleTimeoutSet = false;
+
       if (createdWaves.length > 0) {
         const firstWaveId = createdWaves[0].id;
         try {
           await prisma.bundleWave.update({ where: { id: firstWaveId }, data: { status: 'IN_PROGRESS', startTime: new Date(), updatedBy: userId } });
+
+          // Register auto-started first wave for timeout tracking
+          try {
+            await registerWaveTimeout(firstWaveId, bundleId, new Date());
+            logger.info(`[PublishBundle] Registered auto-started first wave ${firstWaveId} for timeout tracking`);
+          } catch (timeoutErr: any) {
+            logger.warn(`[PublishBundle] Failed to register auto-started wave for timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
+          }
 
           // Notify UI that bundle moved to IN_PROGRESS (auto-started first wave)
           try {
@@ -182,6 +195,18 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
             } catch {}
 
             const apps = (bundleWithApps?.apps || []).map((a: any, idx: number) => ({ resourceId: a.resourceId, name: a.resource?.name, packageName: a.resource?.packageName, path: a.resource?.path, version: a.resource?.version, format: a.resource?.format, size: a.resource?.size, order: a.order ?? idx + 1, autoOpen: !!a.autoOpen }));
+
+            if (!bundleTimeoutSet) {
+              const numApps = Math.max(1, apps.length || 1);
+              const timeoutMs = calculateBundleTimeout(numApps);
+              try {
+                await setBundleTimeout(bundleId, timeoutMs);
+                logger.info(`[PublishBundle] Set bundle ${bundleId} timeout to ${getTimeoutMinutes(timeoutMs)} minutes (${numApps} apps)`);
+                bundleTimeoutSet = true;
+              } catch (timeoutErr: any) {
+                logger.warn(`[PublishBundle] Failed to set bundle timeout: ${String(timeoutErr?.message || timeoutErr)}`);
+              }
+            }
 
             const anyAutoOpen = apps.some((a: any) => !!a.autoOpen);
             const payload: Record<string, unknown> = {

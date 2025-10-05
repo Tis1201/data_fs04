@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+    import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { logger } from '$lib/server/logger';
 import { restrictJWT, type JWTAuthenticatedEvent } from '$lib/server/security/jwt-guard';

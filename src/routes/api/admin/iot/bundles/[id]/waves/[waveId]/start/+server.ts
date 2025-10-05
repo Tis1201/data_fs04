@@ -3,7 +3,10 @@ import type { RequestHandler } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { sseService } from '$lib/server/sse/sseService';
+// Removed sseService import - using publisher instead
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 
 export const POST: RequestHandler = restrict(
   async ({ params, locals }) => {
@@ -70,15 +73,27 @@ export const POST: RequestHandler = restrict(
             ],
             options: { reboot: false, autoOpen: false }
           };
-          await sseService.sendToDevice(deviceId, {
-            type: 'device',
-            scope: `subscription:device:${deviceId}`,
-            payload: command
-          });
+          // Use publisher instead of sseService
+          const routing = MessageFactory.createSystemMessage(
+            'device:actionRequest',
+            `subscription:device:${deviceId}`,
+            command,
+            { id: auth.user.id, name: auth.user.name },
+            { echoToSender: false }
+          );
+          await publisher.publish(routing);
         }
         logger.info(`Dispatched bundle_install to ${progresses.length} devices for wave ${waveId}`);
       } catch (dispatchErr: any) {
         logger.warn(`Failed dispatching devices for wave ${waveId}: ${dispatchErr?.message || String(dispatchErr)}`);
+      }
+
+      // Register wave for timeout tracking
+      try {
+        await registerWaveTimeout(waveId, bundleId, new Date());
+        logger.info(`[WaveStart] Registered wave ${waveId} for timeout tracking`);
+      } catch (timeoutErr: any) {
+        logger.warn(`[WaveStart] Failed to register wave for timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
       }
 
       logger.info(`Wave ${waveId} for bundle ${bundleId} started by ${auth.user.id}`);

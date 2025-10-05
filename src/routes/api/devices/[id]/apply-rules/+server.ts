@@ -2,7 +2,6 @@ import { json } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { PinRuleEngine } from '$lib/server/pin-management/ruleEngine';
-import { pinSSEService } from '$lib/server/pin-management/sseService';
 import type { RequestHandler } from './$types';
 
 // POST /api/devices/[id]/apply-rules - Apply all applicable rules to a device
@@ -58,9 +57,6 @@ export const POST = restrict(
       // Use the rule engine to apply rules
       const ruleEngine = new PinRuleEngine(prisma);
       const result = await ruleEngine.applyRulesToDevice(deviceId, auth.user.id);
-      
-      // Broadcast rule application event
-      pinSSEService.notifyRuleApplied(deviceId, '', result.appliedPins, result.removedPins);
       
       return json({
         success: true,

@@ -8,6 +8,7 @@ import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
+import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
 
 // Define action types and their configurations (NEW UNIFIED FLOW)
 const ACTION_CONFIGS = {
@@ -26,19 +27,19 @@ const ACTION_CONFIGS = {
     installApp: {
         actionType: 'install_app',
         sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
-        timeout: 10 * 60 * 1000, // 10 minutes
+        timeout: TimeoutConfig.DEVICE_ACTION,
         requiredFields: ['packageName']
     },
     pushFile: {
         actionType: 'push_file',
         sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
-        timeout: 15 * 60 * 1000, // 15 minutes
+        timeout: TimeoutConfig.DEVICE_ACTION + (5 * 60 * 1000), // 15 minutes (10 + 5)
         requiredFields: ['sourcePath', 'destinationPath']
     },
     pullFile: {
         actionType: 'pull_file',
         sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
-        timeout: 10 * 60 * 1000, // 10 minutes
+        timeout: TimeoutConfig.DEVICE_ACTION,
         requiredFields: ['sourcePath', 'destinationPath']
     },
     updateFirmware: {
@@ -50,7 +51,7 @@ const ACTION_CONFIGS = {
     getLogs: {
         actionType: 'get_logs',
         sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
-        timeout: 10 * 60 * 1000, // 10 minutes
+        timeout: TimeoutConfig.DEVICE_ACTION,
         requiredFields: ['format']
     },
     screenshot: {

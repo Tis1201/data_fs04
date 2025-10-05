@@ -166,6 +166,84 @@ export const actions: Actions = {
                 }
             }
 
+            // Auto-reapply to all assigned devices after profile update
+            try {
+                // Get all devices assigned to this profile
+                const assignedDevices = await locals.prisma.device.findMany({
+                    where: {
+                        profileAssignment: {
+                            profileId: profileId
+                        },
+                        status: 'ACTIVE'
+                    },
+                    select: { id: true, name: true }
+                });
+
+                if (assignedDevices.length > 0) {
+                    // Update DeviceProfileAssignment records to APPLYING status
+                    await locals.prisma.deviceProfileAssignment.updateMany({
+                        where: {
+                            deviceId: { in: assignedDevices.map(d => d.id) },
+                            profileId: profileId
+                        },
+                        data: {
+                            status: 'APPLYING',
+                            lastSyncAt: new Date()
+                        }
+                    });
+
+                    // Send reapply messages to each device
+                    for (const device of assignedDevices) {
+                        try {
+                            // Call the device assignment endpoint to send the reapply message
+                            await fetch(`/api/device-profiles/${profileId}/assign`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    deviceIds: [device.id]
+                                })
+                            });
+                        } catch (error) {
+                            console.error(`Failed to send auto-reapply message to device ${device.id}: ${String(error)}`);
+                        }
+                    }
+
+                    // Send real-time notification to UI about auto-reapply
+                    try {
+                        // Import messaging components for UI notification
+                        const { publisher } = await import('$lib/server/messaging/core/publisher');
+                        const { MessageFactory } = await import('$lib/server/messaging/interfaces/message');
+                        const { SystemUser } = await import('$lib/server/messaging/interfaces/message');
+
+                        // Send UI notification to profile scope
+                        const uiNotification = MessageFactory.createSystemMessage(
+                            'device:profileUpdate',
+                            `subscription:profile:${profileId}`,
+                            {
+                                action: 'applyProfile',
+                                profileId: profileId,
+                                message: `Profile updated - reapplying to ${assignedDevices.length} devices`,
+                                sentAt: new Date().toISOString(),
+                                autoReapply: true,
+                                deviceCount: assignedDevices.length,
+                                deviceIds: assignedDevices.map(d => d.id)
+                            },
+                            SystemUser,
+                            { echoToSender: false }
+                        );
+
+                        await publisher.publish(uiNotification);
+                    } catch (uiError) {
+                        console.error(`Failed to send auto-reapply UI notification: ${String(uiError)}`);
+                    }
+                }
+            } catch (autoReapplyError) {
+                console.error(`Error during auto-reapply: ${String(autoReapplyError)}`);
+                // Don't fail the profile update if auto-reapply fails
+            }
+
             return { form, success: true, message: 'Device profile updated successfully' };
 
         } catch (error) {

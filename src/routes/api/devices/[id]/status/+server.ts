@@ -4,8 +4,23 @@ import { restrict_device } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
+import { z } from 'zod';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { SystemUser } from '$lib/server/messaging/interfaces/message';
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+// Validation schema for device status updates
+const DeviceStatusUpdateSchema = z.object({
+    logId: z.string().optional(),
+    action: z.string(),
+    status: z.enum(['initiated', 'in_progress', 'success', 'complete', 'failed', 'cancelled', 'timeout']),
+    message: z.string().optional(),
+    progress: z.number().min(0).max(100).optional(),
+    profileId: z.string().optional(),
+    metadata: z.record(z.any()).optional()
+});
+
+export const POST: RequestHandler = async ({ params, request, locals }) => {
     const result = await restrict_device({ locals, request });
     
     if ('error' in result) {
@@ -28,7 +43,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     try {
         const body = await request.json();
-        const { logId, action, status, message } = body;
+        const { logId, action, status, message, progress, profileId, metadata } = body;
 
         if (!logId || !action || !status) {
             return json({
@@ -37,6 +52,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
                 message: 'Missing required fields'
             }, { status: 400 });
         }
+
+        logger.info(`[Device Status Update] Received status update for device ${device.id}`, {
+            deviceId: device.id,
+            action,
+            status,
+            logId,
+            profileId
+        });
 
         // Find the action log
         const actionLog = await prisma.deviceActionLog.findFirst({
@@ -54,15 +77,31 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             }, { status: 404 });
         }
 
-        // Update the action log with the status and get the updated log with duration
-        const finalStatus = status === 'complete' ? 'success' : 'failed';
-        const updatedLog = await ActionLogger.finalize(actionLog.id, finalStatus, message || `${action} ${status}`);
+        // Handle action log updates for all action types
+        let updatedLog = null;
+        let durationMs = null;
+
+        if (status === 'complete' || status === 'success') {
+            updatedLog = await ActionLogger.finalize(actionLog.id, 'success', message || `${action} completed successfully`);
+            durationMs = updatedLog.durationMs;
+        } else if (status === 'failed' || status === 'error') {
+            updatedLog = await ActionLogger.finalize(actionLog.id, 'failed', message || `${action} failed`);
+            durationMs = updatedLog.durationMs;
+        } else if (status === 'in_progress') {
+            await ActionLogger.updateProgress({
+                logId: actionLog.id,
+                status: 'in_progress',
+                progress: progress || 0,
+                message: message || `${action} in progress`
+            });
+        }
+
+        // Handle profile-specific logic if this is a profile action
+        if (action === 'applyProfile' && profileId) {
+            await handleProfileApplication(device.id, { status, profileId, message });
+        }
 
         // Publish SSE update for real-time UI updates
-        const { MessageFactory } = await import('$lib/server/messaging/interfaces/message');
-        const { publisher } = await import('$lib/server/messaging/core/publisher');
-        const { SystemUser } = await import('$lib/server/messaging/interfaces/message');
-
         const sseMessage = MessageFactory.createSystemMessage(
             'device:statusUpdate',
             `subscription:device:${device.id}`,
@@ -71,7 +110,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
                 action,
                 status,
                 message: message || `${action} ${status}`,
-                durationMs: updatedLog.durationMs, // Include server-calculated duration
+                durationMs, // Include server-calculated duration
+                progress,
                 timestamp: new Date().toISOString()
             },
             SystemUser,
@@ -80,7 +120,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
         await publisher.publish(sseMessage);
 
-        logger.info(`[DeviceStatusAPI] Device ${device.id} reported ${action} ${status} for log ${logId}`);
+        logger.info(`[Device Status Update] Device ${device.id} reported ${action} ${status} for log ${logId}`);
 
         return json({
             success: true,
@@ -89,12 +129,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
                 action,
                 status,
                 message: message || `${action} ${status}`,
+                durationMs,
                 timestamp: new Date().toISOString()
             }
         });
 
     } catch (error) {
-        logger.error(`[DeviceStatusAPI] Error handling device status update: ${String(error)}`);
+        logger.error(`[Device Status Update] Error handling device status update: ${String(error)}`);
+        
+        if (error instanceof z.ZodError) {
+            return json({ error: 'Invalid request data', details: error.errors }, { status: 400 });
+        }
+        
         return json({
             success: false,
             error: 'Failed to process status update',
@@ -102,3 +148,78 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         }, { status: 500 });
     }
 };
+
+async function handleProfileApplication(deviceId: string, data: any) {
+    try {
+        if ((data.status === 'success' || data.status === 'complete') && data.profileId) {
+            // Update the DeviceProfileAssignment record to SUCCESS
+            await prisma.deviceProfileAssignment.updateMany({
+                where: {
+                    deviceId: deviceId,
+                    profileId: data.profileId,
+                    status: 'APPLYING' // Only update if still in APPLYING status
+                },
+                data: {
+                    status: 'SUCCESS',
+                    appliedAt: new Date(),
+                    lastSyncAt: new Date()
+                }
+            });
+
+            logger.info(`[Device Status Update] Profile assignment completed successfully for device ${deviceId}`, {
+                deviceId,
+                profileId: data.profileId,
+                status: 'SUCCESS'
+            });
+
+            // Send SSE notification to web UI to update the device list
+            try {
+                const routingMessage = MessageFactory.createSystemMessage(
+                    'device:profileUpdate',
+                    `subscription:device:${deviceId}`,
+                    {
+                        action: 'applyProfile',
+                        deviceId: deviceId,
+                        status: 'complete',
+                        profileId: data.profileId,
+                        message: 'Profile assignment completed successfully',
+                        sentAt: new Date().toISOString()
+                    },
+                    SystemUser,
+                    { echoToSender: false }
+                );
+
+                await publisher.publish(routingMessage);
+                logger.info(`[Device Status Update] SSE notification sent for device ${deviceId} profile completion`);
+            } catch (sseError) {
+                logger.error(`[Device Status Update] Error sending SSE notification: ${String(sseError)}`);
+            }
+        } else if (data.status === 'failed') {
+            // Mark assignment as failed
+            await prisma.deviceProfileAssignment.updateMany({
+                where: {
+                    deviceId: deviceId,
+                    profileId: data.profileId
+                },
+                data: {
+                    status: 'FAILED',
+                    lastSyncAt: new Date()
+                }
+            });
+
+            logger.warn(`[Device Status Update] Profile assignment failed for device ${deviceId}`, {
+                deviceId,
+                profileId: data.profileId,
+                message: data.message
+            });
+
+            // Note: No SSE notification needed here as the device has already processed the failure
+            // The UI will be updated through the existing SSE subscription mechanism
+        }
+    } catch (error) {
+        logger.error(`[Device Status Update] Error updating profile assignment: ${String(error)}`);
+        throw error;
+    }
+}
+
+// Simplified - removed complex action log creation for now
