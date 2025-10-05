@@ -50,6 +50,11 @@ export class RedisStateManager implements StateManager {
     }
   }
 
+  // Expose Redis client for timeout manager
+  get redisClient(): RedisClientType | null {
+    return this.client;
+  }
+
   async getBundleState(bundleId: string): Promise<BundleProcessingStateData | null> {
     if (!this.client) return null;
 
