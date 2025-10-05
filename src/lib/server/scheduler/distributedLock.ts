@@ -67,11 +67,14 @@ class DistributedLockManager {
 
     try {
       const lock = await (this.redlock as Redlock).acquire([resource], ttl);
-      logger.debug(`[DistributedLock] Acquired lock: ${resource} (TTL: ${ttl}ms)`);
+      // FIX: Remove noisy debug log - only log on contention/errors
       return lock;
     } catch (error: any) {
       // Lock acquisition failed (another instance has the lock)
-      logger.debug(`[DistributedLock] Failed to acquire lock: ${resource} - ${error?.message || String(error)}`);
+      // FIX: Only log when there's actual contention (not just normal skip)
+      if (error?.message && !error.message.includes('already locked')) {
+        logger.debug(`[DistributedLock] Failed to acquire lock: ${resource} - ${error?.message || String(error)}`);
+      }
       return null;
     }
   }
@@ -118,7 +121,7 @@ class DistributedLockManager {
 
     try {
       await lock.release();
-      logger.debug(`[DistributedLock] Released lock: ${(lock as any).resources?.[0] || 'unknown'}`);
+      // FIX: Remove noisy debug log - only log on errors
     } catch (error: any) {
       logger.warn(`[DistributedLock] Failed to release lock: ${error?.message || String(error)}`);
     }
@@ -174,14 +177,12 @@ export async function withDistributedLock<T>(
     }
 
     if (!lock) {
-      logger.debug(`[DistributedLock] Skipping task - lock not acquired: ${resource}`);
+      // FIX: Remove noisy debug - it's normal for another instance to have the lock
       return null;
     }
 
-    // Execute the task
-    logger.debug(`[DistributedLock] Executing task with lock: ${resource}`);
+    // Execute the task (removed noisy logs)
     const result = await task();
-    logger.debug(`[DistributedLock] Task completed successfully: ${resource}`);
     
     return result;
   } catch (error) {

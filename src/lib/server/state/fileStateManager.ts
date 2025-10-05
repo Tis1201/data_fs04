@@ -9,6 +9,11 @@ export class FileStateManager implements StateManager {
   private states: BundleStates = {};
   private readonly stateFile: string;
   private readonly gracePeriodHours: number;
+  
+  // FileStateManager doesn't have Redis client
+  get redisClient(): null {
+    return null;
+  }
 
   constructor() {
     this.stateFile = process.env.BUNDLE_STATE_FILE || './workings/bundle_states.json';

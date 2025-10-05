@@ -23,44 +23,58 @@ export const GET = restrict(
       const { prisma } = locals;
       const offset = (page - 1) * limit;
 
-      // Count user-uploaded apps (Resource with packageName)
-      const total = await prisma.resource.count({
-        where: {
-          createdBy: auth.user.id,
-          packageName: { not: null },
-          OR: search
-            ? [
-                { packageName: { contains: search, mode: 'insensitive' } },
-                { name: { contains: search, mode: 'insensitive' } }
-              ]
-            : undefined
+      // Determine if user is admin
+      const isAdmin = auth.user.systemRole === 'ADMIN';
+
+      // Build where clause - admins see all apps, others see only their own
+      const whereClause: any = {
+        packageName: { not: null },
+        OR: search
+          ? [
+              { packageName: { contains: search, mode: 'insensitive' } },
+              { name: { contains: search, mode: 'insensitive' } }
+            ]
+          : undefined
+      };
+
+      // Non-admins can only see their own apps
+      if (!isAdmin) {
+        whereClause.createdBy = auth.user.id;
+      }
+
+      // Get unique packageNames with aggregation
+      const uniquePackages = await prisma.resource.groupBy({
+        by: ['packageName'],
+        where: whereClause,
+        orderBy: {
+          packageName: 'asc'
+        },
+        _count: {
+          packageName: true
         }
       });
 
-      // Fetch paginated list
-      const resources = await prisma.resource.findMany({
+      const total = uniquePackages.length;
+      const paginatedPackages = uniquePackages.slice(offset, offset + limit);
+
+      // For each unique packageName, get one representative resource to get the name
+      const packageNames = paginatedPackages.map((p: any) => p.packageName).filter(Boolean);
+      const resourceDetails = await prisma.resource.findMany({
         where: {
-          createdBy: auth.user.id,
-          packageName: { not: null },
-          OR: search
-            ? [
-                { packageName: { contains: search, mode: 'insensitive' } },
-                { name: { contains: search, mode: 'insensitive' } }
-              ]
-            : undefined
+          packageName: { in: packageNames },
+          ...whereClause
         },
-        orderBy: [
-          { packageName: 'asc' }
-        ],
-        skip: offset,
-        take: limit,
+        distinct: ['packageName'],
         select: {
           packageName: true,
           name: true
+        },
+        orderBy: {
+          packageName: 'asc'
         }
       });
 
-      const apps = resources.map((r: any) => ({
+      const apps = resourceDetails.map((r: any) => ({
         package_name: r.packageName,
         app_name: r.name ?? r.packageName
       }));
@@ -71,7 +85,9 @@ export const GET = restrict(
         page,
         limit,
         search,
-        userId: auth.user.id
+        userId: auth.user.id,
+        isAdmin,
+        scope: isAdmin ? 'all users' : 'current user'
       });
 
       return json({
@@ -92,7 +108,7 @@ export const GET = restrict(
       });
 
     } catch (error) {
-      logger.error('Failed to retrieve available apps from ClickHouse', {
+      logger.error('Failed to retrieve available apps', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });

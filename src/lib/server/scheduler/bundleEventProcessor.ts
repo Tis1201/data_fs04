@@ -324,7 +324,7 @@ export async function processEventsWithStateValidation(events: ClickHouseEvent[]
       const shouldProcess = await shouldProcessEvent(event);
       
       if (!shouldProcess) {
-        logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - not processable`);
+        // logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - not processable`);
         continue;
       }
       
@@ -482,7 +482,7 @@ async function processDeviceEventsBatch(bundleId: string, deviceId: string, even
   
   // Check if wave is in terminal state
   if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(correctWave.status)) {
-    logger.warn(`[BundleEventProcessor] Device ${deviceId} sent progress for wave ${correctWaveId} but wave is in terminal state: ${correctWave.status}`);
+    // logger.warn(`[BundleEventProcessor] Device ${deviceId} sent progress for wave ${correctWaveId} but wave is in terminal state: ${correctWave.status}`);
     return null;
   }
 
@@ -615,7 +615,7 @@ async function shouldProcessEvent(event: ClickHouseEvent): Promise<boolean> {
     case BundleProcessingState.COMPLETED:
     case BundleProcessingState.FAILED:
     case BundleProcessingState.CANCELLED:
-      logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - bundle is in terminal state: ${bundleState.state}`);
+      // logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - bundle is in terminal state: ${bundleState.state}`);
       return false;
       
     default:

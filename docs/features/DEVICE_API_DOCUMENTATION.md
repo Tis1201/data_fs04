@@ -538,7 +538,81 @@ POST /api/devices/{deviceId}/status
 
 ---
 
-### 2.10 Get Logs
+### 2.10 Apply Profile
+
+#### Request (Server → Device via SSE)
+```json
+{
+  "type": "device:actionRequest",
+  "payload": {
+    "action": "applyProfile",
+    "deviceId": "device-id",
+    "logId": "operation-id",
+    "profileId": "profile-id",
+    "message": "Profile assignment requested"
+  }
+}
+```
+
+#### Response (Device → Server via API)
+```json
+POST /api/devices/{deviceId}/status
+{
+  "logId": "operation-id",
+  "action": "applyProfile",
+  "status": "complete",
+  "message": "Profile applied successfully",
+  "profileId": "profile-id"
+}
+```
+
+**Expected Behavior**:
+- Device applies the specified profile configuration
+- Updates device settings based on profile
+- Sends completion status via API
+- Server updates DeviceProfileAssignment status to SUCCESS
+- Real-time UI updates via SSE notification
+
+---
+
+### 2.11 Reapply Profile
+
+#### Request (Server → Device via SSE)
+```json
+{
+  "type": "device:actionRequest",
+  "payload": {
+    "action": "applyProfile",
+    "deviceId": "device-id",
+    "logId": "operation-id",
+    "profileId": "profile-id",
+    "message": "Profile reapplication requested"
+  }
+}
+```
+
+#### Response (Device → Server via API)
+```json
+POST /api/devices/{deviceId}/status
+{
+  "logId": "operation-id",
+  "action": "applyProfile",
+  "status": "complete",
+  "message": "Profile reapplied successfully",
+  "profileId": "profile-id"
+}
+```
+
+**Expected Behavior**:
+- Device reapplies the existing profile configuration
+- Updates device settings based on current profile
+- Sends completion status via API
+- Server updates DeviceProfileAssignment status to SUCCESS
+- Real-time UI updates via SSE notification
+
+---
+
+### 2.12 Get Logs
 
 #### Request (Server → Device via SSE)
 ```json
@@ -691,7 +765,131 @@ POST /api/devices/{deviceId}/status
 
 ---
 
-## 3. Real-Time Features
+## 3. Profile Management & Real-Time UI Updates
+
+### 3.1 Profile Assignment Flow
+
+#### Initial Assignment (Server → Device via SSE)
+```json
+{
+  "type": "device:actionRequest",
+  "scope": "subscription:device:{deviceId}",
+  "payload": {
+    "action": "applyProfile",
+    "deviceId": "device-id",
+    "profileId": "profile-id",
+    "logId": "operation-id",
+    "message": "Profile assignment requested"
+  },
+  "senderId": "system",
+  "timestamp": "ISO8601"
+}
+```
+
+#### Status Update (Device → Server via API)
+```json
+POST /api/devices/{deviceId}/status
+{
+  "logId": "operation-id",
+  "action": "applyProfile",
+  "status": "complete",
+  "message": "Profile applied successfully",
+  "profileId": "profile-id"
+}
+```
+
+#### Real-Time UI Notification (Server → Frontend via SSE)
+```json
+{
+  "type": "device:profileUpdate",
+  "scope": "subscription:device:{deviceId}",
+  "payload": {
+    "action": "applyProfile",
+    "deviceId": "device-id",
+    "status": "complete",
+    "profileId": "profile-id",
+    "message": "Profile assignment completed successfully",
+    "sentAt": "ISO8601"
+  },
+  "senderId": "system",
+  "timestamp": "ISO8601"
+}
+```
+
+**Expected Behavior**:
+1. Server creates DeviceProfileAssignment record with APPLYING status
+2. Server sends device:actionRequest to device via SSE
+3. Device applies profile configuration
+4. Device sends status update via HTTP API
+5. Server updates DeviceProfileAssignment to SUCCESS
+6. Server sends device:profileUpdate to frontend via SSE
+7. Frontend updates UI in real-time without refresh
+
+### 3.2 Reapply Profile (Bulk & Individual)
+
+#### Bulk Reapply (Server API)
+```json
+POST /api/admin/iot/device-profiles/{profileId}/reapply
+{
+  "deviceIds": ["device-id-1", "device-id-2", "device-id-3"]
+}
+```
+
+#### Individual Reapply (Server API)
+```json
+POST /api/admin/iot/device-profiles/{profileId}/reapply
+{
+  "deviceIds": ["device-id"]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Profile reapplied to 3 device(s)",
+  "results": {
+    "total": 3,
+    "successful": 3,
+    "failed": 0,
+    "details": [
+      {"deviceId": "device-id-1", "success": true},
+      {"deviceId": "device-id-2", "success": true},
+      {"deviceId": "device-id-3", "success": true}
+    ]
+  }
+}
+```
+
+**Expected Behavior**:
+- Server updates all DeviceProfileAssignment records to APPLYING status
+- Server sends device:actionRequest to each device via SSE
+- Each device reapplies the profile configuration
+- Devices send status updates via HTTP API
+- Server updates DeviceProfileAssignment records to SUCCESS
+- Real-time UI updates for each device completion
+
+### 3.3 Status Tracking & Timeout Handling
+
+#### Database Status Flow
+```
+APPLYING → SUCCESS (on device response)
+APPLYING → FAILED (on timeout or device error)
+```
+
+#### Timeout Handling
+- **Timeout Duration**: 3 minutes (180 seconds)
+- **Timeout Action**: Automatically mark as FAILED
+- **UI Update**: Real-time status change notification
+
+#### Status Values
+- `APPLYING`: Profile assignment in progress
+- `SUCCESS`: Profile successfully applied
+- `FAILED`: Profile assignment failed or timed out
+
+---
+
+## 4. Real-Time Features
 
 ### 3.1 Screenshot Request
 
@@ -976,6 +1174,7 @@ Frontend → Server → Device (SSE) → Device Handler → Server (HTTP) → Fr
 | `uninstall` | Simple | No | 1s | API |
 | `restartApp` | Simple | No | 500ms | API |
 | `config` | Simple | No | 800ms | API |
+| `applyProfile` | Simple | No | Variable | API + SSE |
 | `installApp` | Progress | Yes (0-100%, 20% steps) | 1s | API + SSE |
 | `pushFile` | Streaming | Yes (5% increments + chunks) | Variable | API + SSE |
 | `pullFile` | Progress | Yes (0-100%, 25% steps) | 1.5s | API + SSE |
@@ -1079,6 +1278,12 @@ See `/tests/device/` directory for test scripts:
 - Documented all device actions and real-time features
 - Added error handling and message flow diagrams
 - Included implementation notes and testing guidelines
+- **2025-10-04**: Added profile management features
+- Added applyProfile and reapply profile actions
+- Added real-time UI updates for profile assignments
+- Added status tracking with APPLYING/SUCCESS/FAILED states
+- Added timeout handling (3-minute timeout)
+- Added bulk and individual reapply functionality
 
 ---
 

@@ -89,7 +89,8 @@
                 { href: "/user/iot/device_tags", label: "Device Tags", icon: TagIcon },
                 { href: "/user/iot/device-profiles", label: "Device Profiles", icon: TagIcon },
                 { href: "/user/iot/bundles", label: "Bundles", icon: Package2 },
-                { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus }
+                { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus },
+                { href: "/user/iot/pin-rules", label: "Pin Rules", icon: Settings }
             ]
         },
 
@@ -145,7 +146,6 @@
             icon: Settings, 
             initialExpanded: false,
             subItems: [
-                { href: "/user/settings/pin-rules", label: "Pin Rules", icon: Settings },
                 { href: "/user/settings/account", label: "Account", icon: Building2 },
                 { href: "/user/settings/users", label: "Users", icon: Users2 },
                 { href: "/user/profile", label: "Profile", icon: User },

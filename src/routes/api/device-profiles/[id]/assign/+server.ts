@@ -7,6 +7,7 @@ import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
+import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
@@ -79,11 +80,11 @@ export const POST: RequestHandler = restrict(
             const hasAccess = await prisma.accountMembership.findFirst({
                 where: {
                     accountId: deviceProfile.accountId,
-                    userId: auth.user.id
+                    userId: auth?.user?.id
                 }
             });
 
-            if (event.auth.user.systemRole !== SystemRole.ADMIN && !hasAccess) {
+            if (event.auth?.user?.systemRole !== SystemRole.ADMIN && !hasAccess) {
                 return json({ 
                     success: false, 
                     error: { 
@@ -95,16 +96,113 @@ export const POST: RequestHandler = restrict(
                 }, { status: 403 });
             }
 
-            const config = mapToConfigPayload(deviceProfile);
+            const config = mapToConfigPayload(deviceProfile as any);
 
-            await Promise.all(deviceIds.map(async deviceId => {
+            await Promise.all(deviceIds.map(async (deviceId: string) => {
                 const requestId = crypto.randomUUID();
 
-                // Send command to device via SSE
+                // DEBUG: Log the message being sent
+                logger.info(`[DEBUG] Creating device profile assignment message`, {
+                    deviceId,
+                    profileId,
+                    requestId,
+                    scope: `subscription:device:${deviceId}`,
+                    messageType: 'device:actionRequest'
+                });
+
+                // Create or update DeviceProfileAssignment record with APPLYING status
+                try {
+                    await prisma.deviceProfileAssignment.upsert({
+                        where: {
+                            deviceId: deviceId
+                        },
+                        update: {
+                            profileId: profileId,
+                            assignedBy: auth?.user?.id || 'system',
+                            status: 'APPLYING',
+                            assignedAt: new Date()
+                        },
+                        create: {
+                            profileId: profileId,
+                            deviceId: deviceId,
+                            assignedBy: auth?.user?.id || 'system',
+                            status: 'APPLYING'
+                        }
+                    });
+
+                    logger.info(`[DEBUG] DeviceProfileAssignment record created/updated for device ${deviceId}`, {
+                        deviceId,
+                        profileId,
+                        status: 'APPLYING'
+                    });
+
+                    // Set timeout to mark as FAILED if no response in 3 minutes
+                    setTimeout(async () => {
+                        try {
+                            const assignment = await prisma.deviceProfileAssignment.findFirst({
+                                where: {
+                                    deviceId: deviceId,
+                                    profileId: profileId,
+                                    status: 'APPLYING'
+                                }
+                            });
+
+                            if (assignment) {
+                                await prisma.deviceProfileAssignment.update({
+                                    where: { id: assignment.id },
+                                    data: { 
+                                        status: 'FAILED',
+                                        lastSyncAt: new Date()
+                                    }
+                                });
+                                
+                                logger.warn(`Profile assignment timed out for device ${deviceId}`, {
+                                    deviceId,
+                                    profileId,
+                                    status: 'FAILED'
+                                });
+
+                                // Send real-time notification to UI about timeout
+                                try {
+                                    const timeoutMessage = MessageFactory.createSystemMessage(
+                                        'device:profileUpdate',
+                                        `subscription:device:${deviceId}`,
+                                        {
+                                            action: 'applyProfile',
+                                            deviceId: deviceId,
+                                            status: 'failed',
+                                            profileId: profileId,
+                                            message: 'Profile assignment timed out after 3 minutes',
+                                            sentAt: new Date().toISOString()
+                                        },
+                                        SystemUser,
+                                        { echoToSender: false }
+                                    );
+
+                                    await publisher.publish(timeoutMessage);
+                                    logger.info(`Timeout notification sent for device ${deviceId}`);
+                                } catch (sseError) {
+                                    logger.error(`Error sending timeout notification: ${String(sseError)}`);
+                                }
+                            }
+                        } catch (timeoutError) {
+                            logger.error(`Error updating timeout status: ${String(timeoutError)}`);
+                        }
+                    }, 3 * 60 * 1000); // 3 minutes timeout
+
+                } catch (dbError) {
+                    logger.error(`Error creating/updating DeviceProfileAssignment record: ${String(dbError)}`);
+                    // Continue with message sending even if DB update fails
+                }
+
+                // Send command to device via SSE using standardized format
                 const routingMessage = MessageFactory.createSystemMessage(
-                    'device:applyProfile',
+                    'device:actionRequest',
                     `subscription:device:${deviceId}`,
                     {
+                        action: 'applyProfile',
+                        deviceId,
+                        logId: requestId,
                         requestId,
                         profileId,
                         'sentAt': new Date().toISOString(),
@@ -114,7 +212,11 @@ export const POST: RequestHandler = restrict(
                     { echoToSender: false }
                 );
                 
+
                 await publisher.publish(routingMessage);
+                
+                logger.info(`Message published for device ${deviceId}`);
+
             }))
 
             return json({

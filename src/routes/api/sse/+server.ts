@@ -29,6 +29,13 @@ export const GET: RequestHandler = restrict(
             connectedAt: Date.now(),
         };
 
+        // DEBUG: Log web SSE connection
+        logger.info(`[DEBUG] Web SSE connection established via /api/sse`, {
+            userId: auth.user?.id,
+            nodeId: 'web',
+            protocol: 'sse'
+        });
+
         let connectionId: string | undefined;
 
         // Create a readable stream for SSE
@@ -76,7 +83,7 @@ export const GET: RequestHandler = restrict(
                     timestamp: new Date().toISOString(),
                 })}\n\n`);
 
-                logger.info(`Web SSE connection established for user ${auth.user?.id}`);
+                logger.info(`[SSE] Web SSE connection established for user ${auth.user?.id} with connectionId ${connectionId}`);
             },
 
             async cancel() {
@@ -92,7 +99,7 @@ export const GET: RequestHandler = restrict(
                 // const connectionScope = `subscriber:connection:${clientId}`;
                 // await subscriptionRegistry.removeSubscriptionsByScope(connectionScope);
 
-                logger.info(`Web SSE connection closed for user ${auth.user?.id}`);
+                logger.info(`[SSE] Web SSE connection closed for user ${auth.user?.id} with connectionId ${connectionId}`);
             }
         });
 

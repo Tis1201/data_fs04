@@ -2,6 +2,7 @@ import { logger } from '$lib/server/logger';
 import prisma from '$lib/server/prisma';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
+import { registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 
 /**
  * Checks if the current wave is complete and automatically starts the next wave
@@ -52,6 +53,14 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
         startedAt: new Date()
       }
     });
+
+    // Register wave for timeout tracking
+    try {
+      await registerWaveTimeout(nextWave.id, bundleId, new Date());
+      logger.info(`[BundleUtils] Registered auto-started wave ${nextWave.id} for timeout tracking`);
+    } catch (timeoutErr: any) {
+      logger.warn(`[BundleUtils] Failed to register auto-started wave for timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
+    }
 
     // Send start command to all devices in the next wave
     const devices = await prisma.bundleWaveDevice.findMany({

@@ -45,7 +45,6 @@
 
   // Form data
   let formData = {
-    ruleType: 'user_custom',
     name: '',
     description: '',
     apps: [] as string[],
@@ -154,12 +153,18 @@
 
   async function createRule() {
     try {
+      // Automatically set rule type based on mode
+      const ruleData = {
+        ...formData,
+        ruleType: mode === 'admin' ? 'admin_custom' : 'user_custom'
+      };
+
       const response = await fetch('/api/pin-rules', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(ruleData)
       });
 
       const result = await response.json();
@@ -186,12 +191,18 @@
     if (!editingRule) return;
 
     try {
+      // Include the original rule type when updating
+      const ruleData = {
+        ...formData,
+        ruleType: editingRule.ruleType
+      };
+
       const response = await fetch(`/api/pin-rules/${editingRule.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(ruleData)
       });
 
       const result = await response.json();
@@ -253,7 +264,6 @@
 
   function resetForm() {
     formData = {
-      ruleType: 'user_custom',
       name: '',
       description: '',
       apps: [],
@@ -271,7 +281,6 @@
   function startEdit(rule: PinRule) {
     editingRule = rule;
     formData = {
-      ruleType: rule.ruleType,
       name: rule.name,
       description: rule.description || '',
       apps: [...rule.apps],
@@ -406,22 +415,6 @@
         />
       </div>
     </div>
-    
-    <select bind:value={filterType} on:change={loadRules} class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-      <option value="">All Rule Types</option>
-      <option value="admin_default">Admin Default</option>
-      <option value="user_default">Account Default</option>
-      <option value="user_custom">User Custom</option>
-    </select>
-    
-    <button
-      on:click={loadRules}
-      disabled={loading}
-      class="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
-    >
-            <RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
-      <span>Refresh</span>
-    </button>
   </div>
 
   <!-- Rules List -->
@@ -669,17 +662,6 @@
         
         <form on:submit|preventDefault={showCreateForm ? createRule : updateRule} class="space-y-4">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label for="ruleType" class="block text-sm font-medium text-gray-700 mb-1">Rule Type</label>
-              <select id="ruleType" bind:value={formData.ruleType} class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
-                <option value="user_custom">User Custom</option>
-                <option value="user_default">Account Default</option>
-                {#if true} <!-- Admin check would go here -->
-                  <option value="admin_default">Admin Default</option>
-                {/if}
-              </select>
-            </div>
-            
             <div>
               <label for="targetType" class="block text-sm font-medium text-gray-700 mb-1">Target Type</label>
               <select id="targetType" bind:value={formData.targetType} class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">

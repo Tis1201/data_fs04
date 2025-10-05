@@ -2,14 +2,14 @@
 
 ## Overview
 
-This document describes the hierarchical pin management system for device apps, including admin custom rules and user custom rules with real-time updates via Server-Sent Events (SSE).
+This document describes the hierarchical pin management system for device apps, including admin custom rules and user custom rules.
 
 > **Related Documentation**: For the complete device data flow and app data ingestion, see [Device Data Flow Architecture](./DEVICE_DATA_FLOW.md)
 
 ## Pin Management Flow
 
 ```
-User Creates Rule → PostgreSQL → Rule Engine → Device Commands → Device Updates → SSE to UI
+User Creates Rule → PostgreSQL → Rule Engine → Device Commands → Device Updates
 ```
 
 ## Components
@@ -24,10 +24,10 @@ User Creates Rule → PostgreSQL → Rule Engine → Device Commands → Device 
 - **Function**: Process rules, determine device targets, send commands
 - **Performance**: Handles 100k+ devices with complex rule logic
 
-### 3. Real-Time Communication (SSE)
-- **Rule Updates**: Announce when pin rules change
-- **UI Updates**: Push real-time pin status to device detail pages
-- **Scalability**: Handles multiple concurrent rule management views
+### 3. Rule Application
+- **Rule Processing**: Apply rules to devices based on hierarchy and targeting
+- **Device Updates**: Send pin commands to target devices
+- **Scalability**: Handles 100k+ devices with complex rule logic
 
 ## Hierarchical Pin Management System
 
@@ -365,8 +365,8 @@ CREATE TABLE user_app_actions (
 - **Relationships**: Fast joins for user permissions and device targeting
 - **Indexing**: Optimized for rule type, account, and user lookups
 
-### SSE Performance (Pin Updates)
-- **Latency**: < 200ms for real-time pin status updates
+### Performance (Pin Updates)
+- **Latency**: < 200ms for pin status updates
 - **Concurrency**: Supports 1000+ concurrent rule management views
 - **Bandwidth**: Efficient binary protocol for rule updates
 
@@ -524,7 +524,7 @@ POST /api/devices/{deviceId}/pin
 // Real-time app list component with pin management
 export class DeviceAppList {
   private deviceId: string;
-  private sseConnection: SSEConnection;
+  // Connection management removed - no real-time updates needed
   
   async loadInitialData() {
     // Load combined data (apps + pin status)
@@ -616,7 +616,7 @@ export async function toggleAppPin(deviceId: string, packageName: string) {
     }
   });
   
-  // SSE will automatically update UI
+  // UI will update on page refresh
 }
 ```
 
@@ -625,8 +625,8 @@ export async function toggleAppPin(deviceId: string, packageName: string) {
 ### Key Metrics
 - **Data Ingestion Rate**: Apps per second from devices
 - **Query Performance**: ClickHouse query response times
-- **SSE Latency**: Time from device update to UI update
-- **Error Rates**: Failed insertions, SSE disconnections
+- **Update Latency**: Time from device update to UI update
+- **Error Rates**: Failed insertions, connection issues
 
 ### Health Checks
 ```typescript
@@ -634,9 +634,9 @@ async function healthCheck() {
   return {
     clickhouse: await testClickHouseConnection(),
     postgresql: await testPostgresConnection(),
-    sse: await testSSEConnection(),
+    // SSE removed - no real-time updates needed
     dataIngestionRate: await getDataIngestionRate(),
-    activeConnections: await getActiveSSEConnections()
+    activeConnections: await getActiveConnections()
   };
 }
 ```
@@ -654,10 +654,8 @@ CLICKHOUSE_DATABASE=fs_04
 # PostgreSQL Configuration
 DATABASE_URL=postgresql://user:password@localhost:5432/fs04_web
 
-# SSE Configuration
-SSE_ENABLED=true
-SSE_HEARTBEAT_INTERVAL=30000
-SSE_MAX_CONNECTIONS=1000
+# Configuration
+# Real-time updates removed - changes apply after page refresh
 ```
 
 ## Benefits
@@ -707,8 +705,8 @@ SSE_MAX_CONNECTIONS=1000
 - [x] Create rule application endpoints
 
 ### Phase 4: Real-Time Updates ✅ COMPLETED
-- [x] Implement SSE for rule updates
-- [x] Add real-time pin status updates
+- [x] Implement rule management system
+- [x] Add pin status management
 - [x] Handle connection management
 - [x] Create rule change notifications
 
@@ -743,7 +741,7 @@ SSE_MAX_CONNECTIONS=1000
 
 #### 2. API Endpoints Implementation
 - **`/api/pin-rules`**: CRUD operations for pin rules with user permission filtering
-- **`/api/pin-rules/[id]`**: Individual rule management with SSE notifications
+- **`/api/pin-rules/[id]`**: Individual rule management
 - **`/api/devices/[id]/pins`**: Device-specific pin management
 - **`/api/devices/[id]/apps-with-pins`**: Combined ClickHouse + PostgreSQL data
 - **`/api/devices/[id]/apply-rules`**: Rule application to devices
@@ -754,11 +752,11 @@ SSE_MAX_CONNECTIONS=1000
 - **Device Targeting**: Support for all, tags, OS, and specific device targeting
 - **Rule Application**: Automatic pin status updates based on rule changes
 
-#### 4. Real-Time Updates Implementation
-- **`src/lib/server/pin-management/sseService.ts`**: SSE service for real-time updates
-- **Rule Change Notifications**: Instant UI updates when rules are created/modified/deleted
-- **Pin Status Updates**: Real-time pin status changes in device detail pages
-- **Connection Management**: Robust SSE connection handling with error recovery
+#### 4. Rule Processing Implementation
+- **`src/lib/server/pin-management/ruleEngine.ts`**: Rule processing engine
+- **Rule Change Processing**: Apply rules when created/modified/deleted
+- **Pin Status Updates**: Pin status changes applied to devices
+- **Connection Management**: Robust rule processing with error handling
 
 #### 5. UI Components Implementation
 - **`PinRuleManager.svelte`**: Complete pin rule management interface
@@ -769,12 +767,12 @@ SSE_MAX_CONNECTIONS=1000
 
 #### 6. Admin Panel Integration
 - **Admin Sidebar**: Added "Pin Rules" to the "Access" section
-- **Admin Routes**: `/admin/pin-rules` page for rule management
+- **Admin Routes**: `/admin/iot/pin-rules` page for rule management
 - **User Permissions**: Proper access control for different user roles
 
 #### 7. Device Integration
 - **Device Detail Pages**: Sub-tabs for "All Apps" and "Pinned Apps"
-- **Real-time Updates**: Live pin status updates via SSE
+- **Pin Management**: Pin status management with rule application
 - **Pin Management**: Manual pin/unpin functionality for individual apps
 
 #### 8. Seed Data Implementation
@@ -792,9 +790,9 @@ SSE_MAX_CONNECTIONS=1000
 - **Rule Precedence**: Clear priority system (Admin → Account → User)
 
 #### Real-Time User Experience
-- **Instant Updates**: SSE-powered real-time rule and pin status updates
-- **No Page Refresh**: Seamless user experience with live data
-- **Connection Recovery**: Automatic reconnection on SSE failures
+- **Rule Application**: Apply rules and update pin status
+- **Page Refresh**: Changes apply after page refresh
+- **Error Handling**: Robust error handling for rule processing
 
 #### Comprehensive UI
 - **Rule Grouping**: Visual separation of different rule types
@@ -811,13 +809,13 @@ SSE_MAX_CONNECTIONS=1000
 ## Troubleshooting
 
 ### Common Issues
-1. **SSE Connection Drops**: Implement reconnection logic
+1. **Connection Issues**: Implement error handling
 2. **ClickHouse Timeouts**: Optimize query performance
 3. **Data Sync Delays**: Check batch processing intervals
-4. **UI Not Updating**: Verify SSE subscription setup
+4. **UI Not Updating**: Refresh page to see changes
 
 ### Debug Tools
 - ClickHouse query logs
-- SSE connection monitoring
+- Connection monitoring
 - PostgreSQL query performance
 - UI component state inspection

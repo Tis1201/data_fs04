@@ -4,12 +4,13 @@ import { publisher } from '../../core/publisher';
 import { logger } from '$lib/server/logger';
 import prisma from '$lib/server/prisma';
 import { SystemUser } from '../../interfaces/message';
-import { sseService } from '$lib/server/sse/sseService';
+import { unregisterWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 
 export async function handleBundleStatus(message: InMessage): Promise<void> {
   try {
     const p = (message.payload || {}) as any;
     const deviceId: string | undefined = p.deviceId;
+
     const status: string | undefined = p.status;
     const progress: number | undefined = typeof p.progress === 'number' ? p.progress : undefined;
     const sessionId: string | undefined = p.sessionId || p.batchId; // wave:<waveId>
@@ -40,11 +41,14 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
     if (!targetProgress) {
       logger.warn(`[DeviceHandler] bundleStatus: No progress row found for wave ${waveId} and device ${deviceId}`);
       // Still broadcast to UI so users see something
-      await sseService.broadcast({
-        type: 'device:bundleStatus',
-        scope: `subscription:device:${deviceId}`,
-        payload: { deviceId, waveId, status, progress }
-      } as any);
+      const routing = MessageFactory.createSystemMessage(
+        'device:bundleStatus',
+        `subscription:device:${deviceId}`,
+        { deviceId, waveId, status, progress },
+        SystemUser,
+        { echoToSender: false }
+      );
+      await publisher.publish(routing);
       return;
     }
 
@@ -114,6 +118,15 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
     if (waveStatus === 'COMPLETED' || waveStatus === 'FAILED') {
       const bundleId: string = (targetProgress as any).bundleId;
       logger.info(`[AutoStart] Wave ${waveId} reached terminal status: ${waveStatus}, attempting to start next wave for bundle ${bundleId}`);
+      
+      // Unregister completed wave from timeout tracking
+      try {
+        await unregisterWaveTimeout(waveId);
+        logger.info(`[BundleHandler] Unregistered completed wave ${waveId} from timeout tracking`);
+      } catch (timeoutErr: any) {
+        logger.warn(`[BundleHandler] Failed to unregister completed wave from timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
+      }
+      
       await checkAndAutoStartNextWave(bundleId, waveId);
     } else {
       logger.debug(`[AutoStart] Wave ${waveId} status: ${waveStatus}, not starting next wave yet`);

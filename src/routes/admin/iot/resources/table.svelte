@@ -1,6 +1,7 @@
 <script lang="ts">
     // Import components and dependencies
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
+    import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import RecordActions, {
         type ActionItem
     } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
@@ -11,6 +12,7 @@
     import {Download, Pencil, Trash} from "lucide-svelte";
     import type {Resource} from "@prisma/client";
     import {goto} from "$app/navigation";
+    import {page} from "$app/stores";
     import {
         handleTablePagination as originalHandleTablePagination,
         handleTableSort as originalHandleTableSort
@@ -229,6 +231,17 @@
     {#if props.loading}
         <LoadingSkeleton />
     {:else}
+        <div class="flex items-center gap-2 mb-4">
+            <!-- Search filter -->
+            <div class="w-1/3">
+                <DebouncedTextFilter
+                    placeholder="Search by name, type, or target..."
+                    paramName="search"
+                    value={$page.url.searchParams.get('search') || ''}
+                />
+            </div>
+        </div>
+
         <DataTable
                 props={{
                 records: props.records,

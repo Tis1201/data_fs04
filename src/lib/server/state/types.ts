@@ -27,4 +27,6 @@ export interface StateManager {
   cleanupExpiredStates(): Promise<void>;
   initialize(): Promise<void>;
   close(): Promise<void>;
+  // Optional Redis client for distributed operations
+  redisClient?: any;
 }
