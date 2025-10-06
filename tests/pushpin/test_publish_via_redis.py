@@ -20,7 +20,7 @@ REDIS_PUSHPIN_CHANNEL_NAME  = os.getenv("REDIS_PUSHPIN_CHANNEL_NAME", "pushpin_p
 def publish_test_message():
     try:
         # Debug log the connection details (without password)
-        logger.debug(f"Connecting to Redis at {REDIS_HOST}:{REDIS_PORT}, DB: {REDIS_DB}")
+        logger.debug(f"Connecting to Redis at {REDIS_HOST}:{REDIS_PORT}, DB: {REDIS_DB}, PASSWORD: {REDIS_PASSWORD}")
         logger.debug(f"Using channel: {REDIS_PUSHPIN_CHANNEL_NAME}")
         
         # Connect to Redis using the same configuration as publisher_worker.py
@@ -40,7 +40,7 @@ def publish_test_message():
 
         # Create a test message
         test_message = {
-            'channel': 'registration:26584bdb-8c6f-44af-8cb9-ef9df1e76f4f',
+            'channel': 'registration:1555b31f-eb9c-43c3-ba4a-0e670389f789',
             'payload': {
                 'action': 'reboot',
                 'request_id': f'req_{int(time.time())}'

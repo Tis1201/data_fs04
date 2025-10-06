@@ -3,7 +3,9 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
 	server: {
-		allowedHosts: ['bt_macbook.datarealities.com']
+		host: true,
+		port: 5173,
+		allowedHosts: ['bt_macbook.datarealities.com', 'host.docker.internal', 'localhost']
 	},
 	plugins: [
 		sveltekit(),
