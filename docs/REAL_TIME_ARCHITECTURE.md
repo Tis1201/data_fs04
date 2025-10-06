@@ -361,5 +361,9 @@ class StreamActionHandler extends BaseHandler {
 3. **Add timeout handling** for long-running operations
 4. **Enhance error handling** and recovery mechanisms
 5. **Optimize performance** for high-frequency updates
+6. **Implement distributed publish layer** so routing events can fan out safely across horizontally scaled nodes
+   - Replace in-memory shared stores with Redis-backed implementations (connections, subscriptions, node ownership)
+   - Broadcast routing messages via Redis pub/sub and let each node deliver only to its local SSE/WebSocket clients
+   - Add heartbeat + TTL cleanup to expire orphaned connections when a node goes offline
 
 This architecture provides a clean, scalable foundation for real-time device communication while maintaining the principle that the server leads and the device follows.
