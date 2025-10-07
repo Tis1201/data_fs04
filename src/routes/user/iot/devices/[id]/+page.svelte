@@ -308,7 +308,8 @@
                 }
 
                 const c = normalized;
-                if (!c?.deviceId || c.deviceId !== device.id) {
+                const cDeviceId = c?.deviceId || c?.payload?.deviceId;
+                if (!cDeviceId || cDeviceId !== device.id) {
                     console.log('[UserDeviceDetail] Not for this device, ignoring');
                     return;
                 }
@@ -317,11 +318,15 @@
                 console.log('[UserDeviceDetail] Previous device state:', prev);
 
                 // Reassign the whole object to trigger reactive updates in Svelte
+                const connected = c?.connected ?? c?.payload?.connected ?? false;
+                const connectedAt = c?.connectedAt ?? c?.payload?.connectedAt;
+                const disconnectedAt = c?.disconnectedAt ?? c?.payload?.disconnectedAt;
+                
                 device = {
                     ...device,
-                    connected: !!c.connected,
-                    connectedAt: c.connected ? (c.connectedAt ?? device.connectedAt) : device.connectedAt,
-                    disconnectedAt: !c.connected ? (c.disconnectedAt ?? device.disconnectedAt) : device.disconnectedAt
+                    connected: !!connected,
+                    connectedAt: connected ? (connectedAt ?? device.connectedAt) : device.connectedAt,
+                    disconnectedAt: !connected ? (disconnectedAt ?? device.disconnectedAt) : device.disconnectedAt
                 };
 
                 const next = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
@@ -1501,6 +1506,8 @@
         {licenses} 
         {apiKeyEnhance} 
         {apiKeySubmitting}
+        {isLoading}
+        {actionStatus}
     />
 </AdminPageLayout>
 

@@ -34,11 +34,19 @@ export class WebRTCClient {
   }
 
   connect() {
+    console.log('[WebRTCClient] Initiating connection...');
+    // Clean up any existing connection before connecting
+    if (this.peerConnection || this.dataChannel) {
+      console.log('[WebRTCClient] Cleaning up existing connection before reconnecting');
+      this.cleanup();
+    }
+    
     const message = {
       type: 'device',
       payload: { action: 'message', type: 'webrtc:connect', deviceId: this.deviceId },
       scope: `subscription:device:${this.deviceId}`
     };
+    console.log('[WebRTCClient] Sending connect message:', message);
     socketStore.send(message);
   }
 
@@ -120,22 +128,58 @@ export class WebRTCClient {
   }
 
   cleanup() {
-    if (this.dataChannel) { this.dataChannel.close(); this.dataChannel = null; }
-    if (this.peerConnection) { this.peerConnection.close(); this.peerConnection = null; }
-    webRTCStore.update(state => ({ ...state, dataChannelStatus: 'closed', dataChannel: null }));
+    console.log('[WebRTCClient] Cleaning up WebRTC resources...');
+    
+    // Close data channel
+    if (this.dataChannel) { 
+      try {
+        this.dataChannel.close();
+        console.log('[WebRTCClient] Data channel closed');
+      } catch (err) {
+        console.warn('[WebRTCClient] Error closing data channel:', err);
+      }
+      this.dataChannel = null;
+    }
+    
+    // Close peer connection
+    if (this.peerConnection) { 
+      try {
+        this.peerConnection.close();
+        console.log('[WebRTCClient] Peer connection closed');
+      } catch (err) {
+        console.warn('[WebRTCClient] Error closing peer connection:', err);
+      }
+      this.peerConnection = null;
+    }
+    
+    // Update store
+    webRTCStore.update(state => ({ 
+      ...state, 
+      dataChannelStatus: 'closed', 
+      dataChannel: null,
+      peerConnection: null,
+      videoStream: null,
+      connectionState: 'closed',
+      connectionStatus: 'disconnected'
+    }));
+    
+    console.log('[WebRTCClient] Cleanup complete');
   }
 
   async handleWebRTCMessage(message: WebRTCMessage) {
     console.log('[WebRTCClient] ===== HANDLING WEBRTC MESSAGE =====');
     console.log('[WebRTCClient] Received message:', message);
+    console.log('[WebRTCClient] Current peerConnection state:', this.peerConnection?.signalingState);
+    console.log('[WebRTCClient] Current dataChannel state:', this.dataChannel?.readyState);
     const msg_type = message.type;
     console.log('[WebRTCClient] Message type:', msg_type);
     
     try {
       switch (msg_type) {
         case 'webrtc:offer':
-          console.log('[WebRTCClient] Processing webrtc:offer');
+          console.log('[WebRTCClient] Processing webrtc:offer - will create answer');
           await this.handleOffer(message);
+          console.log('[WebRTCClient] handleOffer completed');
           break;
         case 'webrtc:answer':
           console.log('[WebRTCClient] Processing webrtc:answer');
@@ -151,6 +195,7 @@ export class WebRTCClient {
       }
     } catch (error: any) {
       console.error('[WebRTCClient] Error handling WebRTC message:', error);
+      console.error('[WebRTCClient] Error stack:', error.stack);
       webRTCStore.update(state => ({ 
         ...state, 
         error: `Failed to handle WebRTC message: ${error.message}`,
@@ -238,7 +283,9 @@ export class WebRTCClient {
   private async handleOffer(message: any) {
     console.log('[WebRTCClient] ===== HANDLING OFFER =====');
     console.log('[WebRTCClient] Offer message:', message);
+    console.log('[WebRTCClient] Offer SDP length:', message.sdp?.length);
     try {
+      console.log('[WebRTCClient] Step 1: Updating connection state to connecting');
       // Update connection state to connecting
       webRTCStore.update(state => ({ 
         ...state, 
@@ -246,10 +293,32 @@ export class WebRTCClient {
         error: null
       }));
 
-      if (this.peerConnection && this.peerConnection.signalingState !== 'stable') {
-        console.log('[WebRTCClient] PeerConnection not stable, current state:', this.peerConnection.signalingState);
-        return;
+      console.log('[WebRTCClient] Step 2: Checking for existing peerConnection');
+      // If we have an existing peer connection, close it to ensure clean reconnection
+      if (this.peerConnection) {
+        console.log('[WebRTCClient] Closing existing PeerConnection for reconnection, current state:', this.peerConnection.signalingState);
+        try {
+          this.peerConnection.close();
+        } catch (err) {
+          console.warn('[WebRTCClient] Error closing old peer connection:', err);
+        }
+        this.peerConnection = null;
       }
+      
+      console.log('[WebRTCClient] Step 3: Checking for existing dataChannel');
+      // Close existing data channel if any
+      if (this.dataChannel) {
+        console.log('[WebRTCClient] Closing existing data channel for reconnection');
+        try {
+          this.dataChannel.close();
+        } catch (err) {
+          console.warn('[WebRTCClient] Error closing old data channel:', err);
+        }
+        this.dataChannel = null;
+      }
+      
+      console.log('[WebRTCClient] Step 4: Creating new peer connection');
+      // Create new peer connection
       if (!this.peerConnection) {
         console.log('[WebRTCClient] Creating new PeerConnection with config:', this.config);
         this.peerConnection = new RTCPeerConnection(this.config);
@@ -381,17 +450,19 @@ export class WebRTCClient {
 
       if (!message.sdp) throw new Error('Missing SDP in offer message');
       
-      console.log('[WebRTCClient] Setting remote description with offer');
+      console.log('[WebRTCClient] Step 5: Setting remote description with offer');
       const offerDesc = new RTCSessionDescription({ type: 'offer', sdp: message.sdp });
       
       await this.peerConnection.setRemoteDescription(offerDesc);
-      console.log('[WebRTCClient] Remote description set successfully');
+      console.log('[WebRTCClient] Step 6: Remote description set successfully, signalingState:', this.peerConnection.signalingState);
       
-      console.log('[WebRTCClient] Creating answer');
+      console.log('[WebRTCClient] Step 7: Creating answer');
       const answer = await this.peerConnection.createAnswer();
+      console.log('[WebRTCClient] Step 8: Answer created, SDP length:', answer.sdp?.length);
       
-      console.log('[WebRTCClient] Setting local description with answer');
+      console.log('[WebRTCClient] Step 9: Setting local description with answer');
       await this.peerConnection.setLocalDescription(answer);
+      console.log('[WebRTCClient] Step 10: Local description set successfully, signalingState:', this.peerConnection.signalingState);
       
       const answerMessage = {
         type: 'device',
@@ -404,9 +475,13 @@ export class WebRTCClient {
         scope: "subscription:device:" + this.deviceId
       };
       
-      console.log('[WebRTCClient] Sending answer:', answerMessage);
+      console.log('[WebRTCClient] Step 11: Sending answer message');
+      console.log('[WebRTCClient] Answer message:', answerMessage);
       socketStore.send(answerMessage);
+      console.log('[WebRTCClient] Step 12: Answer sent successfully!');
     } catch (error: any) {
+      console.error('[WebRTCClient] CRITICAL ERROR in handleOffer:', error);
+      console.error('[WebRTCClient] Error stack:', error.stack);
       webRTCStore.update(state => ({ ...state, error: `Exception in handleOffer: ${error.message}` }));
     }
   }

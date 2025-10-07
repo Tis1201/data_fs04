@@ -81,7 +81,7 @@ export async function startBundleStatusScheduler() {
           } catch (e: any) {
             logger.error(`[BundleStatusScheduler] Standalone timeout check failed: ${String(e?.message || e)}`);
           }
-        }, 30000); // Run every 30 seconds
+        }, 60000); // Run every 60 seconds
         
         logger.info(`[BundleStatusScheduler] Started successfully with file-based polling and standalone timeout checker (30s)`);
         return;

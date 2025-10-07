@@ -175,6 +175,18 @@ export function subscribeDeviceDetailEvents(
       });
     }
 
+    // Skip ActionHandlerManager for device:connection messages (handled by UI components)
+    if (evtType === 'device:connection') {
+      console.log('[DeviceDetailRealtime] Skipping ActionHandlerManager for device:connection message');
+      console.log('[DeviceDetailRealtime] Message should be handled by UI components:', {
+        evtType,
+        msgEvent: msg?.event,
+        payload: evt?.payload,
+        deviceId: evt?.payload?.deviceId
+      });
+      return;
+    }
+
     // Pass the full message structure to the ActionHandlerManager
     // The ActionHandlerManager will use parseSSEMessage to extract the payload
     const fullMessage = evt;

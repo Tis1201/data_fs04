@@ -160,7 +160,7 @@
             label: "Usage",
             sortable: false,
             width: "10%",
-            render: (record: Device) => record.usage || "N/A"  // Will use table device info later
+            render: (record: Device) => "N/A"  // Will use table device info later
         },
         {
             id: "actions",
@@ -201,18 +201,55 @@
     // Subscribe to connection events to update rows in real time
     onMount(() => {
         const unsubscribe = sseStore.on('*', (msg: any) => {
+            console.log('[DeviceTable] Received SSE message:', msg);
             const raw = msg?.data ?? msg;
             const evtType = raw?.type || msg?.event || raw?.payload?.type;
             const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
-            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') return;
+            
+            console.log('[DeviceTable] Parsed message:', {
+                raw,
+                evtType,
+                evt,
+                msgEvent: msg?.event
+            });
+            
+            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') {
+                console.log('[DeviceTable] Not a device:connection event, ignoring');
+                return;
+            }
+            
             const c = evt as any;
-            if (!c?.deviceId) return;
-            const idx = props.records.findIndex((r) => r.id === c.deviceId);
+            const cDeviceId = c?.deviceId || c?.payload?.deviceId;
+            console.log('[DeviceTable] Device ID check:', {
+                cDeviceId,
+                cPayloadDeviceId: c?.payload?.deviceId,
+                cConnected: c?.connected,
+                cPayloadConnected: c?.payload?.connected
+            });
+            
+            if (!cDeviceId) {
+                console.log('[DeviceTable] No deviceId found, ignoring');
+                return;
+            }
+            
+            const idx = props.records.findIndex((r) => r.id === cDeviceId);
+            console.log('[DeviceTable] Device index in records:', idx);
+            
             if (idx >= 0) {
-                props.records[idx].connected = !!c.connected;
-                if (c.connected && c.connectedAt) (props.records[idx] as any).connectedAt = c.connectedAt;
-                if (!c.connected && c.disconnectedAt) (props.records[idx] as any).disconnectedAt = c.disconnectedAt;
+                const connected = c?.connected ?? c?.payload?.connected ?? false;
+                console.log('[DeviceTable] Updating device at index', idx, 'to connected:', connected);
+                
+                props.records[idx].connected = !!connected;
+                if (connected && (c?.connectedAt || c?.payload?.connectedAt)) {
+                    (props.records[idx] as any).connectedAt = c?.connectedAt || c?.payload?.connectedAt;
+                }
+                if (!connected && (c?.disconnectedAt || c?.payload?.disconnectedAt)) {
+                    (props.records[idx] as any).disconnectedAt = c?.disconnectedAt || c?.payload?.disconnectedAt;
+                }
                 props = { ...props }; // trigger re-render
+                console.log('[DeviceTable] Device updated, props refreshed');
+            } else {
+                console.log('[DeviceTable] Device not found in records');
             }
         });
 

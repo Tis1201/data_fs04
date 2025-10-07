@@ -15,12 +15,16 @@ import { PushpinConnection } from '$lib/server/messaging/connections/pushpin_con
 import { getAdminPrisma } from '$lib/server/prisma';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
+import { PresenceManager } from './presence';
+import { MessageRelay } from './messageRelay';
 
 /****************************************************************************************
  *  Globals
  ***************************************************************************************/
 let bootstrapPromise: Promise<void> | null = null;   // guards one-time init
 const adminPrisma = getAdminPrisma();
+let presenceManager: PresenceManager | null = null;
+let messageRelay: MessageRelay | null = null;
 
 /****************************************************************************************
  *  Middleware – exported
@@ -40,14 +44,21 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
  *  Bootstrap sequence: subscribe first, hydrate second
  ***************************************************************************************/
 async function bootstrap(redisService: ReturnType<typeof getRedisService>): Promise<void> {
-    logger.info('[Pushpin] Bootstrapping (subscribe + hydrate)');
+    logger.info('[Pushpin] Bootstrapping (subscribe + hydrate + presence)');
+    
+    // Initialize presence manager and message relay
+    presenceManager = new PresenceManager(redisService);
+    messageRelay = new MessageRelay(redisService);
+    
     await subscribeToDeviceStatusChange(redisService);
     await loadOnlineDevices(redisService);
+    await loadPresenceDevices(redisService);
+    
     logger.info('[Pushpin] Bootstrap finished');
 }
 
 /****************************************************************************************
- *  publish — thin wrapper with logging
+ *  publish — enhanced with Redis Pub/Sub and presence tracking
  ***************************************************************************************/
 async function publish(
     redisService: ReturnType<typeof getRedisService>,
@@ -55,7 +66,14 @@ async function publish(
     message: unknown
 ): Promise<void> {
     logger.debug(`[Pushpin] publish → ${channel}: ${JSON.stringify(message)}`);
-    await redisService.publish(channel, JSON.stringify(message));
+    
+    // Use message relay for Redis Pub/Sub broadcasting
+    if (messageRelay) {
+        await messageRelay.publishToChannel(channel, message);
+    } else {
+        // Fallback to direct Redis publish
+        await redisService.publish(channel, JSON.stringify(message));
+    }
 }
 
 /****************************************************************************************
@@ -90,8 +108,16 @@ async function subscribeToDeviceStatusChange(
         try {
             if (status === 'online') {
                 await registerDevice(deviceId, redisService);
+                // Update presence tracking
+                if (presenceManager) {
+                    await presenceManager.setDeviceOnline(deviceId);
+                }
             } else {
                 await unregisterDevice(deviceId);
+                // Update presence tracking
+                if (presenceManager) {
+                    await presenceManager.setDeviceOffline(deviceId);
+                }
             }
         } catch (err: any) {
             logger.error(`[Pushpin] handler error for ${deviceId}: ${err.message}`);
@@ -124,6 +150,26 @@ async function loadOnlineDevices(
 }
 
 /****************************************************************************************
+ *  loadPresenceDevices – load devices from presence keys
+ ***************************************************************************************/
+async function loadPresenceDevices(
+    redisService: ReturnType<typeof getRedisService>
+): Promise<void> {
+    if (!presenceManager) return;
+    
+    logger.info('[Pushpin] Loading devices from presence keys');
+    const onlineDevices = await presenceManager.getOnlineDevices();
+    
+    logger.info(`[Pushpin] ${onlineDevices.length} devices found in presence tracking`);
+    for (const deviceId of onlineDevices) {
+        // Only register if not already registered
+        if (!ConnectionManager.getConnection(deviceId)) {
+            await registerDevice(deviceId, redisService);
+        }
+    }
+}
+
+/****************************************************************************************
  *  registerDevice – adds into ConnectionManager & DB (id === deviceId)
  ***************************************************************************************/
 async function registerDevice(
@@ -153,6 +199,11 @@ async function registerDevice(
     };
 
     const publishFn = (ch: string, msg: unknown) => publish(redisService, ch, msg);
+    
+    // Update presence tracking
+    if (presenceManager) {
+        await presenceManager.setDeviceOnline(deviceId);
+    }
 
     const meta: ConnectionMeta = {
         id: deviceId,                    // connectionId === deviceId
@@ -226,6 +277,11 @@ async function unregisterDevice(deviceId: string): Promise<void> {
     } catch (updateError) {
         logger.error(`[Pushpin] Failed to update device ${deviceId} status: ${String(updateError)}`);
     }
+    
+    // 4️⃣ Update presence tracking
+    if (presenceManager) {
+        await presenceManager.setDeviceOffline(deviceId);
+    }
 }
 
 
@@ -242,4 +298,15 @@ function extractDeviceId(obj: Record<string, unknown>): string | null {
         ['deviceid', 'id', 'device_id'].includes(k.toLowerCase())
     );
     return key ? String(obj[key]) : null;
+}
+
+/****************************************************************************************
+ *  Export functions for external use
+ ***************************************************************************************/
+export function getPresenceManager(): PresenceManager | null {
+    return presenceManager;
+}
+
+export function getMessageRelay(): MessageRelay | null {
+    return messageRelay;
 }

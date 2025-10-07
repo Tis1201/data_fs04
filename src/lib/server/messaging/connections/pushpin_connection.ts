@@ -1,5 +1,11 @@
 import type { Connection, ConnectionMeta } from '../interfaces/connection';
 import { ConnectionManager } from '../core/connectionManager';
+import { subscriptionRegistry } from '../core/subscriptionRegistry';
+import { publisher } from '../core/publisher';
+import { MessageFactory } from '../interfaces/message';
+import { DeviceStatusManager } from '$lib/server/device/deviceStatusManager';
+import { getPresenceManager } from '$lib/server/pushpin/middleware';
+import { getAdminPrisma } from '$lib/server/prisma';
 import type { RoutingMessage } from '../interfaces/message';
 import { logger } from '$lib/server/logger';
 import {
@@ -17,7 +23,10 @@ export type PushpinPublishFunction = (channel: string, message: any) => Promise<
 
 export class PushpinConnection implements Connection {
     private static readonly PING_INTERVAL_MS = 30000; // 30 seconds
+    private static readonly PING_TIMEOUT_MS = 60000; // 60 seconds timeout
     private pingInterval: NodeJS.Timeout | null = null;
+    private pingTimeout: NodeJS.Timeout | null = null;
+    private keepAliveInterval: NodeJS.Timeout | null = null;
     private isAlive = true;
 
     /**
@@ -29,6 +38,8 @@ export class PushpinConnection implements Connection {
         public readonly meta: ConnectionMeta,
         private readonly publishFn?: PushpinPublishFunction
     ) {
+        logger.info(`[PushpinConnection] Created connection for device ${this.meta.deviceId || this.meta.id}`);
+        
         // Setup ping if we have a publish function
         if (this.publishFn) {
             this.setupPing();
@@ -52,6 +63,22 @@ export class PushpinConnection implements Connection {
                 this.cleanup();
             });
         }, PushpinConnection.PING_INTERVAL_MS);
+
+        // Set up timeout detection
+        this.resetPingTimeout();
+    }
+
+    private resetPingTimeout(): void {
+        if (this.pingTimeout) {
+            clearTimeout(this.pingTimeout);
+        }
+        
+        this.pingTimeout = setTimeout(() => {
+            if (this.isAlive) {
+                logger.warn(`[PushpinConnection] Ping timeout after ${PushpinConnection.PING_TIMEOUT_MS}ms, cleaning up connection`);
+                this.cleanup();
+            }
+        }, PushpinConnection.PING_TIMEOUT_MS);
     }
 
     private async sendPing(): Promise<void> {
@@ -66,19 +93,18 @@ export class PushpinConnection implements Connection {
             message: 'Connection heartbeat',
             status: ResponseStatus.SUCCESS,
             severity: ResponseSeverity.INFO,
-            category: ResponseCategory.SYSTEM,
             meta: {
                 connectionId: this.meta.id,
                 deviceId: this.meta.deviceId
             }
         });
 
-        // Use the channel format expected by Pushpin
-        const channel = `messages`;
-        await this.publishFn(channel, {
-            channel: this.meta.deviceId,
-            payload: pingResponse
-        });
+        // Publish to per-device channel so sidecar can relay to Pushpin
+        const channel = `device:${this.meta.deviceId}`;
+        await this.publishFn(channel, pingResponse);
+
+        // Reset timeout on successful ping
+        this.resetPingTimeout();
     }
 
     /**
@@ -100,11 +126,8 @@ export class PushpinConnection implements Connection {
                 timestamp: new Date().toISOString()
             };
 
-            // Use the channel format expected by Pushpin
-            await this.publishFn("messages", {
-                channel: this.meta.deviceId,
-                payload: data
-            });
+            // Publish to per-device channel so sidecar can relay to Pushpin
+            await this.publishFn(`device:${this.meta.deviceId}`, data);
 
         } catch (error) {
             logger.error(`[PushpinConnection] Failed to send message: ${error}`);
@@ -126,8 +149,7 @@ export class PushpinConnection implements Connection {
         }
 
         try {
-            // Use the channel format expected by Pushpin
-            const channel = `device:${this.meta.deviceId}:messages`;
+            const channel = `device:${this.meta.deviceId}`;
             await this.publishFn(channel, response);
         } catch (error) {
             logger.error(`[PushpinConnection] Failed to send standardized message: ${error}`);
@@ -142,18 +164,25 @@ export class PushpinConnection implements Connection {
             const message = typeof raw === 'string' ? raw : raw.toString();
             logger.debug(`[PushpinConnection] Received message: ${JSON.stringify(message)}`);
 
-            // Reset alive flag on any message
+            // Reset alive flag on any message and reset timeout
             this.isAlive = true;
+            this.resetPingTimeout();
         } catch (error) {
             logger.error(`[PushpinConnection] Error handling message: ${error}`);
         }
     }
 
     close(): void {
-        this.cleanup();
+        this.cleanup().catch(error => {
+            logger.error(`[PushpinConnection] Error during cleanup: ${String(error)}`);
+        });
     }
 
-    private cleanup(): void {
+    setKeepAliveInterval(interval: NodeJS.Timeout): void {
+        this.keepAliveInterval = interval;
+    }
+
+    private async cleanup(): Promise<void> {
         if (!this.isAlive) return;
         this.isAlive = false;
 
@@ -162,7 +191,71 @@ export class PushpinConnection implements Connection {
             this.pingInterval = null;
         }
 
-        ConnectionManager.unregisterConnection(this.meta.id);
-        logger.debug(`[PushpinConnection] Connection closed: ${this.meta.id}`);
+        if (this.pingTimeout) {
+            clearTimeout(this.pingTimeout);
+            this.pingTimeout = null;
+        }
+
+        if (this.keepAliveInterval) {
+            clearInterval(this.keepAliveInterval);
+            this.keepAliveInterval = null;
+        }
+
+        const deviceId = this.meta.deviceId || this.meta.id;
+
+        // Update device status to offline
+        try {
+            const prisma = getAdminPrisma();
+            await prisma.device.update({
+                where: { id: deviceId },
+                data: {
+                    connected: false,
+                    disconnectedAt: new Date()
+                }
+            });
+
+            // Update presence tracking
+            const presenceManager = getPresenceManager();
+            if (presenceManager) {
+                await presenceManager.setDeviceOffline(deviceId);
+            }
+
+            // Publish disconnection event directly to UI (bypassing dispatcher)
+            const disconnectionMessage = MessageFactory.createSystemMessage(
+                'device:connection',
+                `subscription:device:${deviceId}`,
+                {
+                    deviceId: deviceId,
+                    connected: false,
+                    disconnectedAt: new Date().toISOString(),
+                    protocol: 'pushpin'
+                },
+                this.meta.userInfo || null,
+                { echoToSender: false }
+            );
+
+            logger.info(`[PushpinConnection] Publishing disconnect event for device ${deviceId}`);
+            await publisher.publish(disconnectionMessage);
+            logger.info(`[PushpinConnection] Disconnect event published successfully for device ${deviceId}`);
+
+            // Remove device subscriptions
+            const connectionScope = `subscriber:connection:${this.meta.id || deviceId}`;
+            const subscriptions = await subscriptionRegistry.getByScope(connectionScope);
+            
+            for (const sub of subscriptions) {
+                try {
+                    await subscriptionRegistry.removeSubscription(sub.key, connectionScope);
+                } catch (err) {
+                    logger.error(`[PushpinConnection] Failed to remove subscription ${sub.key}: ${String(err)}`);
+                }
+            }
+
+            logger.info(`[PushpinConnection] Device ${deviceId} disconnected and status updated`);
+        } catch (error) {
+            logger.error(`[PushpinConnection] Failed to update device status on disconnect: ${String(error)}`);
+        }
+
+        ConnectionManager.unregisterConnection(this.meta.id || deviceId);
+        logger.debug(`[PushpinConnection] Connection closed: ${this.meta.id || deviceId}`);
     }
 }

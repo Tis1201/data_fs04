@@ -21,6 +21,7 @@
     import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
+    import { useDeviceRealtime } from "$lib/mixins/deviceRealtimeMixin";
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
@@ -122,6 +123,13 @@
     let unsubscribeDeviceRealtime: (() => void) | null = null;
     let unsubConnectionLight: (() => void) | null = null;
     let statusUnsubscribe: (() => void) | null = null;
+    
+    // Initialize device real-time mixin
+    const deviceRealtime = useDeviceRealtime({
+        deviceIds: [device.id],
+        autoSubscribe: true,
+        debug: true
+    });
 
     // Utility function to download push file
     function downloadPushFile(base64Data: string, filename: string) {
@@ -206,13 +214,24 @@
         }
 
         // Lightweight connection status updates remain inline
+        console.log('[AdminDeviceDetail] Setting up SSE listener for device:connection messages');
         unsubConnectionLight = sseStore.on('*', (msg: any) => {
+            console.log('[AdminDeviceDetail] SSE message received:', msg);
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
                 // Normalize payloads that carry action in payload
                 const normalized = evt?.payload?.action === 'device:connection' ? { ...evt.payload, type: 'device:connection' }
                                   : evt;
+
+                console.log('[AdminDeviceDetail] Parsing message:', {
+                    evt,
+                    evtType,
+                    msgEvent: msg?.event,
+                    normalized,
+                    deviceId: evt?.payload?.deviceId,
+                    currentDevice: device?.id
+                });
 
                 // Debug incoming messages minimally to avoid spam
                 if (evtType || normalized?.type) {
@@ -225,26 +244,55 @@
                 }
 
                 const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
-                if (!isConnectionEvent) return;
+                console.log('[AdminDeviceDetail] Connection event check:', {
+                    isConnectionEvent,
+                    evtType,
+                    normalizedType: normalized?.type
+                });
+                
+                if (!isConnectionEvent) {
+                    console.log('[AdminDeviceDetail] Not a connection event, ignoring');
+                    return;
+                }
 
                 const c = normalized;
-                if (!c?.deviceId || c.deviceId !== device.id) {
-                    // Not for this device; ignore
+                const cDeviceId = c?.deviceId || c?.payload?.deviceId;
+                console.log('[AdminDeviceDetail] Device ID check:', {
+                    cDeviceId,
+                    cPayloadDeviceId: c?.payload?.deviceId,
+                    currentDevice: device.id,
+                    match: cDeviceId === device.id
+                });
+                
+                if (!cDeviceId || cDeviceId !== device.id) {
+                    console.log('[AdminDeviceDetail] Not for this device, ignoring');
                     return;
                 }
 
                 const prev = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
+                console.log('[AdminDeviceDetail] Previous device state:', prev);
+                const connected = c.connected ?? c.payload?.connected;
+                const connectedAt = c.connectedAt ?? c.payload?.connectedAt;
+                const disconnectedAt = c.disconnectedAt ?? c.payload?.disconnectedAt;
+                
+                console.log('[AdminDeviceDetail] Connection data:', {
+                    connected,
+                    connectedAt,
+                    disconnectedAt,
+                    cConnected: c.connected,
+                    cPayloadConnected: c.payload?.connected
+                });
 
                 // Reassign the whole object to trigger reactive updates in Svelte
                 device = {
                     ...device,
-                    connected: !!c.connected,
-                    connectedAt: c.connected ? (c.connectedAt ?? device.connectedAt) : device.connectedAt,
-                    disconnectedAt: !c.connected ? (c.disconnectedAt ?? device.disconnectedAt) : device.disconnectedAt
+                    connected: !!connected,
+                    connectedAt: connected ? (connectedAt ?? device.connectedAt) : device.connectedAt,
+                    disconnectedAt: !connected ? (disconnectedAt ?? device.disconnectedAt) : device.disconnectedAt
                 };
 
                 const next = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
-                console.debug('[DeviceDetail:SSE] Applied connection update', { prev, next });
+                console.log('[AdminDeviceDetail] Applied connection update:', { prev, next });
             } catch (e) {
                 console.warn('[DeviceDetail:SSE] Error processing message', e);
             }

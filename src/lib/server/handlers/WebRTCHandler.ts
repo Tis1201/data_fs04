@@ -75,6 +75,13 @@ class WebRTCHandlerClass implements Handler {
 
   private async handleConnect(message: InMessage): Promise<void> {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    
+    console.log('[WebRTCHandler] ===== HANDLING WEBRTC CONNECT =====');
+    console.log('[WebRTCHandler] Device ID:', deviceId);
+    console.log('[WebRTCHandler] Message scope:', message.scope);
+    console.log('[WebRTCHandler] Connection ID:', message.connectionId);
+    console.log('[WebRTCHandler] Sender connection ID:', (message as any)?.senderConnectionId);
+    
     this.logger?.logWebRTC('connect', deviceId, 'Handling WebRTC connect');
 
     try {
@@ -96,15 +103,37 @@ class WebRTCHandlerClass implements Handler {
         return;
       }
 
-      // Forward connect message to device
-      await this.forwardToDevice(message, {
-        action: 'webrtc:connect',
-        deviceId,
-        connectionState: 'connecting'
-      });
+      // Forward connect message to device with connection ID so device knows where to send the offer
+      const targetScope = `subscription:device:${deviceId}`;
+      
+      console.log('[WebRTCHandler] Forwarding connect to scope:', targetScope);
+      console.log('[WebRTCHandler] Device should send offer back to connection:', message.connectionId);
+      
+      const routingMessage: RoutingMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'device',
+        scope: targetScope,
+        payload: {
+          type: 'webrtc:connect',
+          deviceId,
+          action: 'message',
+          connectionState: 'connecting'
+        },
+        userInfo: message.userInfo,
+        protocol: message.protocol,
+        connectionId: message.connectionId,
+        senderConnectionId: message.connectionId, // Pass the web client connection ID
+        requestId: message.requestId,
+        systemGenerated: false,
+        sudo: false
+      };
 
+      await publisher.publish(routingMessage);
+
+      console.log('[WebRTCHandler] WebRTC connect forwarded successfully');
       this.logger?.logWebRTC('connect', deviceId, 'WebRTC connect handled successfully');
     } catch (error) {
+      console.error('[WebRTCHandler] Error handling WebRTC connect:', error);
       this.logger?.error('webrtc', 'Failed to handle WebRTC connect', { error, deviceId });
       throw error;
     }
@@ -145,19 +174,40 @@ class WebRTCHandlerClass implements Handler {
     console.log(`[WebRTCHandler] Message scope: ${message.scope}`);
     console.log(`[WebRTCHandler] SDP length: ${sdp ? sdp.length : 'undefined'}`);
     console.log(`[WebRTCHandler] Message payload:`, (message as any)?.payload);
+    console.log(`[WebRTCHandler] Message senderConnectionId:`, (message as any)?.senderConnectionId);
     
     this.logger?.debug('webrtc', 'Handling WebRTC offer', { deviceId, scope: message.scope });
 
     try {
-      // Forward offer to web client via SSE
-      await this.forwardToDevice(message, {
-        action: 'webrtc:offer',
-        deviceId,
-        sdp: sdp
-      });
+      // The device sends the offer to connection:<web-client-id> scope
+      // We need to preserve that scope to route it to the correct web client
+      const targetScope = message.scope; // Use the incoming scope from device
+      
+      console.log(`[WebRTCHandler] Forwarding offer to scope: ${targetScope}`);
+      
+      // Create routing message directly to preserve the scope
+      const routingMessage: RoutingMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'device',
+        scope: targetScope, // Preserve the device's target scope
+        payload: {
+          type: 'webrtc:offer',
+          deviceId,
+          action: 'message',
+          sdp: sdp
+        },
+        userInfo: message.userInfo,
+        protocol: message.protocol,
+        connectionId: message.connectionId,
+        requestId: message.requestId,
+        systemGenerated: false,
+        sudo: (message as any).sudo
+      };
 
-      console.log(`[WebRTCHandler] WebRTC offer forwarded successfully`);
-      this.logger?.debug('webrtc', 'WebRTC offer handled successfully', { deviceId });
+      await publisher.publish(routingMessage);
+
+      console.log(`[WebRTCHandler] WebRTC offer forwarded successfully to ${targetScope}`);
+      this.logger?.debug('webrtc', 'WebRTC offer handled successfully', { deviceId, scope: targetScope });
     } catch (error) {
       console.error(`[WebRTCHandler] Error handling WebRTC offer:`, error);
       this.logger?.error('webrtc', 'Failed to handle WebRTC offer', { error, deviceId });
@@ -167,18 +217,44 @@ class WebRTCHandlerClass implements Handler {
 
   private async handleAnswer(message: InMessage): Promise<void> {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const sdp = (message as any)?.payload?.sdp;
+    
+    console.log('[WebRTCHandler] ===== HANDLING WEBRTC ANSWER =====');
+    console.log('[WebRTCHandler] Device ID:', deviceId);
+    console.log('[WebRTCHandler] Message scope:', message.scope);
+    
     this.logger?.logWebRTC('answer', deviceId, 'Handling WebRTC answer');
 
     try {
-      // Forward answer to device
-      await this.forwardToDevice(message, {
-        action: 'webrtc:answer',
-        deviceId,
-        sdp: (message as any)?.payload?.sdp
-      });
+      // Preserve the scope to route answer back to the device
+      const targetScope = message.scope;
+      
+      console.log('[WebRTCHandler] Forwarding answer to scope:', targetScope);
+      
+      const routingMessage: RoutingMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'device',
+        scope: targetScope, // Preserve scope
+        payload: {
+          type: 'webrtc:answer',
+          deviceId,
+          action: 'message',
+          sdp: sdp
+        },
+        userInfo: message.userInfo,
+        protocol: message.protocol,
+        connectionId: message.connectionId,
+        requestId: message.requestId,
+        systemGenerated: false,
+        sudo: (message as any).sudo
+      };
 
+      await publisher.publish(routingMessage);
+      
+      console.log('[WebRTCHandler] WebRTC answer forwarded successfully to', targetScope);
       this.logger?.logWebRTC('answer', deviceId, 'WebRTC answer handled successfully');
     } catch (error) {
+      console.error('[WebRTCHandler] Error handling WebRTC answer:', error);
       this.logger?.error('webrtc', 'Failed to handle WebRTC answer', { error, deviceId });
       throw error;
     }
@@ -186,18 +262,44 @@ class WebRTCHandlerClass implements Handler {
 
   private async handleIceCandidate(message: InMessage): Promise<void> {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const candidate = (message as any)?.payload?.candidate;
+    
+    console.log('[WebRTCHandler] ===== HANDLING WEBRTC ICE CANDIDATE =====');
+    console.log('[WebRTCHandler] Device ID:', deviceId);
+    console.log('[WebRTCHandler] Message scope:', message.scope);
+    
     this.logger?.logWebRTC('ice-candidate', deviceId, 'Handling WebRTC ICE candidate');
 
     try {
-      // Forward ICE candidate to device
-      await this.forwardToDevice(message, {
-        action: 'webrtc:ice-candidate',
-        deviceId,
-        candidate: (message as any)?.payload?.candidate
-      });
+      // Preserve the scope to route ICE candidate correctly
+      const targetScope = message.scope;
+      
+      console.log('[WebRTCHandler] Forwarding ICE candidate to scope:', targetScope);
+      
+      const routingMessage: RoutingMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'device',
+        scope: targetScope, // Preserve scope
+        payload: {
+          type: 'webrtc:ice-candidate',
+          deviceId,
+          action: 'message',
+          candidate: candidate
+        },
+        userInfo: message.userInfo,
+        protocol: message.protocol,
+        connectionId: message.connectionId,
+        requestId: message.requestId,
+        systemGenerated: false,
+        sudo: (message as any).sudo
+      };
 
+      await publisher.publish(routingMessage);
+      
+      console.log('[WebRTCHandler] WebRTC ICE candidate forwarded successfully to', targetScope);
       this.logger?.logWebRTC('ice-candidate', deviceId, 'WebRTC ICE candidate handled successfully');
     } catch (error) {
+      console.error('[WebRTCHandler] Error handling WebRTC ICE candidate:', error);
       this.logger?.error('webrtc', 'Failed to handle WebRTC ICE candidate', { error, deviceId });
       throw error;
     }

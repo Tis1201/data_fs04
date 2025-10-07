@@ -1,5 +1,6 @@
 import { logger } from '$lib/server/logger';
 import type { App } from '$lib/types/app';
+import { getPresenceManager, getMessageRelay } from '$lib/server/pushpin/middleware';
 
 /**
  * Manages device status updates through database
@@ -26,16 +27,30 @@ export class DeviceStatusManager {
                 }
             });
             
-            // Try to publish to Redis if available (optional)
+            // Update presence tracking and publish to Redis if available
             try {
-                const { getRedisService } = await import('$lib/server/services/redisService');
-                const redisService = getRedisService(locals);
-                await redisService.publish('device_status_changes', JSON.stringify({
-                    deviceId,
-                    status: 'online',
-                    connectionId,
-                    timestamp: new Date().toISOString()
-                }));
+                const presenceManager = getPresenceManager();
+                const messageRelay = getMessageRelay();
+                
+                if (presenceManager) {
+                    await presenceManager.setDeviceOnline(deviceId);
+                }
+                
+                if (messageRelay) {
+                    await messageRelay.publishDeviceStatus(deviceId, 'online', connectionId);
+                } else {
+                    // Fallback to direct Redis publish
+                    const { getRedisService } = await import('$lib/server/services/redisService');
+                    const redisService = getRedisService(locals);
+                    if (redisService) {
+                        await redisService.publish('device_status_changes', JSON.stringify({
+                            deviceId,
+                            status: 'online',
+                            connectionId,
+                            timestamp: new Date().toISOString()
+                        }));
+                    }
+                }
                 logger.debug(`Device ${deviceId} status published to Redis`);
             } catch (redisError) {
                 logger.debug(`Redis not available, skipping publish for device ${deviceId}: ${redisError}`);
@@ -67,16 +82,30 @@ export class DeviceStatusManager {
                 }
             });
             
-            // Try to publish to Redis if available (optional)
+            // Update presence tracking and publish to Redis if available
             try {
-                const { getRedisService } = await import('$lib/server/services/redisService');
-                const redisService = getRedisService(locals);
-                await redisService.publish('device_status_changes', JSON.stringify({
-                    deviceId,
-                    status: 'offline',
-                    connectionId,
-                    timestamp: new Date().toISOString()
-                }));
+                const presenceManager = getPresenceManager();
+                const messageRelay = getMessageRelay();
+                
+                if (presenceManager) {
+                    await presenceManager.setDeviceOffline(deviceId);
+                }
+                
+                if (messageRelay) {
+                    await messageRelay.publishDeviceStatus(deviceId, 'offline', connectionId);
+                } else {
+                    // Fallback to direct Redis publish
+                    const { getRedisService } = await import('$lib/server/services/redisService');
+                    const redisService = getRedisService(locals);
+                    if (redisService) {
+                        await redisService.publish('device_status_changes', JSON.stringify({
+                            deviceId,
+                            status: 'offline',
+                            connectionId,
+                            timestamp: new Date().toISOString()
+                        }));
+                    }
+                }
                 logger.debug(`Device ${deviceId} status published to Redis`);
             } catch (redisError) {
                 logger.debug(`Redis not available, skipping publish for device ${deviceId}: ${redisError}`);

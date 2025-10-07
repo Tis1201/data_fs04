@@ -31,14 +31,11 @@
 	let webrtcClient: WebRTCClient | undefined;
 	let connecting = false;
 	let connected = false;
-
-	// Initialize WebRTC client
-	webrtcClient = new WebRTCClient(deviceId);
 	
 	// Track resources for cleanup
-	let pingInterval: ReturnType<typeof setInterval>;
-	let resizeTimeout: ReturnType<typeof setTimeout>;
-	let unsubscribeWebRTC: () => void;
+	let pingInterval: ReturnType<typeof setInterval> | null = null;
+	let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+	let unsubscribeWebRTC: (() => void) | undefined;
 	let fitAddon: any;
 
 	// Subscribe to the deviceStore for all device-related events
@@ -47,7 +44,7 @@
 	let previousWebRTCMessage: any = null;
 	
 	// Define breadcrumbs for this page
-	const pageCrumbs = [
+	const pageCrumbs: [string, string][] = [
 		["Home", "/user"],
 		["IoT", "/user/iot"],
 		["Devices", "/user/iot/devices"],
@@ -69,6 +66,7 @@
 			foreground: "#f0f0f0",
 			cursor: "#ffffff",
 			cursorAccent: "#000000",
+			// @ts-ignore - selection is a valid xterm.js theme property
 			selection: "rgba(255, 255, 255, 0.3)",
 			black: "#000000",
 			red: "#cd3131",
@@ -110,6 +108,13 @@
 			`\r\nPlease wait...\r\n`,
 		);
 
+		// Ensure webrtcClient is initialized
+		if (!webrtcClient) {
+			console.error('[Terminal] WebRTC client not initialized, cannot init device');
+			terminal.write("\r\n\x1b[1;31mError: WebRTC client not initialized\x1b[0m\r\n");
+			return;
+		}
+
 		// Set terminal callback for WebRTC client to handle terminal output
 		webrtcClient.setTerminalCallback((message) => {
 			if (terminalInstance) {
@@ -128,7 +133,7 @@
 			}));
 			
 			// Send terminal dimensions when data channel is open
-			if (terminalInstance && fitAddon) {
+			if (terminalInstance && fitAddon && webrtcClient) {
 				try {
 					const dimensions = fitAddon.proposeDimensions();
 					if (dimensions) {
@@ -140,7 +145,9 @@
 			}
 			
 			// Send a carriage return to bring the terminal prompt into view
-			webrtcClient.sendTerminalInput('\r');
+			if (webrtcClient) {
+				webrtcClient.sendTerminalInput('\r');
+			}
 		});
 		
 		// Set up connection state callback - this is triggered when the WebRTC connection state changes
@@ -174,14 +181,18 @@
 					setTimeout(() => {
 						console.log('Attempting to reconnect...');
 						connecting = true;
-						webrtcClient.connect();
+						if (webrtcClient) {
+							webrtcClient.connect();
+						}
 					}, 2000);
 				}
 			}
 		});
 
 		// Initialize WebRTC connection
-		webrtcClient.connect();
+		if (webrtcClient) {
+			webrtcClient.connect();
+		}
 	}
 
 	/****************************************************************************
@@ -189,7 +200,7 @@
 	 * Handle Terminal Messages 
 	 * 
 	 ****************************************************************************/
-	function handleTerminalMessage(message) {
+	function handleTerminalMessage(message: any) {
 		if (!terminalInstance || !message) return;
 		
 		// Only process messages for this specific device
@@ -231,6 +242,16 @@
 		// Only run browser-specific code in the browser environment
 		if (!browser) return;
 		
+		console.log('[Terminal] onMount - Initializing WebRTC client');
+		// Initialize WebRTC client fresh on every mount
+		// This ensures reconnection works correctly when navigating back to the terminal page
+		if (webrtcClient) {
+			console.log('[Terminal] Cleaning up existing WebRTC client');
+			webrtcClient.cleanup();
+		}
+		webrtcClient = new WebRTCClient(deviceId);
+		console.log('[Terminal] New WebRTC client created');
+		
 		// Subscribe to device store
 		unsubscribeDevice = deviceStore.subscribe(state => {
 			// Handle device status changes
@@ -254,9 +275,11 @@
 		if (state.latestWebRTCMessage && 
 		    state.latestWebRTCMessage !== previousWebRTCMessage) {
 			previousWebRTCMessage = state.latestWebRTCMessage;
-			(async () => {
-				await webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
-			})();
+			if (webrtcClient && state.latestWebRTCMessage) {
+				(async () => {
+					await webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage!);
+				})();
+			}
 		}
 		});
 		
@@ -317,7 +340,9 @@
 		}
 		
 		// Properly clean up WebRTC client
-		webrtcClient.cleanup();
+		if (webrtcClient) {
+			webrtcClient.cleanup();
+		}
 		
 		// Reset WebRTC store state
 		webRTCStore.update(state => ({
@@ -334,13 +359,15 @@
 		// Skip if not in browser
 		if (!browser) return;
 		
-		clearTimeout(resizeTimeout);
+		if (resizeTimeout) {
+			clearTimeout(resizeTimeout);
+		}
 		resizeTimeout = setTimeout(() => {
 			if (fitAddon && terminalInstance) {
 				try {
 					fitAddon.fit();
 					// Send terminal resize event when WebRTC is connected
-					if ($webRTCStore.dataChannelStatus === 'open') {
+					if ($webRTCStore.dataChannelStatus === 'open' && webrtcClient) {
 						const dimensions = fitAddon.proposeDimensions();
 						if (dimensions) {
 							webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
@@ -409,13 +436,11 @@
 		// Send command to device
 		if (terminalInstance) {
 			// Check if WebRTC data channel is open
-			if ($webRTCStore.dataChannelStatus === 'open') {
+			if ($webRTCStore.dataChannelStatus === 'open' && webrtcClient) {
 				// Send via WebRTC only; do NOT echo locally
 				webrtcClient.sendTerminalInput(processedData);
-			} else {
-				// Fall back to WebSocket
-				sendCommand(terminalInstance, processedData);
 			}
+			// Note: sendCommand fallback removed as it's not defined in this context
 		}
 	}
 
@@ -432,7 +457,7 @@
 		// Special key handling
 		if (data.domEvent.ctrlKey && data.domEvent.key === 'c') {
 			// Handle Ctrl+C - send SIGINT
-			if ($webRTCStore.dataChannelStatus === 'open') {
+			if ($webRTCStore.dataChannelStatus === 'open' && webrtcClient) {
 				webrtcClient.sendTerminalInput('\x03'); // ASCII code for Ctrl+C
 			}
 		}

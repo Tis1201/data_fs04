@@ -51,6 +51,13 @@ export class SSEConnection implements Connection {
   }
 
   private async sendPing(): Promise<void> {
+    // Check if connection is still alive before attempting to send
+    if (!this.isAlive || this.controllerClosed) {
+      logger.debug(`[SSEConnection] Ping skipped - connection not alive (alive=${this.isAlive}, closed=${this.controllerClosed})`);
+      this.cleanup();
+      return;
+    }
+
     try {
       logger.debug(`[SSEConnection] Sending ping to connection ${this.meta.id} (alive=${this.isAlive}, closed=${this.controllerClosed})`);
       
@@ -69,6 +76,13 @@ export class SSEConnection implements Connection {
       await this.sendStandardized(pingResponse);
       // logger.debug(`[SSEConnection] Ping sent successfully to connection ${this.meta.id}`);
     } catch (error) {
+      // If controller is closed, mark it as such and cleanup
+      if (error instanceof Error && error.message.includes('Controller is already closed')) {
+        this.controllerClosed = true;
+        logger.debug(`[SSEConnection] Controller closed detected during ping for connection ${this.meta.id}`);
+        this.cleanup();
+        return;
+      }
       logger.error(`[SSEConnection] Ping send failed for connection ${this.meta.id}: ${error}`);
       throw error;
     }
@@ -113,18 +127,28 @@ export class SSEConnection implements Connection {
     }
 
     try {
-      const message = `data: ${JSON.stringify(response)}\n\n`;
+      // Wrap to match Pushpin channel_message envelope so device receives identical schema
+      const channel = `device:${this.meta.deviceId}`;
+      const envelope = {
+        channel,
+        payload: response,
+        timestamp: Date.now(),
+        type: 'channel_message' as const
+      };
+
+      const message = `data: ${JSON.stringify(envelope)}\n\n`;
       // logger.debug(`[SSEConnection] Enqueuing message for connection ${this.meta.id}: ${message.substring(0, 100)}...`);
       this.controller.enqueue(new TextEncoder().encode(message));
       // logger.debug(`[SSEConnection] Message enqueued successfully for connection ${this.meta.id}`);
     } catch (error) {
-      logger.error(`[SSEConnection] Failed to send standardized message to connection ${this.meta.id}: ${error}`);
       if (error instanceof Error && error.message.includes('Controller is already closed')) {
         // Mark controller as closed to prevent further attempts
         this.controllerClosed = true;
-        logger.warn(`[SSEConnection] Controller marked as closed for connection ${this.meta.id}`);
-        return; // Silently fail on closed controller - it's an expected condition
+        logger.debug(`[SSEConnection] Controller closed detected for connection ${this.meta.id}`);
+        this.cleanup();
+        throw new Error('Connection is closed');
       }
+      logger.error(`[SSEConnection] Failed to send standardized message to connection ${this.meta.id}: ${error}`);
       throw error;
     }
   }
@@ -143,6 +167,22 @@ export class SSEConnection implements Connection {
     }
   }
 
+  /**
+   * Check if the connection is still alive
+   */
+  isConnectionAlive(): boolean {
+    return this.isAlive && !this.controllerClosed;
+  }
+
+  /**
+   * Mark connection as closed (called when client disconnects)
+   */
+  markAsClosed(): void {
+    logger.debug(`[SSEConnection] Connection ${this.meta.id} marked as closed by client`);
+    this.controllerClosed = true;
+    this.cleanup();
+  }
+
   close(): void {
     this.cleanup();
   }
@@ -156,25 +196,30 @@ export class SSEConnection implements Connection {
     logger.info(`[SSEConnection] Cleaning up connection ${this.meta.id} (protocol: ${this.meta.protocol})`);
     this.isAlive = false;
 
+    // Stop ping interval first to prevent further attempts
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
+      logger.debug(`[SSEConnection] Ping interval cleared for connection ${this.meta.id}`);
     }
 
+    // Close controller if not already closed
     if (!this.controllerClosed) {
       try {
         this.controller.close();
         this.controllerClosed = true;
+        logger.debug(`[SSEConnection] Controller closed for connection ${this.meta.id}`);
       } catch (error) {
         if (error instanceof Error && error.message.includes('Controller is already closed')) {
           this.controllerClosed = true;
+          logger.debug(`[SSEConnection] Controller was already closed for connection ${this.meta.id}`);
         } else {
           logger.error(`[SSEConnection] Error closing controller: ${error}`);
         }
       }
     }
 
-    // FIX: Unregister connection silently to avoid race condition warnings
+    // Unregister connection from connection manager
     if (this.meta.id) {
       try {
         const connection = ConnectionManager.getConnection(this.meta.id);

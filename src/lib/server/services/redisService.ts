@@ -30,10 +30,11 @@ export class RedisService {
         return await this._redis.set(key, value, 'EX', ttlSeconds);
       }
       return await this._redis.set(key, value);
-    } catch (error) {
-      logger.error(`Redis set error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis set error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return null;
@@ -46,11 +47,31 @@ export class RedisService {
   async get(key: string): Promise<string | null> {
     try {
       return await this._redis.get(key);
-    } catch (error) {
-      logger.error(`Redis get error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis get error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Set a value with TTL (seconds)
+   * Wrapper for Redis SETEX
+   */
+  async setEx(key: string, ttlSeconds: number, value: string): Promise<'OK' | null> {
+    try {
+      return await this._redis.set(key, value, 'EX', ttlSeconds);
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis setEx error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
+        key,
+        ttlSeconds
       });
       return null;
     }
@@ -62,10 +83,11 @@ export class RedisService {
   async del(key: string): Promise<number> {
     try {
       return await this._redis.del(key);
-    } catch (error) {
-      logger.error(`Redis del error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis del error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return 0;
@@ -79,10 +101,11 @@ export class RedisService {
     try {
       const result = await this._redis.exists(key);
       return result === 1;
-    } catch (error) {
-      logger.error(`Redis exists error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis exists error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return false;
@@ -96,10 +119,11 @@ export class RedisService {
     try {
       const result = await this._redis.expire(key, ttlSeconds);
       return result === 1;
-    } catch (error) {
-      logger.error(`Redis expire error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis expire error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return false;
@@ -112,10 +136,11 @@ export class RedisService {
   async incr(key: string): Promise<number> {
     try {
       return await this._redis.incr(key);
-    } catch (error) {
-      logger.error(`Redis incr error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis incr error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return 0;
@@ -128,10 +153,11 @@ export class RedisService {
   async sadd(key: string, ...members: string[]): Promise<number> {
     try {
       return await this._redis.sadd(key, ...members);
-    } catch (error) {
-      logger.error(`Redis sadd error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis sadd error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return 0;
@@ -144,10 +170,11 @@ export class RedisService {
   async smembers(key: string): Promise<string[]> {
     try {
       return await this._redis.smembers(key);
-    } catch (error) {
-      logger.error(`Redis smembers error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis smembers error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         key
       });
       return [];
@@ -160,10 +187,11 @@ export class RedisService {
   async publish(channel: string, message: string): Promise<number> {
     try {
       return await this._redis.publish(channel, message);
-    } catch (error) {
-      logger.error(`Redis publish error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack,
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis publish error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack,
         channel
       });
       return 0;
@@ -184,10 +212,11 @@ export class RedisService {
       subscriber.on('message', (_channel, message) => {
         try {
           messageHandler(message);
-        } catch (error) {
-          logger.error(`Error handling Redis message: ${error.message}`, {
-            error: error.message,
-            stack: error.stack
+        } catch (err: unknown) {
+          const e = err as any;
+          logger.error(`Error handling Redis message: ${e?.message}`, {
+            error: e?.message,
+            stack: e?.stack
           });
         }
       });
@@ -211,12 +240,13 @@ export class RedisService {
       });
       
       return subscriber;
-    } catch (error) {
-      logger.error(`Redis subscribe error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis subscribe error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack
       });
-      throw error;
+      throw err;
     }
   }
 
@@ -232,10 +262,11 @@ export class RedisService {
       subscriber.on('message', (_channel, message) => {
         try {
           messageHandler(message);
-        } catch (error) {
-          logger.error(`Error handling Redis message: ${error.message}`, {
-            error: error.message,
-            stack: error.stack
+        } catch (err: unknown) {
+          const e = err as any;
+          logger.error(`Error handling Redis message: ${e?.message}`, {
+            error: e?.message,
+            stack: e?.stack
           });
         }
       });
@@ -259,12 +290,13 @@ export class RedisService {
       });
       
       return subscriber;
-    } catch (error) {
-      logger.error(`Redis subscribe error: ${error.message}`, {
-        error: error.message,
-        stack: error.stack
+    } catch (err: unknown) {
+      const e = err as any;
+      logger.error(`Redis subscribe error: ${e?.message}`, {
+        error: e?.message,
+        stack: e?.stack
       });
-      throw error;
+      throw err;
     }
   }
 }

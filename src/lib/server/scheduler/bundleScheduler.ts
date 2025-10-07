@@ -4,7 +4,7 @@ import { distributedLockManager, withDistributedLock, LOCK_CONFIG } from './dist
 // Simple in-process scheduler to auto-publish scheduled bundles.
 // Note: for production, move to a durable worker/cron.
 export function startBundleAutoPublishScheduler(prisma: any, publisherFn: (bundleId: string) => Promise<void>) {
-  const INTERVAL_MS = 30_000; // check every 30s
+  const INTERVAL_MS = 60_000; // check every 60s
   let timer: ReturnType<typeof setInterval> | null = null;
   let lockManagerInitialized = false;
 

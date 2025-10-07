@@ -60,11 +60,18 @@
 	
 	// Initialize WebRTC client
 	function initWebRTC() {
-		console.log("Initializing WebRTC client...");
+		console.log('[RDP] Initializing WebRTC client...');
 		if (!browser) return; // Skip during SSR
+		
+		// Clean up existing client if any
+		if (webrtcClient) {
+			console.log('[RDP] Cleaning up existing WebRTC client');
+			webrtcClient.cleanup();
+		}
 		
 		// Create WebRTC client
 		webrtcClient = new WebRTCClient(deviceId as string);
+		console.log('[RDP] New WebRTC client created');
 		
 		// Video track handling is now done automatically by WebRTC client
 		// The WebRTC store will be updated with the video stream

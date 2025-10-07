@@ -178,6 +178,11 @@ export class MessageEntityMapper {
       return true;
     }
 
+    // Ignore device connection status messages (these are handled by UI components, not action handlers)
+    if (entity.type === 'device:connection') {
+      return true;
+    }
+
     return false;
   }
 }
