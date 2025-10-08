@@ -221,6 +221,23 @@
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                
+                // 🆕 NEW: Handle data updates pushed via SSE
+                if (evtType === 'device:dataUpdate') {
+                    const updatedData = evt.payload?.updatedData;
+                    
+                    if (updatedData && updatedData.deviceInfo) {
+                        console.log('[AdminDeviceDetail] Received fresh device info via SSE push');
+                        deviceInformation = updatedData.deviceInfo;
+                        
+                        toast.success('Device updated', {
+                            description: `Updated after ${evt.payload.action}`,
+                            duration: 2000
+                        });
+                    }
+                    return; // Don't process as connection event
+                }
+                
                 // Normalize payloads that carry action in payload
                 const normalized = evt?.payload?.action === 'device:connection' ? { ...evt.payload, type: 'device:connection' }
                                   : evt;

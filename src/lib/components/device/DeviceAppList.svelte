@@ -230,6 +230,58 @@
     if (data?.type === 'device:statusUpdate' || data?.type === 'device:progressUpdate') {
       handleAppActionUpdate(data);
     }
+
+    // Handle data updates pushed via SSE
+    if (data?.type === 'device:dataUpdate') {
+      handleDataUpdate(data);
+    }
+  }
+
+  // Apply fresh data from SSE push
+  function handleDataUpdate(data: any) {
+    const payload = data?.payload || {};
+    const updatedData = payload.updatedData;
+    
+    if (!updatedData) return;
+    
+    console.log('[DeviceAppList:SSE] Received fresh data via SSE push');
+    
+    // Check if this component uses a special endpoint (like apps-with-pins)
+    const usesSpecialEndpoint = endpoint && endpoint.includes('apps-with-pins');
+    
+    if (usesSpecialEndpoint) {
+      // For special endpoints (e.g., apps-with-pins), reload from the correct endpoint
+      // because SSE data doesn't include pin information
+      console.log('[DeviceAppList:SSE] Using special endpoint, reloading from API');
+      loadData();
+      return;
+    }
+    
+    // Update apps directly from SSE data (for basic apps endpoint)
+    if (updatedData.apps && Array.isArray(updatedData.apps)) {
+      apps = updatedData.apps;
+      
+      // Update pagination
+      if (updatedData.appsPagination) {
+        totalApps = updatedData.appsPagination.total;
+        totalPages = updatedData.appsPagination.totalPages;
+        currentPage = updatedData.appsPagination.page;
+      }
+      
+      // Update timestamp
+      lastSync = new Date(updatedData.timestamp);
+      
+      // Recalculate summary
+      calculateSummary();
+      
+      console.log(`[DeviceAppList:SSE] Updated ${apps.length} apps from SSE (total: ${totalApps})`);
+      
+      // If there's more data than what was pushed, optionally reload full list
+      if (updatedData.shouldReloadFullList && currentPage > 1) {
+        console.log('[DeviceAppList:SSE] Large app list detected, reloading current page');
+        loadData(); // Reload to respect current page/filters
+      }
+    }
   }
 
   function handleAppUpdate(data: any) {

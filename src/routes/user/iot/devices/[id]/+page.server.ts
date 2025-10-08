@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { deviceEditSchema } from '../../../../admin/iot/devices/[id]/schema';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
 
 
 const apiKeySchema = z.object({
@@ -127,10 +128,14 @@ export const load = restrict(
                 }
             });
 
+            // 🆕 NEW: Load device information from ClickHouse
+            const deviceInformation = await getLatestDeviceInformation(device.macAddress);
+
             return {
                 form,
                 device,
-                deviceActionLogs
+                deviceActionLogs,
+                deviceInformation // 🆕 Add this
             };
         } catch (e) {
             // @ts-ignore

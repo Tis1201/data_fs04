@@ -59,6 +59,7 @@
     $: device = data.device;
     let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
+    let deviceInformation = (data as any).deviceInformation; // 🆕 NEW: Device information from ClickHouse
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
     // Track a temporary optimistic log row for firmware update initiation
@@ -279,6 +280,22 @@
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                
+                // 🆕 NEW: Handle data updates pushed via SSE
+                if (evtType === 'device:dataUpdate') {
+                    const updatedData = evt.payload?.updatedData;
+                    
+                    if (updatedData && updatedData.deviceInfo) {
+                        console.log('[UserDeviceDetail] Received fresh device info via SSE push');
+                        deviceInformation = updatedData.deviceInfo;
+                        
+                        toast.success('Device updated', {
+                            description: `Updated after ${evt.payload.action}`,
+                            duration: 2000
+                        });
+                    }
+                    return; // Don't process as connection event
+                }
                 
                 // Log the raw event structure to understand the format
                 console.log('[UserDeviceDetail] Raw event structure:', {
