@@ -129,6 +129,16 @@ export const POST: RequestHandler = restrict(
                     // Continue with assignment even if log creation fails
                 }
 
+                // DEBUG: Log the message being sent
+                logger.info(`[DEBUG] Creating device profile assignment message`, {
+                    deviceId,
+                    profileId,
+                    logId,
+                    requestId,
+                    scope: `subscription:device:${deviceId}`,
+                    messageType: 'device:actionRequest'
+                });
+
                 // Create or update DeviceProfileAssignment record with APPLYING status
                 try {
                     await prisma.deviceProfileAssignment.upsert({

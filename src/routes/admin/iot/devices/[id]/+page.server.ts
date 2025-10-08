@@ -143,16 +143,9 @@ export const load = restrict(
                     protocol: true
                 }
             });
-            console.log('[DeviceDetail] Step 3 COMPLETE - Action logs fetched:', deviceActionLogs.length);
 
-            console.log('[DeviceDetail] Step 4: Fetching device information from ClickHouse...');
             const deviceInformation = await getLatestDeviceInformation(device.macAddress);
-            console.log('[DeviceDetail] Step 4 COMPLETE - Device information:', { 
-                found: !!deviceInformation,
-                macAddress: device.macAddress
-            });
 
-            console.log('[DeviceDetail] ========== LOAD SUCCESS ==========');
             return {
                 form,
                 device,
