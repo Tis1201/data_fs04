@@ -58,10 +58,11 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
         try {
             // Get connection ID if not available
             if (!connectionId) {
-                const unsub = sseStore.subscribe((store: any) => {
+                let unsub: (() => void) | undefined;
+                unsub = sseStore.subscribe((store: any) => {
                     if (store.connectionId) {
                         connectionId = store.connectionId;
-                        unsub();
+                        unsub?.();
                     }
                 });
             }
@@ -148,10 +149,11 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
             if (debug) console.debug(`[DeviceRealtimeMixin] Auto-subscribing to ${deviceIds.length} devices`);
             
             // Wait for SSE connection
-            const unsub = sseStore.subscribe((store: any) => {
+            let unsub: (() => void) | undefined;
+            unsub = sseStore.subscribe((store: any) => {
                 if (store.connectionId) {
                     connectionId = store.connectionId;
-                    unsub();
+                    unsub?.();
                     
                     // Subscribe to all devices
                     deviceIds.forEach(deviceId => {
