@@ -248,13 +248,11 @@ export const actions: Actions = {
                     prisma: locals.prisma
                 });
 
-                return message(
-                    form,
-                    createSuccessResponse('Resource updated successfully', {
-                        details: `Resource '${updatedResource.name}' has been updated in ${accountName}.`,
-                        data: { resourceId: updatedResource.id, accountId: accountId }
-                    })
-                );
+                return {
+                    type: 'success',
+                    status: 200,
+                    data: [{ success: 1 }, true]
+                };
             } catch (err) {
                 return handleFormError({
                     error: err,

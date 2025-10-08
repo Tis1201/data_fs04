@@ -5,11 +5,16 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
+import { z } from 'zod';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
+
+// Validation schema for reapply request
+const ReapplyRequestSchema = z.object({
+    deviceIds: z.array(z.string()).min(1, 'At least one device ID is required')
+});
 
 export const POST: RequestHandler = restrict(
     async (event: AuthenticatedEvent) => {
@@ -29,23 +34,18 @@ export const POST: RequestHandler = restrict(
         }
 
         try {
+            // Parse and validate request body
             const body = await request.json();
+            const validatedData = ReapplyRequestSchema.parse(body);
 
-            const { deviceIds } = body;
+            logger.info(`[Reapply Profile] Starting reapply for profile ${profileId}`, {
+                profileId,
+                deviceIds: validatedData.deviceIds,
+                deviceCount: validatedData.deviceIds.length,
+                userId: auth?.user?.id
+            });
 
-            if (!deviceIds) {
-                return json({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_REQUEST', 
-                        message: `Missing deviceIds`,
-                        timestamp: new Date().toISOString(),
-                        requestId: crypto.randomUUID()
-                    }
-                }, { status: 400 });
-            }
-
-            // Verify device profile exists
+            // Verify device profile exists and load settings
             const deviceProfile = await prisma.deviceProfile.findUnique({
                 where: { id: profileId },
                 select: {
@@ -96,9 +96,47 @@ export const POST: RequestHandler = restrict(
                 }, { status: 403 });
             }
 
+            // Verify devices exist and are assigned to this profile
+            const devices = await prisma.device.findMany({
+                where: {
+                    id: { in: validatedData.deviceIds },
+                    profileAssignment: {
+                        profileId: profileId
+                    }
+                },
+                select: { id: true, name: true, connected: true }
+            });
+
+            if (devices.length !== validatedData.deviceIds.length) {
+                return json({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_REQUEST', 
+                        message: 'Some devices not found or not assigned to this profile',
+                        timestamp: new Date().toISOString(),
+                        requestId: crypto.randomUUID()
+                    }
+                }, { status: 400 });
+            }
+
+            // Map settings to config payload
             const config = mapToConfigPayload(deviceProfile as any);
 
-            await Promise.all(deviceIds.map(async (deviceId: string) => {
+            // Update DeviceProfileAssignment records to APPLYING status
+            await prisma.deviceProfileAssignment.updateMany({
+                where: {
+                    deviceId: { in: validatedData.deviceIds },
+                    profileId: profileId
+                },
+                data: {
+                    status: 'APPLYING',
+                    lastSyncAt: new Date()
+                }
+            });
+
+            // Send reapply messages to each device
+            const results = [];
+            for (const deviceId of validatedData.deviceIds) {
                 const requestId = crypto.randomUUID();
 
                 // Create ActionLog entry for tracking - get the logId first
@@ -112,14 +150,15 @@ export const POST: RequestHandler = restrict(
                         metadata: {
                             action: 'applyProfile',
                             profileId: profileId,
-                            profileName: deviceProfile.name
+                            profileName: deviceProfile.name,
+                            reapply: true
                         },
-                        initialMessage: `Applying profile: ${deviceProfile.name}`
+                        initialMessage: `Reapplying profile: ${deviceProfile.name}`
                     });
 
                     logId = actionLog.id; // Use the database-generated ID
                     
-                    logger.info(`ActionLog created for device ${deviceId}`, {
+                    logger.info(`ActionLog created for device ${deviceId} (reapply)`, {
                         deviceId,
                         profileId,
                         logId: logId,
@@ -127,43 +166,35 @@ export const POST: RequestHandler = restrict(
                     });
                 } catch (logError) {
                     logger.error(`Error creating ActionLog: ${String(logError)}`);
-                    // Continue with assignment even if log creation fails
+                    // Continue with reapply even if log creation fails
                 }
 
-                // DEBUG: Log the message being sent
-                logger.info(`[DEBUG] Creating device profile assignment message`, {
-                    deviceId,
-                    profileId,
-                    logId,
-                    requestId,
-                    scope: `subscription:device:${deviceId}`,
-                    messageType: 'device:actionRequest'
-                });
-
-                // Create or update DeviceProfileAssignment record with APPLYING status
                 try {
-                    await prisma.deviceProfileAssignment.upsert({
-                        where: {
-                            deviceId: deviceId
-                        },
-                        update: {
-                            profileId: profileId,
-                            assignedBy: auth?.user?.id || 'system',
-                            status: 'APPLYING',
-                            assignedAt: new Date()
-                        },
-                        create: {
-                            profileId: profileId,
+                    // Create routing message for device
+                    const routingMessage = MessageFactory.createSystemMessage(
+                        'device:actionRequest',
+                        `subscription:device:${deviceId}`,
+                        {
+                            action: 'applyProfile',
                             deviceId: deviceId,
-                            assignedBy: auth?.user?.id || 'system',
-                            status: 'APPLYING'
-                        }
-                    });
+                            logId: logId, // Use the ActionLog ID
+                            requestId: logId, // Keep requestId same as logId for consistency
+                            profileId: profileId,
+                            config,
+                            message: 'Profile reapplication requested',
+                            sentAt: new Date().toISOString()
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
 
-                    logger.info(`[DEBUG] DeviceProfileAssignment record created/updated for device ${deviceId}`, {
+                    await publisher.publish(routingMessage);
+                    
+                    logger.info(`[Reapply Profile] Message sent to device ${deviceId}`, {
                         deviceId,
                         profileId,
-                        status: 'APPLYING'
+                        logId,
+                        messageId: routingMessage.id
                     });
 
                     // Set timeout to mark as FAILED if no response in 3 minutes
@@ -186,7 +217,7 @@ export const POST: RequestHandler = restrict(
                                     }
                                 });
                                 
-                                logger.warn(`Profile assignment timed out for device ${deviceId}`, {
+                                logger.warn(`Profile reapplication timed out for device ${deviceId}`, {
                                     deviceId,
                                     profileId,
                                     status: 'FAILED'
@@ -202,7 +233,7 @@ export const POST: RequestHandler = restrict(
                                             deviceId: deviceId,
                                             status: 'failed',
                                             profileId: profileId,
-                                            message: 'Profile assignment timed out after 3 minutes',
+                                            message: 'Profile reapplication timed out after 3 minutes',
                                             sentAt: new Date().toISOString()
                                         },
                                         SystemUser,
@@ -220,51 +251,59 @@ export const POST: RequestHandler = restrict(
                         }
                     }, 3 * 60 * 1000); // 3 minutes timeout
 
-                } catch (dbError) {
-                    logger.error(`Error creating/updating DeviceProfileAssignment record: ${String(dbError)}`);
-                    // Continue with message sending even if DB update fails
+                    results.push({ deviceId, success: true });
+                } catch (error) {
+                    logger.error(`[Reapply Profile] Failed to send message to device ${deviceId}: ${String(error)}`);
+                    results.push({ deviceId, success: false, error: String(error) });
                 }
+            }
 
-                // Send command to device via SSE using standardized format
-                const routingMessage = MessageFactory.createSystemMessage(
-                    'device:actionRequest',
-                    `subscription:device:${deviceId}`,
-                    {
-                        action: 'applyProfile',
-                        deviceId,
-                        logId: logId, // Use the ActionLog ID
-                        requestId: logId, // Keep requestId same as logId for consistency
-                        profileId,
-                        'sentAt': new Date().toISOString(),
-                        config,
-                    },
-                    SystemUser,
-                    { echoToSender: false }
-                );
-                
+            const successCount = results.filter(r => r.success).length;
+            const failureCount = results.filter(r => !r.success).length;
 
-                await publisher.publish(routingMessage);
-                
-                logger.info(`Message published for device ${deviceId}`);
-
-            }))
+            logger.info(`[Reapply Profile] Reapply completed`, {
+                profileId,
+                totalDevices: validatedData.deviceIds.length,
+                successCount,
+                failureCount
+            });
 
             return json({
                 success: true,
+                message: `Profile reapplied to ${successCount} device(s)`,
                 data: {
                     profileId,
-                    message: `Broadcasting device profile settings to ${deviceIds.length} device(s)`,
-                    timestamp: new Date().toISOString(),
-                },
-            }, {status: 202});
+                    results: {
+                        total: validatedData.deviceIds.length,
+                        successful: successCount,
+                        failed: failureCount,
+                        details: results
+                    },
+                    timestamp: new Date().toISOString()
+                }
+            }, { status: 202 });
 
         } catch (error) {
-            logger.error(`[UnifiedActionAPI] Error handling action request: ${String(error)}`);
+            logger.error(`[Reapply Profile] Error processing reapply request: ${String(error)}`);
+            
+            if (error instanceof z.ZodError) {
+                return json({ 
+                    success: false, 
+                    error: { 
+                        code: 'VALIDATION_ERROR', 
+                        message: 'Invalid request data',
+                        details: error.errors,
+                        timestamp: new Date().toISOString(),
+                        requestId: crypto.randomUUID()
+                    }
+                }, { status: 400 });
+            }
+            
             return json({ 
                 success: false, 
                 error: { 
                     code: 'OPERATION_FAILED', 
-                    message: 'Failed to broadcast device profile settings',
+                    message: 'Failed to reapply device profile',
                     details: String(error),
                     timestamp: new Date().toISOString(),
                     requestId: crypto.randomUUID()
@@ -274,3 +313,4 @@ export const POST: RequestHandler = restrict(
     },
     [SystemRole.ADMIN, SystemRole.USER]
 );
+

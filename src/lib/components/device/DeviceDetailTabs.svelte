@@ -11,7 +11,8 @@
     FileText, 
     Tag,
     RefreshCw,
-    Clock
+    Clock,
+    Activity
   } from "lucide-svelte";
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
@@ -39,6 +40,7 @@
   export let apiKeySubmitting: any;
   export let isLoading: any;
   export let actionStatus: any;
+  export let deviceInformation: any = null;
 
   let activeTab = "overview";
   let loading = false;
@@ -47,7 +49,7 @@
   onMount(() => {
     const urlParams = new URLSearchParams($page.url.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['overview', 'apps', 'technical', 'security', 'tags'].includes(tabParam)) {
+    if (tabParam && ['overview', 'apps', 'activity', 'technical', 'security', 'tags'].includes(tabParam)) {
       activeTab = tabParam;
     }
   });
@@ -125,21 +127,12 @@
       </p>
     </div>
     <div class="flex items-center space-x-2">
-      <Button
-        on:click={syncDevice}
-        disabled={loading}
-        size="sm"
-        class="flex items-center space-x-1.5"
-      >
-        <RefreshCw class="h-3.5 w-3.5 {loading ? 'animate-spin' : ''}" />
-        <span class="text-xs">{loading ? 'Syncing...' : 'Sync Now'}</span>
-      </Button>
     </div>
   </div>
 
   <!-- Tabs Navigation -->
   <Tabs bind:value={activeTab} class="w-full">
-    <TabsList class="grid w-full grid-cols-5 h-9">
+    <TabsList class="grid w-full grid-cols-6 h-9">
       <TabsTrigger value="overview" class="flex items-center space-x-1.5 text-xs py-1.5">
         <Info class="h-3.5 w-3.5" />
         <span>Overview</span>
@@ -147,6 +140,10 @@
       <TabsTrigger value="apps" class="flex items-center space-x-1.5 text-xs py-1.5">
         <Monitor class="h-3.5 w-3.5" />
         <span>Apps</span>
+      </TabsTrigger>
+      <TabsTrigger value="activity" class="flex items-center space-x-1.5 text-xs py-1.5">
+        <Activity class="h-3.5 w-3.5" />
+        <span>Activity</span>
       </TabsTrigger>
       <TabsTrigger value="technical" class="flex items-center space-x-1.5 text-xs py-1.5">
         <Cpu class="h-3.5 w-3.5" />
@@ -320,6 +317,31 @@
       {/if}
     </TabsContent>
 
+    <!-- Activity Tab -->
+    <TabsContent value="activity" class="space-y-4">
+      {#if device?.id}
+        <AdminCard
+          title="Action History"
+          description="All actions performed on this device in real-time"
+          icon={Activity}
+          compact={true}
+          class_name="text-sm"
+        >
+          {#if actionLogs && actionLogs.length > 0}
+            <ActionHistory {actionLogs} />
+          {:else}
+            <div class="text-center py-8">
+              <p class="text-muted-foreground text-sm">No action history available</p>
+            </div>
+          {/if}
+        </AdminCard>
+      {:else}
+        <div class="text-center py-8">
+          <p class="text-gray-500">Device information not available</p>
+        </div>
+      {/if}
+    </TabsContent>
+
     <!-- Technical Tab -->
     <TabsContent value="technical" class="space-y-4">
       <AdminCard
@@ -328,7 +350,7 @@
         icon={Cpu}
         compact={true}
       >
-        <TechnicalDetailsContent {device} />
+        <TechnicalDetailsContent {device} {deviceInformation} />
       </AdminCard>
     </TabsContent>
 
