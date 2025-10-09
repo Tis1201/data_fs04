@@ -1,10 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '../$types';
-import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
-import { v4 as uuidv4 } from 'uuid';
-import { validateApiAuth, extractApiKey } from '$lib/server/auth/api-auth';
-import { getEnhancedPrisma } from '$lib/server/prisma';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
