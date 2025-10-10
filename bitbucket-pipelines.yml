@@ -1,104 +1,173 @@
-image: atlassian/default-image:3
+image: google/cloud-sdk:alpine
+
+x-export-registry: &export_registry export REGISTRY="registry.gitlab.com/fs040/web"
+x-export-image-name: &export_image_name export IMAGE_NAME="fs04-web"
+x-export-commit-tag: &export_commit_tag export COMMIT_TAG="${BITBUCKET_COMMIT}"
+x-export-version-tag: &export_version_tag |
+  if [ -f VERSION ]; then
+    export VERSION_TAG="$(tr -d '\n' < VERSION)"
+  else
+    echo "VERSION file not found, falling back to commit tag"
+    export VERSION_TAG="${COMMIT_TAG}"
+  fi
+x-assert-version: &assert_version '[[ -n "${VERSION_TAG}" ]] || { echo "VERSION tag not set"; exit 1; }'
+x-export-image-uri-commit: &export_image_uri_commit export IMAGE_URI_COMMIT="${REGISTRY}/${IMAGE_NAME}:${COMMIT_TAG}"
+x-export-image-uri-version: &export_image_uri_version export IMAGE_URI_VERSION="${REGISTRY}/${IMAGE_NAME}:${VERSION_TAG}"
+
+# DEV Cluster
+x-dev-export-project: &dev_export_project export TARGET_GCP_PROJECT="${DEV_GCP_PROJECT:?Set DEV_GCP_PROJECT}"
+x-dev-export-cluster-name: &dev_export_cluster_name export TARGET_GKE_CLUSTER_NAME="${DEV_GKE_CLUSTER_NAME:?Set DEV_GKE_CLUSTER_NAME}"
+x-dev-export-cluster-location: &dev_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="${DEV_GKE_CLUSTER_LOCATION:?Set DEV_GKE_CLUSTER_LOCATION}"
+x-dev-export-namespace: &dev_export_namespace export TARGET_K8S_NAMESPACE="fs04"
+x-dev-export-deployment: &dev_export_deployment export TARGET_K8S_DEPLOYMENT="fs04-web"
+x-dev-export-container: &dev_export_container export TARGET_K8S_CONTAINER="fs04-web"
+
+# PRD Cluster
+x-prd-export-project: &prd_export_project export TARGET_GCP_PROJECT="${PROD_GCP_PROJECT:?Set PROD_GCP_PROJECT}"
+x-prd-export-cluster-name: &prd_export_cluster_name export TARGET_GKE_CLUSTER_NAME="${PROD_GKE_CLUSTER_NAME:?Set PROD_GKE_CLUSTER_NAME}"
+x-prd-export-cluster-location: &prd_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="${PROD_GKE_CLUSTER_LOCATION:?Set PROD_GKE_CLUSTER_LOCATION}"
+x-prd-export-namespace: &prd_export_namespace export TARGET_K8S_NAMESPACE="${PROD_K8S_NAMESPACE:?Set PROD_K8S_NAMESPACE}"
+x-prd-export-deployment: &prd_export_deployment export TARGET_K8S_DEPLOYMENT="${PROD_K8S_DEPLOYMENT:?Set PROD_K8S_DEPLOYMENT}"
+x-prd-export-container: &prd_export_container export TARGET_K8S_CONTAINER="${PROD_K8S_CONTAINER:?Set PROD_K8S_CONTAINER}"
+
+x-deploy-gke-shared: &deploy_gke_shared |
+  set -euo pipefail
+  echo "Preparing ${TARGET_ENV} deployment"
+  gcloud components install kubectl gke-gcloud-auth-plugin --quiet
+  printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > /tmp/oidc.token
+  cat <<'EOF' > /tmp/oidc.json
+  {
+    "type": "external_account",
+    "audience": "//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider",
+    "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+    "token_url": "https://sts.googleapis.com/v1/token",
+    "credential_source": {
+      "file": "/tmp/oidc.token",
+      "format": {
+        "type": "text"
+      }
+    },
+    "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/fs04-builder@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com:generateAccessToken"
+  }
+  EOF
+  export GOOGLE_APPLICATION_CREDENTIALS=/tmp/oidc.json
+  gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}"
+  gcloud config set project "${TARGET_GCP_PROJECT}"
+  if printf '%s' "${TARGET_GKE_CLUSTER_LOCATION}" | grep -Eq -- '-[a-z]$'; then
+    LOCATION_FLAG="--zone"
+  else
+    LOCATION_FLAG="--region"
+  fi
+  gcloud container clusters get-credentials "${TARGET_GKE_CLUSTER_NAME}" "${LOCATION_FLAG}" "${TARGET_GKE_CLUSTER_LOCATION}" --project "${TARGET_GCP_PROJECT}"
+  echo "Using ${IMAGE_URI_VERSION} for ${TARGET_ENV} deployment"
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_VERSION}"
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/"${TARGET_K8S_DEPLOYMENT}"
 
 definitions:
   services:
     docker:
       memory: 7168
-
-pipelines:
-  custom:
-    Deploy-DEV-Manually:
-      - step:
-          name: Build & Push to GitLab Registry (DEV)
-          services: [ docker ]
-          size: 2x
-          script:
-            - set -eu
-            # Configure HTTPS auth for private Bitbucket submodules using secured vars
-            # Define BITBUCKET_SUBMODULE_USER and BITBUCKET_SUBMODULE_APP_PASSWORD in Pipelines variables
-            - echo "Ensuring submodule HTTPS auth is configured"
-            - |
+  steps:
+    - step: &build_and_publish_image
+        name: Build and publish image
+        services:
+          - docker
+        caches:
+          - docker
+        size: 2x
+        script:
+          - set -euo pipefail
+          - echo "Ensuring submodule HTTPS auth is configured"
+          - |
               if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
                 git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
                 git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
               else
                 echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
               fi
-            # Ensure git submodules are available in CI (ui_components_sveltekit, etc.)
-            - git submodule sync --recursive
-            # Force submodule URL to HTTPS with credentials to avoid SSH publickey errors
-            - |
+          - git submodule sync --recursive
+          - |
               if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
                 git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
                   https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
                 git submodule sync --recursive
               fi
-            - git submodule update --init --recursive
-            # 1) Login to GitLab registry
-            - echo "$GITLAB_TOKEN" | docker login registry.gitlab.com -u "$GITLAB_USER" --password-stdin
-            # 2) Build the Docker image (Dockerfile handles Node.js 20 and build process)
-            - export IMAGE="registry.gitlab.com/fs040/web:dev-$BITBUCKET_COMMIT"
-            - export LATEST_IMAGE="registry.gitlab.com/fs040/web:dev-latest"
-            - docker build --platform=linux/amd64 --memory=7g --memory-swap=7g -t "$IMAGE" -t "$LATEST_IMAGE" -f docker/Dockerfile .
-            # 4) Push both tagged and latest images
-            - docker push "$IMAGE"
-            - docker push "$LATEST_IMAGE"
-            - echo "✅ Pushed $IMAGE and $LATEST_IMAGE"
-            # 5) Save image info for deployment
-            - echo "$IMAGE" > .deploy_image
-          artifacts:
-            - .deploy_image
-      - step:
-            name: Deploy to DEV Environment
-            image: alpine:3.20
-            script:
-              - set -eux
-              - apk add --no-cache openssh-client coreutils docker-cli
-              - mkdir -p /root/.ssh
-              - echo "$OSLOGIN_SSH_KEY_B64_DEV" | base64 -d > /root/.ssh/id_oslogin
-              - chmod 600 /root/.ssh/id_oslogin
-              - SSH_OPTS="-o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts"
-              - echo "Testing folder creation and pulling latest dev image..."
-              # Upload docker-compose.yml and .env.dev to remote host
-              - scp $SSH_OPTS -i /root/.ssh/id_oslogin docker/docker-compose.yml "$OSLOGIN_USER@$VM_HOST_DEV:~/fs04-web/docker/docker-compose.yml"
-              - scp $SSH_OPTS -i /root/.ssh/id_oslogin .env.dev "$OSLOGIN_USER@$VM_HOST_DEV:~/fs04-web/.env"
-              # Single SSH session for all deployment steps
-              - |
-                ssh $SSH_OPTS -i /root/.ssh/id_oslogin "$OSLOGIN_USER@$VM_HOST_DEV" "
-                  set -e
-                  echo '🚀 Starting deployment...'
-                  
-                  # Create directories
-                  mkdir -p ~/fs04-web && mkdir -p ~/fs04-web/docker
-                  echo '✅ Folders created successfully'
-                  
-                  # Append DATABASE_URL_DEV and ClickHouse variables to .env file
-                  cd ~/fs04-web
-                  echo 'DATABASE_URL=${DATABASE_URL_DEV:-postgresql://dummy:password@localhost:5432/db}' >> .env
-                  echo 'CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://localhost:8123}' >> .env
-                  echo 'CLICKHOUSE_USER_NAME=${CLICKHOUSE_USER_NAME:-admin}' >> .env
-                  echo 'CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-admin0823}' >> .env
-                  echo 'USE_CLICKHOUSE=${USE_CLICKHOUSE:-true}' >> .env
-                  echo '✅ .env file updated with DATABASE_URL_DEV and ClickHouse variables'
-                  
-                  # Activate docker group and pull image
-                  newgrp docker
-                  docker pull registry.gitlab.com/fs040/web:dev-latest
-                  echo '✅ Image pulled successfully'
-                  
-                  # Deploy with docker compose
-                  export IMAGE_NAME=registry.gitlab.com/fs040/web:dev-latest
-                  export NODE_ENV=development
-                  export DATABASE_URL_DEV=${DATABASE_URL_DEV:-postgresql://dummy:password@localhost:5432/db}
-                  export CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://localhost:8123}
-                  export CLICKHOUSE_USER_NAME=${CLICKHOUSE_USER_NAME:-admin}
-                  export CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-admin0823}
-                  export USE_CLICKHOUSE=${USE_CLICKHOUSE:-true}
-                  docker compose -f docker/docker-compose.yml up -d
-                  echo '✅ Application deployed'
-                  
-                  # Show status
-                  docker compose -f docker/docker-compose.yml ps
-                  echo '✅ Deployment completed!'
-                "
-              - echo "✅ DEV deployment completed successfully"
+          - git submodule update --init --recursive
+          - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
+          - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
+          - : "Ensure credentials are provided"
+          - test -n "${GITLAB_USERNAME}" && test -n "${GITLAB_PASSWORD}" || { echo "GitLab credentials are not set"; exit 1; }
+          - echo "[${BITBUCKET_BRANCH}] Logging into GitLab registry"
+          - echo "${GITLAB_PASSWORD}" | docker login registry.gitlab.com -u "${GITLAB_USERNAME}" --password-stdin
+          - *export_registry
+          - *export_image_name
+          - *export_commit_tag
+          - *export_version_tag
+          - *assert_version
+          - *export_image_uri_commit
+          - *export_image_uri_version
+          - echo "Building Docker image ${IMAGE_URI_COMMIT} and ${IMAGE_URI_VERSION}"
+          - |
+              docker build \
+                --platform=linux/amd64 \
+                --memory=7g \
+                --memory-swap=7g \
+                -f docker/Dockerfile \
+                -t "${IMAGE_URI_COMMIT}" \
+                -t "${IMAGE_URI_VERSION}" \
+                .
+          - echo "Pushing Docker image ${IMAGE_URI_COMMIT}"
+          - docker push "${IMAGE_URI_COMMIT}"
+          - echo "Pushing Docker image ${IMAGE_URI_VERSION}"
+          - docker push "${IMAGE_URI_VERSION}"
+          - echo "Docker image pushed successfully"
+    - step: &access_gke_dev
+        name: Deploy image to dev GKE
+        oidc: true
+        deployment: staging
+        script:
+          - export TARGET_ENV="dev"
+          - *export_registry
+          - *export_image_name
+          - *export_version_tag
+          - *assert_version
+          - *export_image_uri_version
+          - *dev_export_project
+          - *dev_export_cluster_name
+          - *dev_export_cluster_location
+          - *dev_export_namespace
+          - *dev_export_deployment
+          - *dev_export_container
+          - *deploy_gke_shared
+    - step: &access_gke_production
+        name: Deploy image to production GKE
+        oidc: true
+        deployment: production
+        trigger: manual
+        script:
+          - export TARGET_ENV="production"
+          - *export_registry
+          - *export_image_name
+          - *export_version_tag
+          - *assert_version
+          - *export_image_uri_version
+          - *prd_export_project
+          - *prd_export_cluster_name
+          - *prd_export_cluster_location
+          - *prd_export_namespace
+          - *prd_export_deployment
+          - *prd_export_container
+          - *deploy_gke_shared
+
+pipelines:
+  branches:
+    develop:
+      - step: *build_and_publish_image
+      - step: *access_gke_dev
+    main:
+      - step: *build_and_publish_image
+      - step: *access_gke_production
+  custom:
+    Deploy-DEV-Manually:
+      - step: *build_and_publish_image
+      - step: *access_gke_dev
