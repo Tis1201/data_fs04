@@ -39,6 +39,10 @@ export function subscribeDeviceDetailEvents(
       const logId = data.logId || data.id;
       console.log(`[DeviceDetailRealtime] Looking for logId: ${logId} in ${logs.length} logs`);
       
+      // Actions that don't have progress tracking (restart/reboot)
+      const noProgressActions = ['restart', 'reboot'];
+      const shouldShowProgress = !noProgressActions.includes(data.action);
+      
       const updatedLogs = logs.map(log => {
         if (log.id === logId) {
           console.log(`[DeviceDetailRealtime] Updating log ${logId} with success status`);
@@ -46,7 +50,7 @@ export function subscribeDeviceDetailEvents(
             ...log, 
             status: 'success', 
             message: data.message || 'Action completed successfully',
-            progress: 100,
+            ...(shouldShowProgress && { progress: 100 }),
             completedAt: new Date().toISOString(),
             durationMs: data.durationMs // Use server-calculated duration
           };
@@ -71,24 +75,26 @@ export function subscribeDeviceDetailEvents(
             id: logId || updatedLogs[recentLogIndex].id, // Use the new logId if provided
             status: 'success',
             message: data.message || 'Action completed successfully',
-            progress: 100,
+            ...(shouldShowProgress && { progress: 100 }),
             completedAt: new Date().toISOString(),
             durationMs: data.durationMs // Use server-calculated duration
           };
         } else {
           console.log(`[DeviceDetailRealtime] No recent ${data.action} log found, creating new success log`);
-          const newLog = {
+          const newLog: any = {
             id: logId || `temp-${Date.now()}`,
             deviceId,
             actionType: data.action || 'unknown',
             status: 'success',
-            progress: 100,
             initiatedAt: new Date().toISOString(),
             completedAt: new Date().toISOString(),
             durationMs: data.durationMs || 0, // Use server-calculated duration
             message: data.message || 'Action completed successfully',
             user: null
           };
+          if (shouldShowProgress) {
+            newLog.progress = 100;
+          }
           updatedLogs.unshift(newLog);
         }
       }
