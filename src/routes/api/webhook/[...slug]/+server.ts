@@ -1,6 +1,5 @@
 // Process webhooks with valid postfixes from the database
 import { json } from '@sveltejs/kit';
-import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
 import { MessageFactory, type InMessage, type RoutingMessage } from '$lib/server/messaging/interfaces/message';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
