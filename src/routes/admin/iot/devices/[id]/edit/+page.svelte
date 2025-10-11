@@ -19,7 +19,7 @@
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     import type { PageData } from "./$types";
-    import { DEVICE_STATUSES, DEVICE_TYPES } from "../schema";
+    import { DEVICE_STATUSES } from "../schema";
 
     export let data: PageData;
     const { device } = data;

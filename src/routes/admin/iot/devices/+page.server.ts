@@ -39,7 +39,12 @@ const table_options = {
         createdAt: true,
         status: true,
         osVersion: true,
-        tags: true
+        tags: {
+            select: {
+                id: true,
+                name: true
+            }
+        }
     }
 };
 
@@ -63,7 +68,11 @@ export const load = restrict(
                     }
                 }
             }
+        } else {
+            // Clear baseWhere if no tags filter
+            delete table_options.baseWhere;
         }
+        
         const result = await fetchTableData(locals, url, table_options);
         const availableTags = await locals.prisma.deviceTag.findMany({
             select: {

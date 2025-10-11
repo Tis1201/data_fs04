@@ -1,4 +1,4 @@
-import { sseStore } from '$lib/stores/sse-store';
+import { sseStore as defaultSseStore } from '$lib/stores/sse-store';
 import { ActionHandlerManager } from './actionHandlers/ActionHandlerManager';
 import type { ActionLog } from './actionHandlers/types';
 
@@ -6,14 +6,18 @@ import type { ActionLog } from './actionHandlers/types';
  * Subscribes to device detail realtime events and updates action logs.
  * This is the refactored version using the new action handler system.
  * Returns an unsubscribe function.
+ * 
+ * @param sseStore Optional SSE store instance (for per-component SSE). If not provided, uses singleton.
  */
 export function subscribeDeviceDetailEvents(
   deviceId: string,
   getLogs: () => ActionLog[],
   setLogs: (logs: ActionLog[]) => void,
-  actionStatus: any
+  actionStatus: any,
+  sseStore?: any  // Optional: use per-component SSE store if provided
 ): () => void {
-  console.log('[DeviceDetailRealtime] subscribeDeviceDetailEvents called for deviceId:', deviceId);
+  // Use provided SSE store or fall back to singleton
+  const sse = sseStore || defaultSseStore;
   
   // Create action handler manager with UI update callbacks
   const actionHandlerManager = new ActionHandlerManager({
@@ -22,7 +26,6 @@ export function subscribeDeviceDetailEvents(
     setLogs,
     actionStatus,
     onProgress: (progress: number, message: string, logId?: string) => {
-      console.log(`[DeviceDetailRealtime] Progress: ${progress}% - ${message} (logId: ${logId})`);
       // Update action logs with progress
       const logs = getLogs();
       const updatedLogs = logs.map(log => 
@@ -33,11 +36,9 @@ export function subscribeDeviceDetailEvents(
       setLogs(updatedLogs);
     },
     onSuccess: (data: any) => {
-      console.log(`[DeviceDetailRealtime] Success:`, data);
       // Update action logs with success
       const logs = getLogs();
       const logId = data.logId || data.id;
-      console.log(`[DeviceDetailRealtime] Looking for logId: ${logId} in ${logs.length} logs`);
       
       // Actions that don't have progress tracking (restart/reboot)
       const noProgressActions = ['restart', 'reboot'];
@@ -45,7 +46,6 @@ export function subscribeDeviceDetailEvents(
       
       const updatedLogs = logs.map(log => {
         if (log.id === logId) {
-          console.log(`[DeviceDetailRealtime] Updating log ${logId} with success status`);
           return { 
             ...log, 
             status: 'success', 
@@ -60,8 +60,6 @@ export function subscribeDeviceDetailEvents(
       
       // If no existing log found, try to update the most recent log with the same action type
       if (!logs.find(log => log.id === logId)) {
-        console.log(`[DeviceDetailRealtime] No existing log found with logId ${logId}, looking for recent ${data.action} action`);
-        
         // Find the most recent log with the same action type that's in progress
         const recentLogIndex = logs.findIndex(log => 
           log.actionType === data.action && 
@@ -69,7 +67,6 @@ export function subscribeDeviceDetailEvents(
         );
         
         if (recentLogIndex !== -1) {
-          console.log(`[DeviceDetailRealtime] Updating recent ${data.action} log at index ${recentLogIndex}`);
           updatedLogs[recentLogIndex] = {
             ...updatedLogs[recentLogIndex],
             id: logId || updatedLogs[recentLogIndex].id, // Use the new logId if provided
@@ -80,7 +77,6 @@ export function subscribeDeviceDetailEvents(
             durationMs: data.durationMs // Use server-calculated duration
           };
         } else {
-          console.log(`[DeviceDetailRealtime] No recent ${data.action} log found, creating new success log`);
           const newLog: any = {
             id: logId || `temp-${Date.now()}`,
             deviceId,
@@ -102,12 +98,10 @@ export function subscribeDeviceDetailEvents(
       setLogs(updatedLogs.slice(0, 15)); // Keep only last 15 logs
     },
     onError: (error: string, logId?: string) => {
-      console.error(`[DeviceDetailRealtime] Error:`, error, `(logId: ${logId})`);
       // Update action logs with error
       const logs = getLogs();
       const updatedLogs = logs.map(log => {
         if (log.id === logId) {
-          console.log(`[DeviceDetailRealtime] Updating log ${logId} with error status`);
           return { 
             ...log, 
             status: 'failed', 
@@ -121,15 +115,12 @@ export function subscribeDeviceDetailEvents(
       
       // If no existing log found, try to update the most recent log with the same action type
       if (!logs.find(log => log.id === logId)) {
-        console.log(`[DeviceDetailRealtime] No existing log found with logId ${logId}, looking for recent in-progress action`);
-        
         // Find the most recent log that's in progress
         const recentLogIndex = logs.findIndex(log => 
           log.status === 'in_progress' || log.status === 'initiated'
         );
         
         if (recentLogIndex !== -1) {
-          console.log(`[DeviceDetailRealtime] Updating recent in-progress log at index ${recentLogIndex}`);
           updatedLogs[recentLogIndex] = {
             ...updatedLogs[recentLogIndex],
             id: logId || updatedLogs[recentLogIndex].id, // Use the new logId if provided
@@ -140,7 +131,6 @@ export function subscribeDeviceDetailEvents(
               Date.now() - new Date(updatedLogs[recentLogIndex].initiatedAt).getTime() : null
           };
         } else {
-          console.log(`[DeviceDetailRealtime] No recent in-progress log found, creating new error log`);
           const newLog = {
             id: logId || `temp-${Date.now()}`,
             deviceId,
@@ -161,35 +151,13 @@ export function subscribeDeviceDetailEvents(
     }
   });
 
-  const unsubscribe = sseStore.on('*', (msg: any) => {
-    console.log('[DeviceDetailRealtime] Received message:', msg);
-    
+  const unsubscribe = sse.on('*', (msg: any) => {
     // Parse message data
     const evt = msg?.data ?? msg;
     const evtType = evt?.type || msg?.event || evt?.payload?.type || msg?.type;
-    
-    // Enhanced debugging for device messages
-    if (evtType && evtType.startsWith('device:')) {
-      console.log('[DeviceDetailRealtime] Device message detected:', {
-        evtType,
-        msgEvent: msg?.event,
-        evtTypeFromEvt: evt?.type,
-        evtTypeFromMsg: msg?.type,
-        payloadType: evt?.payload?.type,
-        fullEvt: evt,
-        fullMsg: msg
-      });
-    }
 
     // Skip ActionHandlerManager for device:connection messages (handled by UI components)
     if (evtType === 'device:connection') {
-      console.log('[DeviceDetailRealtime] Skipping ActionHandlerManager for device:connection message');
-      console.log('[DeviceDetailRealtime] Message should be handled by UI components:', {
-        evtType,
-        msgEvent: msg?.event,
-        payload: evt?.payload,
-        deviceId: evt?.payload?.deviceId
-      });
       return;
     }
 
@@ -205,7 +173,7 @@ export function subscribeDeviceDetailEvents(
     try { 
       unsubscribe(); 
     } catch (e) {
-      console.error('[DeviceDetailRealtime] Error unsubscribing:', e);
+      // Error unsubscribing
     }
   };
 }

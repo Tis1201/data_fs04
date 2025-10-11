@@ -17,11 +17,14 @@
     import StatusBanner from "$lib/components/ui_components_sveltekit/devices/StatusBanner.svelte";
     import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
     import type { PageData } from "./$types";
-    import { sseStore } from "$lib/stores/sse-store";
+    import { createComponentSSE } from "$lib/stores/sse-store";
     import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
     import { useDeviceRealtime } from "$lib/mixins/deviceRealtimeMixin";
+    
+    // Create a per-component SSE store (independent connection for this page)
+    const sseStore = createComponentSSE();
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
@@ -205,12 +208,14 @@
         });
 
         // Use centralized realtime updater for action history
+        // Pass the per-component SSE store so handlers receive messages from the correct connection
         if (!unsubscribeDeviceRealtime) {
             unsubscribeDeviceRealtime = subscribeDeviceDetailEvents(
                 device.id,
                 () => actionLogs,
                 (logs) => { actionLogs = logs; },
-                actionStatus
+                actionStatus,
+                sseStore  // Pass per-component SSE store
             );
         }
 
@@ -317,7 +322,7 @@
         });
 
         // Add status message handlers for push file, pull file, and install app
-        const statusUnsubscribe = sseStore.on('*', (msg: any) => {
+        statusUnsubscribe = sseStore.on('*', (msg: any) => {
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
@@ -389,6 +394,8 @@
     });
 
     onDestroy(() => {
+        console.log('[AdminDeviceDetail] onDestroy - cleaning up...');
+        
         if (unsubscribeDeviceRealtime) {
             try { unsubscribeDeviceRealtime(); } catch {}
             unsubscribeDeviceRealtime = null;
@@ -401,6 +408,22 @@
             try { statusUnsubscribe(); } catch {}
             statusUnsubscribe = null;
         }
+        
+        // Unsubscribe from device channel
+        if (sseStore.connectionId) {
+            console.log('[AdminDeviceDetail] Unsubscribing from device channel...');
+            fetch(`/api/sse/unsubscribe/device/${device.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ connectionId: sseStore.connectionId })
+            }).catch(err => console.warn('Unsubscribe failed:', err));
+        }
+        
+        // Disconnect this component's SSE connection (won't affect other tabs now!)
+        console.log('[AdminDeviceDetail] Disconnecting per-component SSE...');
+        sseStore.disconnect();
+        console.log('[AdminDeviceDetail] Cleanup complete');
     });
 
     // Device action handlers
@@ -514,6 +537,10 @@
     }
 
     async function restartDevice() {
+        console.log('[AdminDevice] restartDevice called - START');
+        console.log('[AdminDevice] Device ID:', device.id);
+        console.log('[AdminDevice] SSE connectionId:', sseStore.connectionId);
+        
         isLoading.set(true);
         actionStatus.set({
             action: "restart",
@@ -521,17 +548,27 @@
             message: "Sending restart command...",
         });
         const tempId = addActionLogRow('restart', 'Sending restart command…', 'in_progress');
+        console.log('[AdminDevice] Created temp log with ID:', tempId);
 
         try {
-            // Use the unified action API instead of direct SSE
-            const response = await fetch(`/api/devices/${device.id}/actions`, {
+            const url = `/api/devices/${device.id}/actions`;
+            const body = { action: 'restart' };
+            console.log('[AdminDevice] Sending request:', { url, body });
+            
+            // Now that we use per-component SSE, fetch works without blocking!
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    action: 'restart'
-                })
+                credentials: 'include',
+                body: JSON.stringify(body)
+            });
+            
+            console.log('[AdminDevice] Fetch response received:', {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok
             });
 
             if (!response.ok) {
@@ -540,6 +577,7 @@
             }
 
             const result = await response.json();
+            console.log('[AdminDevice] Success response data:', result);
             
             actionStatus.set({
                 action: "restart",
@@ -547,11 +585,15 @@
                 message: "Restart command sent",
             });
             toast.success("Device restart initiated");
+            console.log('[AdminDevice] restartDevice - SUCCESS');
             
             // The real-time handler will update the temp log with the server's log ID
             // when it receives the device:statusUpdate message
             
         } catch (error) {
+            console.error('[AdminDevice] restartDevice - ERROR:', error);
+            console.error('[AdminDevice] Error stack:', error instanceof Error ? error.stack : 'No stack');
+            
             actionStatus.set({
                 action: "restart",
                 status: "error",
@@ -561,11 +603,16 @@
             console.error("Error restarting device:", error);
             updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to restart device');
         } finally {
+            console.log('[AdminDevice] restartDevice - FINALLY');
             isLoading.set(false);
         }
     }
 
     async function rebootDevice() {
+        console.log('[AdminDevice] rebootDevice called - START');
+        console.log('[AdminDevice] Device ID:', device.id);
+        console.log('[AdminDevice] SSE connectionId:', sseStore.connectionId);
+        
         isLoading.set(true);
         actionStatus.set({
             action: "reboot",
@@ -573,25 +620,38 @@
             message: "Sending reboot command...",
         });
         const tempId = addActionLogRow('reboot', 'Sending reboot command…', 'in_progress');
+        console.log('[AdminDevice] Created temp log with ID:', tempId);
 
         try {
-            // Use the unified action API instead of direct SSE
-            const response = await fetch(`/api/devices/${device.id}/actions`, {
+            const url = `/api/devices/${device.id}/actions`;
+            const body = { action: 'reboot' };
+            console.log('[AdminDevice] Sending request:', { url, body });
+            
+            // Now that AuthStateHandler SSE is disabled, per-component SSE works perfectly!
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    action: 'reboot'
-                })
+                credentials: 'include',
+                body: JSON.stringify(body)
+            });
+
+            console.log('[AdminDevice] Fetch response received:', {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok,
+                headers: Object.fromEntries(response.headers.entries())
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
+                console.error('[AdminDevice] Response not OK:', errorData);
                 throw new Error(errorData.error?.message || `Failed to reboot device: ${response.statusText}`);
             }
 
             const result = await response.json();
+            console.log('[AdminDevice] Success response data:', result);
             
             actionStatus.set({
                 action: "reboot",
@@ -599,7 +659,11 @@
                 message: "Reboot command sent",
             });
             toast.success("Device reboot initiated");
+            console.log('[AdminDevice] rebootDevice - SUCCESS');
         } catch (error) {
+            console.error('[AdminDevice] rebootDevice - ERROR:', error);
+            console.error('[AdminDevice] Error stack:', error instanceof Error ? error.stack : 'No stack');
+            
             actionStatus.set({
                 action: "reboot",
                 status: "error",
@@ -609,6 +673,7 @@
             console.error("Error rebooting device:", error);
             updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to reboot device');
         } finally {
+            console.log('[AdminDevice] rebootDevice - FINALLY');
             isLoading.set(false);
         }
     }
@@ -665,6 +730,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'getLogs',
                     format: 'zip'
@@ -835,6 +902,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'updateFirmware',
                     firmwareVersion: selectedFirmware.version ?? '1.0.0'
@@ -999,6 +1068,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'installApp',
                     packageName: selectedInstallApp.packageName ?? 'unknown'
@@ -1128,6 +1199,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'pullFile',
                     sourcePath: selectedPullFile.path,
@@ -1203,6 +1276,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'pushFile',
                     sourcePath: pushFileSourcePath.trim(),
@@ -1358,6 +1433,7 @@
             {isLoading}
             {actionStatus}
             {deviceInformation}
+            {sseStore}
         />
         {:else}
         <div class="text-center py-8">
@@ -1367,3 +1443,5 @@
 </AdminPageLayout>
 
 <!-- Terminal Dialog has been replaced with a dedicated terminal page -->
+
+

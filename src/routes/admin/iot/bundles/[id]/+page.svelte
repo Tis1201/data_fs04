@@ -358,6 +358,10 @@
     
     // Establish SSE connection for real-time updates
     onMount(() => {
+        // DISABLED: SSE now managed per-component only on pages that need it
+        // Bundle detail page should use per-component SSE if it needs real-time updates
+        console.log('[AdminBundleDetail] onMount - SSE connection disabled (use per-component if needed)');
+        /*
         console.log('[AdminBundleDetail] onMount - Establishing SSE connection');
         try {
             sseStore.connect(`/api/sse`, { withCredentials: true });
@@ -365,6 +369,7 @@
         } catch (e) {
             console.warn('[AdminBundleDetail] SSE connect failed (may already be connected):', e);
         }
+        */
         
         // Initialize device connection states from static data
         if (data?.bundleDevices) {

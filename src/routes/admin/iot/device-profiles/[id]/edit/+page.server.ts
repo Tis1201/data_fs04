@@ -1,7 +1,7 @@
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 import type { PageServerLoad, Actions } from './$types';
 import { fail, redirect, error } from '@sveltejs/kit';
-import { superValidate } from 'sveltekit-superforms';
+import { superValidate, message } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 
@@ -9,6 +9,7 @@ import { z } from 'zod';
 const profileSchema = z.object({
     name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
     description: z.string().max(500, 'Description must be less than 500 characters').optional(),
+    isActive: z.string().optional().default('true'), // Store as string for Select component
     settings: z.string().optional().default('[]') // Store as JSON string
 });
 
@@ -55,13 +56,12 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
     }
 
     // Initialize form with existing profile data
-    const form = await superValidate(zod(profileSchema), {
-        defaults: {
-            name: profile.name,
-            description: profile.description || '',
-            settings: JSON.stringify(profile.settings || [])
-        }
-    });
+    const form = await superValidate({
+        name: profile.name,
+        description: profile.description || '',
+        isActive: String(profile.isActive), // Convert boolean to string
+        settings: JSON.stringify(profile.settings || [])
+    }, zod(profileSchema));
 
     return {
         form,
@@ -107,6 +107,7 @@ export const actions: Actions = {
                 data: {
                     name: form.data.name,
                     description: form.data.description,
+                    isActive: form.data.isActive === 'true', // Convert string to boolean
                     updatedBy: auth.user.id,
                     settings: {
                         create: settingsArray.map((setting: any, index: number) => ({
@@ -143,7 +144,8 @@ export const actions: Actions = {
                 }
             });
 
-            if (deviceProfile?.assignments && deviceProfile.assignments.length > 0) {
+            // Only broadcast config if profile is active and has assignments
+            if (updatedProfile.isActive && deviceProfile?.assignments && deviceProfile.assignments.length > 0) {
                 const config = mapToConfigPayload(deviceProfile as any);
 
                 try {
@@ -166,20 +168,24 @@ export const actions: Actions = {
                 }
             }
 
-            // Auto-reapply to all assigned devices after profile update
+            // Auto-reapply to all assigned devices after profile update (only if profile is active)
             try {
-                // Get all devices assigned to this profile
-                const assignedDevices = await locals.prisma.device.findMany({
-                    where: {
-                        profileAssignment: {
-                            profileId: profileId
+                // Only auto-reapply if the profile is active
+                if (!updatedProfile.isActive) {
+                    console.log('[AdminProfileEdit] Profile is inactive, skipping auto-reapply');
+                } else {
+                    // Get all devices assigned to this profile
+                    const assignedDevices = await locals.prisma.device.findMany({
+                        where: {
+                            profileAssignment: {
+                                profileId: profileId
+                            },
+                            status: 'ACTIVE'
                         },
-                        status: 'ACTIVE'
-                    },
-                    select: { id: true, name: true }
-                });
+                        select: { id: true, name: true }
+                    });
 
-                if (assignedDevices.length > 0) {
+                    if (assignedDevices.length > 0) {
                     // Update DeviceProfileAssignment records to APPLYING status
                     await locals.prisma.deviceProfileAssignment.updateMany({
                         where: {
@@ -239,12 +245,18 @@ export const actions: Actions = {
                         console.error(`Failed to send auto-reapply UI notification: ${String(uiError)}`);
                     }
                 }
+                }
             } catch (autoReapplyError) {
                 console.error(`Error during auto-reapply: ${String(autoReapplyError)}`);
                 // Don't fail the profile update if auto-reapply fails
             }
 
-            return { form, success: true, message: 'Device profile updated successfully' };
+            // Update form with fresh data from the database to reflect saved state
+            form.data.name = updatedProfile.name;
+            form.data.description = updatedProfile.description || '';
+            form.data.isActive = String(updatedProfile.isActive);
+
+            return message(form, { success: true, text: 'Device profile updated successfully' });
 
         } catch (error) {
             console.error('Error updating device profile:', error);

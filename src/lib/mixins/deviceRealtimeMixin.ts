@@ -92,7 +92,15 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
         }
 
         try {
-            // Note: There's no unsubscribe endpoint, but we can track it locally
+            // Call the unsubscribe API endpoint
+            if (connectionId) {
+                await fetch(`/api/sse/unsubscribe/device/${deviceId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId })
+                });
+            }
             subscribedDeviceIds.delete(deviceId);
             if (debug) console.debug(`[DeviceRealtimeMixin] Unsubscribed from device ${deviceId}`);
         } catch (error) {
@@ -165,8 +173,21 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
     });
 
     // Cleanup on destroy
-    onDestroy(() => {
+    onDestroy(async () => {
         if (debug) console.debug('[DeviceRealtimeMixin] Cleaning up device real-time mixin');
+        
+        // Unsubscribe from all subscribed devices
+        const unsubscribePromises = Array.from(subscribedDeviceIds).map(deviceId => 
+            unsubscribeFromDevice(deviceId)
+        );
+        
+        try {
+            await Promise.all(unsubscribePromises);
+            if (debug) console.debug('[DeviceRealtimeMixin] All devices unsubscribed');
+        } catch (error) {
+            if (debug) console.error('[DeviceRealtimeMixin] Error during cleanup:', error);
+        }
+        
         // Note: We don't cleanup the global store as other components might be using it
     });
 

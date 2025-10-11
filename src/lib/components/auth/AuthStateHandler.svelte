@@ -22,6 +22,11 @@
         
         const isRouteChange = previousPath !== null && previousPath !== currentPath;
         
+        // NOTE: SSE connections are now managed per-component (not globally)
+        // Each page that needs SSE creates its own connection using createComponentSSE()
+        // This prevents connection pool exhaustion and provides better lifecycle management
+        
+        /* DISABLED: Global SSE management moved to per-component
         // If auth state changed from logged out to logged in
         if (previousAuthState === false && isAuthenticated === true) {
             console.log('[AuthStateHandler] User logged in, resetting connections');
@@ -63,6 +68,7 @@
                 sseStore.disconnect();
             }
         }
+        */
         
         // Update previous state
         previousAuthState = isAuthenticated;
@@ -81,11 +87,14 @@
             path: previousPath 
         });
         
+        // DISABLED: Initial SSE connection now handled per-component
+        /*
         // Initial connection check
         if (previousAuthState && sseStore && !sseStore.isConnected) {
             console.log('[AuthStateHandler] Initial mount: Connecting SSE');
             sseStore.connect('/api/sse');
         }
+        */
         
         // Subscribe to page store to detect auth state and route changes
         unsubscribe = page.subscribe(($page) => {
@@ -94,6 +103,8 @@
             handleAuthStateChange(isAuthenticated, currentPath);
         });
         
+        // DISABLED: SSE cleanup now handled per-component
+        /*
         // Add event listener for page unload (which happens during logout)
         const handleBeforeUnload = () => {
             console.log('[AuthStateHandler] Page unloading, cleaning up');
@@ -101,11 +112,11 @@
         };
         
         window.addEventListener('beforeunload', handleBeforeUnload);
+        */
         
         // Cleanup function
         return () => {
             if (unsubscribe) unsubscribe();
-            window.removeEventListener('beforeunload', handleBeforeUnload);
             console.log('[AuthStateHandler] Unmounted');
         };
     });

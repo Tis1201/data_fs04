@@ -124,6 +124,7 @@ export const POST: RequestHandler = restrict(
 
             // Call the unified assign endpoint to handle ActionLog creation and SSE messaging
             const deviceIdsToAssign = devices.map(d => d.id);
+            
             const response = await fetch(`/api/device-profiles/${profileId}/assign`, {
                 method: 'POST',
                 headers: {

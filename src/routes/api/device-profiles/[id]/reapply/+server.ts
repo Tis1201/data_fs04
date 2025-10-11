@@ -188,14 +188,9 @@ export const POST: RequestHandler = restrict(
                         { echoToSender: false }
                     );
 
-                    await publisher.publish(routingMessage);
+                    const publishResult = await publisher.publish(routingMessage);
                     
-                    logger.info(`[Reapply Profile] Message sent to device ${deviceId}`, {
-                        deviceId,
-                        profileId,
-                        logId,
-                        messageId: routingMessage.id
-                    });
+                    logger.info(`[Reapply Profile] Message published to device ${deviceId}`);
 
                     // Set timeout to mark as FAILED if no response in 3 minutes
                     setTimeout(async () => {

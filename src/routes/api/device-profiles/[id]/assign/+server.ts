@@ -7,7 +7,6 @@ import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
@@ -130,16 +129,6 @@ export const POST: RequestHandler = restrict(
                     // Continue with assignment even if log creation fails
                 }
 
-                // DEBUG: Log the message being sent
-                logger.info(`[DEBUG] Creating device profile assignment message`, {
-                    deviceId,
-                    profileId,
-                    logId,
-                    requestId,
-                    scope: `subscription:device:${deviceId}`,
-                    messageType: 'device:actionRequest'
-                });
-
                 // Create or update DeviceProfileAssignment record with APPLYING status
                 try {
                     await prisma.deviceProfileAssignment.upsert({
@@ -160,11 +149,6 @@ export const POST: RequestHandler = restrict(
                         }
                     });
 
-                    logger.info(`[DEBUG] DeviceProfileAssignment record created/updated for device ${deviceId}`, {
-                        deviceId,
-                        profileId,
-                        status: 'APPLYING'
-                    });
 
                     // Set timeout to mark as FAILED if no response in 3 minutes
                     setTimeout(async () => {
@@ -242,7 +226,6 @@ export const POST: RequestHandler = restrict(
                     { echoToSender: false }
                 );
                 
-
                 await publisher.publish(routingMessage);
                 
                 logger.info(`Message published for device ${deviceId}`);

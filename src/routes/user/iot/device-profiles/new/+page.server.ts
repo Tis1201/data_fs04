@@ -8,6 +8,7 @@ import { z } from 'zod';
 const profileSchema = z.object({
     name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
     description: z.string().max(500, 'Description must be less than 500 characters').optional(),
+    isActive: z.string().optional().default('true'), // Store as string for Select component
     settings: z.string().optional().default('[]') // Store as JSON string
 });
 
@@ -98,16 +99,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
         defaults: {
             name: '',
             description: '',
+            isActive: 'true',
             settings: JSON.stringify(defaultSettings)
         }
     });
-
-    // Debug logging
-    console.log('Server form initialization:');
-    console.log('- Form data:', form.data);
-    console.log('- Form valid:', form.valid);
-    console.log('- Form errors:', form.errors);
-    console.log('- Form posted:', form.posted);
 
     return {
         form
@@ -122,19 +117,8 @@ export const actions: Actions = {
             return fail(401, { message: 'Unauthorized' });
         }
         
-        console.log('User info:', { 
-            id: auth.user.id, 
-            email: auth.user.email, 
-            systemRole: auth.user.systemRole 
-        });
-
         // Validate form with standard data type
         const form = await superValidate(request, zod(profileSchema));
-        
-        // Debug logging
-        console.log('Server received form data:', form.data);
-        console.log('Form valid:', form.valid);
-        console.log('Form errors:', form.errors);
         
         if (!form.valid) {
             return fail(400, { form });
@@ -144,7 +128,6 @@ export const actions: Actions = {
         let userAccountMembership;
         
         if (auth.user.systemRole === 'ADMIN') {
-            console.log('User is system admin, has full access');
             // For system admin, we need to get any account they have access to
             userAccountMembership = await locals.prisma.accountMembership.findFirst({
                 where: { userId: auth.user.id },
@@ -164,8 +147,6 @@ export const actions: Actions = {
                 select: { accountId: true, role: true }
             });
             
-            console.log('User account memberships:', allUserMemberships);
-            
             userAccountMembership = await locals.prisma.accountMembership.findFirst({
                 where: { 
                     userId: auth.user.id,
@@ -175,15 +156,12 @@ export const actions: Actions = {
             });
 
             if (!userAccountMembership) {
-                console.log('User does not have OWNER, ADMIN, or MEMBER role in any account');
                 return fail(403, { 
                     form,
                     message: 'Access denied. You need OWNER, ADMIN, or MEMBER role in an account to create device profiles. Your current role(s): ' + 
                              (allUserMemberships.map(m => m.role).join(', ') || 'None')
                 });
             }
-            
-            console.log('User has access with role:', userAccountMembership.role);
         }
 
         // Parse settings from form data
@@ -191,7 +169,7 @@ export const actions: Actions = {
         try {
             settings = JSON.parse(form.data.settings || '[]');
         } catch (e) {
-            console.error('Error parsing settings JSON:', e);
+            // Error parsing settings JSON
             settings = [];
         }
 
@@ -202,6 +180,7 @@ export const actions: Actions = {
                 data: {
                     name: form.data.name,
                     description: form.data.description,
+                    isActive: form.data.isActive === 'true', // Convert string to boolean
                     accountId: userAccountMembership.accountId,
                     createdBy: auth.user.id,
                     settings: {
@@ -225,7 +204,6 @@ export const actions: Actions = {
             };
 
         } catch (error) {
-            console.error('Error creating device profile:', error);
             return fail(500, { 
                 form: {
                     ...form,

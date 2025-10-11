@@ -31,11 +31,15 @@
 
     // Establish SSE connection once for the list page (DeviceTable will subscribe per-record)
     onMount(() => {
+        // DISABLED: SSE now managed per-component only on pages that need it
+        // Device list page doesn't need real-time updates
+        /*
         try {
             sseStore.connect(`/api/sse`, { withCredentials: true });
         } catch (e) {
             // ignore if already connected
         }
+        */
     });
 </script>
 

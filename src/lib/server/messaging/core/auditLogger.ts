@@ -103,10 +103,6 @@ export class AuditLogger {
     if (this.traces.length > this.maxTraces) {
       this.traces = this.traces.slice(0, this.maxTraces);
     }
-
-    // Also log to the regular logger for server logs
-    logger.debug(`[MessageTrace] ${trace.status === 'success' ? '✓' : '✗'} ${trace.from} → ${trace.to} | ${trace.authorized ? 'AUTH' : 'UNAUTH'} | ${trace.messageType}:${trace.payloadType || 'unknown'}`);
-
     this.saveTraces();
   }
 

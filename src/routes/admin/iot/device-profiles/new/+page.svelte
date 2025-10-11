@@ -3,6 +3,7 @@
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
+    import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
     import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
     import * as Tabs from "$lib/components/ui/tabs";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -118,7 +119,7 @@
                             <CardTitle>Profile Details</CardTitle>
                         </CardHeader>
                         <CardContent class="space-y-4">
-                            <FormRow columns={1}>
+                            <FormRow columns={2}>
                                 <FormField id="name" label="Profile Name" error={$errors.name?.toString()}>
                                     <Input 
                                         bind:value={$form.name} 
@@ -127,6 +128,30 @@
                                         required
                                     />
                                 </FormField>
+                                <FormField id="isActive" label="Status" error={$errors.isActive?.toString()}>
+                                    <Select 
+                                        selected={{ 
+                                            value: $form.isActive, 
+                                            label: $form.isActive === 'true' ? 'Active' : 'Inactive' 
+                                        }}
+                                        onSelectedChange={(selected) => {
+                                            if (selected?.value !== undefined) {
+                                                $form.isActive = selected.value;
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="true">Active</SelectItem>
+                                            <SelectItem value="false">Inactive</SelectItem>
+                                        </SelectContent>
+                                        <input type="hidden" name="isActive" bind:value={$form.isActive} />
+                                    </Select>
+                                </FormField>
+                            </FormRow>
+                            <FormRow columns={1}>
                                 <FormField id="description" label="Description" error={$errors.description?.toString()}>
                                     <Textarea 
                                         bind:value={$form.description} 
