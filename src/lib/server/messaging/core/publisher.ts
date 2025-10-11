@@ -57,8 +57,23 @@ export const publisher: Publisher = {
     // unless explicitly requested via echoToSender.
     const filteredRecipients = connectionIds.filter(connId => {
       if (message.echoToSender === true) return true;
+      
       // Skip sending to the originating connection for request messages
-      return connId !== (message.senderConnectionId || message.connectionId);
+      if (connId === (message.senderConnectionId || message.connectionId)) {
+        return false;
+      }
+      
+      // If excludeDevices is true, skip device connections
+      if (message.excludeDevices) {
+        const conn = ConnectionManager.getConnection(connId);
+        // Device connections have deviceId === id (they connect as themselves)
+        if (conn && conn.meta.deviceId === conn.meta.id) {
+          logger.debug(`[Publisher] Excluding device connection ${connId} from message`);
+          return false;
+        }
+      }
+      
+      return true;
     });
 
     // Deliver to each connection

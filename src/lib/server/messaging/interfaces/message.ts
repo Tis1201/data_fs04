@@ -30,6 +30,7 @@ export interface RoutingMessage extends InMessage {
   senderConnectionId?: string;
   senderConnectionProtocol?: ConnectionProtocol;
   sudo?: boolean;
+  excludeDevices?: boolean;
 }
   
 /**
@@ -107,6 +108,7 @@ export const MessageFactory = {
       senderConnectionProtocol?: ConnectionProtocol;
       echoToSender?: boolean;
       sudo?: boolean;
+      excludeDevices?: boolean;
     }
   ): RoutingMessage {
     return {
@@ -122,7 +124,8 @@ export const MessageFactory = {
       senderId: userInfo.id,
       senderConnectionId: options?.senderConnectionId || '',
       senderConnectionProtocol: options?.senderConnectionProtocol || 'websocket',
-      sudo: options?.sudo ?? false
+      sudo: options?.sudo ?? false,
+      excludeDevices: options?.excludeDevices ?? false
     };
   },
   
