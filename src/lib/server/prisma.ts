@@ -1,6 +1,7 @@
 import { enhance } from '@zenstackhq/runtime';
 import { PrismaClient } from '@prisma/client';
 import { dev } from '$app/environment';
+import { logger } from './logger';
 
 declare global {
     var prisma: PrismaClient | undefined;
@@ -50,9 +51,9 @@ export function getEnhancedPrisma(user?: {
     // This is crucial for proper policy evaluation
     
     // Extract account IDs and roles from memberships if needed
-    const membershipMap = {};
+    const membershipMap: Record<string, string> = {};
     if (user.accountMemberships && user.accountMemberships.length > 0) {
-        user.accountMemberships.forEach(membership => {
+        user.accountMemberships.forEach((membership: any) => {
             if (membership.accountId && membership.role) {
                 membershipMap[membership.accountId] = membership.role;
             } else if (membership.account?.id && membership.role) {
@@ -70,7 +71,7 @@ export function getEnhancedPrisma(user?: {
         accountMemberships: user.accountMemberships || []
     };
     
-    console.log('Enhancing Prisma client with user context:', JSON.stringify(userContext, null, 2));
+    logger.debug('Enhancing Prisma client with user context:', { userId: userContext.id, systemRole: userContext.systemRole });
 
     // Create the enhanced client with the proper user context and options
     const enhanceOptions = options?.logPrismaQuery ? { logPrismaQuery: true } : undefined;
@@ -81,7 +82,7 @@ export function getEnhancedPrisma(user?: {
     
     // Log the enhanced client properties in development mode
     if (dev) {
-        console.log('Enhanced client has resource.create:', typeof enhanced.resource?.create === 'function');
+        logger.debug('Enhanced client has resource.create:', { hasResourceCreate: typeof enhanced.resource?.create === 'function' });
     }
 
     if (dev) {
