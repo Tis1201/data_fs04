@@ -15,9 +15,9 @@ x-export-image-uri-commit: &export_image_uri_commit export IMAGE_URI_COMMIT="${R
 x-export-image-uri-version: &export_image_uri_version export IMAGE_URI_VERSION="${REGISTRY}/${IMAGE_NAME}:${VERSION_TAG}"
 
 # DEV Cluster
-x-dev-export-project: &dev_export_project export TARGET_GCP_PROJECT="${DEV_GCP_PROJECT:?Set DEV_GCP_PROJECT}"
-x-dev-export-cluster-name: &dev_export_cluster_name export TARGET_GKE_CLUSTER_NAME="${DEV_GKE_CLUSTER_NAME:?Set DEV_GKE_CLUSTER_NAME}"
-x-dev-export-cluster-location: &dev_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="${DEV_GKE_CLUSTER_LOCATION:?Set DEV_GKE_CLUSTER_LOCATION}"
+x-dev-export-project: &dev_export_project export TARGET_GCP_PROJECT="cs-poc-vlkpvg5seziflnwq2ni7x3l"
+x-dev-export-cluster-name: &dev_export_cluster_name export TARGET_GKE_CLUSTER_NAME="dr-iot-dev"
+x-dev-export-cluster-location: &dev_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="us-central1-a"
 x-dev-export-namespace: &dev_export_namespace export TARGET_K8S_NAMESPACE="fs04"
 x-dev-export-deployment: &dev_export_deployment export TARGET_K8S_DEPLOYMENT="fs04-web"
 x-dev-export-container: &dev_export_container export TARGET_K8S_CONTAINER="fs04-web"
@@ -79,19 +79,19 @@ definitions:
           - set -euo pipefail
           - echo "Ensuring submodule HTTPS auth is configured"
           - |
-              if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
-                git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
-                git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
-              else
-                echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
-              fi
+            if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
+              git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
+              git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
+            else
+              echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
+            fi
           - git submodule sync --recursive
           - |
-              if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
-                git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
-                  https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
-                git submodule sync --recursive
-              fi
+            if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
+              git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
+                https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
+              git submodule sync --recursive
+            fi
           - git submodule update --init --recursive
           - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
           - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
@@ -108,14 +108,14 @@ definitions:
           - *export_image_uri_version
           - echo "Building Docker image ${IMAGE_URI_COMMIT} and ${IMAGE_URI_VERSION}"
           - |
-              docker build \
-                --platform=linux/amd64 \
-                --memory=7g \
-                --memory-swap=7g \
-                -f docker/Dockerfile \
-                -t "${IMAGE_URI_COMMIT}" \
-                -t "${IMAGE_URI_VERSION}" \
-                .
+            docker build \
+              --platform=linux/amd64 \
+              --memory=7g \
+              --memory-swap=7g \
+              -f docker/Dockerfile \
+              -t "${IMAGE_URI_COMMIT}" \
+              -t "${IMAGE_URI_VERSION}" \
+              .
           - echo "Pushing Docker image ${IMAGE_URI_COMMIT}"
           - docker push "${IMAGE_URI_COMMIT}"
           - echo "Pushing Docker image ${IMAGE_URI_VERSION}"
