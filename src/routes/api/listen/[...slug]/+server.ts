@@ -1,6 +1,5 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '../$types';
-import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { validateApiAuth, extractApiKey } from '$lib/server/auth/api-auth';
