@@ -129,8 +129,14 @@ export const load = restrict(
                 deviceInformation
             };
         } catch (e) {
-            logger.error('Error loading device:', e);
-            throw error(500, 'Failed to load device');
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            const errorStack = e instanceof Error ? e.stack : undefined;
+            logger.error('Error loading device:', {
+                deviceId: params.id,
+                error: errorMessage,
+                stack: errorStack
+            });
+            throw error(500, `Failed to load device: ${errorMessage}`);
         }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
