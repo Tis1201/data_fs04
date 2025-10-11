@@ -121,6 +121,14 @@ export class PushpinConnection implements Connection {
         }
 
         try {
+            // Filter out status/data updates for device connections (they don't need their own status echoed back)
+            const messageType = (payload as any)?.type;
+            if (this.meta.deviceId === this.meta.id && 
+                (messageType === 'device:statusUpdate' || messageType === 'device:dataUpdate')) {
+                logger.debug(`[PushpinConnection] Skipping ${messageType} for device connection ${this.meta.id}`);
+                return;
+            }
+
             const data = {
                 ...(payload as object),
                 timestamp: new Date().toISOString()
