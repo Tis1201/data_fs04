@@ -15,6 +15,9 @@
   // Use this component for both pinned/all by changing the endpoint & initialQuery
   export let endpoint: string | undefined;
   export let initialQuery: Partial<Record<'search' | 'filter' | 'sortBy' | 'sortOrder', string>> = {};
+  
+  // Accept SSE store from parent to avoid creating multiple connections
+  export let sseStore: any = null;
 
   // ===== Types =====
   interface DeviceApp {
@@ -88,8 +91,8 @@
   let totalApps = 0;
   let totalPages = 0;
 
-  // SSE
-  let sseConnection: EventSource | null = null;
+  // SSE - now using parent's SSE store instead of creating own connection
+  let sseUnsubscribe: (() => void) | null = null;
 
   // Derived
   $: sortedApps = apps;
@@ -123,7 +126,11 @@
   });
 
   onDestroy(() => {
-    if (sseConnection) sseConnection.close();
+    // Unsubscribe from SSE messages
+    if (sseUnsubscribe) {
+      sseUnsubscribe();
+      sseUnsubscribe = null;
+    }
   });
 
   // ===== Data loading =====
@@ -195,31 +202,19 @@
 
   // ===== SSE handling =====
   function setupSSE() {
-    if (!browser) return;
+    if (!browser || !sseStore) {
+      console.warn('[DeviceAppList] No SSE store provided, real-time updates disabled');
+      return;
+    }
 
-    const sseUrl = `/api/sse?deviceId=${deviceId}`;
-    sseConnection = new EventSource(sseUrl);
-
-    sseConnection.onmessage = (event) => {
+    // Subscribe to SSE messages using parent's SSE store (no new connection created!)
+    console.log('[DeviceAppList:SSE] Subscribing to messages for device:', deviceId);
+    sseUnsubscribe = sseStore.on('*', (msg: any) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = msg?.data || msg;
         handleSSEMessage(data);
       } catch (err) {
-        console.error('Failed to parse SSE message:', err);
-      }
-    };
-
-    sseConnection.onerror = (event) => {
-      console.error('SSE connection error:', event);
-      toast.error('Connection lost', { description: 'Real-time updates may not work properly' });
-    };
-
-    sseConnection.addEventListener('device-apps-changed', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleAppUpdate(data);
-      } catch (err) {
-        console.error('Failed to parse app update:', err);
+        console.error('[DeviceAppList:SSE] Failed to handle message:', err);
       }
     });
   }
@@ -229,6 +224,58 @@
 
     if (data?.type === 'device:statusUpdate' || data?.type === 'device:progressUpdate') {
       handleAppActionUpdate(data);
+    }
+
+    // Handle data updates pushed via SSE
+    if (data?.type === 'device:dataUpdate') {
+      handleDataUpdate(data);
+    }
+  }
+
+  // Apply fresh data from SSE push
+  function handleDataUpdate(data: any) {
+    const payload = data?.payload || {};
+    const updatedData = payload.updatedData;
+    
+    if (!updatedData) return;
+    
+    console.log('[DeviceAppList:SSE] Received fresh data via SSE push');
+    
+    // Check if this component uses a special endpoint (like apps-with-pins)
+    const usesSpecialEndpoint = endpoint && endpoint.includes('apps-with-pins');
+    
+    if (usesSpecialEndpoint) {
+      // For special endpoints (e.g., apps-with-pins), reload from the correct endpoint
+      // because SSE data doesn't include pin information
+      console.log('[DeviceAppList:SSE] Using special endpoint, reloading from API');
+      loadData();
+      return;
+    }
+    
+    // Update apps directly from SSE data (for basic apps endpoint)
+    if (updatedData.apps && Array.isArray(updatedData.apps)) {
+      apps = updatedData.apps;
+      
+      // Update pagination
+      if (updatedData.appsPagination) {
+        totalApps = updatedData.appsPagination.total;
+        totalPages = updatedData.appsPagination.totalPages;
+        currentPage = updatedData.appsPagination.page;
+      }
+      
+      // Update timestamp
+      lastSync = new Date(updatedData.timestamp);
+      
+      // Recalculate summary
+      calculateSummary();
+      
+      console.log(`[DeviceAppList:SSE] Updated ${apps.length} apps from SSE (total: ${totalApps})`);
+      
+      // If there's more data than what was pushed, optionally reload full list
+      if (updatedData.shouldReloadFullList && currentPage > 1) {
+        console.log('[DeviceAppList:SSE] Large app list detected, reloading current page');
+        loadData(); // Reload to respect current page/filters
+      }
     }
   }
 

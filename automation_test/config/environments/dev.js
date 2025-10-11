@@ -29,6 +29,17 @@ module.exports = {
             url: 'http://localhost:5173/admin/accounts/groups',
             name: 'Test Group',
             accountName: 'Test Account',
+        },
+        factoryTokens: {
+            url: 'http://localhost:5173/admin/iot/factory_tokens',
+            name: 'Test factory token',
+            hardwareModel: 'GeForce',
+            firmwareVersion: '1.0',
+        },
+        resources: {
+            url: 'http://localhost:5173/admin/iot/resources',
+            name: 'Test resource',
+            file: 'static/resourceA.zip'
         }
     }
 };

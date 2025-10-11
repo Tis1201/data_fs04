@@ -3,7 +3,6 @@
  * Handles processing of device app data from ClickHouse to PostgreSQL
  */
 import { deviceAppService, type DeviceAppSummary as ClickHouseAppSummary } from '$lib/server/clickhouse/deviceAppService';
-import { sseManager } from '$lib/server/sse';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 

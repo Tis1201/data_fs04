@@ -8,6 +8,7 @@ import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
+import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
 export const POST: RequestHandler = restrict(
     async (event: AuthenticatedEvent) => {
@@ -27,28 +28,23 @@ export const POST: RequestHandler = restrict(
         }
 
         try {
-            const body = await request.json();
-            const { config } = body;
-
-            if (!config) {
-                return json({ 
-                    success: false, 
-                    error: { 
-                        code: 'INVALID_REQUEST', 
-                        message: `Missing config`,
-                        timestamp: new Date().toISOString(),
-                        requestId: crypto.randomUUID()
-                    }
-                }, { status: 400 });
-            }
-
-            // Verify device profile exists
+            // Verify device profile exists and load settings
             const deviceProfile = await prisma.deviceProfile.findUnique({
                 where: { id: profileId },
                 select: { 
                     id: true,
+                    name: true,
                     accountId: true,
-                    assignments: true
+                    assignments: true,
+                    settings: {
+                        select: {
+                            id: true,
+                            key: true,
+                            value: true,
+                            dataType: true,
+                            category: true
+                        }
+                    }
                 }
             });
 
@@ -68,11 +64,11 @@ export const POST: RequestHandler = restrict(
             const hasAccess = await prisma.accountMembership.findFirst({
                 where: {
                     accountId: deviceProfile.accountId,
-                    userId: auth.user.id
+                    userId: auth?.user?.id
                 }
             });
 
-            if (event.auth.user.systemRole !== SystemRole.ADMIN && !hasAccess) {
+            if (event.auth?.user?.systemRole !== SystemRole.ADMIN && !hasAccess) {
                 return json({ 
                     success: false, 
                     error: { 
@@ -84,16 +80,68 @@ export const POST: RequestHandler = restrict(
                 }, { status: 403 });
             }
 
+            // Map settings to config payload
+            const config = mapToConfigPayload(deviceProfile as any);
+
             await Promise.all(deviceProfile.assignments.map(async assignment => {
                 const deviceId = assignment.deviceId;
                 const requestId = crypto.randomUUID();
 
-                // Send command to device via SSE
+                // Create ActionLog entry for tracking - get the logId first
+                let logId = requestId; // fallback to requestId if action log creation fails
+                try {
+                    const actionLog = await ActionLogger.createInitiated({
+                        deviceId: deviceId,
+                        actionType: 'config_update',
+                        initiatedBy: auth?.user?.id || 'system',
+                        requestId: requestId,
+                        metadata: {
+                            action: 'applyProfile',
+                            profileId: profileId,
+                            profileName: deviceProfile.name,
+                            broadcast: true
+                        },
+                        initialMessage: `Broadcasting profile: ${deviceProfile.name}`
+                    });
+
+                    logId = actionLog.id; // Use the database-generated ID
+                    
+                    logger.info(`ActionLog created for device ${deviceId} (broadcast)`, {
+                        deviceId,
+                        profileId,
+                        logId: logId,
+                        requestId: requestId
+                    });
+                } catch (logError) {
+                    logger.error(`Error creating ActionLog: ${String(logError)}`);
+                    // Continue with broadcast even if log creation fails
+                }
+
+                // Update DeviceProfileAssignment to APPLYING status
+                try {
+                    await prisma.deviceProfileAssignment.updateMany({
+                        where: {
+                            deviceId: deviceId,
+                            profileId: profileId
+                        },
+                        data: {
+                            status: 'APPLYING',
+                            assignedAt: new Date()
+                        }
+                    });
+                } catch (dbError) {
+                    logger.error(`Error updating DeviceProfileAssignment: ${String(dbError)}`);
+                }
+
+                // Send command to device via SSE using consistent format
                 const routingMessage = MessageFactory.createSystemMessage(
-                    'device:applyProfile',
+                    'device:actionRequest',
                     `subscription:device:${deviceId}`,
                     {
-                        requestId,
+                        action: 'applyProfile',
+                        deviceId,
+                        logId: logId, // Use the ActionLog ID
+                        requestId: logId, // Keep requestId same as logId for consistency
                         profileId,
                         'sentAt': new Date().toISOString(),
                         config,
@@ -101,9 +149,13 @@ export const POST: RequestHandler = restrict(
                     SystemUser,
                     { echoToSender: false }
                 );
-                console.log({routingMessage});
                 
                 await publisher.publish(routingMessage);
+                logger.info(`Broadcast message published for device ${deviceId}`, {
+                    deviceId,
+                    profileId,
+                    logId
+                });
             }))
 
             return json({

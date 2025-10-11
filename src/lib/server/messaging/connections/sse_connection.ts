@@ -59,7 +59,7 @@ export class SSEConnection implements Connection {
     }
 
     try {
-      logger.debug(`[SSEConnection] Sending ping to connection ${this.meta.id} (alive=${this.isAlive}, closed=${this.controllerClosed})`);
+      // logger.debug(`[SSEConnection] Sending ping to connection ${this.meta.id} (alive=${this.isAlive}, closed=${this.controllerClosed})`);
       
       // Create a standardized system response for the ping
       const pingResponse = createSystemResponse({
@@ -79,7 +79,7 @@ export class SSEConnection implements Connection {
       // If controller is closed, mark it as such and cleanup
       if (error instanceof Error && error.message.includes('Controller is already closed')) {
         this.controllerClosed = true;
-        logger.debug(`[SSEConnection] Controller closed detected during ping for connection ${this.meta.id}`);
+        // logger.debug(`[SSEConnection] Controller closed detected during ping for connection ${this.meta.id}`);
         this.cleanup();
         return;
       }
@@ -193,14 +193,14 @@ export class SSEConnection implements Connection {
       return;
     }
     
-    logger.info(`[SSEConnection] Cleaning up connection ${this.meta.id} (protocol: ${this.meta.protocol})`);
+    // logger.info(`[SSEConnection] Cleaning up connection ${this.meta.id} (protocol: ${this.meta.protocol})`);
     this.isAlive = false;
 
     // Stop ping interval first to prevent further attempts
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
-      logger.debug(`[SSEConnection] Ping interval cleared for connection ${this.meta.id}`);
+      // logger.debug(`[SSEConnection] Ping interval cleared for connection ${this.meta.id}`);
     }
 
     // Close controller if not already closed

@@ -11,6 +11,7 @@ import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { v4 as uuidv4 } from 'uuid';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
 
 export const load = restrict(
     async ({ params, locals, depends }) => {
@@ -119,10 +120,13 @@ export const load = restrict(
                 }
             });
 
+            const deviceInformation = await getLatestDeviceInformation(device.macAddress);
+
             return {
                 form,
                 device,
-                deviceActionLogs
+                deviceActionLogs,
+                deviceInformation
             };
         } catch (e) {
             logger.error('Error loading device:', e);

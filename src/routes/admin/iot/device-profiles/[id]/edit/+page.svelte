@@ -13,15 +13,16 @@
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
+    import { superForm } from 'sveltekit-superforms/client';
     import ProfileSettingsEditor from '$lib/components/ui_components_sveltekit/form/ProfileSettingsEditor.svelte';
     import DeviceAssignmentManager from '$lib/components/ui_components_sveltekit/form/DeviceAssignmentManager.svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
-    import { onMount } from "svelte";
-    import { sseStore } from "$lib/stores/sse-store";
+    import { onMount, onDestroy } from "svelte";
+    import { createComponentSSE } from "$lib/stores/sse-store";
+    import { writable } from 'svelte/store';
     
     export let data;
     const title = "Edit Device Profile";
@@ -34,14 +35,33 @@
         ["Edit", `/admin/iot/device-profiles/${data.profile.id}/edit`]
     ];
     
-    // Initialize form handler
-    const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
-        validateOnInput: true,
-        onSuccess: () => {
-            // Use setTimeout to ensure toast renders after DOM updates
-            setTimeout(() => {
-                toast.success('Device profile updated successfully');
-            }, 0);
+    // Initialize form handler using superForm directly
+    const errorMessage = writable(null);
+    const { form, errors, enhance, submitting, constraints } = superForm(data.form, {
+        taintedMessage: false,
+        invalidateAll: false, // Prevent automatic page invalidation
+        resetForm: false, // Don't reset the form after submission
+        delayMs: 300,
+        timeoutMs: 8000,
+        dataType: 'form',
+        
+        onResult: async ({ result }) => {
+            if (result.type === "success") {
+                toast.success('Device profile updated successfully', {
+                    description: 'All changes have been saved.',
+                    duration: 4000
+                });
+            } else if (result.type === "failure") {
+                toast.error('Validation Error', {
+                    description: 'Please check your input and try again.',
+                    duration: 6000
+                });
+            } else if (result.type === "error") {
+                toast.error('Server Error', {
+                    description: 'An unexpected error occurred. Please try again later.',
+                    duration: 6000
+                });
+            }
         }
     });
 
@@ -58,6 +78,16 @@
 
     // Update form settings when localSettings changes
     $: $form.settings = JSON.stringify(localSettings);
+
+    // Create reactive selected value for the Select component
+    let selectedStatus = { value: 'true', label: 'Active' };
+    $: selectedStatus = {
+        value: $form.isActive,
+        label: $form.isActive === 'true' ? 'Active' : 'Inactive'
+    };
+    
+    // Create component-specific SSE store for device profile updates
+    const sseStore = createComponentSSE();
     let lastSubscribedConnectionId: string | null = null;
     
     // Reference to ProfileSettingsEditor component for validation
@@ -76,23 +106,18 @@
     }
     
     onMount(() => {
-        console.log('[AdminDeviceProfileDetail] onMount started for profile:', data.profile.id);
-
+        // Connect component-specific SSE for device profile updates
         try {
-            console.debug('[AdminDeviceProfileDetail] Connecting SSE to /api/sse ...');
             sseStore.connect(`/api/sse`, { withCredentials: true });
         } catch (e) {
-            console.warn('[AdminDeviceProfileDetail] SSE connect failed (may already be connected):', e);
+            // SSE connection error
         }
 
-        sseStore.on('connected', (msg: any) => {
+        // Subscribe to device-profile events when connected
+        const connectedUnsub = sseStore.on('connected', (msg: any) => {
             const connId = msg?.data?.connectionId;
-            if (!connId) return;
-            if (connId === lastSubscribedConnectionId) {
-                console.debug('[DeviceProfileDetail] SSE connected event but already subscribed for', connId);
-                return;
-            }
-            console.debug('[DeviceProfileDetail] SSE (re)connected. Subscribing device channel', { profileId: data.profile.id, connId });
+            if (!connId || connId === lastSubscribedConnectionId) return;
+            
             fetch(`/api/sse/subscribe/device-profile/${data.profile.id}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -100,9 +125,21 @@
                 body: JSON.stringify({ connectionId: connId })
             }).then(() => {
                 lastSubscribedConnectionId = connId;
-                console.log('[DeviceProfileDetail] Subscribed to device channel for', connId);
-            }).catch((err) => console.warn('Subscribe failed', err));
+            }).catch(() => {
+                // Subscription error
+            });
         });
+
+        return () => {
+            connectedUnsub();
+        };
+    });
+
+    onDestroy(() => {
+        // Disconnect component-specific SSE
+        if (sseStore) {
+            sseStore.disconnect();
+        }
     });
 </script>
 
@@ -180,7 +217,7 @@
                             <CardTitle>Profile Details</CardTitle>
                         </CardHeader>
                         <CardContent class="space-y-4">
-                            <FormRow columns={1}>
+                            <FormRow columns={2}>
                                 <FormField id="name" label="Profile Name" error={$errors.name?.toString()}>
                                     <Input 
                                         bind:value={$form.name} 
@@ -189,6 +226,27 @@
                                         required
                                     />
                                 </FormField>
+                                <FormField id="isActive" label="Status" error={$errors.isActive?.toString()}>
+                                    <Select 
+                                        selected={selectedStatus}
+                                        onSelectedChange={(selected) => {
+                                            if (selected?.value !== undefined) {
+                                                $form.isActive = selected.value;
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="true">Active</SelectItem>
+                                            <SelectItem value="false">Inactive</SelectItem>
+                                        </SelectContent>
+                                        <input type="hidden" name="isActive" bind:value={$form.isActive} />
+                                    </Select>
+                                </FormField>
+                            </FormRow>
+                            <FormRow columns={1}>
                                 <FormField id="description" label="Description" error={$errors.description?.toString()}>
                                     <Textarea 
                                         bind:value={$form.description} 
@@ -215,6 +273,7 @@
                     profileId={data.profile.id} 
                     isAdmin={true} 
                     connId={lastSubscribedConnectionId || ''}
+                    {sseStore}
                     onTabChange={handleTabChange}
                 />
             </Tabs.Content>

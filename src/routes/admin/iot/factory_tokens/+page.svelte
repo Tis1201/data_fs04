@@ -12,7 +12,8 @@
 
     $: ({ factoryTokens: records, meta } = data);
     $: pagination = getDefaultPagination(meta, 10);
-    $: sort = meta?.sort || { field: "issuedAt", order: "desc" };
+    $: sort = getDefaultSort(meta, "createdAt", "desc");
+    $: props = { records: records as any, pagination, sort, loading };
     
     let loading = false;
     
@@ -34,17 +35,9 @@
                 label="Add Token"
                 icon={Plus}
                 onClick={() => goto('/admin/iot/factory_tokens/new')}
-                disabled={records.length > 0}
             />
         </svelte:fragment>
     </PageHeader>
 
-    <FactoryTokenTable
-        props={{
-            records,
-            pagination,
-            sort,
-            loading
-        }}
-    />
+    <FactoryTokenTable {props} />
 </PageContainer>

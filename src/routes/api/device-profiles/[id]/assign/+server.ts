@@ -7,7 +7,6 @@ import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
@@ -101,14 +100,34 @@ export const POST: RequestHandler = restrict(
             await Promise.all(deviceIds.map(async (deviceId: string) => {
                 const requestId = crypto.randomUUID();
 
-                // DEBUG: Log the message being sent
-                logger.info(`[DEBUG] Creating device profile assignment message`, {
-                    deviceId,
-                    profileId,
-                    requestId,
-                    scope: `subscription:device:${deviceId}`,
-                    messageType: 'device:actionRequest'
-                });
+                // Create ActionLog entry for tracking - get the logId first
+                let logId = requestId; // fallback to requestId if action log creation fails
+                try {
+                    const actionLog = await ActionLogger.createInitiated({
+                        deviceId: deviceId,
+                        actionType: 'config_update',
+                        initiatedBy: auth?.user?.id || 'system',
+                        requestId: requestId,
+                        metadata: {
+                            action: 'applyProfile',
+                            profileId: profileId,
+                            profileName: deviceProfile.name
+                        },
+                        initialMessage: `Applying profile: ${deviceProfile.name}`
+                    });
+
+                    logId = actionLog.id; // Use the database-generated ID
+                    
+                    logger.info(`ActionLog created for device ${deviceId}`, {
+                        deviceId,
+                        profileId,
+                        logId: logId,
+                        requestId: requestId
+                    });
+                } catch (logError) {
+                    logger.error(`Error creating ActionLog: ${String(logError)}`);
+                    // Continue with assignment even if log creation fails
+                }
 
                 // Create or update DeviceProfileAssignment record with APPLYING status
                 try {
@@ -130,11 +149,6 @@ export const POST: RequestHandler = restrict(
                         }
                     });
 
-                    logger.info(`[DEBUG] DeviceProfileAssignment record created/updated for device ${deviceId}`, {
-                        deviceId,
-                        profileId,
-                        status: 'APPLYING'
-                    });
 
                     // Set timeout to mark as FAILED if no response in 3 minutes
                     setTimeout(async () => {
@@ -202,8 +216,8 @@ export const POST: RequestHandler = restrict(
                     {
                         action: 'applyProfile',
                         deviceId,
-                        logId: requestId,
-                        requestId,
+                        logId: logId, // Use the ActionLog ID
+                        requestId: logId, // Keep requestId same as logId for consistency
                         profileId,
                         'sentAt': new Date().toISOString(),
                         config,
@@ -212,7 +226,6 @@ export const POST: RequestHandler = restrict(
                     { echoToSender: false }
                 );
                 
-
                 await publisher.publish(routingMessage);
                 
                 logger.info(`Message published for device ${deviceId}`);

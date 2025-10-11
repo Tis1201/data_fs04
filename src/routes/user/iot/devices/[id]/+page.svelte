@@ -47,11 +47,14 @@
     import TechnicalDetailsContent from "$lib/components/ui_components_sveltekit/devices/TechnicalDetailsContent.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
-    import { sseStore } from "$lib/stores/sse-store";
+    import { createComponentSSE } from "$lib/stores/sse-store";
     import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
+    
+    // Create a per-component SSE store (independent connection for this page)
+    const sseStore = createComponentSSE();
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
@@ -59,6 +62,7 @@
     $: device = data.device;
     let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
+    let deviceInformation = (data as any).deviceInformation; // 🆕 NEW: Device information from ClickHouse
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
     // Track a temporary optimistic log row for firmware update initiation
@@ -264,12 +268,14 @@
         });
 
         // Use centralized realtime updater for action history
+        // Pass the per-component SSE store so handlers receive messages from the correct connection
         if (!unsubscribeDeviceRealtime) {
             unsubscribeDeviceRealtime = subscribeDeviceDetailEvents(
                 device.id,
                 () => actionLogs,
                 (logs) => { actionLogs = logs; },
-                actionStatus
+                actionStatus,
+                sseStore  // Pass per-component SSE store
             );
         }
 
@@ -279,6 +285,22 @@
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                
+                // 🆕 NEW: Handle data updates pushed via SSE
+                if (evtType === 'device:dataUpdate') {
+                    const updatedData = evt.payload?.updatedData;
+                    
+                    if (updatedData && updatedData.deviceInfo) {
+                        console.log('[UserDeviceDetail] Received fresh device info via SSE push');
+                        deviceInformation = updatedData.deviceInfo;
+                        
+                        toast.success('Device updated', {
+                            description: `Updated after ${evt.payload.action}`,
+                            duration: 2000
+                        });
+                    }
+                    return; // Don't process as connection event
+                }
                 
                 // Log the raw event structure to understand the format
                 console.log('[UserDeviceDetail] Raw event structure:', {
@@ -340,7 +362,7 @@
         });
 
         // Add status message handlers for push file, pull file, and install app
-        const statusUnsubscribe = sseStore.on('*', (msg: any) => {
+        statusUnsubscribe = sseStore.on('*', (msg: any) => {
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
@@ -486,6 +508,8 @@
     });
 
     onDestroy(() => {
+        console.log('[UserDeviceDetail] onDestroy - cleaning up...');
+        
         if (unsubscribeDeviceRealtime) {
             try { unsubscribeDeviceRealtime(); } catch {}
             unsubscribeDeviceRealtime = null;
@@ -498,6 +522,22 @@
             try { statusUnsubscribe(); } catch {}
             statusUnsubscribe = null;
         }
+        
+        // Unsubscribe from device channel
+        if (sseStore.connectionId) {
+            console.log('[UserDeviceDetail] Unsubscribing from device channel...');
+            fetch(`/api/sse/unsubscribe/device/${device.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ connectionId: sseStore.connectionId })
+            }).catch(err => console.warn('Unsubscribe failed:', err));
+        }
+        
+        // Disconnect this component's SSE connection (won't affect other tabs now!)
+        console.log('[UserDeviceDetail] Disconnecting per-component SSE...');
+        sseStore.disconnect();
+        console.log('[UserDeviceDetail] Cleanup complete');
     });
 
     // Device action handlers
@@ -689,6 +729,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'restart'
                 })
@@ -740,6 +782,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'reboot'
                 })
@@ -801,6 +845,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'getLogs',
                     format: 'zip'
@@ -969,6 +1015,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'updateFirmware',
                     firmwareVersion: selectedFirmware.version ?? '1.0.0'
@@ -1135,6 +1183,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'installApp',
                     packageName: selectedInstallApp.packageName ?? 'unknown'
@@ -1280,6 +1330,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'pullFile',
                     sourcePath: selectedPullFile.path,
@@ -1355,6 +1407,8 @@
                 headers: {
                     'Content-Type': 'application/json',
                 },
+                credentials: 'include',
+                keepalive: true,
                 body: JSON.stringify({
                     action: 'pushFile',
                     sourcePath: pushFileSourcePath.trim(),
@@ -1508,6 +1562,7 @@
         {apiKeySubmitting}
         {isLoading}
         {actionStatus}
+        {sseStore}
     />
 </AdminPageLayout>
 

@@ -63,23 +63,13 @@
     }
 
     // Stores for filters and table state
-    const selectedRuleTypes = writable<string[]>(
-        $page.url.searchParams.get("ruleTypes")?.split(",").filter(Boolean) ?? []
-    );
-    
     const selectedStatuses = writable<string[]>(
-        $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? []
+        $page.url.searchParams.get("isActive")?.split(",").filter(Boolean) ?? []
     );
     
     $: {
-        // Keep selectedRuleTypes in sync with URL changes
-        const urlRuleTypes = $page.url.searchParams.get("ruleTypes")?.split(",").filter(Boolean) ?? [];
-        if (JSON.stringify(urlRuleTypes) !== JSON.stringify($selectedRuleTypes)) {
-            selectedRuleTypes.set(urlRuleTypes);
-        }
-        
         // Keep selectedStatuses in sync with URL changes
-        const urlStatuses = $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? [];
+        const urlStatuses = $page.url.searchParams.get("isActive")?.split(",").filter(Boolean) ?? [];
         if (JSON.stringify(urlStatuses) !== JSON.stringify($selectedStatuses)) {
             selectedStatuses.set(urlStatuses);
         }
@@ -97,28 +87,20 @@
         }
     });
 
+    // Function to get badge text for rule type
     function getRuleTypeBadge(ruleType: string) {
-        const typeText = ruleType || "UNKNOWN";
-        let variant = "default";
-
-        switch (typeText) {
+        switch (ruleType) {
             case "admin_default":
-                variant = "Admin default";
-                break;
+                return "Admin default";
             case "admin_custom":
-                variant = "Admin custom";
-                break;
+                return "Admin custom";
             case "user_default":
-                variant = "User default";
-                break;
+                return "User default";
             case "user_custom":
-                variant = "User custom";
-                break;
+                return "User custom";
             default:
-                variant = "default";
+                return ruleType || "UNKNOWN";
         }
-
-        return variant;
     }
 
     // Function to get badge variant based on status
@@ -242,19 +224,6 @@
                 />
             </div>
             
-            <!-- Rule Type filter -->
-            <PopoverFilter
-                label="Rule Type"
-                options={[
-                    { label: "Admin Default", value: "admin_default" },
-                    { label: "Admin Custom", value: "admin_custom" },
-                    { label: "User Default", value: "user_default" },
-                    { label: "User Custom", value: "user_custom" }
-                ]}
-                selectedValues={$selectedRuleTypes}
-                key="ruleTypes"
-            />
-            
             <!-- Status filter -->
             <PopoverFilter
                 label="Status"
@@ -263,7 +232,14 @@
                     { label: "Inactive", value: "false" }
                 ]}
                 selectedValues={$selectedStatuses}
-                key="statuses"
+                onChange={(values) => {
+                    selectedStatuses.set(values);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('isActive', values.join(','));
+                    if (!values.length) url.searchParams.delete('isActive');
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
             />
         </div>
 

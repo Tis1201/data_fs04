@@ -4,22 +4,26 @@
 class DateUtils {
     /**
      * Convert relative time strings like "1 hour ago", "7 days ago" to minutes
-     * Returns positive numbers, where smaller = newer, larger = older
-     * Example: "1 hour ago" -> 60, "7 hours ago" -> 420
+     * Returns positive numbers if future and negative numbers if pass
+     * Example: "1 hour ago" -> -60, "in 7 hours" -> 420
      */
     static relativeToMinutes(text) {
         if (!text) return 0;
         const str = text.toLowerCase().trim();
-        const num = parseInt(str, 10);
+        let num = parseInt(str, 10);
         if (isNaN(num)) return 0;
 
-        if (str.includes('minute')) return num;
-        if (str.includes('hour')) return num * 60;
-        if (str.includes('day')) return num * 60 * 24;
-        if (str.includes('week')) return num * 60 * 24 * 7;
-        if (str.includes('month')) return num * 60 * 24 * 30;
+        if (str.includes('hour')) {
+            num = num * 60;
+        } else if (str.includes('day')) {
+            num = num * 60 * 24;
+        } else if (str.includes('week')) {
+            num = num * 60 * 24 * 7;
+        } else if (str.includes('month')) {
+            num = num * 60 * 24 * 30;
+        }
 
-        return num;
+        return str.includes('ago') ? num * -1 : num;
     }
 
     /**

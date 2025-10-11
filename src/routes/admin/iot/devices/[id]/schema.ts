@@ -8,14 +8,6 @@ export const DEVICE_STATUSES = [
     { value: 'DISABLED', label: 'Disabled' }
 ] as const;
 
-// Device type options
-export const DEVICE_TYPES = [
-    { value: 'SENSOR', label: 'Sensor' },
-    { value: 'GATEWAY', label: 'Gateway' },
-    { value: 'CAMERA', label: 'Camera' },
-    { value: 'CONTROLLER', label: 'Controller' },
-    { value: 'OTHER', label: 'Other' }
-] as const;
 
 // Schema for device edit form
 export const deviceEditSchema = z.object({
