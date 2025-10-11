@@ -103,7 +103,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
             await handleProfileApplication(device.id, { status, profileId, message });
         }
 
-        // Publish SSE update for real-time UI updates
+        // Publish SSE update for real-time UI updates only
+        // Don't publish if only device connection exists (device reporting its own status)
         const sseMessage = MessageFactory.createSystemMessage(
             'device:statusUpdate',
             `subscription:device:${device.id}`,
@@ -117,7 +118,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
                 timestamp: new Date().toISOString()
             },
             SystemUser,
-            { echoToSender: false }
+            { 
+                echoToSender: false,
+                excludeDevices: true  // Don't send status updates back to the device
+            }
         );
 
         await publisher.publish(sseMessage);
@@ -152,7 +156,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
                 logger.info(`[Device Status Update] Fetched device info and ${appsData.apps.length} apps for device ${device.id}`);
 
-                // Publish enriched SSE message with fresh data
+                // Publish enriched SSE message with fresh data (exclude device connection)
                 const dataUpdateMessage = MessageFactory.createSystemMessage(
                     'device:dataUpdate',
                     `subscription:device:${device.id}`,
@@ -162,10 +166,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
                         message: message || `${action} completed successfully`,
                         logId,
                         updatedData: {
-                            // Technical data (small - always include)
                             deviceInfo,
 
-                            // Apps data (larger - include first page)
                             apps: appsData.apps,
                             appsPagination: {
                                 page: appsData.page,
@@ -180,7 +182,10 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
                         }
                     },
                     SystemUser,
-                    { echoToSender: false }
+                    { 
+                        echoToSender: false,
+                        excludeDevices: true  // Don't send data updates back to the device
+                    }
                 );
 
                 await publisher.publish(dataUpdateMessage);
