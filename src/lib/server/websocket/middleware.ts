@@ -37,19 +37,28 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
         logger.info(`[WS Middleware] New WebSocket connection attempt from ${request.socket.remoteAddress}`);
         logger.debug(`[WS Middleware] Request headers:`, request.headers);
         
-        const rawCookieHeader = request.headers.cookie || '';
-        logger.debug(`[WS] Raw Cookie header: ${rawCookieHeader}`);
+        // Try to get session ID from query string first (for Pushpin compatibility)
+        const url = new URL(request.url || '', `http://${request.headers.host}`);
+        let currentSessionId = url.searchParams.get('session') || url.searchParams.get(lucia.sessionCookieName);
+        let currentAccountId = url.searchParams.get('account_id');
+        
+        // Fall back to cookies if not in query string
+        if (!currentSessionId) {
+          const rawCookieHeader = request.headers.cookie || '';
+          logger.debug(`[WS] Raw Cookie header: ${rawCookieHeader}`);
 
-        const parsed = cookie.parse(rawCookieHeader);
+          const parsed = cookie.parse(rawCookieHeader);
 
-        // 3) Look up the Lucia session cookie by its configured name
-        const currentSessionId = parsed[lucia.sessionCookieName];
-        const currentAccountId = parsed['current_account_id'];
+          // Look up the Lucia session cookie by its configured name
+          currentSessionId = parsed[lucia.sessionCookieName];
+          currentAccountId = parsed['current_account_id'];
+        }
+        
         logger.debug(`[WS] Extracted Lucia session ID: ${currentSessionId}, currentAccountId: ${currentAccountId}`);
 
         if (!currentSessionId) {
-          logger.warn(`[wss:kit] Unable to get Lucia session ID from cookie`);
-          ws.close(1008, "Unable to get Lucia session ID from cookie");
+          logger.warn(`[wss:kit] No authentication method provided`);
+          ws.close(1008, "No authentication method provided");
           return;
         }
         // const currentSessionId = event.cookies.get(lucia.sessionCookieName);

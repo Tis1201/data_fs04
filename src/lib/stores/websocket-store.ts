@@ -241,9 +241,20 @@ const createSocketStore = () => {
       return;
     }
 
+    // Get session cookie to pass as query parameter (for Pushpin compatibility)
+    const sessionCookie = document.cookie.split('; ').find(row => row.startsWith('auth_session='));
+    const sessionId = sessionCookie ? sessionCookie.split('=')[1] : null;
+    
+    // Build query params with session if available
+    const params = new URLSearchParams(queryParams);
+    if (sessionId && !params.has('session')) {
+      params.set('session', sessionId);
+    }
+    const queryString = params.toString();
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const url = `${protocol}//${host}${WS_URL_PATH}${queryParams ? '?' + queryParams : ''}`;
+    const url = `${protocol}//${host}${WS_URL_PATH}${queryString ? '?' + queryString : ''}`;
 
     try {
       console.log(`[WebSocket] Connecting to ${url} (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
