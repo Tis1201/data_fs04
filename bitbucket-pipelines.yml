@@ -95,7 +95,7 @@ definitions:
           - git submodule update --init --recursive
           - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
           - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
-          - : "Ensure credentials are provided"
+          - ': "Ensure credentials are provided"'
           - test -n "${GITLAB_USERNAME}" && test -n "${GITLAB_PASSWORD}" || { echo "GitLab credentials are not set"; exit 1; }
           - echo "[${BITBUCKET_BRANCH}] Logging into GitLab registry"
           - echo "${GITLAB_PASSWORD}" | docker login registry.gitlab.com -u "${GITLAB_USERNAME}" --password-stdin
