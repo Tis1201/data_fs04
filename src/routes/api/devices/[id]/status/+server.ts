@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
+import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
+import { deviceAppService } from '$lib/server/clickhouse/deviceAppService';
 
 // Validation schema for device status updates
 const DeviceStatusUpdateSchema = z.object({
@@ -119,6 +121,76 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         );
 
         await publisher.publish(sseMessage);
+
+        // If action succeeds, fetch and push fresh data via SSE
+        const refreshActions = [
+            'installApp',
+            'uninstall',
+            'restartApp',
+            'restart',
+            'reboot',
+            'updateFirmware',
+            'applyProfile',
+            'config'
+        ];
+
+        if ((status === 'complete' || status === 'success') && refreshActions.includes(action)) {
+            logger.info(`[Device Status Update] Action ${action} completed successfully, fetching fresh data for device ${device.id}`);
+            
+            try {
+                // Query fresh data from ClickHouse in parallel
+                const [deviceInfo, appsData] = await Promise.all([
+                    getLatestDeviceInformation(device.macAddress).catch(err => {
+                        logger.error(`[Device Status Update] Failed to fetch device info: ${err}`);
+                        return null;
+                    }),
+                    deviceAppService.getDeviceApps(device.id, 1, 10).catch(err => {
+                        logger.error(`[Device Status Update] Failed to fetch apps: ${err}`);
+                        return { apps: [], page: 1, limit: 10, total: 0 };
+                    })
+                ]);
+
+                logger.info(`[Device Status Update] Fetched device info and ${appsData.apps.length} apps for device ${device.id}`);
+
+                // Publish enriched SSE message with fresh data
+                const dataUpdateMessage = MessageFactory.createSystemMessage(
+                    'device:dataUpdate',
+                    `subscription:device:${device.id}`,
+                    {
+                        action,
+                        status: 'complete',
+                        message: message || `${action} completed successfully`,
+                        logId,
+                        updatedData: {
+                            // Technical data (small - always include)
+                            deviceInfo,
+
+                            // Apps data (larger - include first page)
+                            apps: appsData.apps,
+                            appsPagination: {
+                                page: appsData.page,
+                                limit: appsData.limit,
+                                total: appsData.total,
+                                totalPages: Math.ceil(appsData.total / appsData.limit)
+                            },
+
+                            // Metadata
+                            timestamp: Date.now(),
+                            shouldReloadFullList: appsData.total > 10 // Flag if more data exists
+                        }
+                    },
+                    SystemUser,
+                    { echoToSender: false }
+                );
+
+                await publisher.publish(dataUpdateMessage);
+
+                logger.info(`[Device Status Update] Published device:dataUpdate with fresh data for device ${device.id}`);
+            } catch (error) {
+                logger.error(`[Device Status Update] Error fetching/publishing fresh data: ${String(error)}`);
+                // Don't fail the whole request if data refresh fails
+            }
+        }
 
         logger.info(`[Device Status Update] Device ${device.id} reported ${action} ${status} for log ${logId}`);
 

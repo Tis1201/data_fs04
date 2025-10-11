@@ -3,6 +3,7 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
+    import SearchablePopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/SearchablePopoverFilter.svelte";
     import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
@@ -98,7 +99,8 @@
         $page.url.searchParams.get("tags")?.split(",").filter(Boolean) ?? []
     );
 
-    const tagOptions = props.availableTags.map(tag => {
+    // Make tagOptions reactive to props changes
+    $: tagOptions = props.availableTags.map(tag => {
         return {
             label: tag.name,
             value: tag.id
@@ -159,8 +161,24 @@
             id: "usage",
             label: "Usage",
             sortable: false,
-            width: "10%",
+            width: "8%",
             render: (record: Device) => "N/A"  // Will use table device info later
+        },
+        {
+            id: "tags",
+            label: "Tags",
+            sortable: false,
+            width: "12%",
+            render: (record: any) => {
+                const tags = record.tags || [];
+                if (tags.length === 0) {
+                    return "—";
+                }
+                // Return HTML string with clickable links to tag detail pages
+                return tags.map((tag: any) => 
+                    `<a href="/admin/iot/device_tags/${tag.id}" class="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10 mr-1 hover:bg-blue-100 hover:ring-blue-800/20 transition-colors cursor-pointer" onclick="event.stopPropagation()">${tag.name}</a>`
+                ).join('');
+            }
         },
         {
             id: "actions",
@@ -389,26 +407,6 @@
                 />
             </div>
             
-            <!-- Type filter -->
-            <PopoverFilter
-                label="Type"
-                options={[
-                    { label: "Camera", value: "CAMERA" },
-                    { label: "Sensor", value: "SENSOR" },
-                    { label: "Controller", value: "CONTROLLER" },
-                    { label: "Other", value: "OTHER" }
-                ]}
-                selectedValues={$selectedTypes}
-                onChange={(values) => {
-                    selectedTypes.set(values);
-                    const url = new URL(window.location.href);
-                    url.searchParams.set('types', values.join(','));
-                    if (!values.length) url.searchParams.delete('types');
-                    url.searchParams.set('page', '1');
-                    goto(url.toString(), { replaceState: true, noScroll: true });
-                }}
-            />
-            
             <!-- Status filter -->
             <PopoverFilter
                 label="Status"
@@ -428,10 +426,11 @@
             />
 
             <!-- Tags filter -->
-            <PopoverFilter
+            <SearchablePopoverFilter
                 label="Tags"
                 options={tagOptions}
                 selectedValues={$selectedTagIds}
+                searchPlaceholder="Search tags..."
                 onChange={(values) => {
                     selectedTagIds.set(values);
                     const url = new URL(window.location.href);

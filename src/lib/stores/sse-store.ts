@@ -102,6 +102,17 @@ function createSSEStore() {
     function connect(url: string, options: { withCredentials?: boolean } = {}) {
         if (!browser) return;
 
+        // Prevent duplicate connections (idempotent)
+        if (eventSource?.readyState === EventSource.OPEN) {
+            console.log('[SSE] Already connected, reusing existing connection');
+            return;
+        }
+        
+        if (eventSource?.readyState === EventSource.CONNECTING) {
+            console.log('[SSE] Connection in progress, waiting...');
+            return;
+        }
+
         // Close existing connection if any
         disconnect();
 
@@ -467,8 +478,29 @@ function createSSEStore() {
     };
 }
 
-// Create a singleton instance
+// Create a singleton instance (for backward compatibility)
 export const sseStore = createSSEStore();
+
+/**
+ * Create a per-component SSE store
+ * Use this when you need independent SSE connections per component/page
+ * Each instance has its own connection and lifecycle
+ * 
+ * @example
+ * ```typescript
+ * // In your component
+ * const mySSE = createComponentSSE();
+ * onMount(() => {
+ *     mySSE.connect('/api/sse');
+ * });
+ * onDestroy(() => {
+ *     mySSE.disconnect();
+ * });
+ * ```
+ */
+export function createComponentSSE() {
+    return createSSEStore();
+}
 
 /**
  * Helper function for type-safe event listening
@@ -488,3 +520,4 @@ if (browser) {
         sseStore.disconnect();
     });
 }
+

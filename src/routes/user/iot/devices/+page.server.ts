@@ -59,7 +59,13 @@ const table_options = {
         lanMac: true,
         createdAt: true,
         osVersion: true,
-        status: true
+        status: true,
+        tags: {
+            select: {
+                id: true,
+                name: true
+            }
+        }
     }
 };
 
@@ -73,12 +79,42 @@ export const load = restrict(
         // Add a dependency key for invalidation
         depends('app:userDevices');
         
+        // Handle tags filtering manually (similar to admin implementation)
+        let filteredTagIds = url.searchParams.get("tags");
+        if (filteredTagIds) {
+            filteredTagIds = filteredTagIds.includes(',') ? filteredTagIds.split(',').filter(Boolean) : [filteredTagIds];
+            (table_options as any).baseWhere = {
+                tags: {
+                    some: {
+                        id: {
+                            in: filteredTagIds,
+                        }
+                    }
+                }
+            }
+        } else {
+            // Clear baseWhere if no tags filter
+            delete (table_options as any).baseWhere;
+        }
+        
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
+        // Fetch available tags for the filter
+        const availableTags = await locals.prisma.deviceTag.findMany({
+            select: {
+                id: true,
+                name: true
+            },
+            orderBy: {
+                name: 'asc'
+            }
+        });
+        
         return {
             devices: result.records,
-            meta: result.meta
+            meta: result.meta,
+            availableTags
         };
     },
     [SystemRole.USER] // Restrict to authenticated users

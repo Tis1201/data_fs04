@@ -3,6 +3,7 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
+    import SearchablePopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/SearchablePopoverFilter.svelte";
     import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
@@ -10,7 +11,7 @@
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import { Pencil, Power, ExternalLink, Trash } from "lucide-svelte";
-    import type { Device } from "@prisma/client";
+    import type { Device, DeviceTag } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
@@ -28,6 +29,7 @@
     // Props for DataTable component
     export let props = {
         records: [] as Device[],
+        availableTags: [] as DeviceTag[],
         pagination: {
             page: 1,
             per_page: 10,
@@ -63,9 +65,30 @@
         statusToggleDialogOpen = true;
     }
 
+    // Stores for filters and table state
+    const selectedTagIds = writable<string[]>(
+        $page.url.searchParams.get("tags")?.split(",").filter(Boolean) ?? []
+    );
+    
+    $: {
+        // Keep selectedTagIds in sync with URL changes
+        const urlTags = $page.url.searchParams.get("tags")?.split(",").filter(Boolean) ?? [];
+        if (JSON.stringify(urlTags) !== JSON.stringify($selectedTagIds)) {
+            selectedTagIds.set(urlTags);
+        }
+    }
+    
     // Initialize filter values from URL parameters
     let typeFilterValues = $page.url.searchParams.get("types")?.split(",").filter(Boolean) ?? [];
     let statusFilterValues = $page.url.searchParams.get("statuses")?.split(",").filter(Boolean) ?? [];
+    
+    // Make tagOptions reactive to props changes
+    $: tagOptions = props.availableTags.map(tag => {
+        return {
+            label: tag.name,
+            value: tag.id
+        }
+    })
     
     // Clean up legacy URL parameters
     onMount(() => {
@@ -133,8 +156,24 @@
             id: "usage",
             label: "Usage",
             sortable: false,
-            width: "10%",
+            width: "8%",
             render: (record: Device) => "N/A"  // Will use table device info later
+        },
+        {
+            id: "tags",
+            label: "Tags",
+            sortable: false,
+            width: "12%",
+            render: (record: any) => {
+                const tags = record.tags || [];
+                if (tags.length === 0) {
+                    return "—";
+                }
+                // Return HTML string with clickable links to tag detail pages
+                return tags.map((tag: any) => 
+                    `<a href="/user/iot/device_tags/${tag.id}" class="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10 mr-1 hover:bg-blue-100 hover:ring-blue-800/20 transition-colors cursor-pointer" onclick="event.stopPropagation()">${tag.name}</a>`
+                ).join('');
+            }
         },
         {
             id: "actions",
@@ -353,19 +392,6 @@
                 paramName="search"
             />
             
-            <!-- Device type filter -->
-            <PopoverFilter
-                label="Type"
-                options={[
-                    { value: 'CAMERA', label: 'Camera' },
-                    { value: 'SENSOR', label: 'Sensor' },
-                    { value: 'CONTROLLER', label: 'Controller' },
-                    { value: 'OTHER', label: 'Other' }
-                ]}
-                selectedValues={typeFilterValues}
-                key="types"
-            />
-            
             <!-- Status filter -->
             <PopoverFilter
                 label="Status"
@@ -375,6 +401,22 @@
                 ]}
                 selectedValues={statusFilterValues}
                 key="statuses"
+            />
+
+            <!-- Tags filter -->
+            <SearchablePopoverFilter
+                label="Tags"
+                options={tagOptions}
+                selectedValues={$selectedTagIds}
+                searchPlaceholder="Search tags..."
+                onChange={(values) => {
+                    selectedTagIds.set(values);
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('tags', values.join(','));
+                    if (!values.length) url.searchParams.delete('tags');
+                    url.searchParams.set('page', '1');
+                    goto(url.toString(), { replaceState: true, noScroll: true });
+                }}
             />
         </div>
     </div>

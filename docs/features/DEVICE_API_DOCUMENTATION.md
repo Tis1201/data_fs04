@@ -38,6 +38,27 @@ Headers:
   - X-API-Key: <device-api-key>
 ```
 
+#### SSE Message Envelope Format
+
+All SSE messages are wrapped in a standardized envelope:
+
+```json
+{
+  "channel": "device:{deviceId}",
+  "type": "channel_message",
+  "timestamp": 1728412345678,
+  "payload": {
+    // BaseResponse or specialized response (see below)
+  }
+}
+```
+
+**Envelope Fields**:
+- `channel`: Target channel (e.g., `"device:{deviceId}"`)
+- `type`: Always `"channel_message"` for standard messages
+- `timestamp`: Unix timestamp in milliseconds
+- `payload`: The actual message content (standardized response format)
+
 ### 2. HTTP API (Device → Server)
 
 #### Device Status Update Endpoint
@@ -84,23 +105,222 @@ Body: {
 
 ---
 
+## Standardized Response Format
+
+All messages in the `payload` field follow a standardized response format for consistency across the application.
+
+### BaseResponse Structure
+
+```typescript
+{
+  "id": "uuid",                          // Optional: Unique response identifier
+  "timestamp": "2025-10-08T12:34:56Z",   // ISO string or epoch ms
+  "status": 200,                          // ResponseStatus enum value
+  "severity": "success",                  // ResponseSeverity: info|success|warning|error|debug
+  "category": "device",                   // ResponseCategory: system|auth|device|user|data|notification
+  "title": "Operation Complete",          // Optional: Short title for UI
+  "message": "Device action completed",   // Detailed message
+  "details": "Additional context",        // Optional: Technical details
+  "code": "DEVICE_001",                   // Optional: Error/event code
+  "meta": {                               // Optional: Additional metadata
+    "deviceId": "device-id",
+    "logId": "operation-id"
+  }
+}
+```
+
+### Response Status Codes
+
+```typescript
+// Success codes (2xx)
+SUCCESS = 200
+CREATED = 201
+ACCEPTED = 202
+
+// Client error codes (4xx)
+BAD_REQUEST = 400
+UNAUTHORIZED = 401
+FORBIDDEN = 403
+NOT_FOUND = 404
+VALIDATION_ERROR = 422
+
+// Server error codes (5xx)
+SERVER_ERROR = 500
+SERVICE_UNAVAILABLE = 503
+
+// Application-specific codes (1xxx)
+DEVICE_OFFLINE = 1001
+DEVICE_BUSY = 1002
+```
+
+### Specialized Response Types
+
+#### 1. DataResponse (with payload)
+```typescript
+{
+  ...BaseResponse,
+  "data": {
+    // Any data payload
+  }
+}
+```
+
+#### 2. SystemResponse (for events)
+```typescript
+{
+  ...BaseResponse,
+  "event": "ping",                    // System event type
+  "actionRequired": false,            // Optional: requires user action
+  "action": {                         // Optional: action details
+    "type": "navigate",
+    "label": "View Details",
+    "url": "/devices/123"
+  }
+}
+```
+
+#### 3. ProgressResponse (for long operations)
+```typescript
+{
+  ...BaseResponse,
+  "progress": 45,                     // Progress percentage (0-100)
+  "total": 100,                       // Optional: total steps
+  "current": 45,                      // Optional: current step
+  "eta": 30                           // Optional: estimated seconds remaining
+}
+```
+
+#### 4. ErrorResponse
+```typescript
+{
+  ...BaseResponse,
+  "error": "ValidationError",         // Error type/name
+  "validationErrors": {               // Optional: field-specific errors
+    "packageName": ["Package name is required"]
+  },
+  "stack": "Error stack trace"        // Optional: for development only
+}
+```
+
+---
+
 ## Message Types (Server → Device via SSE)
 
-All SSE messages follow this structure:
+All SSE messages are wrapped in an envelope with a standardized payload structure.
+
+### Complete Message Example
+
 ```json
 {
-  "id": "message-id",
-  "type": "device|device:actionRequest",
-  "scope": "subscription:device:{deviceId}",
+  "channel": "device:abc-123",
+  "type": "channel_message",
+  "timestamp": 1728412345678,
   "payload": {
-    "action": "action-type",
-    // ... action-specific fields
+    "id": "msg-uuid",
+    "timestamp": "2025-10-08T12:34:56Z",
+    "status": 200,
+    "severity": "info",
+    "category": "device",
+    "message": "Device action request",
+    "meta": {
+      "action": "reboot",
+      "deviceId": "abc-123",
+      "logId": "op-456"
+    }
+  }
+}
+```
+
+**Legacy Format Note**: Some older messages may use a different structure without the envelope. The device should handle both formats for backward compatibility.
+
+---
+
+## Migration Guide: Legacy to Standardized Format
+
+### Understanding the Changes
+
+The SSE messaging system has been updated to use a standardized format with two key components:
+
+1. **Envelope Wrapper**: All messages are wrapped in a consistent envelope structure
+2. **Standardized Payload**: Message content follows BaseResponse format with status codes, severity levels, and categories
+
+### Old Format (Legacy)
+```json
+{
+  "type": "device:actionRequest",
+  "payload": {
+    "action": "reboot",
+    "deviceId": "abc-123"
   },
-  "senderId": "user-id",
-  "senderConnectionId": "connection-id",
-  "senderConnectionProtocol": "sse|webrtc",
-  "requestId": "request-id",
-  "timestamp": "ISO8601"
+  "timestamp": "2025-10-08T12:34:56Z"
+}
+```
+
+### New Format (Standardized)
+```json
+{
+  "channel": "device:abc-123",
+  "type": "channel_message",
+  "timestamp": 1728412345678,
+  "payload": {
+    "id": "msg-uuid",
+    "timestamp": "2025-10-08T12:34:56Z",
+    "status": 200,
+    "severity": "info",
+    "category": "device",
+    "message": "Reboot request",
+    "meta": {
+      "action": "reboot",
+      "deviceId": "abc-123"
+    }
+  }
+}
+```
+
+### Key Differences
+
+| Aspect | Legacy Format | Standardized Format |
+|--------|---------------|---------------------|
+| **Wrapper** | None | Envelope with `channel`, `type`, `timestamp` |
+| **Payload Structure** | Custom per message | Consistent BaseResponse interface |
+| **Status Indication** | Custom fields | Standard `status` codes (200, 400, 500, etc.) |
+| **Severity** | Not standardized | `severity` field (info, success, warning, error) |
+| **Categorization** | Not available | `category` field (system, device, user, etc.) |
+| **Metadata** | Mixed in payload | Organized in `meta` object |
+| **Timestamps** | ISO string only | ISO string or epoch ms |
+
+### Device Implementation Considerations
+
+When implementing device handlers, consider:
+
+1. **Parse Envelope First**: Extract the `payload` from the envelope
+2. **Check Payload Structure**: Determine if it's BaseResponse or legacy format
+3. **Extract Action**: In new format, action is in `meta.action` instead of `payload.action`
+4. **Status Handling**: Use `status` field for determining success/failure
+5. **Error Messages**: Use `message` field for user-friendly text, `details` for technical info
+
+### Example Handler Code Pattern
+
+```javascript
+function handleSSEMessage(rawMessage) {
+  let payload;
+  
+  // Handle envelope format
+  if (rawMessage.type === 'channel_message' && rawMessage.payload) {
+    payload = rawMessage.payload;
+  } else {
+    // Legacy format - message itself is the payload
+    payload = rawMessage;
+  }
+  
+  // Extract action
+  const action = payload.meta?.action || payload.action;
+  
+  // Check status (new format) or infer from structure (legacy)
+  const isSuccess = payload.status ? (payload.status >= 200 && payload.status < 300) : true;
+  
+  // Route to appropriate handler
+  routeAction(action, payload);
 }
 ```
 
@@ -1075,15 +1295,37 @@ Device captures screenshot and sends it to the server's message endpoint.
 ### 3.4 System Ping
 
 #### System Ping (Server → Device via SSE)
+
+The server sends regular ping messages every 30 seconds to maintain connection health.
+
+**Complete Envelope Format**:
 ```json
-event: ping
-data: {"message": "ping"}
+{
+  "channel": "device:{deviceId}",
+  "type": "channel_message",
+  "timestamp": 1728412345678,
+  "payload": {
+    "id": "ping-uuid",
+    "timestamp": "2025-10-08T12:34:56Z",
+    "status": 200,
+    "severity": "info",
+    "category": "system",
+    "message": "Connection heartbeat",
+    "event": "ping",
+    "meta": {
+      "connectionId": "conn-123",
+      "deviceId": "device-abc"
+    }
+  }
+}
 ```
 
 **Expected Behavior**:
-- Device logs system ping
-- No response required
-- Used for connection keep-alive
+- Server sends ping every 30 seconds (configurable via `PING_INTERVAL_MS`)
+- Device logs system ping (optional)
+- No response required from device
+- Used for connection keep-alive and health monitoring
+- If ping fails, connection is automatically cleaned up
 
 ---
 
@@ -1275,20 +1517,33 @@ See `/tests/device/` directory for test scripts:
 ## Changelog
 
 - **2025-09-30**: Initial documentation created
-- Documented all device actions and real-time features
-- Added error handling and message flow diagrams
-- Included implementation notes and testing guidelines
+  - Documented all device actions and real-time features
+  - Added error handling and message flow diagrams
+  - Included implementation notes and testing guidelines
+
 - **2025-10-04**: Added profile management features
-- Added applyProfile and reapply profile actions
-- Added real-time UI updates for profile assignments
-- Added status tracking with APPLYING/SUCCESS/FAILED states
-- Added timeout handling (3-minute timeout)
-- Added bulk and individual reapply functionality
+  - Added applyProfile and reapply profile actions
+  - Added real-time UI updates for profile assignments
+  - Added status tracking with APPLYING/SUCCESS/FAILED states
+  - Added timeout handling (3-minute timeout)
+  - Added bulk and individual reapply functionality
+
+- **2025-10-08**: Updated SSE message format documentation
+  - Added standardized response format (BaseResponse) for all SSE messages
+  - Documented SSE envelope structure (channel, type, timestamp, payload)
+  - Added response status codes (2xx, 4xx, 5xx, 1xxx application codes)
+  - Added specialized response types (DataResponse, SystemResponse, ProgressResponse, ErrorResponse)
+  - Updated System Ping documentation with actual implementation details
+  - Added backward compatibility notes for legacy message formats
+  - Documented ping interval (30 seconds) and connection health monitoring
 
 ---
 
 ## References
 
-- [REAL_TIME_ARCHITECTURE.md](../fs04_web/docs/REAL_TIME_ARCHITECTURE.md) - Server architecture
-- [DEVICE_PROTOCOL.md](./DEVICE_PROTOCOL.md) - Device protocol specification
-- Handler implementations in `/internal/module/handlers/`
+- [REAL_TIME_ARCHITECTURE.md](../REAL_TIME_ARCHITECTURE.md) - Server architecture
+- [DEVICE_PROTOCOL.md](../../fs04_device/DEVICE_PROTOCOL.md) - Device protocol specification
+- [Response Format Types](../../src/lib/shared/response_format/types.ts) - Standardized response format definitions
+- [Response Format Utils](../../src/lib/shared/response_format/utils.ts) - Response creation utilities
+- [SSE Connection Implementation](../../src/lib/server/messaging/connections/sse_connection.ts) - SSE connection handler
+- Handler implementations in `fs04_device/internal/module/handlers/`

@@ -12,6 +12,14 @@ const table_options = {
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
+    filterMappings: {
+        ruleType: { field: 'ruleType', operator: 'in' },
+        isActive: { 
+            field: 'isActive', 
+            operator: 'equals',
+            valueTransformer: (value: string) => value === 'true'
+        }
+    },
     // Admin can only see admin-level rules
     baseWhere: {
         OR: [

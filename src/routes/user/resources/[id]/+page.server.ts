@@ -5,13 +5,118 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
-import { superValidate } from 'sveltekit-superforms';
+import { superValidate, message } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { resourceSchema } from '../../../admin/iot/resources/new/resource';
 import { deleteFileFromCloudStorage } from '$lib/server/storage';
+import { createErrorResponse } from '$lib/types/api';
+import { handleFormError } from '$lib/server/errors/errorHandlers';
 
 // Define actions for this route
 export const actions: Actions = {
+    // Action to update a resource
+    update: restrict(
+        async ({ request, params, locals }) => {
+            const { id } = params;
+            let existingResource;
+            
+            // Validate the form data
+            const form = await superValidate(request, zod(resourceSchema), {
+                dataType: 'json'
+            });
+
+            // Check if the form is valid
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+
+            try {
+                // Get the existing resource
+                existingResource = await locals.prisma.resource.findUnique({
+                    where: { id }
+                });
+
+                if (!existingResource) {
+                    return message(
+                        form,
+                        createErrorResponse('Resource not found', {
+                            details: 'The resource you are trying to update does not exist.'
+                        })
+                    );
+                }
+
+                // Check permissions: user must be the creator OR an OWNER/ADMIN of the account
+                const isCreator = existingResource.createdBy === locals.user.id;
+                
+                const accountMembership = await locals.prisma.accountMembership.findFirst({
+                    where: {
+                        accountId: existingResource.accountId,
+                        userId: locals.user.id,
+                        role: { in: ['OWNER', 'ADMIN'] }
+                    }
+                });
+
+                if (!isCreator && !accountMembership) {
+                    return message(
+                        form,
+                        createErrorResponse('Permission denied', {
+                            details: 'You do not have permission to update this resource. You must be the creator or an account admin.'
+                        })
+                    );
+                }
+
+                // Update the resource (note: accountId cannot be changed by users)
+                const updatedResource = await locals.prisma.resource.update({
+                    where: { id },
+                    data: {
+                        name: form.data.name,
+                        description: form.data.description,
+                        type: form.data.type,
+                        target: form.data.target,
+                        version: form.data.version,
+                        format: form.data.format,
+                        packageName: form.data.packageName,
+                        path: form.data.path,
+                        size: form.data.size,
+                        updatedBy: locals.user.id
+                        // accountId is NOT updated - users cannot change resource ownership
+                    }
+                });
+
+                logger.info(`Resource updated by user: ${updatedResource.id} (User: ${locals.user.id})`);
+
+                // Log audit trail
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Resource',
+                    recordId: updatedResource.id,
+                    oldData: existingResource,
+                    newData: updatedResource,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+
+                return {
+                    type: 'success',
+                    status: 200,
+                    data: [{ success: 1 }, true]
+                };
+            } catch (err) {
+                logger.error(`Error updating resource ${id}:`, err);
+                return handleFormError({
+                    error: err,
+                    form,
+                    prisma: locals.prisma,
+                    accountId: existingResource?.accountId,
+                    defaultMessage: 'Failed to update resource. Please try again.',
+                    action: 'user resource update'
+                });
+            }
+        },
+        [SystemRole.USER]
+    ),
+
     // Action to delete a resource
     deleteResource: restrict(
         async ({ params, locals }) => {

@@ -100,3 +100,83 @@ export async function testClickHouseConnection(): Promise<boolean> {
     return false;
   }
 }
+
+export type DeviceInformation = {
+  last_connected_at: string | null;
+  last_status_at: string | null;
+  os_version: string;
+  system_uptime_seconds: number | null;
+  firmware: string;
+  model: string;
+  network_interface: string;
+  wifi_ssid: string | null;
+  signal_strength_dbm: number | null;
+  mac_wifi: string | null;
+  mac_lan: string;
+  orientation: string;
+  resolution: string;
+  timezone: string;
+  public_ip: string;
+  private_ip: string;
+  created_at: string;
+};
+
+export async function getLatestDeviceInformation(macAddress: string | null): Promise<DeviceInformation | null> {
+  const client = getClickHouseClient();
+  
+  try {
+    // If no MAC address provided, return null
+    if (!macAddress) {
+      logger.debug(`[ClickHouse] No MAC address provided, skipping device_information query`);
+      return null;
+    }
+
+    const query = `
+      SELECT 
+        last_connected_at,
+        last_status_at,
+        os_version,
+        system_uptime_seconds,
+        firmware,
+        model,
+        network_interface,
+        wifi_ssid,
+        signal_strength_dbm,
+        mac_wifi,
+        mac_lan,
+        orientation,
+        resolution,
+        timezone,
+        public_ip,
+        private_ip,
+        created_at
+      FROM device_information
+      WHERE mac_lan = {macAddress: String}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    logger.debug(`[ClickHouse] Querying device_information for MAC address ${macAddress}`);
+
+    const result = await client.query({
+      query,
+      query_params: {
+        macAddress
+      }
+    });
+
+    const data = await result.json();
+    const rows = data.data || [];
+    
+    if (rows.length === 0) {
+      logger.debug(`[ClickHouse] No device_information found for MAC address ${macAddress}`);
+      return null;
+    }
+
+    logger.info(`[ClickHouse] Found device_information for MAC address ${macAddress}`);
+    return rows[0] as DeviceInformation;
+  } catch (error) {
+    logger.error(`[ClickHouse] Failed to query device_information for MAC address ${macAddress}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}

@@ -8,6 +8,7 @@ import { z } from 'zod';
 const profileSchema = z.object({
     name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
     description: z.string().max(500, 'Description must be less than 500 characters').optional(),
+    isActive: z.string().optional().default('true'), // Store as string for Select component
     settings: z.string().optional().default('[]') // Store as JSON string
 });
 
@@ -98,16 +99,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
         defaults: {
             name: '',
             description: '',
+            isActive: 'true',
             settings: JSON.stringify(defaultSettings)
         }
     });
-
-    // Debug logging
-    console.log('Server form initialization:');
-    console.log('- Form data:', form.data);
-    console.log('- Form valid:', form.valid);
-    console.log('- Form errors:', form.errors);
-    console.log('- Form posted:', form.posted);
 
     return {
         form
@@ -124,11 +119,6 @@ export const actions: Actions = {
 
         // Validate form with standard data type
         const form = await superValidate(request, zod(profileSchema));
-        
-        // Debug logging
-        console.log('Server received form data:', form.data);
-        console.log('Form valid:', form.valid);
-        console.log('Form errors:', form.errors);
         
         if (!form.valid) {
             return fail(400, { form });
@@ -155,7 +145,7 @@ export const actions: Actions = {
         try {
             settings = JSON.parse(form.data.settings || '[]');
         } catch (e) {
-            console.error('Error parsing settings JSON:', e);
+            // Error parsing settings JSON
             settings = [];
         }
 
@@ -166,6 +156,7 @@ export const actions: Actions = {
                 data: {
                     name: form.data.name,
                     description: form.data.description,
+                    isActive: form.data.isActive === 'true', // Convert string to boolean
                     accountId: userAccountMembership.accountId,
                     createdBy: auth.user.id,
                     settings: {
@@ -189,7 +180,6 @@ export const actions: Actions = {
             };
 
         } catch (error) {
-            console.error('Error creating device profile:', error);
             return fail(500, { 
                 form: {
                     ...form,

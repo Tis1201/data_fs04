@@ -87,7 +87,13 @@ export const POST: RequestHandler = restrict(
         const { params, request } = event;
         const deviceId = params.id;
         
+        logger.info(`[UnifiedActionAPI] ========== REQUEST START ==========`);
+        logger.info(`[UnifiedActionAPI] Device ID: ${deviceId}`);
+        logger.info(`[UnifiedActionAPI] User: ${event.auth.user.email} (${event.auth.user.systemRole})`);
+        logger.info(`[UnifiedActionAPI] User ID: ${event.auth.user.id}`);
+        
         if (!deviceId) {
+            logger.warn(`[UnifiedActionAPI] Missing device ID`);
             return json({ 
                 success: false, 
                 error: { 
@@ -102,8 +108,11 @@ export const POST: RequestHandler = restrict(
         try {
             const body = await request.json();
             const { action, ...payload } = body;
+            
+            logger.info(`[UnifiedActionAPI] Request body:`, { action, payload });
 
             if (!action || !(action in ACTION_CONFIGS)) {
+                logger.warn(`[UnifiedActionAPI] Invalid action: ${action}`);
                 return json({ 
                     success: false, 
                     error: { 
@@ -116,10 +125,12 @@ export const POST: RequestHandler = restrict(
             }
 
             const actionConfig = ACTION_CONFIGS[action as ActionType];
+            logger.info(`[UnifiedActionAPI] Action config:`, actionConfig);
             
             // Validate required fields
             for (const field of actionConfig.requiredFields) {
                 if (!payload[field] || !String(payload[field]).trim()) {
+                    logger.warn(`[UnifiedActionAPI] Missing required field: ${field}`);
                     return json({ 
                         success: false, 
                         error: { 
@@ -132,6 +143,7 @@ export const POST: RequestHandler = restrict(
                 }
             }
 
+            logger.info(`[UnifiedActionAPI] Fetching device from database...`);
             // Verify device exists and user has access
             const device = await prisma.device.findUnique({
                 where: { id: deviceId },
@@ -144,7 +156,10 @@ export const POST: RequestHandler = restrict(
                 }
             });
 
+            logger.info(`[UnifiedActionAPI] Device query result:`, device ? { id: device.id, name: device.name, connected: device.connected, userId: device.user.id } : null);
+
             if (!device) {
+                logger.warn(`[UnifiedActionAPI] Device not found: ${deviceId}`);
                 return json({ 
                     success: false, 
                     error: { 
@@ -158,6 +173,7 @@ export const POST: RequestHandler = restrict(
 
             // Check if user has access to this device
             if (event.auth.user.systemRole !== SystemRole.ADMIN && device.user.id !== event.auth.user.id) {
+                logger.warn(`[UnifiedActionAPI] Access denied: user ${event.auth.user.id} tried to access device owned by ${device.user.id}`);
                 return json({ 
                     success: false, 
                     error: { 
@@ -170,6 +186,7 @@ export const POST: RequestHandler = restrict(
             }
 
             if (!device.connected) {
+                logger.warn(`[UnifiedActionAPI] Device is offline: ${deviceId}`);
                 return json({ 
                     success: false, 
                     error: { 
@@ -181,6 +198,7 @@ export const POST: RequestHandler = restrict(
                 }, { status: 400 });
             }
 
+            logger.info(`[UnifiedActionAPI] Creating action log entry...`);
             // Create action log entry
             const requestId = crypto.randomUUID();
             const created = await ActionLogger.createInitiated({
@@ -197,6 +215,8 @@ export const POST: RequestHandler = restrict(
                 },
                 initialMessage: `Initiating ${action} action`
             });
+            
+            logger.info(`[UnifiedActionAPI] Action log created:`, { logId: created.id, requestId });
 
             // Send command to device via SSE
             const routingMessage = MessageFactory.createSystemMessage(
@@ -212,8 +232,16 @@ export const POST: RequestHandler = restrict(
                 SystemUser,
                 { echoToSender: false }
             );
+            
+            logger.info(`[UnifiedActionAPI] Publishing message to device...`, { 
+                sseAction: actionConfig.sseAction, 
+                scope: `subscription:device:${deviceId}`,
+                payload: { action, deviceId, logId: created.id }
+            });
 
             await publisher.publish(routingMessage);
+            
+            logger.info(`[UnifiedActionAPI] Message published successfully`);
 
             // Set up timeout
             setTimeout(async () => {
@@ -233,6 +261,7 @@ export const POST: RequestHandler = restrict(
             }, actionConfig.timeout);
 
             logger.info(`[UnifiedActionAPI] ${action} action initiated for device ${deviceId} by user ${event.auth.user.email}`);
+            logger.info(`[UnifiedActionAPI] ========== REQUEST END (SUCCESS) ==========`);
 
             return json({
                 success: true,
@@ -250,6 +279,8 @@ export const POST: RequestHandler = restrict(
 
         } catch (error) {
             logger.error(`[UnifiedActionAPI] Error handling action request: ${String(error)}`);
+            logger.error(`[UnifiedActionAPI] Error stack:`, error instanceof Error ? error.stack : 'No stack');
+            logger.error(`[UnifiedActionAPI] ========== REQUEST END (ERROR) ==========`);
             return json({ 
                 success: false, 
                 error: { 
