@@ -135,6 +135,8 @@ export const GET: RequestHandler = restrict(
                             id: true,
                             status: true,
                             assignedAt: true,
+                            appliedAt: true,
+                            lastSyncAt: true,
                             profile: {
                                 select: {
                                     id: true,

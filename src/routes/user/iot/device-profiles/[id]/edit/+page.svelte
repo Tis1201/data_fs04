@@ -64,6 +64,18 @@
     // Reference to ProfileSettingsEditor component for validation
     let profileSettingsEditor: any;
     
+    // Function to handle tab changes
+    function handleTabChange(tab: string) {
+        activeTab = tab;
+    }
+
+    // Update URL when tab changes (client-side only)
+    $: if (typeof window !== 'undefined' && activeTab && activeTab !== ($page.url.searchParams.get('tab') || "settings")) {
+        const url = new URL($page.url);
+        url.searchParams.set('tab', activeTab);
+        goto(url.pathname + url.search, { replaceState: true });
+    }
+    
     onMount(() => {
         console.log('[AdminDeviceProfileDetail] onMount started for profile:', data.profile.id);
 
@@ -200,7 +212,13 @@
             
             <!-- Devices Tab -->
             <Tabs.Content value="devices" class="space-y-6">
-                <DeviceAssignmentManager profileId={data.profile.id} isAdmin={false} />
+                <DeviceAssignmentManager 
+                    profileId={data.profile.id} 
+                    isAdmin={false} 
+                    connId={lastSubscribedConnectionId || ''}
+                    {sseStore}
+                    onTabChange={handleTabChange}
+                />
             </Tabs.Content>
         </Tabs.Root>
     </div>

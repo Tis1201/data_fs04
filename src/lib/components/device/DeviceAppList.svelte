@@ -492,12 +492,7 @@
         <div>
           <h3 class="text-sm font-medium text-blue-900">App Summary</h3>
           <p class="text-xs text-blue-700">
-            {summary.totalAppsCount} total apps • 
-            {summary.systemAppsCount} system • 
-            {summary.normalAppsCount} normal
-            {#if summary.lastAppSync}
-              • Last sync: {formatDate(summary.lastAppSync)}
-            {/if}
+            {summary.totalAppsCount} total apps
           </p>
         </div>
       </div>
@@ -720,12 +715,6 @@
         <button on:click={() => { currentPage = totalPages; loadData(); }} disabled={currentPage === totalPages} class="px-2.5 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">Last</button>
       </div>
     </div>
-
-    {#if lastSync}
-      <div class="text-xs text-gray-500 text-center">
-        Last updated: {formatDate(lastSync.toISOString())}
-      </div>
-    {/if}
   {/if}
 </div>
 
