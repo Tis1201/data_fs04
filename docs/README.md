@@ -21,6 +21,7 @@ This directory contains comprehensive documentation for the IoT Management Syste
 ### 📡 [Real-Time Communication](./REAL_TIME_COMMUNICATION.md)
 **SSE, WebSocket, WebRTC, and Pushpin implementation**
 - **Server-Sent Events (SSE)** - Real-time device communication
+- **Device SSE Implementation** - Complete device listen flow with API key auth
 - **WebSocket Implementation** - Bidirectional communication
 - **WebRTC Architecture** - Terminal and remote desktop
 - **Pushpin Integration** - Message routing and proxy
@@ -28,13 +29,16 @@ This directory contains comprehensive documentation for the IoT Management Syste
 - **Performance Optimization** - Connection pooling and load balancing
 
 ### 📱 [Device Management](./DEVICE_MANAGEMENT.md)
-**Device lifecycle and API reference**
-- **Device Registration** - Factory JWT and PIN validation
-- **Device Authentication** - API key and JWT token management
+**Complete device flow and API reference**
+- **Complete Device Flow** - Register → Listen → JWT token acquisition
+- **Device Registration** - Factory JWT and PIN validation with SSE connection
+- **Device Listening** - Real-time SSE communication for server commands
+- **JWT Token Management** - API key authentication and token generation
 - **Device Lifecycle** - Registration, claiming, and operations
 - **Complete API Reference** - All device endpoints with examples
 - **Server-to-Device Actions** - All actions server can send to devices
 - **Device Response Patterns** - How devices respond to server actions
+- **Code Examples** - Go and Python device client implementations
 - **Security Features** - Multi-layer security and validation
 
 ### 🔧 [Troubleshooting](./TROUBLESHOOTING.md)
@@ -105,6 +109,10 @@ The IoT Management System is designed for:
 
 ## 🔄 Recent Updates
 
+- **2025-01-12**: ✅ **Complete device flow documentation** - Added comprehensive Register → Listen → JWT flow with code examples
+- **2025-01-12**: ✅ **Device SSE implementation** - Detailed device listen flow with API key authentication
+- **2025-01-12**: ✅ **JWT token acquisition** - Complete JWT generation and usage flow for device APIs
+- **2025-01-12**: ✅ **Code examples** - Go and Python device client implementations
 - **2025-10-12**: ✅ **Complete documentation consolidation** - Reduced 50+ scattered files to 4 comprehensive documents
 - **2025-10-12**: ✅ **Professional structure** - All documentation now includes file paths, code examples, and implementation details
 - **2025-10-12**: ✅ **Visual flow diagrams** - Added ASCII diagrams for complex message flows

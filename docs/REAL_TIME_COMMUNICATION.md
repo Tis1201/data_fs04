@@ -120,6 +120,81 @@ This document provides a comprehensive guide to the real-time communication syst
 - **GRIP headers** for Pushpin compatibility
 - **Automatic cleanup** on disconnect
 
+### Device SSE Implementation
+
+#### Device Listen Endpoint
+
+**File**: [`src/routes/api/device/listen/+server.ts`](../../src/routes/api/device/listen/+server.ts)
+
+- **API Key Authentication** - Validates device API key via `restrictDevice` guard
+- **SSE Stream Creation** - Establishes Server-Sent Events connection
+- **Message Subscription** - Subscribes to device-specific Redis channels
+- **Real-time Communication** - Receives server commands and status updates
+- **Connection Management** - Handles connection lifecycle and cleanup
+
+#### Device Listen Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           DEVICE LISTEN FLOW                                   │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐      │
+│  │   Device    │    │   API Key   │    │   SSE       │    │   Redis     │      │
+│  │   Client    │───▶│   Auth      │───▶│ Connection  │───▶│ Subscription│      │
+│  │   (Go)      │    │src/lib/     │    │src/routes/  │    │src/lib/     │      │
+│  │             │    │server/      │    │api/device/  │    │server/      │      │
+│  │ • Connect   │    │security/    │    │listen/      │    │messaging/   │      │
+│  │   SSE       │    │guards.ts    │    │+server.ts   │    │             │      │
+│  │ • Send API  │    │             │    │             │    │ • Subscribe │      │
+│  │   Key       │    │ • Validate  │    │ • Create    │    │   to device │      │
+│  │ • Receive   │    │   Key       │    │   Stream    │    │   channels  │      │
+│  │   Messages  │    │ • Get       │    │ • Handle    │    │ • Route     │      │
+│  │ • Handle    │    │   Device    │    │   Messages  │    │   Messages  │      │
+│  │   Commands  │    │   Info      │    │ • Cleanup   │    │ • Publish   │      │
+│  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Device Listen Request/Response
+
+**Request Headers**:
+```http
+x-api-key: <device_api_key>
+```
+
+**Response Headers**:
+```http
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+**SSE Message Format**:
+```
+data: {"type": "device:claim", "action": "claim", "deviceId": "device_uuid", "payload": {...}}
+
+data: {"type": "device:status", "action": "status", "deviceId": "device_uuid", "payload": {...}}
+
+data: {"type": "device:pushFile", "action": "pushFile", "deviceId": "device_uuid", "payload": {...}}
+```
+
+#### Pushpin Device Listen (Alternative)
+
+**File**: [`src/routes/api/device/pushpin/listen/+server.ts`](../../src/routes/api/device/pushpin/listen/+server.ts)
+
+- **Pushpin Integration** - Uses Pushpin proxy for WebSocket/SSE
+- **GRIP Headers** - For message routing and connection management
+- **Same Authentication** - Uses API key for device validation
+- **Production Ready** - Optimized for Kubernetes deployment
+
+**GRIP Headers for Device Listen**:
+```http
+Grip-Hold: stream
+Grip-Channel: device:{deviceId}
+Grip-Keep-Alive: :\n\n; format=cstring; timeout=60
+```
+
 ---
 
 ## 🌐 WebSocket Implementation

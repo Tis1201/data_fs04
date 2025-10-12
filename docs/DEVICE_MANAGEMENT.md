@@ -107,9 +107,18 @@ This document provides a comprehensive guide to device management, covering devi
 
 ---
 
-## 📱 Device Registration
+## 📱 Complete Device Flow: Register → Listen → JWT
 
-### Factory JWT Authentication
+### Overview
+
+The complete device flow consists of three main phases:
+1. **Device Registration** - Using factory JWT token
+2. **Device Listening** - Establishing SSE connection for real-time communication
+3. **JWT Token Acquisition** - Getting access tokens for API calls
+
+### Phase 1: Device Registration
+
+#### Factory JWT Authentication
 
 **File**: [`src/lib/server/device/deviceJWTChecker.ts`](../../src/lib/server/device/deviceJWTChecker.ts)
 
@@ -118,7 +127,7 @@ This document provides a comprehensive guide to device management, covering devi
 - **Required Claims**: `aud: 'device-register'`, `typ: 'factory'`, `scope: 'device:register'`
 - **Signature Validation** using stored public keys
 
-### PIN Generation & Validation
+#### PIN Generation & Validation
 
 **File**: [`src/lib/server/device/devicePinChecker.ts`](../../src/lib/server/device/devicePinChecker.ts)
 
@@ -127,11 +136,11 @@ This document provides a comprehensive guide to device management, covering devi
 - **TTL Management**: 1-hour expiration
 - **Uniqueness**: Prevents duplicate PINs
 
-### Device Registration Endpoint
+#### Device Registration Endpoint
 
 **File**: [`src/routes/api/device/register/+server.ts`](../../src/routes/api/device/register/+server.ts)
 
-#### Registration Flow
+##### Registration Flow
 
 1. **Factory JWT Verification** - Validate device manufacturer token
 2. **PIN Validation** - Check PIN format and strength
@@ -141,7 +150,7 @@ This document provides a comprehensive guide to device management, covering devi
 6. **Device Storage** - Store device metadata in Redis
 7. **Subscription Creation** - Set up message routing
 
-#### Request Headers
+##### Request Headers
 
 ```http
 Authorization: Bearer <factory_jwt_token>
@@ -149,7 +158,7 @@ X-Device-PIN: 123456
 X-Device-MAC: AA:BB:CC:DD:EE:FF
 ```
 
-#### Response
+##### Response
 
 ```json
 {
@@ -162,6 +171,376 @@ X-Device-MAC: AA:BB:CC:DD:EE:FF
   }
 }
 ```
+
+### Phase 2: Device Listening (SSE Connection)
+
+#### Device Listen Endpoint
+
+**File**: [`src/routes/api/device/listen/+server.ts`](../../src/routes/api/device/listen/+server.ts)
+
+##### Listen Flow
+
+1. **API Key Authentication** - Validate device API key
+2. **SSE Connection** - Establish Server-Sent Events stream
+3. **Message Subscription** - Subscribe to device-specific channels
+4. **Real-time Communication** - Receive server commands and updates
+
+##### Request Headers
+
+```http
+x-api-key: <device_api_key>
+```
+
+##### Response
+
+Server-Sent Events stream with real-time messages:
+
+```http
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+
+data: {"type": "device:claim", "action": "claim", "deviceId": "device_uuid", "payload": {...}}
+
+data: {"type": "device:status", "action": "status", "deviceId": "device_uuid", "payload": {...}}
+```
+
+#### Pushpin Listen Endpoint (Alternative)
+
+**File**: [`src/routes/api/device/pushpin/listen/+server.ts`](../../src/routes/api/device/pushpin/listen/+server.ts)
+
+- **Pushpin Integration** - Uses Pushpin proxy for WebSocket/SSE
+- **GRIP Headers** - For message routing and connection management
+- **Same Authentication** - Uses API key for device validation
+
+### Phase 3: JWT Token Acquisition
+
+#### JWT Token Endpoint
+
+**File**: [`src/routes/api/device/jwt/+server.ts`](../../src/routes/api/device/jwt/+server.ts)
+
+##### JWT Generation Flow
+
+1. **API Key Authentication** - Validate device API key via `restrictDevice` guard
+2. **Device Lookup** - Find device in database by API key
+3. **Signing Key Retrieval** - Get active JWT signing key from database
+4. **Token Generation** - Create JWT with device claims
+5. **Token Response** - Return JWT token for API access
+
+##### Request Headers
+
+```http
+x-api-key: <device_api_key>
+```
+
+##### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "jwt": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresIn": 3600,
+    "deviceId": "device_uuid"
+  }
+}
+```
+
+##### JWT Token Claims
+
+```json
+{
+  "deviceId": "device_uuid",
+  "accountId": "account_uuid", 
+  "userId": "user_uuid",
+  "deviceName": "Device Name",
+  "iss": "fs04",
+  "aud": "https://fs04.datarealities.com",
+  "sub": "device_uuid",
+  "exp": 1641974400,
+  "iat": 1641970800,
+  "kid": "signing_key_id"
+}
+```
+
+### Complete Device Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           COMPLETE DEVICE FLOW                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                        PHASE 1: REGISTRATION                          │    │
+│  │                                                                         │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │    │
+│  │  │   Device    │  │   Factory   │  │   Server    │  │   Database  │    │    │
+│  │  │   Client    │  │    JWT      │  │ Registration│  │   Storage   │    │    │
+│  │  │   (Go)      │  │   Token     │  │src/routes/  │  │             │    │    │
+│  │  │             │  │             │  │api/device/  │  │ • Device    │    │    │
+│  │  │ • Generate  │  │ • Verify    │  │register/    │  │   Record    │    │    │
+│  │  │   PIN       │  │   JWT       │  │+server.ts   │  │ • SSE       │    │    │
+│  │  │ • Send      │  │ • Extract   │  │             │  │   Stream    │    │    │
+│  │  │   Request   │  │   Claims    │  │ • Validate  │  │ • Redis     │    │    │
+│  │  │ • Wait for  │  │ • Check     │  │   JWT       │  │   Cache     │    │    │
+│  │  │   Claim     │  │   Scope     │  │ • Create    │  │             │    │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                             │
+│                                    ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                        PHASE 2: LISTENING                             │    │
+│  │                                                                         │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │    │
+│  │  │   Device    │  │   API Key   │  │   SSE       │  │   Message   │    │    │
+│  │  │   Client    │  │   Auth      │  │ Connection  │  │   Router    │    │    │
+│  │  │   (Go)      │  │             │  │src/routes/  │  │src/lib/     │    │    │
+│  │  │             │  │ • Validate  │  │api/device/  │  │server/      │    │    │
+│  │  │ • Connect   │  │   Key       │  │listen/      │  │messaging/   │    │    │
+│  │  │   SSE       │  │ • Get       │  │+server.ts   │  │             │    │    │
+│  │  │ • Receive   │  │   Device    │  │             │  │ • Route     │    │    │
+│  │  │   Messages  │  │   Info      │  │ • Stream    │  │   Messages  │    │    │
+│  │  │ • Handle    │  │ • Check     │  │ • Subscribe │  │ • Publish   │    │    │
+│  │  │   Commands  │  │   Status    │  │ • Cleanup   │  │ • Broadcast │    │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
+│                                    │                                             │
+│                                    ▼                                             │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                        PHASE 3: JWT TOKEN                             │    │
+│  │                                                                         │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │    │
+│  │  │   Device    │  │   API Key   │  │   JWT       │  │   API       │    │    │
+│  │  │   Client    │  │   Auth      │  │ Generator   │  │   Access    │    │    │
+│  │  │   (Go)      │  │             │  │src/routes/  │  │             │    │    │
+│  │  │             │  │ • Validate  │  │api/device/  │  │ • Apps      │    │    │
+│  │  │ • Request   │  │   Key       │  │jwt/         │  │   API       │    │    │
+│  │  │   JWT       │  │ • Get       │  │+server.ts   │  │ • Resources │    │    │
+│  │  │ • Use JWT   │  │   Device    │  │             │  │   API       │    │    │
+│  │  │   for APIs  │  │   Claims    │  │ • Generate  │  │ • Messages  │    │    │
+│  │  │ • Refresh   │  │ • Check     │  │   Token     │  │   API       │    │    │
+│  │  │   Token     │  │   Expiry    │  │ • Sign      │  │ • Status    │    │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘    │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Device Flow Code Examples
+
+#### Go Device Client Example
+
+```go
+// Phase 1: Device Registration
+func registerDevice(factoryJWT, pin, mac string) (*DeviceRegistration, error) {
+    req, _ := http.NewRequest("GET", "http://localhost:5173/api/device/register", nil)
+    req.Header.Set("Authorization", "Bearer "+factoryJWT)
+    req.Header.Set("X-Device-PIN", pin)
+    req.Header.Set("X-Device-MAC", mac)
+    
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+    
+    var result struct {
+        Data struct {
+            DeviceID string `json:"deviceId"`
+            PIN      string `json:"pin"`
+            Status   string `json:"status"`
+        } `json:"data"`
+    }
+    json.NewDecoder(resp.Body).Decode(&result)
+    
+    return &DeviceRegistration{
+        DeviceID: result.Data.DeviceID,
+        PIN:      result.Data.PIN,
+        Status:   result.Data.Status,
+    }, nil
+}
+
+// Phase 2: Device Listening
+func listenForMessages(apiKey string) {
+    req, _ := http.NewRequest("GET", "http://localhost:5173/api/device/listen", nil)
+    req.Header.Set("x-api-key", apiKey)
+    
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer resp.Body.Close()
+    
+    scanner := bufio.NewScanner(resp.Body)
+    for scanner.Scan() {
+        line := scanner.Text()
+        if strings.HasPrefix(line, "data: ") {
+            var message map[string]interface{}
+            json.Unmarshal([]byte(line[6:]), &message)
+            handleMessage(message)
+        }
+    }
+}
+
+// Phase 3: JWT Token Acquisition
+func getJWTToken(apiKey string) (string, error) {
+    req, _ := http.NewRequest("GET", "http://localhost:5173/api/device/jwt", nil)
+    req.Header.Set("x-api-key", apiKey)
+    
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return "", err
+    }
+    defer resp.Body.Close()
+    
+    var result struct {
+        Data struct {
+            JWT string `json:"jwt"`
+        } `json:"data"`
+    }
+    json.NewDecoder(resp.Body).Decode(&result)
+    
+    return result.Data.JWT, nil
+}
+
+// Using JWT for API calls
+func getAvailableApps(jwtToken string) ([]App, error) {
+    req, _ := http.NewRequest("GET", "http://localhost:5173/api/apps/available-jwt", nil)
+    req.Header.Set("Authorization", "Bearer "+jwtToken)
+    
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+    
+    var result struct {
+        Data struct {
+            Apps []App `json:"apps"`
+        } `json:"data"`
+    }
+    json.NewDecoder(resp.Body).Decode(&result)
+    
+    return result.Data.Apps, nil
+}
+```
+
+#### Python Device Client Example
+
+```python
+import requests
+import json
+import time
+
+class DeviceClient:
+    def __init__(self, base_url="http://localhost:5173"):
+        self.base_url = base_url
+        self.api_key = None
+        self.jwt_token = None
+    
+    # Phase 1: Device Registration
+    def register(self, factory_jwt, pin, mac):
+        headers = {
+            "Authorization": f"Bearer {factory_jwt}",
+            "X-Device-PIN": pin,
+            "X-Device-MAC": mac
+        }
+        
+        response = requests.get(f"{self.base_url}/api/device/register", headers=headers)
+        response.raise_for_status()
+        
+        data = response.json()["data"]
+        print(f"Device registered: {data['deviceId']}")
+        return data
+    
+    # Phase 2: Device Listening
+    def listen(self, api_key):
+        self.api_key = api_key
+        headers = {"x-api-key": api_key}
+        
+        response = requests.get(f"{self.base_url}/api/device/listen", 
+                              headers=headers, stream=True)
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line.startswith(b"data: "):
+                message = json.loads(line[6:])
+                self.handle_message(message)
+    
+    # Phase 3: JWT Token Acquisition
+    def get_jwt_token(self):
+        if not self.api_key:
+            raise ValueError("API key not set")
+        
+        headers = {"x-api-key": self.api_key}
+        response = requests.get(f"{self.base_url}/api/device/jwt", headers=headers)
+        response.raise_for_status()
+        
+        self.jwt_token = response.json()["data"]["jwt"]
+        return self.jwt_token
+    
+    # Using JWT for API calls
+    def get_available_apps(self):
+        if not self.jwt_token:
+            self.get_jwt_token()
+        
+        headers = {"Authorization": f"Bearer {self.jwt_token}"}
+        response = requests.get(f"{self.base_url}/api/apps/available-jwt", headers=headers)
+        response.raise_for_status()
+        
+        return response.json()["data"]["apps"]
+    
+    def handle_message(self, message):
+        message_type = message.get("type")
+        
+        if message_type == "device:claim":
+            # Device has been claimed, store API key
+            self.api_key = message["payload"]["apiKey"]
+            print(f"Device claimed! API key: {self.api_key}")
+        
+        elif message_type == "device:status":
+            # Handle status update request
+            self.send_status_update()
+        
+        elif message_type == "device:pushFile":
+            # Handle file push request
+            self.handle_file_push(message["payload"])
+        
+        # Add more message handlers as needed
+
+# Usage example
+if __name__ == "__main__":
+    client = DeviceClient()
+    
+    # Phase 1: Register device
+    factory_jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+    pin = "123456"
+    mac = "AA:BB:CC:DD:EE:FF"
+    
+    registration = client.register(factory_jwt, pin, mac)
+    
+    # Phase 2: Listen for messages (this will block until device is claimed)
+    try:
+        client.listen(registration.get("apiKey", "temp-key"))
+    except KeyboardInterrupt:
+        print("Stopping device client...")
+    
+    # Phase 3: Get JWT and use APIs
+    jwt_token = client.get_jwt_token()
+    apps = client.get_available_apps()
+    print(f"Available apps: {len(apps)}")
+```
+
+### Flow Summary
+
+1. **Registration**: Device uses factory JWT token to register and get a PIN
+2. **Listening**: Device establishes SSE connection using API key to receive real-time commands
+3. **JWT Acquisition**: Device uses API key to get JWT tokens for API access
+4. **API Usage**: Device uses JWT tokens to access protected endpoints like apps, resources, etc.
+
+The key distinction is:
+- **Factory JWT Token**: Used only for device registration (one-time use)
+- **API Key**: Used for device authentication and JWT token generation (persistent)
+- **JWT Token**: Used for API access (short-lived, needs refresh)
 
 ---
 
