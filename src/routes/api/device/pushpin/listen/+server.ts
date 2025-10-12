@@ -403,14 +403,18 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       });
     }
 
-    // Return SSE response
+    // Return SSE response with Pushpin GRIP headers
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        // Pushpin GRIP headers for long-lived connections
+        'Grip-Hold': 'stream',
+        'Grip-Channel': channel,
+        'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=60'
       }
     });
   } catch (error) {
