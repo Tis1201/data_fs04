@@ -80,24 +80,27 @@ export const GET: RequestHandler = async ({ locals, request }) => {
         // Register the device with the provided PIN
         await DeviceManager.registerDevice(pin, deviceMeta);
 
-        return new Response(JSON.stringify({
+        const sseMessage = `data: ${JSON.stringify({
             status: ResponseStatus.SUCCESS,
             data: {
                 deviceId,
                 pin,
                 status: 'UNCLAIMED'
             }
-        }) + "\n", {
+        })}\n\n`;
+
+        return new Response(sseMessage, {
             headers: {
                'Content-Type': 'text/event-stream', 
                 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
                 'Pragma': 'no-cache',
                 'Expires': '0',
                 'Surrogate-Control': 'no-store',
+                'X-Accel-Buffering': 'no',
                 // GRIP headers for Pushpin streaming
                 'Grip-Hold': 'stream',
                 'Grip-Channel': `registration:${deviceId}`,
-                'Grip-Keep-Alive': ':\n\n',
+                'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=60',
                 'Grip-Timeout': '60'
             }
         });
