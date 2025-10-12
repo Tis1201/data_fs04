@@ -367,6 +367,17 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
             error: err instanceof Error ? err.message : String(err) 
           })
         );
+        
+        // Remove subscription from registry
+        subscriptionRegistry.remove(`subscription:device:${device.id}`).catch(err =>
+          logger.error('[Pushpin] Failed to remove subscription', { 
+            error: err instanceof Error ? err.message : String(err) 
+          })
+        );
+        
+        // Unregister connection from ConnectionManager
+        ConnectionManager.unregisterConnection(device.id);
+        
         DeviceStatusManager.setDeviceOffline(device.id, locals).catch(err =>
           logger.error('[Pushpin] Failed to set device offline', { 
             error: err instanceof Error ? err.message : String(err) 
