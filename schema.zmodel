@@ -750,6 +750,7 @@ model JwtSigningKey {
   
   // Relations
   factoryTokens FactoryToken[]
+  licenses      License[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
@@ -1269,6 +1270,10 @@ model License{
 	jwt           String   // Current JWT blob
 	keyId         String   // kid
 	algorithm     String   @default("RS256") // alg
+	
+	// Signing key reference (TOKEN key that signed this license)
+	signingKeyId  String
+	signingKey    JwtSigningKey @relation(fields: [signingKeyId], references: [id])
 
 	// Relations
 	renewals      LicenseRenewal[]
@@ -1283,6 +1288,7 @@ model License{
 	@@index([accountId])
 	@@index([deviceId])
 	@@index([status])
+	@@index([signingKeyId])
 	// Best-effort constraint to allow only one ACTIVE license per (accountId, deviceId)
 	// Note: partial unique index (status='ACTIVE') is not supported here; enforce strictly in service if needed
 	@@unique([accountId, deviceId, status])

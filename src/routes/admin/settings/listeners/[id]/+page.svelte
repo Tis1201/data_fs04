@@ -1,308 +1,495 @@
 <script lang="ts">
-    import { goto } from "$app/navigation";
+    import { goto, invalidate } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
+    import { zod } from 'sveltekit-superforms/adapters';
     import { toast } from "svelte-sonner";
-    import { Button } from "$lib/components/ui/button";
+    import { ArrowLeft, Save, Radio, Trash } from "lucide-svelte";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
-    import * as Select from "$lib/components/ui/select/index.js";
-    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    import { Skeleton } from "$lib/components/ui/skeleton";
     import { Badge } from "$lib/components/ui/badge";
-    import { Switch } from "$lib/components/ui/switch/index.js";
+    import { Tabs, TabsContent, TabsList, TabsTrigger } from "$lib/components/ui/tabs";
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import EndpointDisplay from "$lib/components/ui_components_sveltekit/webhook/EndpointDisplay.svelte";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import { Clock, Link } from "lucide-svelte";
-    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-    import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
+    
+    // Import Admin Layout Components
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
+    
+    // Import Form Components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
+    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import { Checkbox } from "$lib/components/ui/checkbox";
+    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import type { PageData } from "./$types";
-    import { LISTENER_STATUSES } from "./schema";
+    import { LISTENER_STATUSES, listenerEditSchema } from "./schema";
 
     export let data: PageData;
-    const { listener } = data;
-    const title = listener ? "Edit Listener" : "New Listener";
+    const { listener, webhookEndpoints, whatsappAccounts } = data;
+    const title = `Edit Listener: ${listener?.name || 'Listener'}`;
     
-    console.log('Page data:', data);
-    console.log('Listener:', listener);
-
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
         ["Settings", "/admin/settings"],
-        ["Listeners", "/admin/settings/listeners"],
+        ["Event Listeners", "/admin/settings/listeners"],
         listener?.name || "Edit Listener",
     ];
     
-    // Get status badge variant based on status value
-    const getStatusVariant = (status: string) => {
-        switch (status) {
-            case 'ACTIVE': return 'success';
-            case 'INACTIVE': return 'secondary';
-            default: return 'outline';
-        }
-    };
-
-    // Track if data is loaded
-    let dataLoaded = !!listener;
-    
-    // Process webhook and WhatsApp account data for display
-    $: webhooks = listener?.webhookEndpoints?.map(w => w.webhookEndpoint) || [];
-    $: whatsappAccounts = listener?.whatsappAccounts?.map(w => w.whatsappAccount) || [];
-    
-    const { form, errors, enhance, submitting } = superForm(data.form, {
+    const { form, errors, enhance, submitting, message, delayed, timeout } = superForm(data.form, {
+        validators: zod(listenerEditSchema), // Add client-side validation
+        taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
+        invalidateAll: false, // Prevent automatic invalidation
+        resetForm: false, // Don't reset the form after submission
+        validationMethod: 'oninput', // Validate on every input change
+        delayMs: 500, // Show loading state after 500ms
+        timeoutMs: 8000, // Timeout after 8 seconds
+        
         onResult: async ({ result }) => {
             if (result.type === "success") {
-                toast.success("Listener updated successfully");
-                try {
-                    await goto("/admin/settings/listeners");
-                } catch (error) {
-                    console.error("Navigation error:", error);
-                    toast.error("Failed to redirect. Please try again.");
+                // Show success message
+                toast.success("Listener updated successfully!", {
+                    description: "All changes have been saved.",
+                    duration: 4000
+                });
+                
+                // Manually invalidate to get fresh data
+                await invalidate();
+            } else if (result.type === "failure") {
+                // Handle form validation errors
+                if (result.data?.form?.message) {
+                    toast.error("Validation Error", {
+                        description: result.data.form.message.text || "Please check your input and try again.",
+                        duration: 6000
+                    });
+                } else {
+                    toast.error("Failed to update listener", {
+                        description: "Please check your input and try again.",
+                        duration: 6000
+                    });
                 }
+            } else if (result.type === "error") {
+                // Handle server errors
+                toast.error("Server Error", {
+                    description: "An unexpected error occurred. Please try again later.",
+                    duration: 6000
+                });
             }
         },
-        onError: (err) => {
-            toast.error(err.message);
+        
+        onError: ({ result }) => {
+            console.error("Form submission error:", result);
+            toast.error("Connection Error", {
+                description: "Unable to connect to the server. Please check your connection and try again.",
+                duration: 6000
+            });
         }
     });
+    
+    // Enhanced message handling for FormContainer (only errors, success uses toast)
+    $: errorMessage = $message?.type === 'error' ? { 
+        text: $message.text || 'An error occurred',
+        details: $message.details,
+        code: $message.code 
+    } : null;
+    
+    // Loading state management
+    $: isLoading = $submitting || $delayed;
+    $: hasTimeout = $timeout;
+    
+    // State for delete confirmation dialog
+    let deleteState = {
+        selectedRecord: null as typeof listener | null,
+        confirmationOpen: false
+    };
+
+    // Function to open delete confirmation dialog
+    function confirmDelete() {
+        deleteState.selectedRecord = listener;
+        deleteState.confirmationOpen = true;
+    }
+    
+    // Initialize arrays if undefined
+    $: if (!Array.isArray($form.webhookEndpointIds)) {
+        $form.webhookEndpointIds = [];
+    }
+    $: if (!Array.isArray($form.whatsappAccountIds)) {
+        $form.whatsappAccountIds = [];
+    }
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader {title} />
-
-    <PageContent>
-        {#if !dataLoaded || $submitting}
-            <div class="space-y-4">
-                <Skeleton class="h-8 w-full" />
-                <Skeleton class="h-4 w-3/4" />
-                <Skeleton class="h-32 w-full" />
-                <Skeleton class="h-10 w-1/2" />
-            </div>
-        {:else}
-            <!-- Listener Info Card -->
-            <FormCard
-                {title}
-                description="Edit details for this event listener"
-                loading={$submitting}
-                footerSlot={listener}
-            >
-                <FormContainer {enhance} action="?/save">
-                    <!-- Name -->
-                    <FormField
-                        id="name"
-                        label="Name"
+<AdminPageLayout
+    {title}
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Delete",
+            icon: Trash,
+            onClick: confirmDelete,
+            variant: "destructive",
+            disabled: isLoading
+        },
+        {
+            label: "Cancel",
+            icon: ArrowLeft,
+            onClick: () => goto('/admin/settings/listeners'),
+            variant: "outline",
+            disabled: isLoading
+        },
+        {
+            label: isLoading ? ($delayed ? "Saving..." : "Processing...") : "Save Changes",
+            icon: Save,
+            onClick: () => {
+                const form = document.querySelector('form[action="?/save"]');
+                if (form) form.requestSubmit();
+            },
+            disabled: isLoading,
+            loading: isLoading
+        }
+    ]}
+    loading={isLoading}
+    showCreateButton={false}
+    compact={true}
+    contentSpacing="space-y-4"
+>
+    <FormContainer 
+        method="POST" 
+        action="?/save" 
+        {enhance} 
+        novalidate 
+        {errorMessage}
+        showAlerts={true}
+        disabled={isLoading}
+        {hasTimeout}
+        {isLoading}
+        delayed={$delayed}
+        class="w-full space-y-6"
+    >
+        <AdminCard
+            title="Listener Information"
+            description="Edit event listener details"
+            icon={Radio}
+            compact={true}
+        >
+            <div class="space-y-6">
+                <FormRow columns={2}>
+                    <FormField 
+                        id="name" 
+                        label="Name" 
                         error={$errors.name}
+                        required={true}
+                        helpText="Enter a descriptive name for this listener"
                     >
-                        <Input
-                            id="name"
-                            name="name"
-                            bind:value={$form.name}
-                            placeholder="Enter listener name"
+                        <Input 
+                            id="name" 
+                            name="name" 
+                            type="text" 
+                            bind:value={$form.name} 
+                            placeholder="Enter listener name" 
+                            disabled={isLoading}
+                            aria-invalid={$errors.name ? 'true' : undefined}
+                            class={$errors.name ? 'border-destructive focus:border-destructive' : ''}
                         />
-                    </FormField>
-
-                    <!-- Description -->
-                    <FormField
-                        id="description"
-                        label="Description"
-                        error={$errors.description}
-                    >
-                        <Textarea
-                            id="description"
-                            name="description"
-                            bind:value={$form.description}
-                            placeholder="Enter description (optional)"
-                            rows={3}
-                        />
-                    </FormField>
-
-                    <!-- Two-column layout for shorter fields -->
-                    <FormRow columns={2}>
-                        <!-- Status -->
-                        <FormField id="status" label="Status" error={$errors.status}>
-                            <EnhancedSelect
-                                value={$form.status}
-                                name="status"
-                                placeholder="Select status"
-                                labelText="Status"
-                                portal={null}
-                                on:change={(e) => ($form.status = e.detail)}
-                            >
-                                {#each LISTENER_STATUSES as status}
-                                    <Select.Item value={status}>{status}</Select.Item>
-                                {/each}
-                            </EnhancedSelect>
-                        </FormField>
-
-                        <!-- Listen to All -->
-                        <FormField 
-                            id="listenToAll" 
-                            label="Listen to All Events" 
-                            error={$errors.listenToAll}
-                            description="When enabled, this listener will receive all events"
-                        >
-                            <div class="flex items-center space-x-2">
-                                <Switch 
-                                    id="listenToAll"
-                                    name="listenToAll"
-                                    checked={$form.listenToAll} 
-                                    onCheckedChange={(checked) => $form.listenToAll = checked}
-                                />
-                                <span>{$form.listenToAll ? 'Enabled' : 'Disabled'}</span>
-                            </div>
-                        </FormField>
-                    </FormRow>
-
-                    <!-- Endpoint URL (Read-only) -->
-                    {#if listener?.postfix}
-                        <FormField
-                            id="endpoint"
-                            label="Endpoint URL"
-                            description="URL for this listener endpoint"
-                        >
-                            <div class="p-2 border rounded-md bg-muted/20 w-full">
-                                <EndpointDisplay postfix={listener.postfix} basePath="/api/listen" />
-                            </div>
-                        </FormField>
-                    {/if}
-                </FormContainer>
-
-                <!-- Connected Services Section -->
-                {#if listener}
-                    <FormField
-                        id="connections"
-                        label="Connected Services"
-                        description="Services that receive events from this listener"
-                    >
-                        <div class="space-y-4 border rounded-md p-4 bg-muted/10">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <!-- Webhooks -->
-                                <div>
-                                    <div class="flex items-center justify-between mb-2">
-                                        <h3 class="text-sm font-medium">Webhooks</h3>
-                                        <Badge variant="outline" class="text-xs">{webhooks.length}</Badge>
-                                    </div>
-                                    <div class="border rounded-md p-2 bg-card min-h-[80px]">
-                                        {#if webhooks.length === 0}
-                                            <p class="text-sm text-muted-foreground flex items-center justify-center h-full">No webhooks connected</p>
-                                        {:else}
-                                            <div class="space-y-2">
-                                                {#each webhooks as webhook}
-                                                    <div class="flex items-center justify-between p-2 border rounded-md bg-muted/20">
-                                                        <div class="flex items-center gap-2 overflow-hidden">
-                                                            <Badge variant="outline">{webhook.name}</Badge>
-                                                            <span class="text-xs text-muted-foreground truncate">{webhook.id}</span>
-                                                        </div>
-                                                    </div>
-                                                {/each}
-                                            </div>
-                                        {/if}
-                                    </div>
-                                </div>
-                                
-                                <!-- WhatsApp Accounts -->
-                                <div>
-                                    <div class="flex items-center justify-between mb-2">
-                                        <h3 class="text-sm font-medium">WhatsApp Accounts</h3>
-                                        <Badge variant="outline" class="text-xs">{whatsappAccounts.length}</Badge>
-                                    </div>
-                                    <div class="border rounded-md p-2 bg-card min-h-[80px]">
-                                        {#if whatsappAccounts.length === 0}
-                                            <p class="text-sm text-muted-foreground flex items-center justify-center h-full">No WhatsApp accounts connected</p>
-                                        {:else}
-                                            <div class="space-y-2">
-                                                {#each whatsappAccounts as account}
-                                                    <div class="flex items-center justify-between p-2 border rounded-md bg-muted/20">
-                                                        <div class="flex items-center gap-2 overflow-hidden">
-                                                            <Badge variant="outline">{account.name}</Badge>
-                                                            <span class="text-xs text-muted-foreground truncate">{account.phoneNumber || 'No phone number'}</span>
-                                                        </div>
-                                                    </div>
-                                                {/each}
-                                            </div>
-                                        {/if}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </FormField>
                     
-                    <!-- Submit Button -->
-                    <FormRow columns={1} alignItems="end" class="mt-6">
-                        <FormActions>
-                            <Button
-                                variant="outline"
-                                type="button"
-                                on:click={() => goto('/admin/settings/listeners')}
-                            >
-                                Cancel
-                            </Button>
-                            <Button type="submit">Save Changes</Button>
-                        </FormActions>
-                    </FormRow>
-                {/if}
-
-                <svelte:fragment slot="footer">
-                    {#if listener}
-                        <div class="mt-4 pt-3 border-t border-muted">
-                            <div class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                <div class="flex items-center">
-                                    <span class="font-medium">ID:</span>
-                                    <span class="ml-1">{listener.id}</span>
-                                </div>
-                                <span class="mx-1">•</span>
-                                <div class="flex items-center">
-                                    <span class="font-medium">Created:</span>
-                                    <span class="ml-1">
-                                        <RelativeDate 
-                                            date={listener.createdAt} 
-                                            format="relative" 
-                                            showTooltip={true} 
-                                            useHoverCard={true} 
-                                            iconSize={0}
+                    <FormField 
+                        id="status" 
+                        label="Status" 
+                        error={$errors.status}
+                        required={true}
+                        helpText="Current operational status of the listener"
+                    >
+                        <EnhancedSelect
+                            name="status"
+                            options={[
+                                { value: "ACTIVE", label: "Active" },
+                                { value: "INACTIVE", label: "Inactive" }
+                            ]}
+                            bind:value={$form.status}
+                            disabled={isLoading}
+                            placeholder="Select status"
+                            aria-invalid={$errors.status ? 'true' : undefined}
+                            className={$errors.status ? 'border-destructive' : ''}
+                        />
+                    </FormField>
+                </FormRow>
+                
+                <FormRow columns={1}>
+                    <FormField 
+                        id="description" 
+                        label="Description" 
+                        error={$errors.description}
+                        helpText="Optional description of the listener's purpose"
+                    >
+                        <Textarea 
+                            id="description" 
+                            name="description" 
+                            bind:value={$form.description} 
+                            placeholder="Enter listener description" 
+                            disabled={isLoading}
+                            class="w-full h-24 {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
+                            aria-invalid={$errors.description ? 'true' : undefined}
+                        />
+                    </FormField>
+                </FormRow>
+                
+                <FormRow columns={1}>
+                    <div class="bg-muted/40 p-4 rounded-lg border border-muted">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-medium">Endpoint URL</h4>
+                        </div>
+                        <div class="bg-background border rounded-md p-2 font-mono text-xs break-all">
+                            {#if typeof window !== 'undefined'}
+                                {window.location.origin}/api/listen/{listener.postfix}
+                            {:else}
+                                /api/listen/{listener.postfix}
+                            {/if}
+                        </div>
+                        <p class="text-xs text-muted-foreground mt-2">
+                            This is your listener endpoint URL. It cannot be changed.
+                        </p>
+                    </div>
+                </FormRow>
+                
+                <FormRow columns={1}>
+                    <Card>
+                        <CardHeader class="pb-2">
+                            <CardTitle class="text-base">Listener Scope</CardTitle>
+                            <CardDescription class="text-xs">
+                                Configure which events this listener should receive
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div class="space-y-4">
+                                <FormField 
+                                    id="listenToAll" 
+                                    label=""
+                                    error={$errors.listenToAll}
+                                >
+                                    <div class="flex items-center space-x-2">
+                                        <Checkbox 
+                                            id="listenToAll" 
+                                            name="listenToAll" 
+                                            checked={$form.listenToAll}
+                                            onCheckedChange={(checked) => {
+                                                $form.listenToAll = checked;
+                                                // Clear selections when switching to "listen to all"
+                                                if (checked) {
+                                                    $form.webhookEndpointIds = [];
+                                                    $form.whatsappAccountIds = [];
+                                                }
+                                                // Force reactive update
+                                                $form = $form;
+                                            }}
+                                            disabled={isLoading}
+                                            aria-invalid={$errors.listenToAll ? 'true' : undefined}
                                         />
-                                    </span>
-                                </div>
-                                <span class="mx-1">•</span>
-                                <div class="flex items-center">
-                                    <span class="font-medium">Updated:</span>
-                                    <span class="ml-1">
-                                        <RelativeDate 
-                                            date={listener.updatedAt} 
-                                            format="relative" 
-                                            showTooltip={true} 
-                                            useHoverCard={true} 
-                                            iconSize={0}
-                                        />
-                                    </span>
-                                </div>
-                                {#if listener.lastSeenAt}
-                                    <span class="mx-1">•</span>
-                                    <div class="flex items-center">
-                                        <span class="font-medium">Last Active:</span>
-                                        <span class="ml-1">
-                                            <RelativeDate 
-                                                date={listener.lastSeenAt} 
-                                                format="relative" 
-                                                showTooltip={true} 
-                                                useHoverCard={true} 
-                                                iconSize={0}
-                                            />
-                                        </span>
+                                        <div>
+                                            <label for="listenToAll" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                                                Listen to all events
+                                            </label>
+                                            <p class="text-xs text-muted-foreground mt-1">
+                                                Receive events from all webhook endpoints and WhatsApp accounts
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <!-- Hidden input to ensure listenToAll is submitted -->
+                                    <input type="hidden" name="listenToAll" value={$form.listenToAll} />
+                                </FormField>
+                                
+                                {#if $form.listenToAll}
+                                    <div class="bg-muted/40 p-3 rounded-md border border-muted">
+                                        <p class="text-xs text-muted-foreground">
+                                            <strong>All events mode:</strong> This listener will receive events from all webhook endpoints and WhatsApp accounts.
+                                        </p>
                                     </div>
                                 {/if}
                             </div>
+                        </CardContent>
+                    </Card>
+                </FormRow>
+                
+                {#if !$form.listenToAll}
+                <FormRow columns={1}>
+                    <Card>
+                        <CardHeader class="pb-2">
+                            <CardTitle class="text-base">Event Sources</CardTitle>
+                            <CardDescription class="text-xs">
+                                Select specific webhook endpoints and WhatsApp accounts to listen to
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Tabs defaultValue="webhook" class="w-full">
+                                <TabsList class="grid w-full grid-cols-2">
+                                    <TabsTrigger value="webhook">Webhook Endpoints</TabsTrigger>
+                                    <TabsTrigger value="whatsapp">WhatsApp Accounts</TabsTrigger>
+                                </TabsList>
+                                
+                                <TabsContent value="webhook" class="pt-4">
+                                    <div class="space-y-4">
+                                        {#if webhookEndpoints && webhookEndpoints.length > 0}
+                                            <div class="grid gap-2">
+                                                {#each webhookEndpoints as endpoint}
+                                                    <div class="flex items-center space-x-2 p-2 rounded-md border border-border hover:bg-muted/40">
+                                                        <Checkbox 
+                                                            id={`webhook-${endpoint.id}`}
+                                                            checked={$form.webhookEndpointIds?.includes(endpoint.id) || false}
+                                                            onCheckedChange={(checked) => {
+                                                                if (checked) {
+                                                                    if (!$form.webhookEndpointIds.includes(endpoint.id)) {
+                                                                        $form.webhookEndpointIds = [...$form.webhookEndpointIds, endpoint.id];
+                                                                    }
+                                                                } else {
+                                                                    $form.webhookEndpointIds = $form.webhookEndpointIds.filter(id => id !== endpoint.id);
+                                                                }
+                                                            }}
+                                                            disabled={isLoading}
+                                                        />
+                                                        <div class="flex-1">
+                                                            <label for={`webhook-${endpoint.id}`} class="text-sm font-medium cursor-pointer">{endpoint.name}</label>
+                                                            <p class="text-xs text-muted-foreground font-mono">/api/webhook/{endpoint.postfix}</p>
+                                                        </div>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                            
+                                            {#if $form.webhookEndpointIds.length > 0}
+                                                <div class="p-3 bg-muted/40 rounded-md border border-muted">
+                                                    <p class="text-xs text-muted-foreground">
+                                                        <strong>Selected {$form.webhookEndpointIds.length} webhook endpoint{$form.webhookEndpointIds.length !== 1 ? 's' : ''}</strong>
+                                                    </p>
+                                                </div>
+                                            {:else}
+                                                <div class="p-3 bg-amber-50 rounded-md border border-amber-200">
+                                                    <p class="text-xs text-amber-700">
+                                                        <strong>No webhook endpoints selected</strong> - Select at least one to receive events.
+                                                    </p>
+                                                </div>
+                                            {/if}
+                                        {:else}
+                                            <div class="p-3 bg-muted/40 rounded-md border border-muted">
+                                                <p class="text-xs text-muted-foreground">No webhook endpoints available</p>
+                                            </div>
+                                        {/if}
+                                    </div>
+                                </TabsContent>
+                                
+                                <TabsContent value="whatsapp" class="pt-4">
+                                    <div class="space-y-4">
+                                        {#if whatsappAccounts && whatsappAccounts.length > 0}
+                                            <div class="grid gap-2">
+                                                {#each whatsappAccounts as account}
+                                                    <div class="flex items-center space-x-2 p-2 rounded-md border border-border hover:bg-muted/40">
+                                                        <Checkbox 
+                                                            id={`whatsapp-${account.id}`}
+                                                            checked={$form.whatsappAccountIds?.includes(account.id) || false}
+                                                            onCheckedChange={(checked) => {
+                                                                if (checked) {
+                                                                    if (!$form.whatsappAccountIds.includes(account.id)) {
+                                                                        $form.whatsappAccountIds = [...$form.whatsappAccountIds, account.id];
+                                                                    }
+                                                                } else {
+                                                                    $form.whatsappAccountIds = $form.whatsappAccountIds.filter(id => id !== account.id);
+                                                                }
+                                                            }}
+                                                            disabled={isLoading}
+                                                        />
+                                                        <div class="flex-1">
+                                                            <div class="flex items-center gap-2">
+                                                                <label for={`whatsapp-${account.id}`} class="text-sm font-medium cursor-pointer">{account.name || 'WhatsApp Account'}</label>
+                                                                {#if account.client_status === 'connected'}
+                                                                    <Badge variant="outline" class="bg-green-50 text-green-700 border-green-200 text-[10px] py-0 px-1.5">Connected</Badge>
+                                                                {:else}
+                                                                    <Badge variant="outline" class="bg-amber-50 text-amber-700 border-amber-200 text-[10px] py-0 px-1.5">Disconnected</Badge>
+                                                                {/if}
+                                                            </div>
+                                                            <p class="text-xs text-muted-foreground font-mono">{account.phoneNumber}</p>
+                                                        </div>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                            
+                                            {#if $form.whatsappAccountIds.length > 0}
+                                                <div class="p-3 bg-muted/40 rounded-md border border-muted">
+                                                    <p class="text-xs text-muted-foreground">
+                                                        <strong>Selected {$form.whatsappAccountIds.length} WhatsApp account{$form.whatsappAccountIds.length !== 1 ? 's' : ''}</strong>
+                                                    </p>
+                                                </div>
+                                            {:else}
+                                                <div class="p-3 bg-amber-50 rounded-md border border-amber-200">
+                                                    <p class="text-xs text-amber-700">
+                                                        <strong>No WhatsApp accounts selected</strong> - Select at least one to receive events.
+                                                    </p>
+                                                </div>
+                                            {/if}
+                                        {:else}
+                                            <div class="p-3 bg-muted/40 rounded-md border border-muted">
+                                                <p class="text-xs text-muted-foreground">No WhatsApp accounts available</p>
+                                            </div>
+                                        {/if}
+                                    </div>
+                                </TabsContent>
+                            </Tabs>
+                        </CardContent>
+                    </Card>
+                </FormRow>
+                
+                <!-- Hidden inputs for arrays -->
+                {#if Array.isArray($form.webhookEndpointIds) && $form.webhookEndpointIds.length > 0}
+                    {#each $form.webhookEndpointIds as id}
+                        <input type="hidden" name="webhookEndpointIds" value={id} />
+                    {/each}
+                {/if}
+                
+                {#if Array.isArray($form.whatsappAccountIds) && $form.whatsappAccountIds.length > 0}
+                    {#each $form.whatsappAccountIds as id}
+                        <input type="hidden" name="whatsappAccountIds" value={id} />
+                    {/each}
+                {/if}
+                {/if}
+                
+                <!-- Metadata -->
+                {#if listener}
+                    <div class="pt-4 border-t">
+                        <h4 class="text-sm font-medium mb-2">Metadata</h4>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <span class="text-muted-foreground">Created:</span>
+                                <span class="ml-2">{new Date(listener.createdAt).toLocaleString()}</span>
+                            </div>
+                            <div>
+                                <span class="text-muted-foreground">Updated:</span>
+                                <span class="ml-2">{new Date(listener.updatedAt).toLocaleString()}</span>
+                            </div>
+                            <div>
+                                <span class="text-muted-foreground">ID:</span>
+                                <span class="ml-2 font-mono text-xs">{listener.id}</span>
+                            </div>
+                            <div>
+                                <span class="text-muted-foreground">Postfix:</span>
+                                <span class="ml-2 font-mono text-xs">{listener.postfix}</span>
+                            </div>
+                            {#if listener.lastSeenAt}
+                                <div>
+                                    <span class="text-muted-foreground">Last Active:</span>
+                                    <span class="ml-2">{new Date(listener.lastSeenAt).toLocaleString()}</span>
+                                </div>
+                            {/if}
                         </div>
-                    {/if}
-                </svelte:fragment>
-            </FormCard>
-        {/if}
-    </PageContent>
-</PageContainer>
+                    </div>
+                {/if}
+            </div>
+        </AdminCard>
+    </FormContainer>
+</AdminPageLayout>
+
+<!-- Delete Confirmation Dialog -->
+<RecordDeleteDialog
+    state={deleteState}
+    action="?/deleteListener"
+    actionName="deleteListener"
+    onConfirm={() => {
+        // Navigate back to listeners list after successful deletion
+        goto('/admin/settings/listeners');
+    }}
+/>

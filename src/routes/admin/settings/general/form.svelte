@@ -46,8 +46,8 @@
           duration: 4000
         });
         
-        // Manually invalidate to get fresh data
-        await invalidate();
+        // Manually invalidate using the dependency key from the load function
+        await invalidate('settings:data');
         
         // Dispatch success event to parent
         dispatch('result', { success: true, result });
@@ -98,7 +98,6 @@
         dispatch('result', { success: false, cancelled: true });
         return;
       }
-      console.log("Form submitting with data:", Object.fromEntries(formData));
       
       // Dispatch submit event to parent
       dispatch('submit');

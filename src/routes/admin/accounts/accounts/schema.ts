@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validatePhoneNumber, getPhoneValidationMessage } from '$lib/utils/validation/phone';
 
 // Define the available account statuses
 const accountStatuses = ['ACTIVE', 'INACTIVE'] as const;
@@ -37,7 +38,10 @@ export const companyCreateSchema = z.object({
     contactEmail: z.string()
         .email({ message: "Please enter a valid email address" })
         .min(1, { message: "Contact email is required" }),
-    contactPhone: z.string().optional(),
+    contactPhone: z.string()
+        .refine(validatePhoneNumber, { message: getPhoneValidationMessage() })
+        .optional()
+        .nullable(),
     address: z.string().optional(),
     description: z.string().optional(),
     status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE')

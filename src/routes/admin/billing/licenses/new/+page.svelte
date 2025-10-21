@@ -15,7 +15,6 @@
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-  import EnhancedDatePicker from "$lib/components/ui_components_sveltekit/form/EnhancedDatePicker.svelte";
   
   // Import the reusable form handler
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
@@ -78,14 +77,23 @@
   
   // Device options state
   let deviceOptions = [];
+  let lastFetchedAccountId = '';
   
   // Handle account change to update device options
   async function handleAccountChange(accountId: string) {
+    // Prevent duplicate fetches
+    if (accountId === lastFetchedAccountId) {
+      return;
+    }
+    
     if (!accountId) {
       deviceOptions = [];
       $form.deviceId = '';
+      lastFetchedAccountId = '';
       return;
     }
+    
+    lastFetchedAccountId = accountId;
     
     try {
       // Fetch devices for the selected account
@@ -106,9 +114,9 @@
   }
   
   // Watch for account changes
-//   $: if ($form.accountId) {
-//     handleAccountChange($form.accountId);
-//   }
+  $: if ($form.accountId !== lastFetchedAccountId) {
+    handleAccountChange($form.accountId);
+  }
 </script>
 
 <AdminPageLayout
@@ -230,22 +238,7 @@
           <div class="space-y-6">
             <FormRow columns={2}>
               <FormField id="accountId" label="Account" error={$errors.accountId}>
-                <select
-                  id="accountId"
-                  name="accountId"
-                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  bind:value={$form.accountId}
-                  aria-invalid={$errors.accountId ? 'true' : undefined}
-                  placeholder="Select account (optional - defaults to system account)"
-                  disabled={$submitting}
-                  on:change={(e) => handleAccountChange(e.target.value)}
-                >
-                  <option value=''>System Account (Default)</option>
-                  {#each data.accountOptions as key}
-                      <option value={key.value}>{key.label}</option>
-                  {/each}
-                </select>
-                <!-- <EnhancedSelect
+                <EnhancedSelect
                   id="accountId"
                   name="accountId"
                   bind:value={$form.accountId}
@@ -253,59 +246,46 @@
                   aria-invalid={$errors.accountId ? 'true' : undefined}
                   options={[{ value: '', label: 'System Account (Default)' }, ...data.accountOptions]}
                   disabled={$submitting}
-                /> -->
+                />
                 <p class="text-xs text-muted-foreground mt-1">
                   Select the account for this license
                 </p>
               </FormField>
               
               <FormField id="deviceId" label="Device" error={$errors.deviceId}>
-                <!-- <EnhancedSelect
-                    id="deviceId"
-                    name="deviceId"
-                    bind:value={$form.deviceId}
-                    placeholder="Select a device (optional)"
-                    aria-invalid={$errors.deviceId ? 'true' : undefined}
-                    options={deviceOptions}
-                    disabled={$submitting || !$form.accountId}
-                    searchable={true}
-                /> -->
-                <select
+                <EnhancedSelect
                   id="deviceId"
                   name="deviceId"
-                  class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                   bind:value={$form.deviceId}
+                  placeholder={deviceOptions.length === 0 ? "Select an account first" : "Select a device (optional)"}
                   aria-invalid={$errors.deviceId ? 'true' : undefined}
-                  placeholder="Select a device"
-                  disabled={$submitting}
-                >
-                  {#each deviceOptions as key}
-                      <option value={key.value}>{key.label}</option>
-                  {/each}
-                </select>
-                <p class="text-xs text-muted-foreground mt-1">
+                  options={[{ value: '', label: 'Any Device' }, ...deviceOptions]}
+                  disabled={$submitting || deviceOptions.length === 0}
+                />
+                {#if $form.accountId && deviceOptions.length === 0 && lastFetchedAccountId === $form.accountId}
+                  <p class="text-xs text-amber-600 mt-1">
+                    ⚠️ No devices found for this account. All devices may already have licenses.
+                  </p>
+                {:else}
+                  <p class="text-xs text-muted-foreground mt-1">
                     Optional: bind license to a specific device (requires account selection)
-                </p>
-            </FormField>
+                  </p>
+                {/if}
+              </FormField>
           </FormRow>
 
           <FormRow columns={1}>
-            <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt} required={true}>
-              <EnhancedDatePicker
-                form={$form}
-                field="expiresAt"
+            <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt} required={true} helpText="Select the date and time when this license will expire">
+              <Input
                 id="expiresAt"
                 name="expiresAt"
+                type="datetime-local"
+                bind:value={$form.expiresAt}
                 disabled={$submitting}
-                timelineOptions="future"
-                defaultTimeline="future"
-                placeholder="Select expiration date"
-                format_string="yyyy-MM-dd"
-                clearable={true}
+                min={new Date().toISOString().slice(0, 16)}
+                aria-invalid={$errors.expiresAt ? 'true' : undefined}
+                class={$errors.expiresAt ? 'border-destructive focus:border-destructive' : ''}
               />
-              <p class="text-xs text-muted-foreground mt-1">
-                Date when this license will expire
-              </p>
             </FormField>
           </FormRow>
 

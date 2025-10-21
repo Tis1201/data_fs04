@@ -9,8 +9,8 @@ export const resourceSchema = z.object({
         .optional(),
     type: z.string()
         .min(1, { message: 'Resource type is required' })
-        .refine(value => ['file', 'image', 'video', 'document', 'binary'].includes(value), { 
-            message: 'Type must be one of: file, image, video, document, binary' 
+        .refine(value => ['file', 'application', 'archive', 'package'].includes(value), { 
+            message: 'Type must be one of: file, application, archive, package' 
         }),
     target: z.string()
         .default('user')
@@ -42,9 +42,21 @@ export const resourceSchema = z.object({
             // During SSR, File is not available, so we need to handle it
             if (typeof window === 'undefined') return true;
             // In browser, check if it's a File or null
-            return val === null || val instanceof File;
+            if (val === null) return true;
+            if (!(val instanceof File)) return false;
+            
+            // Validate file extension - only allow .zip, .cpk, .apk
+            const allowedExtensions = ['.zip', '.cpk', '.apk'];
+            const fileName = val.name.toLowerCase();
+            const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+            
+            if (!hasValidExtension) {
+                return false;
+            }
+            
+            return true;
         },
-        { message: 'Please upload a valid file' }
+        { message: 'Only .zip, .cpk, and .apk files are allowed' }
     )
     .optional()
     .nullable()

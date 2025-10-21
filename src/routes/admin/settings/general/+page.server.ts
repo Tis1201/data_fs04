@@ -17,7 +17,10 @@ const settingsSchema = z.object({
 
 export const load = restrict(
   async (event: AuthenticatedEvent) => {
-    const { locals, auth } = event;
+    const { locals, auth, depends } = event;
+    
+    // Mark this load function as dependent on 'settings:data'
+    depends('settings:data');
     
     try {
       // Get the currently active settings (ensures one exists)

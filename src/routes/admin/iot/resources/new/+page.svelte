@@ -232,7 +232,7 @@
                                     bind:this={fileUploadRef}
                                     id="file"
                                     name="file"
-                                    accept="image/*,video/*,application/*,text/*"
+                                    accept=".zip,.cpk,.apk"
                                     bind:value={uploadedFiles}
                                     error={uploadError}
                                     on:change={handleFileUpload}
@@ -248,7 +248,7 @@
                                     autoUpload={false}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
-                                Upload a file by dragging and dropping, or paste an image directly from clipboard.
+                                Only .zip, .cpk, and .apk files are allowed. Upload a file by dragging and dropping.
                             </p>
                             {#if uploadSuccess}
                                 <p class="text-xs text-green-600 font-medium mt-1">

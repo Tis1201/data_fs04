@@ -18,6 +18,7 @@
   import { toast } from 'svelte-sonner';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { sseStore } from '$lib/stores/sse-store';
 
   /* Reused lists */
   import DeviceAppList from './DeviceAppList.svelte';

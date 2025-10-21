@@ -28,6 +28,13 @@ function generateUploadDirectory() {
  * Expand if you need more types.
 */
 export const MIME_EXT_MAP: Record<string, string> = {
+    // Supported file types
+    'application/zip': 'zip',
+    'application/x-zip-compressed': 'zip',
+    'application/vnd.android.package-archive': 'apk',
+    'application/octet-stream': 'cpk', // Custom package files
+    
+    // Legacy mappings (for reference, but not allowed)
     'image/png': 'png',
     'image/jpeg': 'jpg',
     'image/jpg': 'jpg',
@@ -36,37 +43,36 @@ export const MIME_EXT_MAP: Record<string, string> = {
     'video/mp4': 'mp4',
     'application/pdf': 'pdf',
     'text/plain': 'txt',
-    'application/zip': 'zip',
-    'application/x-sh': 'sh',
-    'application/octet-stream': 'bin'
+    'application/x-sh': 'sh'
 };
 
 
 /**
  * Infer resource type and format from the uploaded file.
+ * Only supports .zip, .cpk, and .apk files.
  */
 export function inferTypeAndFormatFromFile(file: File): { type: string; format: string } {
     const mime = file.type || '';
     let type = 'file';
-    if (mime.startsWith('image/')) {
-        type = 'image';
-    } else if (mime.startsWith('video/')) {
-        type = 'video';
-    } else if (
-        mime.startsWith('text/') ||
-        mime.includes('pdf') ||
-        mime.includes('document') ||
-        mime.includes('spreadsheet') ||
-        mime.includes('presentation')
-    ) {
-        type = 'document';
-    }
-
     let format = '';
+    
+    // Determine format from file extension first
     if (file.name && file.name.includes('.')) {
         format = file.name.split('.').pop()!.toLowerCase();
     } else if (mime && MIME_EXT_MAP[mime]) {
         format = MIME_EXT_MAP[mime];
+    }
+    
+    // Set type based on format for supported file types
+    if (format === 'apk') {
+        type = 'application';
+    } else if (format === 'zip') {
+        type = 'archive';
+    } else if (format === 'cpk') {
+        type = 'package';
+    } else {
+        // Fallback for unsupported types (should not happen due to validation)
+        type = 'file';
     }
 
     return { type, format };

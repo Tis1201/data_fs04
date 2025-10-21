@@ -280,14 +280,16 @@
             />
             
             <!-- Status filter -->
-            {#if props.filters.industries && props.filters.industries.length > 0}
-                <PopoverFilter
-                    label="Status"
-                    options={props.filters.industries.map(status => ({ label: status.toLowerCase(), value: status }))}
-                    selectedValues={$selectedStatuses}
-                    key="statuses"
-                />
-            {/if}
+            <PopoverFilter
+                label="Status"
+                options={[
+                    { label: 'Active', value: 'ACTIVE' },
+                    { label: 'Inactive', value: 'INACTIVE' },
+                    { label: 'Pending', value: 'PENDING' }
+                ]}
+                selectedValues={$selectedStatuses}
+                key="statuses"
+            />
         </div>
 
         <!-- Data table -->

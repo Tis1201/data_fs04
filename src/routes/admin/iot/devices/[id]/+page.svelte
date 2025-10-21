@@ -33,7 +33,6 @@
     let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
     let deviceInformation = (data as any).deviceInformation;
-    let deviceInformation = (data as any).deviceInformation;
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
     // Track a temporary optimistic log row for firmware update initiation

@@ -63,6 +63,21 @@ export const actions: Actions = {
 
                 // Infer type/format if file exists and inject if missing
                 if (rawFile instanceof File) {
+                    // Validate file extension first
+                    const allowedExtensions = ['.zip', '.cpk', '.apk'];
+                    const fileName = rawFile.name.toLowerCase();
+                    const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+                    
+                    if (!hasValidExtension) {
+                        logger.warn(`Invalid file extension: ${rawFile.name}`);
+                        return message(
+                            null,
+                            createErrorResponse('Invalid file format', {
+                                details: 'Only .zip, .cpk, and .apk files are allowed'
+                            })
+                        );
+                    }
+                    
                     const { type: inferredType, format: inferredFormat } = inferTypeAndFormatFromFile(rawFile);
                     if (!formData.get('type')) {
                         formData.set('type', inferredType);
