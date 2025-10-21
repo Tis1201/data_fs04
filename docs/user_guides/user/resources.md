@@ -33,12 +33,13 @@ The **User Resources** feature allows you to manage files and resources for your
 ### File Management
 
 #### File Upload
-- **File Selection** - Select files to upload
-- **File Validation** - Validate file format and size
+- **File Selection** - Select files to upload (only .zip, .cpk, .apk allowed)
+- **File Validation** - Validate file format and size (only .zip, .cpk, .apk allowed)
 - **Upload Progress** - Monitor upload progress
 - **File Metadata** - Set file metadata and descriptions
 - **File Categories** - Categorize files for organization
 - **File Permissions** - Set file access permissions
+- **Supported Formats** - Only .zip, .cpk, and .apk files are accepted
 
 #### File Information
 - **File Name** - Name of the uploaded file
@@ -69,12 +70,10 @@ The **User Resources** feature allows you to manage files and resources for your
 - **Custom Folders** - Create custom folder structures
 
 #### File Categories
-- **Documents** - Text documents, PDFs, etc.
-- **Images** - Images, photos, graphics, etc.
-- **Applications** - Software applications and executables
-- **Configuration Files** - Device configuration files
-- **Scripts** - Automation scripts and batch files
-- **Media Files** - Audio, video, and multimedia files
+- **Applications** - .apk files (Android Application Packages)
+- **Archives** - .zip files (Compressed archives)
+- **Custom Packages** - .cpk files (Custom package files)
+- **Note**: Only .zip, .cpk, and .apk files are supported
 
 #### File Tagging
 - **Custom Tags** - Create custom tags for files
@@ -103,6 +102,28 @@ The **User Resources** feature allows you to manage files and resources for your
 - **Deployment Verification** - Verify successful deployment
 
 ## Advanced Features
+
+### Supported File Formats
+
+#### ✅ **Allowed File Types**
+- **.zip** - Compressed archive files
+- **.cpk** - Custom package files  
+- **.apk** - Android Application Package files
+
+#### ❌ **Restricted File Types**
+- **Documents** - .pdf, .doc, .docx, .txt, .rtf
+- **Images** - .jpg, .jpeg, .png, .gif, .bmp, .svg
+- **Videos** - .mp4, .avi, .mov, .wmv, .flv
+- **Audio** - .mp3, .wav, .aac, .flac, .ogg
+- **Executables** - .exe, .msi, .deb, .rpm
+- **Other Archives** - .rar, .7z, .tar, .gz
+- **Any other file format not listed above**
+
+#### File Format Validation
+- **Client-Side Validation** - File type checked before upload
+- **Server-Side Validation** - File type verified on server
+- **Error Handling** - Clear error messages for unsupported formats
+- **UI Restrictions** - File picker only shows supported formats
 
 ### File Operations Logic & Timeouts
 
@@ -270,21 +291,21 @@ File Deployment:
 6. **Monitor Performance** - Monitor file system performance
 7. **Generate Reports** - Generate file usage reports
 
-## 📋 **Real-World Example: Office Document Deployment**
+## 📋 **Real-World Example: Application Package Deployment**
 
-### **Example Deployment: "Office Policy Documents"**
-- **Files**: 3 policy documents (PDF, DOCX, TXT)
+### **Example Deployment: "Office Application Package"**
+- **Files**: 3 application files (.apk, .zip, .cpk)
 - **Target Devices**: 5 office devices
-- **Purpose**: Deploy updated policy documents to office devices
+- **Purpose**: Deploy application packages to office devices
 
 ### **Timeline & Expected Behavior**
 
 #### **T+0:00 - File Upload Start**
 ```
 File Upload:
-├── File 1: Office_Policy_2025.pdf (2.5 MB)
-├── File 2: Employee_Handbook.docx (1.8 MB)
-├── File 3: IT_Policy.txt (0.5 MB)
+├── File 1: Office_App_v2.1.apk (2.5 MB) ✅ Supported Format
+├── File 2: Config_Package.zip (1.8 MB) ✅ Supported Format
+├── File 3: Custom_Module.cpk (0.5 MB) ✅ Supported Format
 ├── Start 30-minute upload timer
 └── Status: UPLOADING
 ```
@@ -292,7 +313,7 @@ File Upload:
 #### **T+0:05 - File 1 Upload**
 ```
 File 1 Upload:
-├── Office_Policy_2025.pdf
+├── Office_App_v2.1.apk
 ├── Upload Progress: 100%
 ├── Upload Time: 5 seconds
 ├── File Status: UPLOADED
@@ -302,7 +323,7 @@ File 1 Upload:
 #### **T+0:08 - File 2 Upload**
 ```
 File 2 Upload:
-├── Employee_Handbook.docx
+├── Config_Package.zip
 ├── Upload Progress: 100%
 ├── Upload Time: 3 seconds
 ├── File Status: UPLOADED
@@ -312,7 +333,7 @@ File 2 Upload:
 #### **T+0:10 - File 3 Upload**
 ```
 File 3 Upload:
-├── IT_Policy.txt
+├── Custom_Module.cpk
 ├── Upload Progress: 100%
 ├── Upload Time: 2 seconds
 ├── File Status: UPLOADED
@@ -397,7 +418,7 @@ Metadata Generation:
 #### **T+0:00 - File Upload Start**
 ```
 File Upload:
-├── File: Large_Video_File.mp4 (500 MB)
+├── File: Large_Video_File.mp4 (500 MB) ❌ Unsupported Format
 ├── Start 30-minute upload timer
 └── Status: UPLOADING
 ```
@@ -453,7 +474,7 @@ Final Timeout:
 ├── 30-minute timer elapsed (retry 2)
 ├── Upload Progress: 90%
 ├── Status: FAILED
-└── Error: "File upload timeout after 3 attempts"
+└── Error: "File upload timeout after 3 attempts - Unsupported file format (.mp4)"
 ```
 
 ## Troubleshooting
@@ -489,6 +510,10 @@ Final Timeout:
 #### "File Upload Failed"
 - **Cause**: File upload failed
 - **Solution**: Check file size, format, and network connectivity
+
+#### "Invalid File Format"
+- **Cause**: File format is not supported (only .zip, .cpk, .apk allowed)
+- **Solution**: Convert file to supported format (.zip, .cpk, or .apk)
 
 #### "File Deployment Timeout"
 - **Cause**: File deployment took too long

@@ -83,14 +83,37 @@ Resources allow you to upload, manage, and distribute files, applications, and o
 
 ## Advanced Features
 
+### Supported File Formats
+
+#### ✅ **Allowed File Types**
+- **.zip** - Compressed archive files
+- **.cpk** - Custom package files
+- **.apk** - Android Application Package files
+
+#### ❌ **Restricted File Types**
+- **Documents** - .pdf, .doc, .docx, .txt, .rtf
+- **Images** - .jpg, .jpeg, .png, .gif, .bmp, .svg
+- **Videos** - .mp4, .avi, .mov, .wmv, .flv
+- **Audio** - .mp3, .wav, .aac, .flac, .ogg
+- **Executables** - .exe, .msi, .deb, .rpm
+- **Other Archives** - .rar, .7z, .tar, .gz
+- **Any other file format not listed above**
+
+#### File Format Validation
+- **Client-Side Validation** - File type checked before upload
+- **Server-Side Validation** - File type verified on server
+- **Error Handling** - Clear error messages for unsupported formats
+- **UI Restrictions** - File picker only shows supported formats
+
 ### Resource Upload
 
 #### File Selection
 - **File Browser** - Browse and select files
-- **File Validation** - Validate file format and size
+- **File Validation** - Validate file format and size (only .zip, .cpk, .apk allowed)
 - **File Preview** - Preview file contents
 - **File Information** - Display file information
 - **File Security** - Check file security
+- **Supported Formats** - Only .zip, .cpk, and .apk files are accepted
 
 #### Upload Configuration
 - **Resource Name** - Set resource name
@@ -100,9 +123,9 @@ Resources allow you to upload, manage, and distribute files, applications, and o
 - **Distribution Settings** - Configure distribution
 
 #### Upload Process
-- **File Upload** - Upload file to server
+- **File Upload** - Upload file to server (only .zip, .cpk, .apk files)
 - **File Processing** - Process uploaded file
-- **File Validation** - Validate file integrity
+- **File Validation** - Validate file integrity and format (.zip, .cpk, .apk only)
 - **File Storage** - Store file securely
 - **File Indexing** - Index file for search
 
@@ -257,7 +280,7 @@ Processing Complete:
 ### **Example Resource: "Office App v2.1"**
 - **Resource Type**: Application
 - **File Size**: 50 MB
-- **File Format**: .apk (Android Application Package)
+- **File Format**: .apk (Android Application Package) - ✅ Supported Format
 - **Target Devices**: Office IoT devices
 
 ### **Timeline & Expected Behavior**
@@ -266,7 +289,7 @@ Processing Complete:
 ```
 Admin Action: Upload "Office App v2.1"
 ├── File Size: 50 MB
-├── File Type: .apk
+├── File Type: .apk (✅ Supported Format)
 ├── Start 30-minute Timer
 └── Begin Chunked Upload
 ```
@@ -328,7 +351,7 @@ Resource Creation: Complete
 ```
 Admin Action: Upload "Large App v3.0"
 ├── File Size: 200 MB
-├── File Type: .apk
+├── File Type: .apk (✅ Supported Format)
 ├── Start 30-minute Timer
 └── Begin Chunked Upload
 ```
@@ -416,8 +439,8 @@ Upload Progress: 85% (170 MB uploaded)
 - **Solution**: Reduce file size or use chunked upload
 
 #### "Invalid File Format"
-- **Cause**: File format is not supported
-- **Solution**: Convert file to supported format
+- **Cause**: File format is not supported (only .zip, .cpk, .apk allowed)
+- **Solution**: Convert file to supported format (.zip, .cpk, or .apk)
 
 #### "Storage Full"
 - **Cause**: Insufficient storage space
