@@ -1,6 +1,6 @@
 # Signing Keys User Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: Admin  
 **Complexity**: Advanced
 
@@ -13,41 +13,42 @@ Signing Keys are cryptographic keys used to sign and verify JWT tokens, API requ
 - **Admin permissions** - Full signing key management access
 - **Cryptography knowledge** - Understanding of cryptographic concepts
 - **JWT understanding** - Knowledge of JWT token structure and signing
-- **Security expertise** - Understanding of key management and security
 
 ## Getting Started
 
 ### Quick Start
-1. **Navigate to Signing Keys** - Go to Admin → Security → Signing Keys
-2. **Create New Key** - Click "Create Signing Key" button
-3. **Configure Key** - Set key name, algorithm, and properties
-4. **Generate Key Pair** - Generate public/private key pair
-5. **Set Key Status** - Set key status (active/inactive)
-6. **Test Key** - Test key signing and verification
+1. **Navigate to Signing Keys** - Go to Admin → JWT → Signing Keys
+2. **View Key Status** - Review existing signing keys
+3. **Create Key** - Create new signing key for specific type
+4. **Configure Key** - Set key properties and algorithm
+5. **Rotate Key** - Rotate existing keys for security
+6. **Monitor Usage** - Monitor key usage and performance
 
 ### Navigation
-- **Menu Path**: Admin → Security → Signing Keys
-- **URL**: `/admin/settings/signing_keys`
-- **Direct Access**: Click "Signing Keys" in the Security section
+- **Menu Path**: Admin → JWT → Signing Keys
+- **URL**: `/admin/jwt/signing_keys`
+- **Direct Access**: Click "Signing Keys" in the JWT section
 
 ## Core Functionality
 
-### Signing Key List View
+### Signing Key Dashboard
+
+#### Key Type Cards
+- **Factory Key** - Device provisioning and factory token signing
+- **Token Key** - General token signing and verification
+- **Link Key** - Link generation and verification
 
 #### Key Information Display
-- **Key Name** - Human-readable key name
-- **Key ID** - Unique system identifier
-- **Algorithm** - Signing algorithm (RS256, ES256, HS256)
-- **Key Type** - Key type (RSA, ECDSA, HMAC)
-- **Status** - Active/Inactive/Expired
-- **Created Date** - When key was created
-- **Expiration Date** - When key expires
-- **Usage Count** - Number of times key has been used
-- **Last Used** - Last time key was used
+- **Key Status** - Active/Not Created status indicators
+- **Key ID** - Unique key identifier
+- **Algorithm** - Signing algorithm (RS256)
+- **Updated Date** - Last key update date
+- **Key Age** - Days since key creation
+- **Tokens Signed** - Number of tokens signed (last 30 days)
 
 #### Key Status Indicators
 - 🟢 **Active** - Key is active and can be used
-- 🔴 **Inactive** - Key is disabled
+- 🟡 **Not Created** - Key has not been created yet
 - 🟡 **Expired** - Key has expired
 - ⚪ **Revoked** - Key has been revoked
 

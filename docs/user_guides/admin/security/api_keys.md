@@ -1,6 +1,6 @@
 # API Keys User Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: Admin  
 **Complexity**: Intermediate
 
@@ -12,38 +12,33 @@ API Keys are authentication credentials used to access the IoT Management System
 
 - **Admin permissions** - Full API key management access
 - **API understanding** - Knowledge of REST API concepts
-- **Authentication knowledge** - Understanding of API authentication
-- **Security awareness** - Understanding of API security best practices
 
 ## Getting Started
 
 ### Quick Start
-1. **Navigate to API Keys** - Go to Admin → Security → API Keys
-2. **Create New API Key** - Click "Create API Key" button
-3. **Configure Key** - Set key name, permissions, and expiration
+1. **Navigate to API Keys** - Go to Admin → Settings → API Keys
+2. **Add API Key** - Click "Add API Keys" button
+3. **Configure Key** - Set key name, description, and expiration
 4. **Generate Key** - Generate the API key
 5. **Set Key Status** - Set key status (active/inactive)
 6. **Test Key** - Test API key functionality
 
 ### Navigation
-- **Menu Path**: Admin → Security → API Keys
+- **Menu Path**: Admin → Settings → API Keys
 - **URL**: `/admin/settings/api_keys`
-- **Direct Access**: Click "API Keys" in the Security section
+- **Direct Access**: Click "API Keys" in the Settings section
 
 ## Core Functionality
 
 ### API Key List View
 
 #### Key Information Display
-- **Key Name** - Human-readable key name
-- **Key ID** - Unique system identifier
-- **Key Value** - API key value (masked for security)
-- **Status** - Active/Inactive/Expired
-- **Created Date** - When key was created
-- **Expiration Date** - When key expires
-- **Usage Count** - Number of API calls made with key
-- **Last Used** - Last time key was used
-- **Permissions** - Key permissions and scope
+- **Name** - Human-readable key name with clickable link
+- **API Key** - API key value with secure display and copy functionality
+- **Created At** - When key was created (relative format)
+- **Expires** - Key expiration date (relative format)
+- **Last Used** - Last time key was used (relative format)
+- **Status** - Active/Inactive status with visual indicators
 
 #### Key Status Indicators
 - 🟢 **Active** - Key is active and can be used
@@ -52,33 +47,25 @@ API Keys are authentication credentials used to access the IoT Management System
 - ⚪ **Revoked** - Key has been revoked
 
 #### Filtering and Search
-- **Search by Name** - Find keys by name
-- **Filter by Status** - Show only active/inactive keys
-- **Filter by Permissions** - Show keys by permissions
-- **Filter by Date** - Show keys by creation date
-- **Filter by Usage** - Show keys by usage count
-- **Sort Options** - Sort by name, status, usage, date, etc.
+- **Search by Name/Description** - Find keys by name or description
+- **Filter by Status** - Show keys by status (Active, Inactive)
+- **Sort Options** - Sort by name, creation date, expiration date, last used
+- **Pagination** - Navigate through multiple pages of keys
 
-### API Key Detail View
+### API Key Actions
 
-#### Key Information Tab
-- **Basic Info** - Name, ID, key value, status
-- **Creation Info** - Created by, created date, last modified
-- **Expiration Info** - Expiration date, time remaining
-- **Usage Info** - Usage count, last used, usage statistics
+#### Individual Key Actions
+- **Edit Key** - Modify key name, description, and expiration
+- **Delete Key** - Remove key from system
+- **Toggle Status** - Activate/deactivate key
+- **Copy Key** - Copy API key to clipboard
+- **View Details** - View key information and metadata
 
-#### Key Configuration Tab
-- **Key Settings** - Key-specific settings
-- **Permission Settings** - Key permissions and scope
-- **Rate Limiting** - API rate limiting settings
-- **Access Control** - Key access control settings
-- **Metadata** - Additional key metadata
-
-#### Usage History Tab
-- **API Calls** - Historical API call logs
-- **Usage Statistics** - Usage analytics and trends
-- **Performance Metrics** - API performance metrics
-- **Error Logs** - API error logs
+#### Key Management
+- **Key Configuration** - Configure key settings and properties
+- **Key Testing** - Test key functionality and access
+- **Key Monitoring** - Monitor key usage and performance
+- **Key Security** - Manage key security and access control
 
 ## Advanced Features
 

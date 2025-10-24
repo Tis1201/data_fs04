@@ -12,7 +12,7 @@ Welcome to the Admin User Guides! These guides provide comprehensive instruction
 
 ### 🔥 **High Priority Features**
 
-#### 1. **[Device Management](./devices.md)** ✅ **Enhanced**
+#### 1. **[Device Management](./iot/devices.md)** ✅ **Enhanced**
 - **Complete device lifecycle management**
 - Device registration, claiming, and monitoring
 - **Device actions with specific timeouts** (restart: 2min, reboot: 5min, WebRTC: 30sec)
@@ -20,7 +20,7 @@ Welcome to the Admin User Guides! These guides provide comprehensive instruction
 - Real-time status monitoring and troubleshooting
 - Device organization and bulk operations
 
-#### 2. **[Bundle Management](./bundles.md)** ✅ **Enhanced**
+#### 2. **[Bundle Management](./iot/bundles.md)** ✅ **Enhanced**
 - **Bundle creation, deployment, and monitoring**
 - **App installation timeout: 10 minutes per app**
 - **Visual installation flow diagrams**
@@ -28,7 +28,7 @@ Welcome to the Admin User Guides! These guides provide comprehensive instruction
 - Wave deployment management
 - Installation progress tracking with retry logic
 
-#### 3. **[Device Profiles](./device_profiles.md)** ✅ **Enhanced**
+#### 3. **[Device Profiles](./iot/device_profiles.md)** ✅ **Enhanced**
 - **Device configuration and settings management**
 - **Profile application timeout: 3 minutes per setting**
 - **Visual profile application diagrams**
@@ -36,81 +36,151 @@ Welcome to the Admin User Guides! These guides provide comprehensive instruction
 - Profile inheritance and versioning
 - Device profile testing and deployment
 
-#### 4. **[PIN Rules](./pin_rules.md)** ✅
+#### 4. **[PIN Rules](./iot/pin_rules.md)** ✅
 - **PIN rule configuration and hierarchy**
 - Rule creation with conditions and actions
 - Rule precedence and inheritance
 - PIN rule testing and deployment
 - Rule monitoring and troubleshooting
 
-#### 5. **[Device Tags](./device_tags.md)** ✅
+#### 5. **[Device Tags](./iot/device_tags.md)** ✅
 - **Device organization and categorization**
 - Tag creation and management
 - Device tagging and filtering
 - Bulk operations on tagged devices
 - Tag analytics and reporting
 
+#### 6. **[Groups](./access/groups.md)** ✅ **New**
+- **User organization and management**
+- Group creation and member management
+- Account-based group organization
+- User grouping and access control
+- Group-based permissions and management
+
+#### 7. **[Licenses](./billing/licenses.md)** ✅ **New**
+- **License management and JWT token generation**
+- License creation, assignment, and monitoring
+- JWT token download and device installation
+- License status management and expiration tracking
+- License troubleshooting and security
+
 ### 🔶 **Important Features (Phase 2)**
 
-#### 6. **[Factory Tokens](./factory_tokens.md)** ✅ **Enhanced**
+#### 8. **[Factory Tokens](./iot/factory_tokens.md)** ✅ **Enhanced**
 - **Factory token management for device registration**
 - JWT token creation and validation with 5-second timeout
 - **Visual registration flow diagrams**
 - **Real-world examples** with success/failure scenarios
 - Token lifecycle management and security
 
-#### 7. **[Preclaims](./preclaims.md)** ✅ **Enhanced**
+#### 9. **[Preclaims](./iot/preclaims.md)** ✅ **Enhanced**
 - **Preclaim set management for bulk device setup**
 - PIN-based claiming with 10-second validation timeout
 - **Visual claiming flow diagrams**
 - **Real-world examples** with success/failure scenarios
 - Bulk device claiming and organization
 
-#### 8. **[Resources](./resources.md)** ✅ **Enhanced**
+#### 10. **[Resources](./iot/resources.md)** ✅ **Enhanced**
 - **Resource upload and management**
 - File upload with 30-minute timeout and 10-minute processing
 - **Visual upload flow diagrams**
 - **Real-world examples** with success/failure scenarios
 - Resource distribution and version management
 
-#### 9. **[Accounts](./accounts.md)** ✅ **Enhanced**
+#### 11. **[Accounts](./access/accounts.md)** ✅ **Enhanced**
 - **Account management and organization**
 - Account creation with 2-minute timeout
 - **Visual account creation diagrams**
 - **Real-world examples** with success/failure scenarios
 - User and device management within accounts
 
-#### 10. **[Companies](./companies.md)** ✅ **Enhanced**
+#### 12. **[Companies](./access/companies.md)** ✅ **Enhanced**
 - **Company management for enterprise organizations**
 - Company creation with 3-minute timeout
 - **Visual company creation diagrams**
 - **Real-world examples** with success/failure scenarios
 - Multi-account management and billing
 
-#### 11. **[Users](./users.md)** ✅ **Enhanced**
+#### 13. **[Users](./access/users.md)** ✅ **Enhanced**
 - **User management and access control**
 - User creation with 1-minute timeout
 - **Visual user creation diagrams**
 - **Real-world examples** with success/failure scenarios
 - Role-based access control and permissions
 
+#### 14. **[Debug Tools](./debug.md)** ✅ **New**
+- **System monitoring and debugging utilities**
+- VPU, NPU, WebSocket, SSE, Redis debugging
+- Performance monitoring and error diagnostics
+- Integration testing and system health checks
+- Comprehensive troubleshooting tools
+
+#### 15. **[General Settings](./settings/general_settings.md)** ✅ **New**
+- **System-wide configuration management**
+- Core system settings and parameters
+- Security policies and access controls
+- Settings history and change tracking
+- System configuration optimization
+
+#### 16. **[Email Settings](./settings/email_settings.md)** ✅ **New**
+- **Email service provider management**
+- SMTP configuration and authentication
+- Email delivery testing and monitoring
+- Provider status and default management
+- Email service integration and optimization
+
+#### 17. **[API Keys](./security/api_keys.md)** ✅ **Updated**
+- **API key management and authentication**
+- API key creation, configuration, and testing
+- Key status management and security
+- API access control and monitoring
+- Secure key display and copy functionality
+
+#### 18. **[Signing Keys](./security/signing_keys.md)** ✅ **Updated**
+- **JWT signing key management**
+- Factory, token, and link key management
+- Key rotation and security management
+- Cryptographic key operations
+- Key usage monitoring and analytics
+
+#### 19. **[Webhooks](./integrations/webhooks.md)** ✅ **New**
+- **Webhook endpoint management**
+- Webhook creation, configuration, and monitoring
+- Real-time event notifications and delivery
+- Webhook status management and testing
+- Integration with external systems
+
+#### 20. **[WhatsApp](./integrations/whatsapp.md)** ✅ **New**
+- **WhatsApp integration and notifications**
+- WhatsApp account configuration and management
+- Message sending and delivery tracking
+- WhatsApp connection testing and monitoring
+- Notification automation and alerts
+
+#### 21. **[Listeners](./integrations/listeners.md)** ✅ **New**
+- **Event listener management and automation**
+- Listener creation, configuration, and monitoring
+- Event-driven automation and responses
+- Webhook and WhatsApp connection management
+- Real-time event processing and triggers
+
 ---
 
 ## 🚀 Getting Started
 
 ### For New Administrators
-1. **Start with [Device Management](./devices.md)** - Learn device lifecycle
-2. **Read [Bundle Management](./bundles.md)** - Understand bundle deployment
-3. **Check [Device Profiles](./device_profiles.md)** - Configure device settings
-4. **Explore [PIN Rules](./pin_rules.md)** - Set up PIN management
-5. **Use [Device Tags](./device_tags.md)** - Organize your devices
+1. **Start with [Device Management](./iot/devices.md)** - Learn device lifecycle
+2. **Read [Bundle Management](./iot/bundles.md)** - Understand bundle deployment
+3. **Check [Device Profiles](./iot/device_profiles.md)** - Configure device settings
+4. **Explore [PIN Rules](./iot/pin_rules.md)** - Set up PIN management
+5. **Use [Device Tags](./iot/device_tags.md)** - Organize your devices
 
 ### Quick Reference
-- **Device Operations** - [Device Management](./devices.md)
-- **Software Deployment** - [Bundle Management](./bundles.md)
-- **Device Configuration** - [Device Profiles](./device_profiles.md)
-- **Access Control** - [PIN Rules](./pin_rules.md)
-- **Device Organization** - [Device Tags](./device_tags.md)
+- **Device Operations** - [Device Management](./iot/devices.md)
+- **Software Deployment** - [Bundle Management](./iot/bundles.md)
+- **Device Configuration** - [Device Profiles](./iot/device_profiles.md)
+- **Access Control** - [PIN Rules](./iot/pin_rules.md)
+- **Device Organization** - [Device Tags](./iot/device_tags.md)
 
 ---
 
@@ -129,11 +199,11 @@ Welcome to the Admin User Guides! These guides provide comprehensive instruction
 - **Resources** - Resource upload and management with 30-minute upload timeout
 - **Account Management** - Account, company, and user management with creation timeouts
 
-### 🔄 **Coming Soon (Phase 3)**
+### ✅ **Available Now (Phase 3)**
 - **Integrations** - Webhook, WhatsApp, and listener configuration
 - **Security** - JWT signing keys, API keys, and token management
-- **Vision** - Stream and preview management
-- **Monitoring & Debug** - System monitoring and debugging tools
+- **Settings** - General and email settings management
+- **Access Control** - Account, company, user, and group management
 
 ---
 
