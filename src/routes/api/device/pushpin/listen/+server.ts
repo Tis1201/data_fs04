@@ -330,10 +330,15 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
           
           try {
             const data = JSON.parse(messageStr);
-            // Unwrap Redis envelope if present
+            // Unwrap Redis envelope if present - match SSE format
             if (data.type === 'channel_message' && data.payload) {
+              // For channel messages, send the payload directly
               sendMessage(controller, data.payload);
+            } else if (data.type === 'device' && data.payload) {
+              // For device messages, send the full message structure
+              sendMessage(controller, data);
             } else {
+              // For other messages, send as-is
               sendMessage(controller, data);
             }
           } catch (err) {

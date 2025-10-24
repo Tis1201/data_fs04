@@ -164,24 +164,26 @@ export const GET: RequestHandler = async ({ locals, request }: any) => {
                         logger.info(`Processing preclaim for device ${deviceId} with preclaim ${preclaim.preclaim.id}`);
                         
                         // Use preclaim set creator as the claiming user (fallback if claimedBy is not set)
+                        let resolvedClaimUserId: string | null = null;
+                        
                         locals.prisma.preclaimSet.findUnique({
                             where: { id: preclaim.preclaim.setId },
                             select: { createdBy: true }
                         }).then((preclaimSet: any) => {
-                            const claimUserId = preclaim.preclaim.claimedBy || preclaimSet?.createdBy;
+                            resolvedClaimUserId = preclaim.preclaim.claimedBy || preclaimSet?.createdBy;
                             
-                            if (!claimUserId) {
+                            if (!resolvedClaimUserId) {
                                 logger.error(`No user found to claim preclaimed device ${deviceId}`);
                                 return;
                             }
                             
                             // Immediately claim the device with preclaim info
                             return DeviceManager.claimDevice(pin, {
-                                userId: claimUserId,
+                                userId: resolvedClaimUserId,
                                 accountId: preclaim.preclaim.accountId,
                                 preclaimId: preclaim.preclaim.id
                             });
-                        }).then((claimedDevice: any) => {
+                        }).then(async (claimedDevice: any) => {
                             if (!claimedDevice) {
                                 logger.error(`Failed to claim device ${deviceId} after preclaim processing`);
                                 return;
@@ -190,7 +192,7 @@ export const GET: RequestHandler = async ({ locals, request }: any) => {
                             // Update device network identifiers using the provided MAC
                             const mac = (locals as any).deviceMac as string | null;
                             if (mac) {
-                                return locals.prisma.device.update({
+                                await locals.prisma.device.update({
                                     where: { id: claimedDevice.id },
                                     data: {
                                         macAddress: mac,
@@ -198,26 +200,36 @@ export const GET: RequestHandler = async ({ locals, request }: any) => {
                                     }
                                 });
                             }
-                        }).then(() => {
+
+                            // Get the actual API key from the claimed device
+                            const deviceWithApiKey = await locals.prisma.device.findUnique({
+                                where: { id: claimedDevice.id },
+                                select: { apiKey: true }
+                            });
+
+                            if (!deviceWithApiKey?.apiKey) {
+                                logger.error(`No API key found for claimed device ${deviceId}`);
+                                return;
+                            }
+
                             // Update preclaim record with claim metadata and linkage to device
                             const preclaim = (locals as any).preclaimDevice;
-                            return locals.prisma.preclaimDevice.update({
+                            await locals.prisma.preclaimDevice.update({
                                 where: { id: preclaim.preclaim.id },
                                 data: {
                                     status: ClaimStatus.FULFILLED,
                                     claimedAt: new Date(),
-                                    claimedBy: preclaim.preclaim.claimedBy,
+                                    claimedBy: resolvedClaimUserId, // Use the resolved claimUserId
                                     deviceId: deviceId
                                 }
                             });
-                        }).then(() => {
-                            // Send registration message using shared utility
-                            const preclaim = (locals as any).preclaimDevice;
+
+                            // Send registration message using shared utility with the actual API key
                             return sendDeviceRegistrationMessage(deviceId, {
                                 id: deviceId,
-                                apiKey: 'temp-api-key', // This will be set by the claim process
+                                apiKey: deviceWithApiKey.apiKey, // Use the actual API key from the claimed device
                                 accountId: preclaim.preclaim.accountId,
-                                claimedBy: preclaim.preclaim.claimedBy,
+                                claimedBy: resolvedClaimUserId, // Use the resolved claimUserId instead of preclaim.preclaim.claimedBy
                                 name: 'Preclaimed Device',
                                 deviceType: 'UNKNOWN',
                                 status: 'ACTIVE'

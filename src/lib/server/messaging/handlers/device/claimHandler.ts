@@ -43,7 +43,11 @@ export async function handleClaim(message: InMessage): Promise<void> {
           requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
           timestamp: new Date().toISOString()
         }
-      } as InMessage);
+      } as InMessage, {
+        systemGenerated: true,
+        echoToSender: true,
+        scope: `connection:${message.connectionId}` // Send to specific connection instead of user:self
+      });
 
       await publisher.publish(errorResponse);
       return;
@@ -74,10 +78,54 @@ export async function handleClaim(message: InMessage): Promise<void> {
       }
     } as InMessage, {
       systemGenerated: true,
-      echoToSender: true
+      echoToSender: true,
+      scope: `connection:${message.connectionId}` // Send to specific connection instead of user:self
     });
 
     await publisher.publish(successResponse);
+
+    // Also send notification to the device via subscription scope
+    // Both SSE and Pushpin devices now maintain persistent connections during registration
+    const delayMs = 1000; // 1 second delay to ensure device is ready
+    
+    setTimeout(async () => {
+      try {
+        const deviceNotification = MessageFactory.toRoutingMessage({
+          type: 'device',
+          scope: `subscription:device:${device.id}`,
+          payload: {
+            action: 'registered',
+            success: true,
+            id: device.id,
+            apiKey: device.apiKey,
+            deviceName: device.name,
+            message: 'Device has been claimed successfully',
+            status: 'CLAIMED',
+            claimedBy: userInfo.id,
+            timestamp: new Date().toISOString()
+          },
+          userInfo: { 
+            id: 'system', 
+            email: 'system@system.com',
+            name: 'System',
+            systemRole: 'ADMIN',
+            source: 'apiKey'
+          },
+          protocol: 'sse',
+          connectionId: `device-${device.id}`,
+          requestId: `device-claim-${Date.now()}`
+        } as InMessage, {
+          systemGenerated: true,
+          sudo: true
+        });
+
+        await publisher.publish(deviceNotification);
+        logger.info(`[DeviceHandler] Device claim notification sent to device ${device.id} (delayed by ${delayMs}ms)`);
+      } catch (deviceNotifyError) {
+        logger.warn(`[DeviceHandler] Failed to send device claim notification: ${deviceNotifyError}`);
+        // Don't fail the claim if device notification fails
+      }
+    }, delayMs);
 
   } catch (error:any) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -98,7 +146,8 @@ export async function handleClaim(message: InMessage): Promise<void> {
       }
     } as InMessage, {
       systemGenerated: true,
-      echoToSender: true
+      echoToSender: true,
+      scope: `connection:${message.connectionId}` // Send to specific connection instead of user:self
     });
 
     await publisher.publish(errorResponse);

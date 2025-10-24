@@ -4,7 +4,7 @@
 		ITerminalOptions,
 		ITerminalInitOnlyOptions,
 		Terminal,
-	} from "@battlefieldduck/xterm-svelte";
+	} from "@xterm/xterm";
 	import { page } from "$app/stores";
     
 	import { deviceStore } from "$lib/stores/device-store";
