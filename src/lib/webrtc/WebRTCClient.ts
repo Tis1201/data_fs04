@@ -29,7 +29,21 @@ export class WebRTCClient {
 
   constructor(private deviceId: string) {
     this.config = {
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        {
+          urls: [
+            "turn:ss-turn1.xirsys.com:80?transport=udp",
+            "turn:ss-turn1.xirsys.com:3478?transport=udp",
+            "turn:ss-turn1.xirsys.com:80?transport=tcp",
+            "turn:ss-turn1.xirsys.com:3478?transport=tcp",
+            "turns:ss-turn1.xirsys.com:443?transport=tcp",
+            "turns:ss-turn1.xirsys.com:5349?transport=tcp"
+          ],
+          username: 'S2kFk44DqbzeOOJ03gLpLJ1512TN2tgH42g02QBLGyVZ8bmv47Zm6QsRqdu1KfnKAAAAAGjaCsdiYWNoc29kYTMyNg==',
+          credential: 'a919482e-9cec-11f0-998a-0242ac140004'
+        }
+      ]
     };
   }
 
