@@ -14,29 +14,29 @@ Welcome to the **User Interface User Guides**! These guides are designed for end
 
 #### **🏠 Dashboard & Overview**
 - **[Dashboard](./dashboard.md)** - Main user dashboard with device overview and quick actions
-- **[Profile](./profile.md)** - Personal profile management and settings
+- **[Profile](./settings/profile.md)** - Personal profile management and settings
 
 #### **🔧 IoT Device Management**
-- **[Devices](./devices.md)** - Device management, monitoring, and control
-- **[Device Tags](./device_tags.md)** - Organizing devices with custom tags
-- **[Device Profiles](./device_profiles.md)** - Applying configuration profiles to devices
-- **[Bundles](./bundles.md)** - Installing application bundles on devices
-- **[Preclaims](./preclaims.md)** - Claiming devices using PIN codes
-- **[PIN Rules](./pin_rules.md)** - Managing PIN-based device claiming rules
+- **[Devices](./iot/devices.md)** - Device management, monitoring, and control
+- **[Device Tags](./iot/device_tags.md)** - Organizing devices with custom tags
+- **[Device Profiles](./iot/device_profiles.md)** - Applying configuration profiles to devices
+- **[Bundles](./iot/bundles.md)** - Installing application bundles on devices
+- **[Preclaims](./iot/preclaims.md)** - Claiming devices using PIN codes
+- **[PIN Rules](./iot/pin_rules.md)** - Managing PIN-based device claiming rules
 
 #### **🔗 Integrations & Communication**
-- **[WhatsApp](./whatsapp.md)** - WhatsApp integration for notifications and messaging
+- **[WhatsApp](./integrations/whatsapp.md)** - WhatsApp integration for notifications and messaging
 
 #### **📈 Analytics & Monitoring**
-- **[Logs](./logs.md)** - Viewing system logs and device activity
+- **[Logs](./analytics/logs.md)** - Viewing system logs and device activity
 
 #### **📁 Resources & Files**
-- **[Resources](./resources.md)** - Managing files and resources for devices
+- **[Resources](./resources/resources.md)** - Managing files and resources for devices
 
 #### **⚙️ Settings & Administration**
-- **[Account Settings](./account.md)** - Account configuration and preferences
-- **[Users Management](./users.md)** - Managing team users and permissions
-- **[Help & Support](./support.md)** - Getting help and accessing support resources
+- **[Account Settings](./settings/account.md)** - Account configuration and preferences
+- **[Users Management](./settings/users.md)** - Managing team users and permissions
+- **[Profile](./settings/profile.md)** - Personal profile management and settings
 
 ## 🚀 **Quick Start Guide**
 
@@ -82,7 +82,7 @@ Welcome to the **User Interface User Guides**! These guides are designed for end
 ### **⚙️ Administrative Features (Team Management)**
 - **Account Settings** - Organization configuration
 - **Users Management** - Team member management
-- **Help & Support** - Support and documentation
+- **Profile Management** - Personal profile settings
 
 ## 🎨 **User Experience Features**
 

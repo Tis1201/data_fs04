@@ -1,6 +1,6 @@
 # User Resources Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner
 
@@ -12,21 +12,20 @@ The **User Resources** feature allows you to manage files and resources for your
 
 - **User account** - Valid user account with resource management permissions
 - **Device access** - Access to devices for file deployment
-- **File management** - Understanding of file organization and management
 
 ## Getting Started
 
 ### Quick Start
-1. **Access Resources** - Navigate to User → Resources → Files
-2. **Upload Files** - Upload files to the resource library
-3. **Organize Files** - Organize files into folders and categories
-4. **Deploy Files** - Deploy files to target devices
-5. **Monitor Usage** - Track file usage and deployment status
+1. **Access Resources** - Navigate to Home → Resources
+2. **Add Resource** - Click "Add Resource" to upload new files
+3. **Upload Files** - Upload files to the resource library
+4. **Configure Resource** - Set resource name, description, and target
+5. **Save Resource** - Save the resource for deployment
 
 ### Navigation
-- **Menu Path**: User → Resources → Files
+- **Menu Path**: Home → Resources
 - **URL**: `/user/resources`
-- **Direct Access**: Click "Files" in the Resources section
+- **Direct Access**: Click "Resources" in the main navigation
 
 ## Core Functionality
 

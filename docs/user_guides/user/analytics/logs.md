@@ -1,6 +1,6 @@
 # User Logs Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner to Intermediate
 
@@ -12,19 +12,18 @@ The **User Logs** feature provides comprehensive logging and monitoring capabili
 
 - **User account** - Valid user account with log access permissions
 - **Device access** - Access to devices for log viewing
-- **Basic troubleshooting** - Understanding of log analysis
 
 ## Getting Started
 
 ### Quick Start
-1. **Access Logs** - Navigate to User → Analytics → Logs
-2. **Select Log Source** - Choose device or system logs
-3. **Set Time Range** - Select time period for log viewing
-4. **Apply Filters** - Filter logs by type, level, or content
-5. **View Logs** - Review log entries and details
+1. **Access Logs** - Navigate to Dashboard → Analytics → Logs
+2. **View System Logs** - See all system activity logs
+3. **Filter Logs** - Use filter options to find specific logs
+4. **Export Logs** - Download logs for analysis
+5. **Monitor Activity** - Track system and device activity
 
 ### Navigation
-- **Menu Path**: User → Analytics → Logs
+- **Menu Path**: Dashboard → Analytics → Logs
 - **URL**: `/user/analytics/logs`
 - **Direct Access**: Click "Logs" in the Analytics section
 
@@ -32,21 +31,18 @@ The **User Logs** feature provides comprehensive logging and monitoring capabili
 
 ### Log Management
 
-#### Log Sources
-- **Device Logs** - Individual device logs and events
-- **System Logs** - System-wide logs and events
-- **Application Logs** - Application-specific logs
-- **Security Logs** - Security-related events and alerts
-- **Network Logs** - Network connectivity and communication logs
-- **Performance Logs** - System performance and metrics
+#### Log Display
+- **Time** - Log timestamp
+- **Level** - Log level (INFO, WARNING, ERROR) with color coding
+- **Source** - Log source (Device, System, User)
+- **Message** - Log message content
+- **Details** - Additional log details and context
 
-#### Log Types
-- **Error Logs** - Error messages and exceptions
-- **Warning Logs** - Warning messages and alerts
-- **Info Logs** - Informational messages and events
-- **Debug Logs** - Debug information and detailed events
-- **Audit Logs** - User actions and system changes
-- **Access Logs** - Login and access attempts
+#### Log Actions
+- **Export Logs** - Download logs for analysis
+- **Filter Logs** - Filter logs by level, source, or time
+- **Pagination** - Navigate through log pages
+- **Search** - Search through log content
 
 #### Log Information
 - **Timestamp** - When the log entry was created

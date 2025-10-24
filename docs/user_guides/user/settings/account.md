@@ -1,6 +1,6 @@
 # User Account Settings Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner
 
@@ -11,43 +11,43 @@ The **User Account Settings** feature allows you to manage your account configur
 ## Prerequisites
 
 - **User account** - Valid user account with account management permissions
-- **Basic navigation** - Understanding of the user interface
 - **Account access** - Access to account settings
 
 ## Getting Started
 
 ### Quick Start
-1. **Access Account Settings** - Navigate to User → Settings → Account
+1. **Access Account Settings** - Navigate to Dashboard → Settings → Account
 2. **Review Settings** - Review current account settings
 3. **Update Information** - Update personal and account information
 4. **Configure Preferences** - Set notification and display preferences
 5. **Save Changes** - Save your configuration changes
 
 ### Navigation
-- **Menu Path**: User → Settings → Account
+- **Menu Path**: Dashboard → Settings → Account
 - **URL**: `/user/settings/account`
 - **Direct Access**: Click "Account" in the Settings section
 
 ## Core Functionality
 
-### Account Information
+### Account Settings Tabs
 
-#### Personal Information
-- **Full Name** - Your full name
-- **Email Address** - Your email address
-- **Phone Number** - Your phone number
-- **Job Title** - Your job title or role
-- **Department** - Your department or team
-- **Location** - Your office location or timezone
+#### Account Tab
+- **Account Information** - Manage account details and settings
+- **Account Details** - View and edit account information
+- **Account Relationships** - Manage account relationships and memberships
 
-#### Account Details
-- **Username** - Your system username
-- **Account ID** - Unique account identifier
-- **Account Type** - Type of account (User, Admin, etc.)
-- **Account Status** - Current account status
-- **Creation Date** - When the account was created
-- **Last Login** - Last login timestamp
-- **Account Expiry** - Account expiration date (if applicable)
+#### Billing Tab
+- **Billing Information** - Manage billing and payment settings
+- **Subscription Details** - View subscription and billing information
+
+#### Notifications Tab
+- **Notification Preferences** - Configure notification settings
+- **Email Notifications** - Set email notification preferences
+- **Alert Settings** - Configure alert and notification settings
+
+#### Security Tab
+- **Password Management** - Update password and security settings
+- **Security Preferences** - Configure security and access settings
 
 #### Account Status Indicators
 - 🟢 **Active** - Account is active and operational

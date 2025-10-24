@@ -75,23 +75,26 @@ Complete administrative features and system management:
 ### 👤 [User Guides](./user/)
 User-specific features and workflows:
 
-#### Core Features
-- **[Device Management](./user/devices.md)** - Device monitoring and basic operations
-- **[Bundle Management](./user/bundles.md)** - Bundle monitoring and installation tracking
-- **[Device Profiles](./user/device_profiles.md)** - Device profile monitoring
-- **[PIN Rules](./user/pin_rules.md)** - PIN rule monitoring and basic configuration
-- **[Device Tags](./user/device_tags.md)** - Device tagging and filtering
+#### Dashboard & Overview
+- **[Dashboard](./user/dashboard.md)** - Main user dashboard and overview
+- **[Profile](./user/settings/profile.md)** - User profile management
+
+#### IoT Device Management
+- **[Device Management](./user/iot/devices.md)** - Device monitoring and basic operations
+- **[Bundle Management](./user/iot/bundles.md)** - Bundle monitoring and installation tracking
+- **[Device Profiles](./user/iot/device_profiles.md)** - Device profile monitoring
+- **[PIN Rules](./user/iot/pin_rules.md)** - PIN rule monitoring and basic configuration
+- **[Device Tags](./user/iot/device_tags.md)** - Device tagging and filtering
+- **[Preclaims](./user/iot/preclaims.md)** - Preclaim monitoring and management
 
 #### Integrations & Resources
-- **[WhatsApp](./user/whatsapp.md)** - WhatsApp integration usage
-- **[Resources](./user/resources.md)** - Resource access and management
-- **[Logs](./user/logs.md)** - Analytics and log viewing
+- **[WhatsApp](./user/integrations/whatsapp.md)** - WhatsApp integration usage
+- **[Resources](./user/resources/resources.md)** - Resource access and management
+- **[Logs](./user/analytics/logs.md)** - Analytics and log viewing
 
-#### Account Management
-- **[Account Settings](./user/account_settings.md)** - Account configuration
-- **[User Management](./user/user_management.md)** - User management (user view)
-- **[Profile](./user/profile.md)** - User profile management
-- **[Support](./user/support.md)** - Help and support
+#### Settings & Administration
+- **[Account Settings](./user/settings/account.md)** - Account configuration
+- **[User Management](./user/settings/users.md)** - User management (user view)
 
 ### 🤝 [Shared Features](./shared/)
 Features that work the same across admin and user interfaces:

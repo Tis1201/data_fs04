@@ -1,6 +1,6 @@
 # User Profile Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner
 
@@ -11,20 +11,19 @@ The **User Profile** feature allows you to manage your personal profile informat
 ## Prerequisites
 
 - **User account** - Valid user account with profile access
-- **Basic navigation** - Understanding of the user interface
 - **Profile access** - Access to profile management features
 
 ## Getting Started
 
 ### Quick Start
-1. **Access Profile** - Navigate to User → Settings → Profile
+1. **Access Profile** - Navigate to Dashboard → Settings → Profile
 2. **Review Profile** - Review current profile information
 3. **Update Information** - Update personal and preference information
 4. **Configure Settings** - Configure display and notification settings
 5. **Save Changes** - Save your profile changes
 
 ### Navigation
-- **Menu Path**: User → Settings → Profile
+- **Menu Path**: Dashboard → Settings → Profile
 - **URL**: `/user/profile`
 - **Direct Access**: Click "Profile" in the Settings section
 

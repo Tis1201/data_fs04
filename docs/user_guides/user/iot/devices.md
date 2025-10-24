@@ -1,6 +1,6 @@
 # User Devices Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner to Intermediate
 
@@ -12,19 +12,18 @@ The **User Devices** feature allows you to manage, monitor, and control your IoT
 
 - **User account** - Valid user account with device access permissions
 - **Device access** - Access to at least one IoT device
-- **Basic navigation** - Understanding of the user interface
 
 ## Getting Started
 
 ### Quick Start
-1. **Access Devices** - Navigate to User → IoT → Devices
+1. **Access Devices** - Navigate to Dashboard → IoT → Devices
 2. **View Device List** - See all your devices and their status
 3. **Select Device** - Click on a device to view details
 4. **Perform Actions** - Use action buttons to control devices
 5. **Monitor Status** - Watch real-time device status updates
 
 ### Navigation
-- **Menu Path**: User → IoT → Devices
+- **Menu Path**: Dashboard → IoT → Devices
 - **URL**: `/user/iot/devices`
 - **Direct Access**: Click "Devices" in the IoT section
 
@@ -33,14 +32,13 @@ The **User Devices** feature allows you to manage, monitor, and control your IoT
 ### Device List View
 
 #### Device Information Display
-- **Device Name** - Custom or system-assigned device name
-- **Device ID** - Unique device identifier
-- **Status** - Current device status (Online/Offline/Error)
-- **Last Seen** - Last time device was active
-- **Location** - Device location or description
-- **Device Type** - Type of IoT device
-- **Model** - Device model information
-- **IP Address** - Current IP address (if online)
+- **Name** - Device name with clickable link to details
+- **MAC Address** - Device MAC address (wifiMac, lanMac, or macAddress)
+- **OS Version** - Device operating system version
+- **Online Status** - Real-time connection status indicator
+- **Usage** - Device usage information
+- **Tags** - Device tags for organization
+- **Actions** - Available device actions (Edit, Activate/Deactivate, Delete)
 
 #### Device Status Indicators
 - 🟢 **Online** - Device is connected and operational
@@ -60,29 +58,17 @@ The **User Devices** feature allows you to manage, monitor, and control your IoT
 
 ### Device Detail View
 
-#### Device Overview
-- **Device Information** - Complete device details
-- **Status History** - Recent status changes
-- **Performance Metrics** - CPU, memory, storage usage
-- **Network Information** - Connection details and IP
-- **Hardware Details** - Device specifications
-- **Software Information** - Installed software and versions
+#### Device Actions Section
+- **Device Actions** - Restart, reboot, snapshot, install app, pull/push files, firmware update, view logs, terminal access, remote desktop
+- **Action Status** - Real-time status updates for device actions
+- **Action History** - Log of recent device actions and their results
 
-#### Real-Time Monitoring
-- **Live Status** - Real-time device status updates
-- **Performance Graphs** - CPU, memory, storage charts
-- **Network Activity** - Network usage and connectivity
-- **System Logs** - Recent device logs and events
-- **Alert History** - Past alerts and notifications
-- **Activity Timeline** - Recent device activities
-
-#### Device Actions
-- **Restart Device** - Restart the device (2-minute timeout)
-- **Reboot Device** - Full device reboot (5-minute timeout)
-- **Shutdown Device** - Graceful device shutdown (1-minute timeout)
-- **Take Screenshot** - Capture device screen (10-second timeout)
-- **Start WebRTC** - Begin remote desktop session (30-second timeout)
-- **View Logs** - Access device logs and diagnostics
+#### Device Information Tabs
+- **Overview** - Basic device information and status
+- **Performance** - Device performance metrics and monitoring
+- **Logs** - Device logs and activity history
+- **Licenses** - Device license information and management
+- **API Keys** - Device API key management and security
 
 ### Device Management Features
 

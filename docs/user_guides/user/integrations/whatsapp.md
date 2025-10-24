@@ -1,6 +1,6 @@
 # User WhatsApp Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner to Intermediate
 
@@ -12,16 +12,14 @@ The **User WhatsApp** feature provides WhatsApp integration for IoT device notif
 
 - **User account** - Valid user account with WhatsApp integration permissions
 - **WhatsApp Business Account** - Valid WhatsApp Business account
-- **Device access** - Access to devices for WhatsApp notifications
-- **WhatsApp API** - WhatsApp Business API access
 
 ## Getting Started
 
 ### Quick Start
 1. **Access WhatsApp** - Navigate to User → Integrations → WhatsApp
-2. **Configure Account** - Set up WhatsApp Business account
-3. **Create Templates** - Create message templates for notifications
-4. **Set Up Alerts** - Configure device alert notifications
+2. **Add Account** - Click "Add Account" to create new WhatsApp account
+3. **Connect WhatsApp** - Generate QR code and scan with WhatsApp
+4. **Configure Account** - Set account details and description
 5. **Test Integration** - Test WhatsApp messaging functionality
 
 ### Navigation
@@ -33,21 +31,18 @@ The **User WhatsApp** feature provides WhatsApp integration for IoT device notif
 
 ### WhatsApp Account Management
 
-#### Account Configuration
-- **Account Name** - Descriptive name for WhatsApp account
-- **Phone Number** - WhatsApp Business phone number
-- **API Credentials** - WhatsApp Business API credentials
-- **Webhook URL** - Webhook URL for receiving messages
-- **Account Status** - Active, inactive, or pending status
-- **Verification Status** - Phone number verification status
-
-#### Account Information
+#### Account List View
+- **Account Name** - WhatsApp account name with clickable link
 - **Account ID** - Unique account identifier
-- **Business Name** - WhatsApp Business name
-- **Business Category** - Business category classification
-- **Account Type** - Business or Enterprise account type
-- **Creation Date** - When the account was created
-- **Last Activity** - Last activity timestamp
+- **Created At** - When account was created (relative format)
+- **Last Used** - Last time account was used (relative format)
+- **Status** - Account status (Active, Inactive)
+- **Actions** - Available account actions (Edit, Delete, Send Message)
+
+#### Account Creation Process
+- **Step 1: Connect WhatsApp** - Generate QR code and scan with WhatsApp
+- **Step 2: Account Details** - Set account name and description
+- **Step 3: Success** - Account created and ready to use
 - **Message Count** - Total messages sent/received
 - **Status** - Current account status
 

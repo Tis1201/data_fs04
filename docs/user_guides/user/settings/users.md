@@ -1,53 +1,51 @@
-# User Users Management Guide
+# User Team Members Guide
 
-**Last Updated**: 2025-10-12  
+**Last Updated**: 2025-10-24  
 **Audience**: End Users  
 **Complexity**: Beginner to Intermediate
 
 ## Overview
 
-The **User Users Management** feature allows you to manage team users, their permissions, and access levels within your organization. You can add new users, modify user permissions, monitor user activity, and manage user accounts for your IoT device management system.
+The **User Team Members** feature allows you to manage team users, their permissions, and access levels within your organization. You can add new users, modify user permissions, monitor user activity, and manage user accounts for your IoT device management system.
 
 ## Prerequisites
 
 - **User account** - Valid user account with user management permissions
 - **Admin access** - Administrative access to user management features
-- **Team management** - Understanding of team and user management
 
 ## Getting Started
 
 ### Quick Start
-1. **Access Users Management** - Navigate to User → Settings → Users
-2. **View User List** - Review existing users and their status
-3. **Add New User** - Create new user accounts
+1. **Access Team Members** - Navigate to Dashboard → Settings → Team Members
+2. **View Team List** - Review existing team members and their status
+3. **Add New Member** - Create new team member accounts
 4. **Manage Permissions** - Set user permissions and access levels
 5. **Monitor Activity** - Track user activity and usage
 
 ### Navigation
-- **Menu Path**: User → Settings → Users
+- **Menu Path**: Dashboard → Settings → Team Members
 - **URL**: `/user/settings/users`
-- **Direct Access**: Click "Users" in the Settings section
+- **Direct Access**: Click "Team Members" in the Settings section
 
 ## Core Functionality
 
-### User Management
+### Team Members Management
 
-#### User Creation
-- **User Information** - Personal information for new users
-- **Account Details** - Account-specific details and settings
-- **Permission Assignment** - Assign appropriate permissions
-- **Role Assignment** - Assign user roles and responsibilities
-- **Access Level** - Set user access level and scope
-- **Account Status** - Set initial account status
+#### Team Members List
+- **Member Name** - Team member name with clickable link
+- **Email** - Member email address
+- **Role** - Member role and permissions
+- **Status** - Member status (Active, Inactive, Suspended)
+- **Last Active** - Last activity timestamp
+- **Actions** - Available member actions (Edit, View Sessions, Update Password, Reset Password, Activate/Deactivate, Delete)
 
-#### User Information
-- **User ID** - Unique user identifier
-- **Username** - System username
-- **Full Name** - User's full name
-- **Email Address** - User's email address
-- **Phone Number** - User's phone number
-- **Job Title** - User's job title or role
-- **Department** - User's department or team
+#### Member Actions
+- **Edit Member** - Modify member information and settings
+- **View Sessions** - View member login sessions and activity
+- **Update Password** - Update member password
+- **Reset Password** - Reset member password
+- **Activate/Deactivate** - Toggle member status
+- **Delete Member** - Remove member from team
 - **Location** - User's office location
 - **Account Status** - Current account status
 - **Last Login** - Last login timestamp
