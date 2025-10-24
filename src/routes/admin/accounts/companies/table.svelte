@@ -265,19 +265,11 @@
             <!-- Search filter -->
             <div class="w-1/3">
                 <DebouncedTextFilter
-                    placeholder="Search by name, ID, or email..."
+                    placeholder="Search by name, ID, or contact email..."
                     paramName="search"
                     value={$page.url.searchParams.get('search') || ''}
                 />
             </div>
-            
-            <!-- Account filter -->
-            <PopoverFilter
-                label="Account"
-                options={props.filters.accounts?.map(account => ({ label: account.name, value: account.id })) || []}
-                selectedValues={$page.url.searchParams.get('accountId')?.split(',').filter(Boolean) || []}
-                key="accountId"
-            />
             
             <!-- Status filter -->
             <PopoverFilter

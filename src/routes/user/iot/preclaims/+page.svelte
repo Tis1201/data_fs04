@@ -17,7 +17,7 @@
     export let data: PageData;
     
     // Extract data from the server
-    $: ({ devices: records, meta } = data);
+    $: ({ preclaimSets: records, meta } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
     $: props = { records: records as any, pagination, sort, loading };

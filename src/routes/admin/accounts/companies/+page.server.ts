@@ -29,7 +29,8 @@ export const load = restrict(
             if (search) {
                 where.OR = [
                     { name: { contains: search, mode: 'insensitive' } },
-                    { id: { contains: search, mode: 'insensitive' } }
+                    { id: { contains: search, mode: 'insensitive' } },
+                    { contactEmail: { contains: search, mode: 'insensitive' } }
                 ];
             }
             
