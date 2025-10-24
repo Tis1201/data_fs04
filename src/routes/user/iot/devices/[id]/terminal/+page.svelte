@@ -394,15 +394,20 @@
 		terminalInstance = terminal;
 
 		// Load addons for better terminal experience
-		fitAddon = new (await XtermAddon.FitAddon()).FitAddon();
-		const webLinksAddon = new (await XtermAddon.WebLinksAddon()).WebLinksAddon(
+		const fitAddonModule = await XtermAddon.FitAddon();
+		fitAddon = new fitAddonModule.FitAddon();
+		
+		const webLinksAddonModule = await XtermAddon.WebLinksAddon();
+		const webLinksAddon = new webLinksAddonModule.WebLinksAddon(
 			(event, uri) => {
 				if (typeof window !== 'undefined') {
 					window.open(uri, '_blank');
 				}
 			}
 		);
-		const searchAddon = new (await XtermAddon.SearchAddon()).SearchAddon();
+		
+		const searchAddonModule = await XtermAddon.SearchAddon();
+		const searchAddon = new searchAddonModule.SearchAddon();
 		
 		// Load all addons
 		terminal.loadAddon(fitAddon);
