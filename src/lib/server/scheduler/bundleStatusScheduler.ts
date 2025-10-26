@@ -37,7 +37,6 @@ export async function startBundleStatusScheduler() {
         logger.info('[BundleStatusScheduler] State manager initialized');
       } catch (error) {
         logger.error(`[BundleStatusScheduler] Failed to initialize state manager: ${error instanceof Error ? error.message : String(error)}`);
-        startFileBasedPoller();
         return;
       }
       
