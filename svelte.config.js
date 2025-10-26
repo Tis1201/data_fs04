@@ -17,9 +17,7 @@ const config = {
 		// Disabled for production deployment to avoid issues with WebSockets and API calls
 		// For production environments, consider implementing CSRF protection at the application level
 		// or using a reverse proxy with security headers
-		csrf: { checkOrigin: false },
-		// Increase body size limit for file uploads (100MB)
-		bodySizeLimit: 100 * 1024 * 1024
+		csrf: { checkOrigin: false }
 	},
 	preprocess: vitePreprocess()
 };

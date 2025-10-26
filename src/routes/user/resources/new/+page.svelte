@@ -240,6 +240,22 @@
         if (fileUploadRef && uploadedFiles.length > 0) {
             try {
                 await fileUploadRef.uploadFiles();
+                
+                // After successful upload, get the uploaded URLs and update form data
+                const uploadedUrls = fileUploadRef.getUploadedUrls();
+                if (uploadedUrls.length > 0) {
+                    // Update form data with the uploaded file URL instead of file data
+                    $form.path = uploadedUrls[0]; // Use the first uploaded file URL
+                    $form.file = null; // Clear the file data to prevent 512KB limit
+                    
+                    // Clear the file data from the component to prevent form submission issues
+                    fileUploadRef.clearFileDataForSubmission();
+                    
+                    // Clear the native file input to prevent it from being sent
+                    if (nativeFileInput) {
+                        nativeFileInput.value = '';
+                    }
+                }
             } catch (error) {
                 console.error('File upload failed:', error);
                 uploadError = 'File upload failed. Please try again.';
