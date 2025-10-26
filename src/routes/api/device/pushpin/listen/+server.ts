@@ -303,8 +303,10 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     
     // Set up message handler before subscribing
     try {
+      // Subscribe to both the direct device channel and the subscription channel
       await subscriber.subscribe(channel);
-      logger.info(`[Pushpin] Subscribed to Redis channel: ${channel}`);
+      await subscriber.subscribe(`subscription:${channel}`);
+      logger.info(`[Pushpin] Subscribed to Redis channels: ${channel} and subscription:${channel}`);
     } catch (err) {
       logger.error('[Pushpin] Failed to subscribe to Redis channel', {
         error: err instanceof Error ? err.message : String(err),
@@ -328,7 +330,8 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
         
         // Listen for Redis messages
         subscriber.on('message', (chan: string, messageStr: string) => {
-          if (chan !== channel) return;
+          // Accept messages from both the direct device channel and subscription channel
+          if (chan !== channel && chan !== `subscription:${channel}`) return;
           
           try {
             const data = JSON.parse(messageStr);
@@ -393,7 +396,12 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
         }
         
         subscriber.unsubscribe(channel).catch(err => 
-          logger.error('[Pushpin] Failed to unsubscribe', { 
+          logger.error('[Pushpin] Failed to unsubscribe from device channel', { 
+            error: err instanceof Error ? err.message : String(err) 
+          })
+        );
+        subscriber.unsubscribe(`subscription:${channel}`).catch(err => 
+          logger.error('[Pushpin] Failed to unsubscribe from subscription channel', { 
             error: err instanceof Error ? err.message : String(err) 
           })
         );

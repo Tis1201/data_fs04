@@ -263,10 +263,12 @@
                         <User class="h-12 w-12 mx-auto mb-4 opacity-50" />
                         <p class="font-medium">No team members found</p>
                         <p class="text-sm mt-1">No users are currently members of this account</p>
-                        <Button class="mt-4" on:click={() => goto('/user/settings/users/new')}>
-                            <UserPlus class="h-4 w-4 mr-2" />
-                            Invite Team Member
-                        </Button>
+                        {#if canPerformAdminActions(data.currentAccount)}
+                            <Button class="mt-4" on:click={() => goto('/user/settings/users/new')}>
+                                <UserPlus class="h-4 w-4 mr-2" />
+                                Invite Team Member
+                            </Button>
+                        {/if}
                     </div>
                 {/if}
             </div>

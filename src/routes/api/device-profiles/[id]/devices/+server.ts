@@ -78,6 +78,37 @@ export const GET: RequestHandler = restrict(
                 status: 'ACTIVE'
             };
 
+            // Filter devices by account membership
+            // Admin can see all devices, regular users can only see devices from their accounts
+            if (event.auth?.user?.systemRole !== SystemRole.ADMIN) {
+                // Get user's account memberships
+                const userAccounts = await prisma.accountMembership.findMany({
+                    where: { userId: auth?.user?.id },
+                    select: { accountId: true }
+                });
+                
+                const accountIds = userAccounts.map(membership => membership.accountId);
+                
+                if (accountIds.length === 0) {
+                    // User has no account access, return empty result
+                    return json({
+                        success: true,
+                        devices: [],
+                        total: 0,
+                        pagination: {
+                            limit,
+                            offset,
+                            hasMore: false
+                        }
+                    });
+                }
+                
+                // Filter devices to only those in user's accounts
+                where.accountId = {
+                    in: accountIds
+                };
+            }
+
             // Search filter
             if (search) {
                 where.OR = [

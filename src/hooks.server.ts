@@ -12,7 +12,7 @@ import { ensureActiveSetting } from "$lib/server/settings";
 import prisma from "$lib/server/prisma";
 import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
 import { _publishBundleDirect } from "./routes/api/admin/iot/bundles/[id]/publish/+server";
-import { startFileStatusPoller, cleanupFileStatusPoller } from "$lib/server/scheduler/fileStatusPoller";
+import { startBundleStatusScheduler, cleanupBundleStatusScheduler } from "$lib/server/scheduler/bundleStatusScheduler";
 
 // Initialize WhatsApp clients on server startup (not during build)
 // Use a self-executing async function to avoid blocking the main thread
@@ -42,12 +42,12 @@ if (!building) {
                 logger.warn(`Failed to start auto-publish scheduler: ${e?.message || String(e)}`);
             }
 
-            // Start file-backed status poller (ClickHouse simulation)
+            // Start bundle status scheduler (ClickHouse or file-based polling)
             try {
-                await startFileStatusPoller();
-                logger.info('File status poller started');
+                await startBundleStatusScheduler();
+                logger.info('Bundle status scheduler started');
             } catch (e:any) {
-                logger.warn(`Failed to start file status poller: ${e?.message || String(e)}`);
+                logger.warn(`Failed to start bundle status scheduler: ${e?.message || String(e)}`);
             }
         } catch (error: unknown) {
             const e = error as any;
