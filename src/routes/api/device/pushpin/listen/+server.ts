@@ -152,7 +152,10 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     }
 
     // Best-effort side effects (never fail the stream)
-    try { await DeviceStatusManager.setDeviceOnline(device.id, locals, device.id); }
+    try { 
+      await DeviceStatusManager.setDeviceOnline(device.id, locals, device.id);
+      logger.info(`[Pushpin] Device ${device.id} marked as online`);
+    }
     catch (e) {
       logger.warn('[Pushpin] setDeviceOnline failed', {
         error: e instanceof Error ? e.message : String(e)
@@ -194,14 +197,18 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     };
 
     try {
-      // Unregister any existing connection to prevent duplicates
-      ConnectionManager.unregisterConnection(device.id);
-      
-      const connection = new PushpinConnection(
-        { id: device.id, userInfo, nodeId: 'device-pushpin-listen', protocol: 'pushpin', deviceId: device.id, connectedAt: Date.now() },
-        publishFn
-      );
-      ConnectionManager.registerConnection(connection);
+      // Check if connection already exists before registering
+      const existingConnection = ConnectionManager.getConnection(device.id);
+      if (existingConnection) {
+        logger.info(`[Pushpin] Connection already exists for device ${device.id}, skipping registration`);
+      } else {
+        const connection = new PushpinConnection(
+          { id: device.id, userInfo, nodeId: 'device-pushpin-listen', protocol: 'pushpin', deviceId: device.id, connectedAt: Date.now() },
+          publishFn
+        );
+        ConnectionManager.registerConnection(connection);
+        logger.info(`[Pushpin] New connection registered for device ${device.id}`);
+      }
     } catch (e) {
       logger.warn('[Pushpin] Connection registration failed', {
         error: e instanceof Error ? e.message : String(e)
@@ -209,13 +216,8 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     }
 
     try {
-      // Remove any existing subscription for this device to prevent duplicates
-      await subscriptionRegistry.removeSubscription(
-        `subscription:device:${device.id}`,
-        `subscriber:connection:${device.id}`
-      ).catch(() => {}); // Ignore errors if it doesn't exist
-      
-      // Now add the new subscription
+      // Only add subscription if it doesn't already exist
+      // Don't remove existing subscriptions as this causes race conditions
       await subscriptionRegistry.addSubscription(
         `subscription:device:${device.id}`,
         `subscriber:connection:${device.id}`
@@ -401,12 +403,13 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
           })
         );
         
-        // Remove ONLY this device's subscription from registry (not all subscriptions for this device)
+        // Only remove subscription if this is the last connection for this device
+        // Don't remove subscriptions aggressively as it can cause race conditions
         subscriptionRegistry.removeSubscription(
           `subscription:device:${device.id}`, 
           `subscriber:connection:${device.id}`
         ).catch(err =>
-          logger.error('[Pushpin] Failed to remove subscription', { 
+          logger.warn('[Pushpin] Failed to remove subscription (may be expected)', { 
             error: err instanceof Error ? err.message : String(err) 
           })
         );

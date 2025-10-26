@@ -81,11 +81,11 @@ const getMaxBodySize = () => {
                 case 'mb': return value * 1024 * 1024;
                 case 'kb': return value * 1024;
                 case 'b': return value;
-                default: return 20 * 1024 * 1024; // Default 20MB
+                default: return 1000 * 1024 * 1024;
             }
         }
     }
-    return 20 * 1024 * 1024; // Default 20MB
+    return 1000 * 1024 * 1024;
 };
 
 const MAX_BODY_SIZE = getMaxBodySize();

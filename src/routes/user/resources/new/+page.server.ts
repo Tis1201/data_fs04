@@ -14,26 +14,13 @@ import { logAudit } from '$lib/server/audit-logger';
 import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
 
 export const load = restrict(
-    async (event) => {
+    async (event: any) => {
         const { locals, auth } = event;
         try {
-            // Get the current account from auth
-            let userAccount = null;
-            
-            // Check if there's a current account ID in the cookies
-            const currentAccountId = event.cookies.get('current_account_id');
-            
-            
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(resourceSchema), {
-                id: 'resource-form',
-                dataType: 'json'
+                id: 'resource-form'
             });
-            
-            // Pre-fill the account ID if we have a user account
-            if (userAccount) {
-                form.data.accountId = userAccount.id;
-            }
             
             // Get resource types for the dropdown
             const resourceTypes = [
@@ -45,7 +32,6 @@ export const load = restrict(
             
             return {
                 form,
-                userAccount,
                 resourceTypes
             };
         } catch (err) {
@@ -58,7 +44,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async (event) => {
+        async (event: any) => {
             const { request, locals, auth } = event;
             try {
                 // Get the current account from auth
@@ -84,8 +70,9 @@ export const actions: Actions = {
                     
                     if (!hasValidExtension) {
                         logger.warn(`Invalid file extension: ${rawFile.name}`);
+                        const form = await superValidate(zod(resourceSchema));
                         return message(
-                            null,
+                            form,
                             createErrorResponse('Invalid file format', {
                                 details: 'Only .zip, .cpk, and .apk files are allowed'
                             })

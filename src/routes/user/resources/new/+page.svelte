@@ -13,6 +13,7 @@
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { fileProxy } from 'sveltekit-superforms/client';
     import { browser } from '$app/environment';
+    import { parseZipFile, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
     
     export let data: PageData;
     const title = "Add Resource";
@@ -44,6 +45,15 @@
     let uploadSuccess = '';
     
     let nameError = '';
+    
+    // ZIP parsing state
+    let zipParsing = false;
+    let zipParseSuccess = '';
+    let zipParseError = '';
+    
+    // Form locking state
+    let formLocked = false;
+    
 
     let nativeFileInput: HTMLInputElement | null = null;
     let containerRef: HTMLDivElement;
@@ -66,20 +76,35 @@
         }
     }
     
-    function handleFileUpload(event: CustomEvent<{ files: File[] }>) {
+    async function handleFileUpload(event: CustomEvent<{ files: File[] }>) {
+        console.log('[File Upload] handleFileUpload called with files:', event.detail.files);
+        
         const files = event.detail.files;
-        if (files.length === 0) return;
+        if (files.length === 0) {
+            console.log('[File Upload] No files provided');
+            return;
+        }
 
         const file = files[0];
+        console.log('[File Upload] Processing file:', {
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            isZip: file.name.toLowerCase().endsWith('.zip')
+        });
+        
         $fileField = file;
         syncToNativeInput(file);
         
         // Clear previous messages
         uploadSuccess = '';
         uploadError = '';
+        zipParseSuccess = '';
+        zipParseError = '';
 
         if (!$form.name || $form.name === '') {
             $form.name = file.name.split('.')[0];
+            console.log('[File Upload] Set default name:', $form.name);
         }
 
         $form.size = file.size;
@@ -89,6 +114,49 @@
         
         // Set uploadedFiles for the upload component
         uploadedFiles = files;
+        
+        // Parse ZIP file if it's a ZIP file
+        if (file.name.toLowerCase().endsWith('.zip')) {
+            zipParsing = true;
+            zipParseError = '';
+            zipParseSuccess = '';
+            formLocked = true; // Lock the form during ZIP parsing
+            
+            try {
+                const result = await parseZipFile(file);
+                
+                if (result.success && result.appData) {
+                    // Auto-populate package name
+                    const packageName = generatePackageName(result.appData);
+                    if (packageName) {
+                        $form.packageName = packageName;
+                    }
+                    
+                    // Auto-populate version
+                    const version = extractVersion(result.appData);
+                    if (version && !$form.version) {
+                        $form.version = version;
+                    }
+                    
+                    // Auto-populate display name
+                    const displayName = extractDisplayName(result.appData);
+                    if (displayName && (!$form.name || $form.name === file.name.split('.')[0])) {
+                        $form.name = displayName;
+                    }
+                    
+                    zipParseSuccess = `✓ Successfully parsed app.json from ZIP file`;
+                } else {
+                    zipParseError = result.error || 'Failed to parse ZIP file';
+                    uploadError = `ZIP parsing failed: ${zipParseError}`;
+                }
+            } catch (error) {
+                zipParseError = 'Failed to parse ZIP file';
+                uploadError = `ZIP parsing failed: ${zipParseError}`;
+            } finally {
+                zipParsing = false;
+                formLocked = false; // Unlock the form after ZIP parsing
+            }
+        }
     }
 
     function handleUploadComplete(event: CustomEvent<{ file: File; url: string }>) {
@@ -112,6 +180,12 @@
     function handleFileRemove() {
         $fileField = null;
         uploadSuccess = '';
+        uploadError = '';
+        zipParseSuccess = '';
+        zipParseError = '';
+        zipParsing = false;
+        formLocked = false; // Unlock form when file is removed
+        
         if (['image', 'video', 'document', 'file'].includes($form.type)) {
             $form.path = '';
         }
@@ -131,6 +205,7 @@
             uploadedFiles = [];
         }
     }
+    
 
     async function submitForm() {
         nameError = $form.name ? '' : 'Resource name is required.';
@@ -193,7 +268,7 @@
             label: "Save",
             icon: Save,
             class: "h-9 btn-primary",
-            disabled: $submitting,
+            disabled: $submitting || formLocked,
             onClick: submitForm
         }
     ];
@@ -207,6 +282,16 @@
     compact={true}
     contentSpacing="space-y-4"
 >
+    {#if formLocked}
+        <div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div class="flex items-center gap-2">
+                <div class="animate-spin">⏳</div>
+                <p class="text-amber-800 font-medium">
+                    Form is locked during ZIP validation - please wait...
+                </p>
+            </div>
+        </div>
+    {/if}
     <div class="w-full space-y-6" bind:this={containerRef}>
         <FormContainer
                 method="POST"
@@ -234,9 +319,19 @@
                                     accept=".zip,.cpk,.apk"
                                     bind:value={uploadedFiles}
                                     error={uploadError}
-                                    on:change={handleFileUpload}
-                                    on:drop={handleFileUpload}
-                                    on:paste={handleFileUpload}
+                                    disabled={formLocked}
+                                    on:change={(e) => {
+                                        console.log('[File Upload] change event triggered:', e.detail);
+                                        handleFileUpload(e);
+                                    }}
+                                    on:drop={(e) => {
+                                        console.log('[File Upload] drop event triggered:', e.detail);
+                                        handleFileUpload(e);
+                                    }}
+                                    on:paste={(e) => {
+                                        console.log('[File Upload] paste event triggered:', e.detail);
+                                        handleFileUpload(e);
+                                    }}
                                     on:remove={handleFileRemove}
                                     on:error={handleUploadError}
                                     on:uploadComplete={handleUploadComplete}
@@ -249,11 +344,38 @@
                             <p class="text-xs text-muted-foreground mt-1">
                                 Only .zip, .cpk, and .apk files are allowed. Upload a file by dragging and dropping.
                             </p>
+                            
+                            <!-- ZIP Parsing Status -->
+                            {#if zipParsing}
+                                <p class="text-xs text-blue-600 font-medium mt-1">
+                                    🔄 Parsing ZIP file for app.json...
+                                </p>
+                            {/if}
+                            
+                            {#if formLocked}
+                                <p class="text-xs text-amber-600 font-medium mt-1">
+                                    ⏳ Form locked during ZIP validation - please wait...
+                                </p>
+                            {/if}
+                            
+                            {#if zipParseSuccess}
+                                <p class="text-xs text-green-600 font-medium mt-1">
+                                    {zipParseSuccess}
+                                </p>
+                            {/if}
+                            
+                            {#if zipParseError}
+                                <p class="text-xs text-red-600 font-medium mt-1">
+                                    ❌ {zipParseError}
+                                </p>
+                            {/if}
+                            
                             {#if uploadSuccess}
                                 <p class="text-xs text-green-600 font-medium mt-1">
                                     ✓ {uploadSuccess}
                                 </p>
                             {/if}
+                            
                         </FormField>
                     </FormRow>
                 </div>
@@ -264,6 +386,7 @@
                     description="Add a new IoT resource"
                     icon={File}
                     compact={true}
+                    class={formLocked ? 'opacity-50 pointer-events-none' : ''}
             >
                 <div class="space-y-6">
                     <FormRow columns={2}>
@@ -280,6 +403,7 @@
                                     bind:value={$form.name}
                                     placeholder="Enter resource name"
                                     aria-invalid={(nameError || $errors.name) ? 'true' : undefined}
+                                    disabled={formLocked}
                                     {...$constraints.name}
                             />
                         </FormField>
@@ -292,6 +416,7 @@
                                     bind:value={$form.target}
                                     placeholder="Select target"
                                     aria-invalid={$errors.target ? 'true' : undefined}
+                                    disabled={formLocked}
                                     {...$constraints.target}
                                     options={targetOptions}
                             />
@@ -309,6 +434,7 @@
                                     bind:value={$form.version}
                                     placeholder="1.0.0"
                                     aria-invalid={$errors.version ? 'true' : undefined}
+                                    disabled={formLocked}
                                     {...$constraints.version}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
@@ -323,6 +449,7 @@
                                     bind:value={$form.packageName}
                                     placeholder="com.example.app"
                                     aria-invalid={$errors.packageName ? 'true' : undefined}
+                                    disabled={formLocked}
                                     {...$constraints.packageName}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
@@ -358,6 +485,7 @@
                     description="Path is automatically generated from uploaded file"
                     icon={FileText}
                     compact={true}
+                    class={formLocked ? 'opacity-50 pointer-events-none' : ''}
             >
                 <div class="space-y-6">
                     <FormRow columns={1}>
