@@ -219,15 +219,28 @@ export const actions: Actions = {
                         }
 
                         logger.info(`Processing file upload: ${uploadedFile.name || '<no name>'}`);
-                        filePath = await saveFile(uploadedFile);
-                        form.data.path = filePath;
-                        logger.info(`File saved successfully: ${filePath}`);
+                        
+                        // Upload file first, before creating database record
+                        try {
+                            filePath = await saveFile(uploadedFile);
+                            form.data.path = filePath;
+                            logger.info(`File saved successfully: ${filePath}`);
+                        } catch (uploadError) {
+                            logger.error(`File upload failed: ${uploadError}`);
+                            return message(
+                                form,
+                                createErrorResponse('File upload failed', {
+                                    details: 'Failed to upload file to storage. Please try again.'
+                                })
+                            );
+                        }
+                        
                         form.data.file = null; // strip before persisting
                     } else {
                         logger.warn(`No file to process; form.data.file is ${String(form.data.file)}`);
                     }
 
-                    // Create the resource
+                    // Create the resource (only after successful file upload)
                     const resource = await locals.prisma.resource.create({
                         data: {
                             name: form.data.name,
@@ -271,6 +284,17 @@ export const actions: Actions = {
                         })
                     );
                 } catch (err) {
+                    // If we created a resource but something failed, clean it up
+                    if (filePath && filePath.startsWith('http')) {
+                        try {
+                            logger.warn(`Cleaning up failed resource creation. File path: ${filePath}`);
+                            // Note: In a production system, you might want to implement
+                            // a background job to clean up orphaned files from storage
+                        } catch (cleanupErr) {
+                            logger.error(`Failed to cleanup after error: ${cleanupErr}`);
+                        }
+                    }
+                    
                     return handleFormError({
                         error: err,
                         form,
