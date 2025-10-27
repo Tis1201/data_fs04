@@ -102,11 +102,10 @@
         zipParseSuccess = '';
         zipParseError = '';
 
-        if (!$form.name || $form.name === '') {
-            $form.name = file.name.split('.')[0];
-            console.log('[File Upload] Set default name:', $form.name);
-        }
-
+        // Reset form fields for new file upload
+        $form.name = file.name.split('.')[0];
+        $form.packageName = '';
+        $form.version = '';
         $form.size = file.size;
         $form.path = `Auto-generated from: ${file.name}`;
 
@@ -125,41 +124,65 @@
             formLocked = true; // Lock the form during file parsing
             
             try {
+                console.log('[File Upload] Before parsing - Form values:', {
+                    name: $form.name,
+                    packageName: $form.packageName,
+                    version: $form.version
+                });
+                
                 const result = await parseZipFile(file);
+                console.log('[File Upload] Parse result:', result);
                 
                 if (result.success && result.appData) {
+                    console.log('[File Upload] appData:', result.appData);
+                    
                     // Auto-populate package name
                     const packageName = generatePackageName(result.appData);
+                    console.log('[File Upload] Extracted packageName:', packageName);
                     if (packageName) {
                         $form.packageName = packageName;
+                        console.log('[File Upload] Set $form.packageName to:', $form.packageName);
                     }
                     
                     // Auto-populate version
                     const version = extractVersion(result.appData);
-                    if (version && !$form.version) {
+                    console.log('[File Upload] Extracted version:', version);
+                    if (version) {
                         $form.version = version;
+                        console.log('[File Upload] Set $form.version to:', $form.version);
                     }
                     
-                    // Auto-populate display name
+                    // Auto-populate display name (resource name)
                     const displayName = extractDisplayName(result.appData);
-                    if (displayName && (!$form.name || $form.name === file.name.split('.')[0])) {
+                    console.log('[File Upload] Extracted displayName:', displayName);
+                    if (displayName) {
                         $form.name = displayName;
+                        console.log('[File Upload] Set $form.name to:', $form.name);
                     }
+                    
+                    console.log('[File Upload] After parsing - Form values:', {
+                        name: $form.name,
+                        packageName: $form.packageName,
+                        version: $form.version
+                    });
                     
                     const fileType = file.name.endsWith('.apk') ? 'APK' : file.name.endsWith('.cpk') ? 'CPK' : 'ZIP';
-                    zipParseSuccess = `✓ Successfully parsed app.json from ${fileType} file`;
+                    zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
                 } else {
                     const fileType = file.name.endsWith('.apk') ? 'APK' : file.name.endsWith('.cpk') ? 'CPK' : 'ZIP';
                     zipParseError = result.error || `Failed to parse ${fileType} file`;
                     uploadError = `File parsing failed: ${zipParseError}`;
+                    console.log('[File Upload] Parse failed:', { zipParseError, uploadError });
                 }
             } catch (error) {
                 const fileType = file.name.endsWith('.apk') ? 'APK' : file.name.endsWith('.cpk') ? 'CPK' : 'ZIP';
                 zipParseError = `Failed to parse ${fileType} file`;
                 uploadError = `File parsing failed: ${zipParseError}`;
+                console.error('[File Upload] Parse exception:', error);
             } finally {
                 zipParsing = false;
                 formLocked = false; // Unlock the form after ZIP parsing
+                console.log('[File Upload] Parsing complete - formLocked:', formLocked);
             }
         }
     }

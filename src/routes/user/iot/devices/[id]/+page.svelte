@@ -1187,7 +1187,8 @@
                 keepalive: true,
                 body: JSON.stringify({
                     action: 'installApp',
-                    packageName: selectedInstallApp.packageName ?? 'unknown'
+                    packageName: selectedInstallApp.packageName ?? 'unknown',
+                    resourceId: selectedInstallApp.id
                 })
             });
 

@@ -200,7 +200,12 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       // Check if connection already exists before registering
       const existingConnection = ConnectionManager.getConnection(device.id);
       if (existingConnection) {
-        logger.info(`[Pushpin] Connection already exists for device ${device.id}, skipping registration`);
+        logger.info(`[Pushpin] Connection already exists for device ${device.id}, updating userInfo`);
+        
+        // CRITICAL FIX: Update the existing connection's meta.userInfo
+        // The authorization check looks at connection.meta.userInfo.id
+        existingConnection.meta.userInfo = userInfo;
+        logger.info(`[Pushpin] Updated connection meta.userInfo for device ${device.id} to user ${userInfo.id}`);
       } else {
         const connection = new PushpinConnection(
           { id: device.id, userInfo, nodeId: 'device-pushpin-listen', protocol: 'pushpin', deviceId: device.id, connectedAt: Date.now() },

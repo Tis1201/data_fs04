@@ -906,7 +906,8 @@
                 keepalive: true,
                 body: JSON.stringify({
                     action: 'updateFirmware',
-                    firmwareVersion: selectedFirmware.version ?? '1.0.0'
+                    firmwareVersion: selectedFirmware.version ?? '1.0.0',
+                    resourceId: selectedFirmware.id
                 })
             });
 
@@ -1072,7 +1073,8 @@
                 keepalive: true,
                 body: JSON.stringify({
                     action: 'installApp',
-                    packageName: selectedInstallApp.packageName ?? 'unknown'
+                    packageName: selectedInstallApp.packageName ?? 'unknown',
+                    resourceId: selectedInstallApp.id
                 })
             });
 
@@ -1204,7 +1206,8 @@
                 body: JSON.stringify({
                     action: 'pullFile',
                     sourcePath: selectedPullFile.path,
-                    destinationPath: pullFileDestinationPath.trim()
+                    destinationPath: pullFileDestinationPath.trim(),
+                    resourceId: selectedPullFile.id
                 })
             });
 

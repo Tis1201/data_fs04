@@ -78,6 +78,10 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 
         // Create device identity for this registration
         const deviceId = uuidv4();
+        
+        // CRITICAL FIX: Use a separate temporary connection ID for the registration SSE stream
+        // to prevent it from overwriting the permanent listen endpoint connection
+        const tempRegistrationConnectionId = `temp-register-${deviceId}`;
 
         const deviceMeta: DeviceMeta = {
             id: deviceId,
@@ -89,10 +93,10 @@ export const GET: RequestHandler = async ({ locals, request }) => {
         // Create SSE stream
         const stream = new ReadableStream({
             start(controller) {
-                // Create connection metadata
+                // Create connection metadata with temporary connection ID
                 const connectionMeta: ConnectionMeta = {
-                    id: deviceId,
-                    deviceId: deviceId,
+                    id: tempRegistrationConnectionId, // Use temporary ID to avoid collision
+                    deviceId: deviceId, // Keep deviceId reference
                     userInfo: {
                         id: 'system',
                         email: 'system@system.com',
@@ -109,7 +113,7 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                 const connection = new SSEConnection(connectionMeta, controller);
                 ConnectionManager.registerConnection(connection);
 
-                logger.info(`Pushpin device registration SSE connection established: ${deviceId}`);
+                logger.info(`Pushpin device registration SSE connection established: ${deviceId} (temp connection ID: ${tempRegistrationConnectionId})`);
 
                 // Register the device with the PIN
                 (async () => {
@@ -202,9 +206,10 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                 });
 
                 // Auto-subscribe device to its own scope for receiving commands
+                // Use temporary connection ID for the registration phase
                 subscriptionRegistry.addSubscription(
                     `subscription:device:${deviceId}`,
-                    `subscriber:connection:${deviceId}`
+                    `subscriber:connection:${tempRegistrationConnectionId}`
                 ).then(() => {
                     logger.info(`Device ${deviceId} auto-subscribed to its own channel`);
                 }).catch((error: any) => {
@@ -221,17 +226,12 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                 ));
             },
             cancel() {
-                // Clean up device subscription when connection closes
+                // DON'T clean up device subscription when registration connection closes
+                // The subscription will be managed by the listen endpoint
+                // Only log the connection closure
                 const deviceId = (locals as any).deviceId;
-                if (deviceId) {
-                    subscriptionRegistry.removeSubscription(
-                        `subscription:device:${deviceId}`,
-                        `subscriber:connection:${deviceId}`
-                    ).catch((error: any) => {
-                        logger.error(`Failed to remove subscription for device ${deviceId}: ${error}`);
-                    });
-                }
-                logger.info(`Pushpin device registration connection closed: ${deviceId}`);
+                logger.info(`Pushpin device registration connection closed: ${deviceId} (temp connection ID: ${tempRegistrationConnectionId})`);
+                logger.debug(`[Pushpin] Registration stream cleanup - subscription will be managed by listen endpoint`);
             }
         });
 

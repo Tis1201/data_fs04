@@ -11,12 +11,13 @@ import { SystemUser } from '../../interfaces/message';
  */
 export async function handlePushFile(message: InMessage): Promise<void> {
   const { payload } = message;
-  const { deviceId, sourcePath, targetPath } = payload as any;
+  const { deviceId, sourcePath, targetPath, resourceId } = payload as any;
 
   logger.info('[FileOperationHandler] Handling pushFile request', {
     deviceId,
     sourcePath,
     targetPath,
+    resourceId,
     requestId: (message as any)?.requestId
   });
 
@@ -48,7 +49,8 @@ export async function handlePushFile(message: InMessage): Promise<void> {
         logId: actionLog.id,
         requestId: (message as any)?.requestId,
         sourcePath,
-        destinationPath: targetPath || sourcePath
+        destinationPath: targetPath || sourcePath,
+        resourceId
       },
       SystemUser,
       { echoToSender: false }
@@ -74,12 +76,13 @@ export async function handlePushFile(message: InMessage): Promise<void> {
  */
 export async function handlePullFile(message: InMessage): Promise<void> {
   const { payload } = message;
-  const { deviceId, sourcePath, targetPath } = payload as any;
+  const { deviceId, sourcePath, targetPath, resourceId } = payload as any;
 
   logger.info('[FileOperationHandler] Handling pullFile request', {
     deviceId,
     sourcePath,
     targetPath,
+    resourceId,
     requestId: (message as any)?.requestId
   });
 
@@ -111,7 +114,8 @@ export async function handlePullFile(message: InMessage): Promise<void> {
         logId: actionLog.id,
         requestId: (message as any)?.requestId,
         sourcePath,
-        destinationPath: targetPath || sourcePath
+        destinationPath: targetPath || sourcePath,
+        resourceId
       },
       SystemUser,
       { echoToSender: false }
@@ -137,12 +141,13 @@ export async function handlePullFile(message: InMessage): Promise<void> {
  */
 export async function handleInstallApp(message: InMessage): Promise<void> {
   const { payload } = message;
-  const { deviceId, appName, appPath } = payload as any;
+  const { deviceId, appName, appPath, resourceId } = payload as any;
 
   logger.info('[FileOperationHandler] Handling installApp request', {
     deviceId,
     appName,
     appPath,
+    resourceId,
     requestId: (message as any)?.requestId
   });
 
@@ -174,7 +179,8 @@ export async function handleInstallApp(message: InMessage): Promise<void> {
         logId: actionLog.id,
         requestId: (message as any)?.requestId,
         packageName: appName,
-        appPath
+        appPath,
+        resourceId
       },
       SystemUser,
       { echoToSender: false }
@@ -200,12 +206,13 @@ export async function handleInstallApp(message: InMessage): Promise<void> {
  */
 export async function handleUpdateFirmware(message: InMessage): Promise<void> {
   const { payload } = message;
-  const { deviceId, firmwarePath, version } = payload as any;
+  const { deviceId, firmwarePath, version, resourceId } = payload as any;
 
   logger.info('[FileOperationHandler] Handling updateFirmware request', {
     deviceId,
     firmwarePath,
     version,
+    resourceId,
     requestId: (message as any)?.requestId
   });
 
@@ -237,7 +244,8 @@ export async function handleUpdateFirmware(message: InMessage): Promise<void> {
         logId: actionLog.id,
         requestId: (message as any)?.requestId,
         firmwarePath,
-        firmwareVersion: version
+        firmwareVersion: version,
+        resourceId
       },
       SystemUser,
       { echoToSender: false }
