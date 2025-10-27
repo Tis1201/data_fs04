@@ -13,11 +13,12 @@ import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
-import { getObjectUrl, uploadToS3 } from '$lib/server/s3/S3';
+// Removed unused S3 import
 import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
+import { getStorageConfig } from '$lib/server/storage';
 
 export const load = restrict(
-    async (event) => {
+    async (event: any) => {
         const { locals } = event;
         try {
             const form = await superValidate(zod(resourceSchema), {
@@ -34,14 +35,18 @@ export const load = restrict(
                 orderBy: { name: 'asc' }
             });
 
-            const accountOptions = accounts.map(account => ({
+            const accountOptions = accounts.map((account: any) => ({
                 value: account.id,
                 label: account.name
             }));
 
+            // Get storage configuration
+            const storageConfig = getStorageConfig();
+
             return {
                 form,
-                accountOptions
+                accountOptions,
+                storageConfig
             };
         } catch (err) {
             logger.error(`Error loading admin resource form: ${String(err)}`);
@@ -53,7 +58,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async (event) => {
+        async (event: any) => {
             const { request, locals, auth } = event;
 
             try {
@@ -61,8 +66,11 @@ export const actions: Actions = {
                 const formData = await request.formData();
                 const rawFile = formData.get('file');
 
-                // Infer type/format if file exists and inject if missing
-                if (rawFile instanceof File) {
+                // Check if this is a cloud upload (path starts with http) or local file
+                const isCloudUpload = formData.get('path') && String(formData.get('path')).startsWith('http');
+                
+                // Only validate file extension for local uploads
+                if (rawFile instanceof File && !isCloudUpload) {
                     // Validate file extension first
                     const allowedExtensions = ['.zip', '.cpk', '.apk'];
                     const fileName = rawFile.name.toLowerCase();
@@ -70,8 +78,11 @@ export const actions: Actions = {
                     
                     if (!hasValidExtension) {
                         logger.warn(`Invalid file extension: ${rawFile.name}`);
+                        const errorForm = await superValidate(zod(resourceSchema), {
+                            id: 'resource-form'
+                        });
                         return message(
-                            null,
+                            errorForm,
                             createErrorResponse('Invalid file format', {
                                 details: 'Only .zip, .cpk, and .apk files are allowed'
                             })
@@ -84,6 +95,25 @@ export const actions: Actions = {
                     }
                     if (!formData.get('format')) {
                         formData.set('format', inferredFormat);
+                    }
+                } else if (isCloudUpload) {
+                    // For cloud uploads, infer type/format from the path if missing
+                    const path = String(formData.get('path'));
+                    const pathParts = path.split('/');
+                    const fileName = pathParts[pathParts.length - 1];
+                    
+                    if (!formData.get('type') || !formData.get('format')) {
+                        const mockFile = {
+                            name: fileName,
+                            type: 'application/octet-stream'
+                        } as File;
+                        const { type: inferredType, format: inferredFormat } = inferTypeAndFormatFromFile(mockFile);
+                        if (!formData.get('type')) {
+                            formData.set('type', inferredType);
+                        }
+                        if (!formData.get('format')) {
+                            formData.set('format', inferredFormat);
+                        }
                     }
                 }
 
@@ -109,22 +139,37 @@ export const actions: Actions = {
                     accountId = '';
                 }
 
-                // Attach the file object
-                if (rawFile instanceof File) {
+                // Attach the file object (only for local uploads)
+                if (rawFile instanceof File && !isCloudUpload) {
                     form.data.file = rawFile;
-                    logger.debug(`Received file: name="${rawFile.name}", type="${rawFile.type}", size=${rawFile.size}`);
+                    logger.debug(`Received local file: name="${rawFile.name}", type="${rawFile.type}", size=${rawFile.size}`);
+                } else if (isCloudUpload) {
+                    form.data.file = null;
+                    logger.debug(`Cloud upload detected, no local file needed. Path: ${formData.get('path')}`);
                 } else {
                     form.data.file = null;
                     logger.debug(`No valid file in formData.file; value: ${String(rawFile)}`);
                 }
 
-                // Fallback: if name is empty but file exists, derive name from filename
-                if ((!form.data.name || form.data.name.trim() === '') && rawFile instanceof File) {
-                    const base = rawFile.name.includes('.')
-                        ? rawFile.name.split('.').slice(0, -1).join('.')
-                        : rawFile.name;
-                    form.data.name = base;
-                    logger.debug(`Inferred resource name from file: ${form.data.name}`);
+                // Fallback: if name is empty, derive name from filename (local or cloud)
+                if (!form.data.name || form.data.name.trim() === '') {
+                    let fileName = '';
+                    if (rawFile instanceof File && !isCloudUpload) {
+                        // Local file
+                        fileName = rawFile.name;
+                    } else if (isCloudUpload && form.data.path) {
+                        // Cloud upload - extract filename from path
+                        const pathParts = form.data.path.split('/');
+                        fileName = pathParts[pathParts.length - 1];
+                    }
+                    
+                    if (fileName) {
+                        const base = fileName.includes('.')
+                            ? fileName.split('.').slice(0, -1).join('.')
+                            : fileName;
+                        form.data.name = base;
+                        logger.debug(`Inferred resource name from file: ${form.data.name}`);
+                    }
                 }
 
                 // Resolve account (specific or system)
@@ -193,12 +238,26 @@ export const actions: Actions = {
                 let filePath: string | null = null;
 
                 try {
-                    // Check if file is already uploaded (cloud upload mode)
-                    if (form.data.path && form.data.path.startsWith('http')) {
-                        logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
-                        filePath = form.data.path;
-                        form.data.file = null; // strip before persisting
-                    } else if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
+                // Check if file is already uploaded (cloud upload mode)
+                if (form.data.path && form.data.path.startsWith('http')) {
+                    logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
+                    filePath = form.data.path;
+                    form.data.file = null; // strip before persisting
+                    
+                    // For cloud uploads, we still need to infer type/format if missing
+                    if (!form.data.type || !form.data.format) {
+                        // Try to infer from the file path extension
+                        const pathParts = form.data.path.split('/');
+                        const fileName = pathParts[pathParts.length - 1];
+                        const mockFile = {
+                            name: fileName,
+                            type: 'application/octet-stream' // Default type
+                        } as File;
+                        const { type: inferredType, format: inferredFormat } = inferTypeAndFormatFromFile(mockFile);
+                        form.data.type = form.data.type || inferredType;
+                        form.data.format = form.data.format || inferredFormat;
+                    }
+                } else if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
                         const uploadedFile = form.data.file as File;
 
                         if (uploadedFile.size === 0) {
@@ -252,7 +311,7 @@ export const actions: Actions = {
                             packageName: form.data.packageName,
                             path: form.data.path,
                             size: form.data.size,
-                            accountId: accountId,
+                            accountId: accountId || undefined,
                             createdBy: auth.user.id,
                             updatedBy: auth.user.id
                         }
@@ -299,7 +358,7 @@ export const actions: Actions = {
                         error: err,
                         form,
                         prisma: locals.prisma,
-                        accountId,
+                        accountId: accountId || undefined,
                         defaultMessage: 'Failed to create resource. Please try again.',
                         action: 'admin resource creation'
                     });

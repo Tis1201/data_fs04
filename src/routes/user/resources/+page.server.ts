@@ -33,7 +33,8 @@ export const load = restrict(
                 where.OR = [
                     { name: { contains: searchLower } },
                     { id: { contains: searchLower } },
-                    { path: { contains: searchLower } }
+                    { path: { contains: searchLower } },
+                    { packageName: { contains: searchLower } }
                 ];
             }
             
@@ -59,7 +60,12 @@ export const load = restrict(
                     select: {
                         id: true,
                         name: true,
+                        description: true,
                         type: true,
+                        target: true,
+                        version: true,
+                        format: true,
+                        packageName: true,
                         path: true,
                         size: true,
                         createdAt: true,

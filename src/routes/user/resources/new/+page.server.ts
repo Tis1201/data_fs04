@@ -12,6 +12,7 @@ import { getEnhancedPrisma } from '$lib/server/prisma';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
+import { getStorageConfig } from '$lib/server/storage';
 
 export const load = restrict(
     async (event: any) => {
@@ -30,9 +31,13 @@ export const load = restrict(
                 { value: 'document', label: 'Document' }
             ];
             
+            // Get storage configuration
+            const storageConfig = getStorageConfig();
+
             return {
                 form,
-                resourceTypes
+                resourceTypes,
+                storageConfig
             };
         } catch (err) {
             logger.error(`Error loading resource form: ${err}`);

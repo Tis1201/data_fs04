@@ -1,5 +1,7 @@
-// Client-side ZIP parsing utility
-// Note: This uses JSZip for browser-based ZIP parsing
+// Client-side ZIP/APK/CPK parsing utility
+// Note: This uses JSZip for browser-based ZIP/APK/CPK parsing
+// APK files are essentially ZIP files with a different extension
+// CPK files are also ZIP files with a different extension
 
 export interface AppJsonData {
   name: string;
@@ -17,16 +19,29 @@ export interface ZipParseResult {
 }
 
 /**
- * Parse a ZIP file and extract app.json data
- * @param file - The ZIP file to parse
+ * Parse a ZIP/APK/CPK file and extract app.json data
+ * @param file - The ZIP/APK/CPK file to parse
  * @returns Promise with parsing result
  */
 export async function parseZipFile(file: File): Promise<ZipParseResult> {
-  console.log('[ZIP Parser] Starting ZIP file parsing:', {
+  console.log('[ZIP Parser] Starting ZIP/APK/CPK file parsing:', {
     fileName: file.name,
     fileSize: file.size,
     fileType: file.type
   });
+
+  // Check if file is supported format
+  const fileName = file.name.toLowerCase();
+  const isZipFile = fileName.endsWith('.zip');
+  const isApkFile = fileName.endsWith('.apk');
+  const isCpkFile = fileName.endsWith('.cpk');
+  
+  if (!isZipFile && !isApkFile && !isCpkFile) {
+    return {
+      success: false,
+      error: 'File must be a .zip, .apk, or .cpk file'
+    };
+  }
 
   try {
     // Dynamically import JSZip only when needed
@@ -34,9 +49,10 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
     const JSZip = (await import('jszip')).default;
     console.log('[ZIP Parser] JSZip imported successfully');
     
-    console.log('[ZIP Parser] Loading ZIP file...');
+    const fileType = isApkFile ? 'APK' : isCpkFile ? 'CPK' : 'ZIP';
+    console.log(`[ZIP Parser] Loading ${fileType} file...`);
     const zip = await JSZip.loadAsync(file);
-    console.log('[ZIP Parser] ZIP file loaded, checking for app.json...');
+    console.log(`[ZIP Parser] ${fileType} file loaded, checking for app.json...`);
     
     // List all files in the ZIP for debugging
     const allFiles = Object.keys(zip.files);
@@ -65,10 +81,10 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
     });
     
     if (!appJsonFile) {
-      console.log('[ZIP Parser] No app.json file found in ZIP');
+      console.log(`[ZIP Parser] No app.json file found in ${fileType}`);
       return {
         success: false,
-        error: 'No app.json file found in the ZIP file'
+        error: `No app.json file found in the ${fileType} file`
       };
     }
     
@@ -94,10 +110,11 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
       };
     }
   } catch (error) {
-    console.error('[ZIP Parser] ZIP parsing error:', error);
+    const fileType = isApkFile ? 'APK' : isCpkFile ? 'CPK' : 'ZIP';
+    console.error(`[ZIP Parser] ${fileType} parsing error:`, error);
     return {
       success: false,
-      error: 'Failed to parse ZIP file'
+      error: `Failed to parse ${fileType} file. The file may be corrupted or not a valid ${fileType} file.`
     };
   }
 }

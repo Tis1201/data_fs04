@@ -47,7 +47,7 @@
 
     let nameError = '';
     
-    // ZIP parsing state
+    // File parsing state
     let zipParsing = false;
     let zipParseSuccess = '';
     let zipParseError = '';
@@ -68,8 +68,8 @@
     // Reactive clear of errors
     $: if ($form.name) nameError = '';
 
-    function syncToNativeInput(file: File) {
-        if (nativeFileInput) {
+    function syncToNativeInput(file: File | null) {
+        if (nativeFileInput && file) {
             const dt = new DataTransfer();
             dt.items.add(file);
             nativeFileInput.files = dt.files;
@@ -102,12 +102,15 @@
         // Set uploadedFiles for the upload component
         uploadedFiles = files;
         
-        // Parse ZIP file if it's a ZIP file
-        if (file.name.toLowerCase().endsWith('.zip')) {
+        // Parse file if it's a supported format
+        const fileName = file.name.toLowerCase();
+        const isSupportedFile = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk');
+        
+        if (isSupportedFile) {
             zipParsing = true;
             zipParseError = '';
             zipParseSuccess = '';
-            formLocked = true; // Lock the form during ZIP parsing
+            formLocked = true; // Lock the form during file parsing
             
             try {
                 const result = await parseZipFile(file);
@@ -131,26 +134,69 @@
                         $form.name = displayName;
                     }
                     
-                    zipParseSuccess = `✓ Successfully parsed app.json from ZIP file`;
+                    const fileType = fileName.endsWith('.apk') ? 'APK' : fileName.endsWith('.cpk') ? 'CPK' : 'ZIP';
+                    zipParseSuccess = `✓ Successfully parsed app.json from ${fileType} file`;
                 } else {
-                    zipParseError = result.error || 'Failed to parse ZIP file';
-                    uploadError = `ZIP parsing failed: ${zipParseError}`;
+                    zipParseError = result.error || 'Failed to parse file';
+                    uploadError = `File parsing failed: ${zipParseError}`;
                 }
             } catch (error) {
-                zipParseError = 'Failed to parse ZIP file';
-                uploadError = `ZIP parsing failed: ${zipParseError}`;
+                zipParseError = 'Failed to parse file';
+                uploadError = `File parsing failed: ${zipParseError}`;
             } finally {
                 zipParsing = false;
-                formLocked = false; // Unlock the form after ZIP parsing
+                formLocked = false; // Unlock the form after file parsing
             }
         }
     }
 
-    function handleUploadComplete(event: CustomEvent<{ file: File; url: string }>) {
+    async function handleUploadComplete(event: CustomEvent<{ file: File; url: string }>) {
+        console.log('[NewResource] Upload complete event received:', event.detail);
         const { file, url } = event.detail;
-        uploadSuccess = `File "${file.name}" uploaded successfully!`;
-        uploadError = '';
-        $form.path = url; // Update the path with the actual uploaded URL
+        
+        try {
+            console.log('[NewResource] Creating resource record...');
+            
+            // Create resource record using cloud endpoint
+            const createResponse = await fetch('/api/admin/iot/resources/create-cloud', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: $form.name || file.name.split('.')[0],
+                    description: $form.description || '',
+                    type: $form.type || '',
+                    target: $form.target || 'user',
+                    version: $form.version || '',
+                    format: $form.format || '',
+                    packageName: $form.packageName || '',
+                    path: url,
+                    size: file.size,
+                    accountId: $form.accountId || ''
+                })
+            });
+
+            if (!createResponse.ok) {
+                const error = await createResponse.json();
+                throw new Error(error.message || 'Failed to create resource record');
+            }
+
+            const result = await createResponse.json();
+            console.log('[NewResource] Cloud resource created successfully:', result);
+            
+            uploadSuccess = `Resource "${result.data?.resourceId || 'created'}" created successfully!`;
+            uploadError = '';
+            
+            // Redirect to resources list after successful creation
+            setTimeout(() => {
+                window.location.href = '/admin/iot/resources';
+            }, 1500);
+            
+        } catch (error) {
+            console.error('[NewResource] Error creating resource record:', error);
+            uploadError = 'Failed to create resource record: ' + (error instanceof Error ? error.message : String(error));
+        }
     }
 
     function handleUploadProgress(event: CustomEvent<{ file: File; progress: number }>) {
@@ -195,67 +241,85 @@
     }
 
     async function submitForm() {
+        console.log('[NewResource] submitForm called');
+        console.log('[NewResource] Form data:', { name: $form.name, path: $form.path, file: $form.file });
+        
         nameError = $form.name ? '' : 'Resource name is required.';
+        
+        // Check if file exists
         if (!$form.file) {
             uploadError = 'File is required.';
         } else {
             uploadError = '';
         }
 
-        if (nameError || uploadError) return;
-
-        if (!containerRef) {
-            console.error("Form container missing");
+        if (nameError || uploadError) {
+            console.log('[NewResource] Form validation failed:', { nameError, uploadError });
             return;
         }
 
-        const realForm = containerRef.querySelector('form') as HTMLFormElement | null;
-        if (!realForm) {
-            console.error("Underlying form element not found");
+        if (!$form.file) {
+            console.error("No file selected");
             return;
         }
 
-        if ($fileField && nativeFileInput && (!nativeFileInput.files || nativeFileInput.files.length === 0)) {
-            syncToNativeInput($fileField);
-        }
-
-        if (typeof realForm.reportValidity === 'function' && !realForm.reportValidity()) {
-            return;
-        }
-
-        // Upload files first if there are any
-        if (fileUploadRef && uploadedFiles.length > 0) {
-            try {
-                await fileUploadRef.uploadFiles();
+        try {
+            // Check if this is a cloud storage mode (LOCAL_CLOUD or GCLOUD)
+            console.log('[NewResource] Storage config:', data.storageConfig);
+            const isCloudMode = data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+            console.log('[NewResource] Is cloud mode:', isCloudMode);
+            
+            if (isCloudMode) {
+                console.log('[NewResource] Cloud mode detected, using CloudFileUpload...');
                 
-                // After successful upload, get the uploaded URLs and update form data
-                const uploadedUrls = fileUploadRef.getUploadedUrls();
-                if (uploadedUrls.length > 0) {
-                    // Update form data with the uploaded file URL instead of file data
-                    $form.path = uploadedUrls[0]; // Use the first uploaded file URL
-                    $form.file = null; // Clear the file data to prevent 512KB limit
+                // Use SmartFileUpload component's upload method
+                if (fileUploadRef && typeof fileUploadRef.uploadFiles === 'function') {
+                    console.log('[NewResource] Calling SmartFileUpload.uploadFiles()...');
+                    await fileUploadRef.uploadFiles();
                     
-                    // Clear the file data from the component to prevent form submission issues
-                    fileUploadRef.clearFileDataForSubmission();
-                    
-                    // Clear the native file input to prevent it from being sent
-                    if (nativeFileInput) {
-                        nativeFileInput.value = '';
-                    }
+                    // The uploadComplete event will be handled by handleUploadComplete
+                    // which will create the resource record
+                } else {
+                    throw new Error('SmartFileUpload component not available');
                 }
-            } catch (error) {
-                console.error('File upload failed:', error);
-                uploadError = 'File upload failed. Please try again.';
-                return;
-            }
-        }
+                
+            } else {
+                console.log('[NewResource] Local mode detected, using form submission...');
+                
+                // For local uploads, use the regular form submission
+                if (!containerRef) {
+                    console.error("Form container missing");
+                    return;
+                }
 
-        if (typeof realForm.requestSubmit === 'function') {
-            realForm.requestSubmit();
-        } else if (typeof realForm.submit === 'function') {
-            realForm.submit();
-        } else {
-            console.error("No submit method available on form");
+                const realForm = containerRef.querySelector('form') as HTMLFormElement | null;
+                if (!realForm) {
+                    console.error("Underlying form element not found");
+                    return;
+                }
+
+                // Sync to native input for local file uploads
+                if ($fileField && nativeFileInput && (!nativeFileInput.files || nativeFileInput.files.length === 0)) {
+                    syncToNativeInput($fileField);
+                }
+
+                if (typeof realForm.reportValidity === 'function' && !realForm.reportValidity()) {
+                    return;
+                }
+
+                // Submit the form for local file uploads
+                if (typeof realForm.requestSubmit === 'function') {
+                    realForm.requestSubmit();
+                } else if (typeof realForm.submit === 'function') {
+                    realForm.submit();
+                } else {
+                    console.error("No submit method available on form");
+                }
+            }
+        } catch (error) {
+            console.error('[NewResource] Error during submission:', error);
+            uploadError = 'Failed to create resource: ' + (error instanceof Error ? error.message : String(error));
+            uploadSuccess = '';
         }
     }
 
@@ -289,7 +353,7 @@
             <div class="flex items-center gap-2">
                 <div class="animate-spin">⏳</div>
                 <p class="text-amber-800 font-medium">
-                    Form is locked during ZIP validation - please wait...
+                    Form is locked during file validation - please wait...
                 </p>
             </div>
         </div>
@@ -340,13 +404,13 @@
                             <!-- ZIP Parsing Status -->
                             {#if zipParsing}
                                 <p class="text-xs text-blue-600 font-medium mt-1">
-                                    🔄 Parsing ZIP file for app.json...
+                                    🔄 Parsing file for app.json...
                                 </p>
                             {/if}
                             
                             {#if formLocked}
                                 <p class="text-xs text-amber-600 font-medium mt-1">
-                                    ⏳ Form locked during ZIP validation - please wait...
+                                    ⏳ Form locked during file validation - please wait...
                                 </p>
                             {/if}
                             
