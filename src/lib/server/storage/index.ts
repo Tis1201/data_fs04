@@ -124,7 +124,7 @@ export async function generatePresignedUrlLocalCloud(
         // Use gcloud CLI to generate presigned URL (bypasses signing issues)
         const { execSync } = await import('child_process');
         
-        const bucketName = 'example-1-dataare';
+        const bucketName = bucket;
         const fileName = objectPath;
         const expiresInSeconds = Math.floor(expiresSeconds);
         
@@ -132,7 +132,7 @@ export async function generatePresignedUrlLocalCloud(
         
         try {
             // Generate presigned URL using gcloud CLI with service account impersonation
-            const gcloudCommand = `gcloud auth print-access-token --impersonate-service-account=s3upload@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com`;
+            const gcloudCommand = `gcloud auth print-access-token --impersonate-service-account=${targetServiceAccount}`;
             
             logger.info(`Getting access token with impersonation...`);
             
@@ -140,8 +140,7 @@ export async function generatePresignedUrlLocalCloud(
                 encoding: 'utf8',
                 timeout: 10000,
                 env: { 
-                    ...process.env, 
-                    GOOGLE_APPLICATION_CREDENTIALS: '/Users/macbook/.config/gcloud/application_default_credentials.json'
+                    ...process.env
                 }
             }).trim();
             
@@ -288,12 +287,28 @@ export async function generatePresignedUrl(
 
     logger.info(`[PresignedURL] Starting presigned URL generation for mode: ${config.mode}`);
 
-    if (!config.bucket) {
-        throw new Error('GCLOUD_BUCKET environment variable is required for presigned URL generation');
-    }
+    // Bucket requirement is checked per mode below
 
     switch (config.mode) {
+        case 'LOCAL':
+            // For LOCAL mode, we'll create a local API endpoint for upload
+            const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:3000';
+            const url = `${baseUrl}/api/upload/local?path=${encodeURIComponent(objectPath)}&contentType=${encodeURIComponent(contentType)}`;
+            
+            logger.info(`Generated LOCAL presigned URL: ${url}`);
+            
+            return {
+                url,
+                bucket: 'local',
+                objectPath,
+                contentType,
+                expires: Date.now() + (expiresSeconds * 1000)
+            };
+
         case 'LOCAL_CLOUD':
+            if (!config.bucket) {
+                throw new Error('GCLOUD_BUCKET environment variable is required for LOCAL_CLOUD mode');
+            }
             if (!config.targetServiceAccount) {
                 throw new Error('GCLOUD_TARGET_SA environment variable is required for LOCAL_CLOUD mode');
             }
@@ -306,6 +321,9 @@ export async function generatePresignedUrl(
             );
 
         case 'GCLOUD':
+            if (!config.bucket) {
+                throw new Error('GCLOUD_BUCKET environment variable is required for GCLOUD mode');
+            }
             return await generatePresignedUrlGCloud(
                 config.bucket,
                 objectPath,
