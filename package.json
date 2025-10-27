@@ -7,7 +7,7 @@
 	},
 	"scripts": {
 		"dev": "dotenv -- vite dev",
-		"build": "vite build",
+		"build": "dotenv -- vite build",
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -32,8 +32,8 @@
 		"dev:all": "concurrently \"npm run dev\" \"npm run maildev\"",
 		"start:socket": "node socket.js",
 		"preview:dev": "vite preview",
-		"start:prod": "NODE_ENV=production node build",
-		"prodServer": "NODE_ENV=production node prodServer.js",
+		"start:prod": "NODE_ENV=production dotenv -- node build",
+		"prodServer": "NODE_ENV=production dotenv -- node prodServer.js",
 		"package": "npm run build && node scripts/build/package-app.js"
 	},
 	"devDependencies": {
@@ -100,6 +100,7 @@
 		"@types/unzipper": "^0.10.11",
 		"@whiskeysockets/baileys": "6.7.18",
 		"@zenstackhq/runtime": "2.9.0",
+		"app-info-parser": "^1.1.6",
 		"arctic": "^3.1.3",
 		"baileys": "^6.7.18",
 		"chart.js": "^4.4.6",
