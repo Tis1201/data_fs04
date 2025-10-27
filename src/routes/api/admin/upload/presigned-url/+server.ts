@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request }) => {
             const extension = fileName.split('.').pop()?.toLowerCase();
             const mimeTypes: Record<string, string> = {
                 'apk': 'application/vnd.android.package-archive',
-                'cpk': 'application/zip',
+                'cpk': 'application/octet-stream',
                 'bin': 'application/octet-stream',
                 'exe': 'application/x-msdownload',
                 'sh': 'application/x-sh',
