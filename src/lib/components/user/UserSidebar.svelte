@@ -125,14 +125,14 @@
         //     icon: FileText,
         //     subItems: [] 
         // },
-        { 
-            label: "Analytics", 
-            icon: ActivitySquare, 
-            initialExpanded: false,
-            subItems: [
-                { href: "/user/analytics/logs", label: "Logs", icon: Logs },
-            ]
-        },
+        // {
+        //     label: "Analytics",
+        //     icon: ActivitySquare,
+        //     initialExpanded: false,
+        //     subItems: [
+        //         { href: "/user/analytics/logs", label: "Logs", icon: Logs },
+        //     ]
+        // },
         { 
             label: "Resources", 
             icon: Files, 
