@@ -299,7 +299,8 @@
                             duration: 2000
                         });
                     }
-                    return; // Don't process as connection event
+                    // Don't return here - let the message bubble to DeviceAppList component
+                    // The DeviceAppList component subscribes to the same SSE store and needs to receive this message
                 }
                 
                 // Log the raw event structure to understand the format
@@ -1563,6 +1564,7 @@
         {apiKeySubmitting}
         {isLoading}
         {actionStatus}
+        {deviceInformation}
         {sseStore}
     />
 </AdminPageLayout>

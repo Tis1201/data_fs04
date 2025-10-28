@@ -18,7 +18,6 @@
   import { toast } from 'svelte-sonner';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { sseStore } from '$lib/stores/sse-store';
 
   /* Reused lists */
   import DeviceAppList from './DeviceAppList.svelte';
@@ -42,6 +41,7 @@
   export let isLoading: any;
   export let actionStatus: any;
   export let deviceInformation: any = null;
+  export let sseStore: any; // ✅ FIX: Receive sseStore as prop from parent
 
   let activeTab = "overview";
   let loading = false;

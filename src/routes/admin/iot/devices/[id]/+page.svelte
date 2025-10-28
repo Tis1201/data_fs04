@@ -240,7 +240,8 @@
                             duration: 2000
                         });
                     }
-                    return; // Don't process as connection event
+                    // Don't return here - let the message bubble to DeviceAppList component
+                    // The DeviceAppList component subscribes to the same SSE store and needs to receive this message
                 }
                 
                 // Normalize payloads that carry action in payload
@@ -1436,6 +1437,7 @@
             {isLoading}
             {actionStatus}
             {deviceInformation}
+            {sseStore}
         />
         {:else}
         <div class="text-center py-8">
