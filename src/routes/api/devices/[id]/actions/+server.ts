@@ -24,6 +24,12 @@ const ACTION_CONFIGS = {
         timeout: 1 * 60 * 1000, // 1 minute
         requiredFields: []
     },
+    refresh: {
+        actionType: 'refresh',
+        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        timeout: 1 * 60 * 1000, // 1 minute
+        requiredFields: []
+    },
     installApp: {
         actionType: 'install_app',
         sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE

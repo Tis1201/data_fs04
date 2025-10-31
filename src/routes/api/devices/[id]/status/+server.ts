@@ -131,7 +131,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
             'installApp',
             'uninstall',
             'restartApp',
-            'restart',
+            'refresh',
             'reboot',
             'updateFirmware',
             'applyProfile',
