@@ -23,12 +23,12 @@ x-dev-export-deployment: &dev_export_deployment export TARGET_K8S_DEPLOYMENT="fs
 x-dev-export-container: &dev_export_container export TARGET_K8S_CONTAINER="fs04-web"
 
 # PRD Cluster
-x-prd-export-project: &prd_export_project export TARGET_GCP_PROJECT="${PROD_GCP_PROJECT:?Set PROD_GCP_PROJECT}"
-x-prd-export-cluster-name: &prd_export_cluster_name export TARGET_GKE_CLUSTER_NAME="${PROD_GKE_CLUSTER_NAME:?Set PROD_GKE_CLUSTER_NAME}"
-x-prd-export-cluster-location: &prd_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="${PROD_GKE_CLUSTER_LOCATION:?Set PROD_GKE_CLUSTER_LOCATION}"
-x-prd-export-namespace: &prd_export_namespace export TARGET_K8S_NAMESPACE="${PROD_K8S_NAMESPACE:?Set PROD_K8S_NAMESPACE}"
-x-prd-export-deployment: &prd_export_deployment export TARGET_K8S_DEPLOYMENT="${PROD_K8S_DEPLOYMENT:?Set PROD_K8S_DEPLOYMENT}"
-x-prd-export-container: &prd_export_container export TARGET_K8S_CONTAINER="${PROD_K8S_CONTAINER:?Set PROD_K8S_CONTAINER}"
+x-prd-export-project: &prd_export_project export TARGET_GCP_PROJECT="dr-iot-prd"
+x-prd-export-cluster-name: &prd_export_cluster_name export TARGET_GKE_CLUSTER_NAME="iot-prd-gke"
+x-prd-export-cluster-location: &prd_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="us-central1-a"
+x-prd-export-namespace: &prd_export_namespace export TARGET_K8S_NAMESPACE="fs04"
+x-prd-export-deployment: &prd_export_deployment export TARGET_K8S_DEPLOYMENT="fs04-web"
+x-prd-export-container: &prd_export_container export TARGET_K8S_CONTAINER="fs04-web"
 
 x-deploy-gke-shared: &deploy_gke_shared |
   set -euo pipefail
