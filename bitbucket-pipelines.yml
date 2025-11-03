@@ -35,10 +35,20 @@ x-deploy-gke-shared: &deploy_gke_shared |
   echo "Preparing ${TARGET_ENV} deployment"
   gcloud components install kubectl gke-gcloud-auth-plugin --quiet
   printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > /tmp/oidc.token
+  
+  # Set WIF credentials based on environment
+  if [ "${TARGET_ENV}" = "production" ]; then
+    WIF_AUDIENCE="//iam.googleapis.com/projects/924078269021/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider"
+    SERVICE_ACCOUNT="fs04-builder@dr-iot-prd.iam.gserviceaccount.com"
+  else
+    WIF_AUDIENCE="//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider"
+    SERVICE_ACCOUNT="fs04-builder@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com"
+  fi
+  
   cat <<'EOF' > /tmp/oidc.json
   {
     "type": "external_account",
-    "audience": "//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider",
+    "audience": "WIF_AUDIENCE_PLACEHOLDER",
     "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
     "token_url": "https://sts.googleapis.com/v1/token",
     "credential_source": {
@@ -47,9 +57,13 @@ x-deploy-gke-shared: &deploy_gke_shared |
         "type": "text"
       }
     },
-    "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/fs04-builder@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com:generateAccessToken"
+    "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/SERVICE_ACCOUNT_PLACEHOLDER:generateAccessToken"
   }
   EOF
+  
+  # Replace placeholders with actual values
+  sed -i "s|WIF_AUDIENCE_PLACEHOLDER|${WIF_AUDIENCE}|g" /tmp/oidc.json
+  sed -i "s|SERVICE_ACCOUNT_PLACEHOLDER|${SERVICE_ACCOUNT}|g" /tmp/oidc.json
   export GOOGLE_APPLICATION_CREDENTIALS=/tmp/oidc.json
   gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}"
   gcloud config set project "${TARGET_GCP_PROJECT}"
