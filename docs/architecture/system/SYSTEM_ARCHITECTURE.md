@@ -1562,8 +1562,8 @@ Files:
 
 ## 📚 Related Documentation
 
-- [Real-Time Communication](./REAL_TIME_COMMUNICATION.md) - Detailed SSE/WebSocket implementation
-- [Device Management](./DEVICE_MANAGEMENT.md) - Device lifecycle and API reference
+- [Real-Time Communication](../real-time/REAL_TIME_COMMUNICATION.md) - Detailed SSE/WebSocket implementation
+- [Device Management](../device/DEVICE_MANAGEMENT.md) - Device lifecycle and API reference
 - [Troubleshooting](./TROUBLESHOOTING.md) - All fixes and debugging guides
 
 ---

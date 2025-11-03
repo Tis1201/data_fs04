@@ -71,3 +71,4 @@
 - **Revocation**: Update `License.status` to `REVOKED` and rotate JWT contents; clients must fetch the latest license before trusting cached entitlements.
 
 Keeping license verification public-key based, with tight coupling to device metadata, eliminates spoofing opportunities while still allowing secure distribution over standard APIs.
+

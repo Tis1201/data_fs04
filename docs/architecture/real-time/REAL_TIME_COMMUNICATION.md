@@ -546,8 +546,8 @@ kubectl exec -n fs04 deployment/pushpin -c pushpin -- cat /etc/pushpin/routes
 
 ## 📚 Related Documentation
 
-- [System Architecture](./SYSTEM_ARCHITECTURE.md) - Complete system design
-- [Device Management](./DEVICE_MANAGEMENT.md) - Device lifecycle and API reference
+- [System Architecture](../system/SYSTEM_ARCHITECTURE.md) - Complete system design
+- [Device Management](../device/DEVICE_MANAGEMENT.md) - Device lifecycle and API reference
 - [Troubleshooting](./TROUBLESHOOTING.md) - All fixes and debugging guides
 
 ---
