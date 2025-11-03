@@ -37,6 +37,8 @@ export class ActionHandlerManager {
     this.handlers.set('uninstall', new SimpleActionHandler(params, 'uninstall'));
     this.handlers.set('restartApp', new SimpleActionHandler(params, 'restartApp'));
     this.handlers.set('config', new SimpleActionHandler(params, 'config'));
+    // Device action handlers
+    this.handlers.set('refresh', new SimpleActionHandler(params, 'refresh'));
   }
 
   /**

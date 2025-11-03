@@ -410,20 +410,34 @@
             statusUnsubscribe = null;
         }
         
-        // Unsubscribe from device channel
-        if (sseStore.connectionId) {
-            console.log('[AdminDeviceDetail] Unsubscribing from device channel...');
-            fetch(`/api/sse/unsubscribe/device/${device.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: sseStore.connectionId })
-            }).catch(err => console.warn('Unsubscribe failed:', err));
-        }
+        // Only unsubscribe if we're not navigating to a subpage of this device
+        // Check current URL to see if we're still on a device-related page
+        const currentPath = window.location.pathname;
+        const isStillOnDevicePage = currentPath.includes(`/devices/${device.id}`);
         
-        // Disconnect this component's SSE connection (won't affect other tabs now!)
-        console.log('[AdminDeviceDetail] Disconnecting per-component SSE...');
-        sseStore.disconnect();
+        if (!isStillOnDevicePage) {
+            // Unsubscribe from device channel (best-effort cleanup)
+            if (sseStore.connectionId) {
+                console.log('[AdminDeviceDetail] Unsubscribing from device channel (navigating away)...');
+                fetch(`/api/sse/unsubscribe/device/${device.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: sseStore.connectionId })
+                }).catch(err => {
+                    // Ignore 404 errors - endpoint may not be available or connection already cleaned up
+                    if (err?.status !== 404) {
+                        console.warn('Unsubscribe failed:', err);
+                    }
+                });
+            }
+            
+            // Disconnect this component's SSE connection (won't affect other tabs now!)
+            console.log('[AdminDeviceDetail] Disconnecting per-component SSE...');
+            sseStore.disconnect();
+        } else {
+            console.log('[AdminDeviceDetail] Still on device subpage, keeping SSE connection active');
+        }
         console.log('[AdminDeviceDetail] Cleanup complete');
     });
 

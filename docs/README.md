@@ -9,7 +9,7 @@ This directory contains comprehensive documentation for the IoT Management Syste
 
 ## 📚 Core Documentation
 
-### 🏗️ [System Architecture](./SYSTEM_ARCHITECTURE.md)
+### 🏗️ [System Architecture](./architecture/system/SYSTEM_ARCHITECTURE.md)
 **Complete system design and architecture**
 - **Authentication & Authorization** - JWT, RBAC, and security
 - **Database Architecture** - PostgreSQL, ClickHouse, and Redis
@@ -18,7 +18,7 @@ This directory contains comprehensive documentation for the IoT Management Syste
 - **Performance Architecture** - Caching, monitoring, and optimization
 - **Deployment Architecture** - Kubernetes, Docker, and production setup
 
-### 📡 [Real-Time Communication](./REAL_TIME_COMMUNICATION.md)
+### 📡 [Real-Time Communication](./architecture/real-time/REAL_TIME_COMMUNICATION.md)
 **SSE, WebSocket, WebRTC, and Pushpin implementation**
 - **Server-Sent Events (SSE)** - Real-time device communication
 - **Device SSE Implementation** - Complete device listen flow with API key auth
@@ -28,7 +28,7 @@ This directory contains comprehensive documentation for the IoT Management Syste
 - **Message Flow Examples** - Visual flow diagrams with file paths
 - **Performance Optimization** - Connection pooling and load balancing
 
-### 📱 [Device Management](./DEVICE_MANAGEMENT.md)
+### 📱 [Device Management](./architecture/device/DEVICE_MANAGEMENT.md)
 **Complete device flow and API reference**
 - **Complete Device Flow** - Register → Listen → JWT token acquisition
 - **Device Registration** - Factory JWT and PIN validation with SSE connection
@@ -55,19 +55,19 @@ This directory contains comprehensive documentation for the IoT Management Syste
 ## 🚀 Quick Start
 
 ### For New Developers
-1. **Start with [System Architecture](./SYSTEM_ARCHITECTURE.md)** - Understand the overall design
-2. **Read [Device Management](./DEVICE_MANAGEMENT.md)** - Learn the device lifecycle
-3. **Check [Real-Time Communication](./REAL_TIME_COMMUNICATION.md)** - Understand SSE/WebSocket
+1. **Start with [System Architecture](./architecture/system/SYSTEM_ARCHITECTURE.md)** - Understand the overall design
+2. **Read [Device Management](./architecture/device/DEVICE_MANAGEMENT.md)** - Learn the device lifecycle
+3. **Check [Real-Time Communication](./architecture/real-time/REAL_TIME_COMMUNICATION.md)** - Understand SSE/WebSocket
 4. **Bookmark [Troubleshooting](./TROUBLESHOOTING.md)** - For when you need help
 
 ### For System Administrators
-1. **Focus on [System Architecture](./SYSTEM_ARCHITECTURE.md)** - Deployment and infrastructure
+1. **Focus on [System Architecture](./architecture/system/SYSTEM_ARCHITECTURE.md)** - Deployment and infrastructure
 2. **Use [Troubleshooting](./TROUBLESHOOTING.md)** - Debug commands and monitoring
-3. **Reference [Real-Time Communication](./REAL_TIME_COMMUNICATION.md)** - Pushpin and Redis setup
+3. **Reference [Real-Time Communication](./architecture/real-time/REAL_TIME_COMMUNICATION.md)** - Pushpin and Redis setup
 
 ### For API Integration
-1. **Start with [Device Management](./DEVICE_MANAGEMENT.md)** - Complete API reference
-2. **Check [Real-Time Communication](./REAL_TIME_COMMUNICATION.md)** - SSE/WebSocket integration
+1. **Start with [Device Management](./architecture/device/DEVICE_MANAGEMENT.md)** - Complete API reference
+2. **Check [Real-Time Communication](./architecture/real-time/REAL_TIME_COMMUNICATION.md)** - SSE/WebSocket integration
 3. **Use [Troubleshooting](./TROUBLESHOOTING.md)** - Debug commands and testing
 
 ---

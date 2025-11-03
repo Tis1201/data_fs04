@@ -147,6 +147,7 @@ export class MessageEntityMapper {
     const actionMap: Record<string, string> = {
       'reboot': 'reboot',
       'restart': 'restart',
+      'refresh': 'refresh',
       'installApp': 'install',
       'pushFile': 'file_operation',
       'pullFile': 'pull_file',
