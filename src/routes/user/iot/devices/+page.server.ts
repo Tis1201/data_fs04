@@ -249,6 +249,27 @@ export const actions = {
                     return fail(403, { error: 'You do not have permission to delete this device' });
                 }
 
+                // Publish device:unclaimed SSE before deletion
+                try {
+                    const { MessageFactory, SystemUser } = await import('$lib/server/messaging/interfaces/message');
+                    const { publisher } = await import('$lib/server/messaging/core/publisher');
+                    const message = MessageFactory.createSystemMessage(
+                        'device:unclaimed',
+                        `subscription:device:${id}`,
+                        {
+                            action: 'unclaimed',
+                            deviceId: id,
+                            reason: 'deleted',
+                            timestamp: new Date().toISOString()
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
+                    await publisher.publish(message);
+                } catch (pubErr) {
+                    logger.warn(`Failed to publish device:unclaimed for ${id}: ${String(pubErr)}`);
+                }
+
                 await locals.prisma.device.delete({ where: { id } });
 
                 logger.info(`User ${auth.user.id} deleted device ${id}`);

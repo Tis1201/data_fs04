@@ -12,6 +12,7 @@ import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
+import { getEnhancedPrisma } from '$lib/server/prisma';
 
 // Define table options for Preclaim Sets
 const table_options = {
@@ -53,17 +54,92 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals, depends }) => {
+    async ({ url, locals, depends }: any) => {
         // Add a dependency key for invalidation
         depends('app:userPreclaimSets');
         
-        // Use the reusable fetchTableData function with our table options
-        const result = await fetchTableData(locals, url, table_options);
+        // Get the authenticated user
+        const auth = await locals.auth.validate();
+        if (!auth?.user) {
+            throw error(401, 'Unauthorized');
+        }
+
+        // Get enhanced Prisma client with user context
+        const enhancedPrisma = getEnhancedPrisma({
+            id: auth.user.id,
+            systemRole: auth.user.systemRole || 'USER',
+            accountMemberships: auth.user.accountMemberships || []
+        });
+
+        // Parse URL parameters for pagination and sorting
+        const page = parseInt(url.searchParams.get('page') || '1');
+        const per_page = parseInt(url.searchParams.get('per_page') || '10');
+        const sortField = url.searchParams.get('sort_field') || 'createdAt';
+        const sortOrder = url.searchParams.get('sort_order') || 'desc';
+        const search = url.searchParams.get('search') || '';
+        const statusFilter = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
+
+        // Build where conditions
+        const where: any = {};
         
+        // Add search conditions
+        if (search) {
+            where.OR = [
+                { name: { contains: search, mode: 'insensitive' } },
+                { description: { contains: search, mode: 'insensitive' } },
+                { id: { contains: search, mode: 'insensitive' } }
+            ];
+        }
+
+        // Add status filter
+        if (statusFilter.length > 0) {
+            where.status = { in: statusFilter };
+        }
+
+        // Get total count
+        const totalRecords = await enhancedPrisma.preclaimSet.count({ where });
+
+        // Get records with pagination and sorting
+        const records = await enhancedPrisma.preclaimSet.findMany({
+            where,
+            skip: (page - 1) * per_page,
+            take: per_page,
+            orderBy: { [sortField]: sortOrder },
+            include: {
+                account: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                _count: {
+                    select: {
+                        claims: true
+                    }
+                }
+            }
+        });
+
+        const totalPages = Math.ceil(totalRecords / per_page);
+
         return {
-            // Keep the key name to avoid changing the page component
-            devices: result.records,
-            meta: result.meta
+            preclaimSets: records,
+            meta: {
+                pagination: {
+                    page,
+                    per_page,
+                    total_records: totalRecords,
+                    total_pages: totalPages
+                },
+                sort: {
+                    field: sortField,
+                    order: sortOrder
+                },
+                filters: {
+                    search,
+                    statuses: statusFilter
+                }
+            }
         };
     },
     [SystemRole.USER] // Restrict to authenticated users
@@ -79,15 +155,15 @@ export const actions = {
      * Toggle Status
      ******************************************************************************************/
     toggleStatus: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: any) => {
             try {
-                // Get the device ID and new status from form data
+                // Get the preclaim set ID and new status from form data
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
                 const status = data.get('status')?.toString();
                 
                 if (!id) {
-                    return fail(400, { error: 'Device ID is required' });
+                    return fail(400, { error: 'Preclaim Set ID is required' });
                 }
                 
                 if (!status || !['ACTIVE', 'INACTIVE'].includes(status)) {
@@ -99,32 +175,25 @@ export const actions = {
                 if (!auth) {
                     return fail(401, { error: 'Unauthorized' });
                 }
-                
-                // Check if device exists and belongs to the user
-                const device = await locals.prisma.device.findFirst({
-                    where: { 
-                        id,
-                        OR: [
-                            { createdBy: auth.user.id },
-                            { 
-                                account: {
-                                    members: {
-                                        some: {
-                                            userId: auth.user.id
-                                        }
-                                    }
-                                }
-                            }
-                        ]
-                    }
+
+                // Get enhanced Prisma client with user context
+                const enhancedPrisma = getEnhancedPrisma({
+                    id: auth.user.id,
+                    systemRole: auth.user.systemRole || 'USER',
+                    accountMemberships: auth.user.accountMemberships || []
                 });
                 
-                if (!device) {
-                    return fail(404, { error: 'Device not found or you do not have permission to modify it' });
+                // Check if preclaim set exists and user has permission (ZenStack will handle authorization)
+                const preclaimSet = await enhancedPrisma.preclaimSet.findFirst({
+                    where: { id }
+                });
+                
+                if (!preclaimSet) {
+                    return fail(404, { error: 'Preclaim Set not found or you do not have permission to modify it' });
                 }
                 
-                // Update the device status
-                await locals.prisma.device.update({
+                // Update the preclaim set status (ZenStack will enforce authorization)
+                await enhancedPrisma.preclaimSet.update({
                     where: { id },
                     data: { 
                         status,
@@ -132,23 +201,23 @@ export const actions = {
                     }
                 });
 
-                logger.info(`User ${auth.user.id} changed device ${id} status to ${status}`);
+                logger.info(`User ${auth.user.id} changed preclaim set ${id} status to ${status}`);
 
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
-                    tableName: 'Device',
+                    tableName: 'PreclaimSet',
                     recordId: id,
                     oldData: getStatusBeforeToggled(status),
                     newData: { status },
-                    userId: locals.user.id,
+                    userId: auth.user.id,
                     ipAddress: locals.ipAddress,
-                    prisma: locals.prisma
+                    prisma: enhancedPrisma
                 })
                 
                 return { success: true };
             } catch (err) {
-                logger.error(`Error toggling device status: ${err}`);
-                return fail(500, { error: 'Failed to update device status' });
+                logger.error(`Error toggling preclaim set status: ${err}`);
+                return fail(500, { error: 'Failed to update preclaim set status' });
             }
         },
         [SystemRole.USER] // Restrict to authenticated users

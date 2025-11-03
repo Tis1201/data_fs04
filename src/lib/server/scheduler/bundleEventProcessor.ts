@@ -46,13 +46,21 @@ export async function processEvent(evt: FileStatusEvent) {
       return;
     }
 
-    // Find the device progress directly using bundleId and deviceId (via join)
+    // Find the device progress by looking up bundleDevice first
+    const bundleDevice = await (prisma as any).bundleDevice.findFirst({
+      where: { bundleId, deviceId },
+      select: { id: true }
+    });
+    
+    if (!bundleDevice) {
+      logger.warn(`[BundleEventProcessor] No bundleDevice found for device ${deviceId} in bundle ${bundleId}. Device may not be assigned to bundle yet.`);
+      return;
+    }
+    
     const deviceProgress = await (prisma as any).bundleDeviceProgress.findFirst({
       where: { 
         bundleId,
-        bundleDevice: {
-          deviceId
-        }
+        bundleDeviceId: bundleDevice.id
       },
       select: { 
         id: true, 
@@ -444,13 +452,21 @@ async function processDeviceEventsBatch(bundleId: string, deviceId: string, even
     status = 'COMPLETED';
   }
   
-  // Find device progress record
+  // Find device progress record by looking up bundleDevice first
+  const bundleDevice = await (prisma as any).bundleDevice.findFirst({
+    where: { bundleId, deviceId },
+    select: { id: true }
+  });
+  
+  if (!bundleDevice) {
+    logger.warn(`[BundleEventProcessor] No bundleDevice found for device ${deviceId} in bundle ${bundleId}`);
+    return null;
+  }
+  
   const deviceProgress = await (prisma as any).bundleDeviceProgress.findFirst({
     where: { 
       bundleId,
-      bundleDevice: {
-        deviceId
-      }
+      bundleDeviceId: bundleDevice.id
     },
     select: { 
       id: true, 

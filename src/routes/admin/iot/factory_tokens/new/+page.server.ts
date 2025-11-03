@@ -113,7 +113,6 @@ export const actions: Actions = {
                     exp,
                     jti,
                     scope: 'device:register',
-                    sub: deviceId,
                     hardwareModel,
                     firmwareVersion
                 };

@@ -15,7 +15,7 @@ export const load = restrict(
             const perPage = parseInt(url.searchParams.get('per_page') || '10');
             const sortField = url.searchParams.get('sort') || 'createdAt';
             const sortOrder = url.searchParams.get('order') || 'desc';
-            const industries = url.searchParams.get('industries')?.split(',').filter(Boolean) || [];
+            const statuses = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
             const accountId = url.searchParams.get('accountId') || '';
 
             // Calculate pagination values
@@ -29,13 +29,14 @@ export const load = restrict(
             if (search) {
                 where.OR = [
                     { name: { contains: search, mode: 'insensitive' } },
-                    { id: { contains: search, mode: 'insensitive' } }
+                    { id: { contains: search, mode: 'insensitive' } },
+                    { contactEmail: { contains: search, mode: 'insensitive' } }
                 ];
             }
             
-            // Add status filter if provided (replacing industry filter)
-            if (industries.length > 0) {
-                where.status = { in: industries };
+            // Add status filter if provided
+            if (statuses.length > 0) {
+                where.status = { in: statuses };
             }
             
             // Add account filter if provided

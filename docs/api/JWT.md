@@ -30,14 +30,14 @@ GET /api/device/jwt
 ### Token Generation
 1. The system retrieves the primary signing key for access tokens from the database
 2. A JWT is signed with the following claims:
-   - `deviceId`: The unique identifier of the authenticated device (e.g., "94a5dbe5-6604-429e-9b84-882ce2816dd5")
-   - `accountId`: The ID of the account the device belongs to (e.g., "cmc4mnmcu0003rzxvupiqycd7")
-   - `userId`: The ID of the user associated with the device (e.g., "cmc4msp7r000810g1ya5u3od2")
-   - `deviceName`: The name of the device (e.g., "Device-94a5dbe5")
-   - `iat` (Issued At): Timestamp when the token was issued (e.g., 1753512831)
-   - `exp` (Expiration): Timestamp when the token will expire (default: 1 hour from issuance)
-   - `iss` (Issuer): Set to "fs04"
-   - `sub` (Subject): Set to the device ID (same as deviceId)
+    - `deviceId`: The unique identifier of the authenticated device (e.g., "94a5dbe5-6604-429e-9b84-882ce2816dd5")
+    - `accountId`: The ID of the account the device belongs to (e.g., "cmc4mnmcu0003rzxvupiqycd7")
+    - `userId`: The ID of the user associated with the device (e.g., "cmc4msp7r000810g1ya5u3od2")
+    - `deviceName`: The name of the device (e.g., "Device-94a5dbe5")
+    - `iat` (Issued At): Timestamp when the token was issued (e.g., 1753512831)
+    - `exp` (Expiration): Timestamp when the token will expire (default: 1 hour from issuance)
+    - `iss` (Issuer): Set to "fs04"
+    - `sub` (Subject): Set to the device ID (same as deviceId)
 
 ### Example JWT Payload
 ```json

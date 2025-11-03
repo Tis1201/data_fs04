@@ -364,5 +364,59 @@ export const actions = {
             }
         },
         [SystemRole.ADMIN] // Only allow admin role to update webhook endpoints
+    ),
+    
+    deleteWebhook: restrict(
+        async ({ request, locals }) => {
+            const formData = await request.formData();
+            const id = formData.get('id') as string;
+            
+            if (!id) {
+                return fail(400, { success: false, error: 'Webhook ID is required' });
+            }
+            
+            try {
+                // Check if webhook exists
+                const webhook = await locals.prisma.webhookEndPoint.findUnique({
+                    where: { id }
+                });
+                
+                if (!webhook) {
+                    return fail(404, { success: false, error: 'Webhook endpoint not found' });
+                }
+                
+                // Delete the webhook
+                await locals.prisma.webhookEndPoint.delete({
+                    where: { id }
+                });
+                
+                logger.info('Webhook endpoint deleted successfully', { 
+                    webhookId: id,
+                    name: webhook.name
+                });
+                
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'WebhookEndpoint',
+                    recordId: id,
+                    oldData: webhook,
+                    newData: null,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma,
+                });
+                
+                return { 
+                    success: true,
+                    message: 'Webhook endpoint deleted successfully'
+                };
+            } catch (err) {
+                logger.error('Error deleting webhook endpoint', { 
+                    error: err 
+                });
+                return fail(500, { success: false, error: 'Failed to delete webhook endpoint' });
+            }
+        },
+        [SystemRole.ADMIN] // Only allow admin role to delete webhook endpoints
     )
 };

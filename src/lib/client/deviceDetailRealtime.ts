@@ -40,8 +40,8 @@ export function subscribeDeviceDetailEvents(
       const logs = getLogs();
       const logId = data.logId || data.id;
       
-      // Actions that don't have progress tracking (restart/reboot)
-      const noProgressActions = ['restart', 'reboot'];
+      // Actions that don't have progress tracking (restart/reboot/refresh)
+      const noProgressActions = ['restart', 'reboot', 'refresh'];
       const shouldShowProgress = !noProgressActions.includes(data.action);
       
       const updatedLogs = logs.map(log => {

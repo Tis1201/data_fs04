@@ -24,6 +24,7 @@
     
     export let data: PageData;
     
+    
     // Define page metadata
     const pageTitle = `${data.user?.name || data.user?.email || 'User'} - Profile`;
     const pageDescription = `View and manage profile for ${data.user?.name || data.user?.email}`;
@@ -67,6 +68,7 @@
     let isEditingRole = false;
     let isLoading = false;
     
+    
     // Dialog states
     let passwordUpdateDialogOpen = false;
     let passwordResetConfirmOpen = false;
@@ -77,10 +79,10 @@
         email: data.user?.email || '',
         accountRole: data.user?.accountRole || 'MEMBER'
     };
+    
 
     // Role options
     const roleOptions = [
-        { value: 'OWNER', label: 'Owner' },
         { value: 'ADMIN', label: 'Admin' },
         { value: 'MEMBER', label: 'Member' }
     ];
@@ -316,12 +318,12 @@
                         }}
                     >
                         <FormRow>
-                            <FormField>
-                                <Label for="role">Account Role</Label>
+                            <FormField id="role" label="Account Role">
                                 <EnhancedSelect
+                                    id="role"
                                     name="role"
-                                    options={roleOptions}
                                     bind:value={formData.accountRole}
+                                    options={roleOptions}
                                     placeholder="Select role"
                                     disabled={isLoading}
                                 />

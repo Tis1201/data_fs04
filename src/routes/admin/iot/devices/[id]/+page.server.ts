@@ -15,8 +15,19 @@ import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
 
 export const load = restrict(
     async ({ params, locals, depends }) => {
+        console.log('[DeviceDetail] ========== LOAD START ==========');
+        console.log('[DeviceDetail] Device ID:', params.id);
+        console.log('[DeviceDetail] User:', { 
+            userId: locals.user?.id, 
+            systemRole: locals.user?.systemRole,
+            email: locals.user?.email 
+        });
+        
         depends('app:device');
+        
         try {
+            console.log('[DeviceDetail] Step 1: Loading device from database...');
+            
             // Load existing device
             const device = await locals.prisma.device.findUnique({
                 where: { id: params.id },
@@ -74,10 +85,21 @@ export const load = restrict(
                 }
             });
 
+            console.log('[DeviceDetail] Step 1 COMPLETE - Device query result:', {
+                found: !!device,
+                deviceId: device?.id,
+                deviceName: device?.name,
+                hasUser: !!device?.user,
+                hasAccount: !!device?.account,
+                licenseCount: device?.licenses?.length || 0
+            });
+
             if (!device) {
+                console.warn('[DeviceDetail] Device not found:', params.id);
                 throw error(404, "Device not found");
             }
 
+            console.log('[DeviceDetail] Step 2: Creating form validation...');
             const form = await superValidate(
                 {
                     id: device.id,
@@ -98,7 +120,9 @@ export const load = restrict(
                 },
                 zod(deviceEditSchema)
             );
+            console.log('[DeviceDetail] Step 2 COMPLETE - Form validated');
 
+            console.log('[DeviceDetail] Step 3: Fetching device action logs...');
             // Fetch recent device action logs (last 50)
             const deviceActionLogs = await locals.prisma.deviceActionLog.findMany({
                 where: { deviceId: params.id },
@@ -129,8 +153,24 @@ export const load = restrict(
                 deviceInformation
             };
         } catch (e) {
-            logger.error('Error loading device:', e);
-            throw error(500, 'Failed to load device');
+            const errorMessage = e instanceof Error ? e.message : String(e);
+            const errorStack = e instanceof Error ? e.stack : undefined;
+            const errorName = e instanceof Error ? e.constructor.name : 'Unknown';
+            
+            console.error('[DeviceDetail] ========== LOAD ERROR ==========');
+            console.error('[DeviceDetail] Error details:', {
+                deviceId: params.id,
+                errorType: errorName,
+                errorMessage: errorMessage,
+                stack: errorStack
+            });
+            
+            // Log the full error object for debugging
+            if (e instanceof Error && e.cause) {
+                console.error('[DeviceDetail] Error cause:', e.cause);
+            }
+            
+            throw error(500, `Failed to load device: ${errorMessage}`);
         }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route

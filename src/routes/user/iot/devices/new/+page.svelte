@@ -101,6 +101,15 @@
 
   // If the device is claimed while we're on this page, update the claimedDevice variable
   onMount(() => {
+    // Establish SSE connection for device claim requests
+    try {
+      console.debug('[UserDeviceClaim] Connecting SSE to /api/sse ...');
+      sseStore.connect(`/api/sse`, { withCredentials: true });
+      console.log('[UserDeviceClaim] SSE connect initiated');
+    } catch (e) {
+      console.warn('[UserDeviceClaim] SSE connect failed (may already be connected):', e);
+    }
+
     const unsubscribe = deviceStore.subscribe(state => {
       if (state.claimStatus === 'claimed' && state.deviceId) {
         claimedDevice = {

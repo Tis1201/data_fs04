@@ -152,7 +152,10 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     }
 
     // Best-effort side effects (never fail the stream)
-    try { await DeviceStatusManager.setDeviceOnline(device.id, locals, device.id); }
+    try { 
+      await DeviceStatusManager.setDeviceOnline(device.id, locals, device.id);
+      logger.info(`[Pushpin] Device ${device.id} marked as online`);
+    }
     catch (e) {
       logger.warn('[Pushpin] setDeviceOnline failed', {
         error: e instanceof Error ? e.message : String(e)
@@ -194,11 +197,23 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     };
 
     try {
-      const connection = new PushpinConnection(
-        { id: device.id, userInfo, nodeId: 'device-pushpin-listen', protocol: 'pushpin', deviceId: device.id, connectedAt: Date.now() },
-        publishFn
-      );
-      ConnectionManager.registerConnection(connection);
+      // Check if connection already exists before registering
+      const existingConnection = ConnectionManager.getConnection(device.id);
+      if (existingConnection) {
+        logger.info(`[Pushpin] Connection already exists for device ${device.id}, updating userInfo`);
+        
+        // CRITICAL FIX: Update the existing connection's meta.userInfo
+        // The authorization check looks at connection.meta.userInfo.id
+        existingConnection.meta.userInfo = userInfo;
+        logger.info(`[Pushpin] Updated connection meta.userInfo for device ${device.id} to user ${userInfo.id}`);
+      } else {
+        const connection = new PushpinConnection(
+          { id: device.id, userInfo, nodeId: 'device-pushpin-listen', protocol: 'pushpin', deviceId: device.id, connectedAt: Date.now() },
+          publishFn
+        );
+        ConnectionManager.registerConnection(connection);
+        logger.info(`[Pushpin] New connection registered for device ${device.id}`);
+      }
     } catch (e) {
       logger.warn('[Pushpin] Connection registration failed', {
         error: e instanceof Error ? e.message : String(e)
@@ -206,6 +221,8 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     }
 
     try {
+      // Only add subscription if it doesn't already exist
+      // Don't remove existing subscriptions as this causes race conditions
       await subscriptionRegistry.addSubscription(
         `subscription:device:${device.id}`,
         `subscriber:connection:${device.id}`
@@ -291,8 +308,10 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
     
     // Set up message handler before subscribing
     try {
+      // Subscribe to both the direct device channel and the subscription channel
       await subscriber.subscribe(channel);
-      logger.info(`[Pushpin] Subscribed to Redis channel: ${channel}`);
+      await subscriber.subscribe(`subscription:${channel}`);
+      logger.info(`[Pushpin] Subscribed to Redis channels: ${channel} and subscription:${channel}`);
     } catch (err) {
       logger.error('[Pushpin] Failed to subscribe to Redis channel', {
         error: err instanceof Error ? err.message : String(err),
@@ -316,14 +335,20 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
         
         // Listen for Redis messages
         subscriber.on('message', (chan: string, messageStr: string) => {
-          if (chan !== channel) return;
+          // Accept messages from both the direct device channel and subscription channel
+          if (chan !== channel && chan !== `subscription:${channel}`) return;
           
           try {
             const data = JSON.parse(messageStr);
-            // Unwrap Redis envelope if present
+            // Unwrap Redis envelope if present - match SSE format
             if (data.type === 'channel_message' && data.payload) {
+              // For channel messages, send the payload directly
               sendMessage(controller, data.payload);
+            } else if (data.type === 'device' && data.payload) {
+              // For device messages, send the full message structure
+              sendMessage(controller, data);
             } else {
+              // For other messages, send as-is
               sendMessage(controller, data);
             }
           } catch (err) {
@@ -353,12 +378,35 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
         logger.info(`[Pushpin] SSE stream started for device ${device.id}`);
       },
       
-      cancel() {
+      async cancel() {
         // Cleanup when stream is cancelled
         logger.info(`[Pushpin] SSE stream cancelled for device ${device.id}`);
         clearInterval(heartbeatInterval);
+        
+        // Publish disconnect event to UI BEFORE cleanup
+        try {
+          const disconnectMessage = MessageFactory.createSystemMessage(
+            'device:connection',
+            `subscription:device:${device.id}`,
+            { deviceId: device.id, connected: false, disconnectedAt: new Date().toISOString(), protocol: 'sse' },
+            userInfo,
+            { echoToSender: false, excludeDevices: true }
+          );
+          await publisher.publish(disconnectMessage);
+          logger.info(`[Pushpin] Disconnect event published for device ${device.id}`);
+        } catch (e) {
+          logger.warn('[Pushpin] Failed to publish disconnect event', {
+            error: e instanceof Error ? e.message : String(e)
+          });
+        }
+        
         subscriber.unsubscribe(channel).catch(err => 
-          logger.error('[Pushpin] Failed to unsubscribe', { 
+          logger.error('[Pushpin] Failed to unsubscribe from device channel', { 
+            error: err instanceof Error ? err.message : String(err) 
+          })
+        );
+        subscriber.unsubscribe(`subscription:${channel}`).catch(err => 
+          logger.error('[Pushpin] Failed to unsubscribe from subscription channel', { 
             error: err instanceof Error ? err.message : String(err) 
           })
         );
@@ -367,6 +415,21 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
             error: err instanceof Error ? err.message : String(err) 
           })
         );
+        
+        // Only remove subscription if this is the last connection for this device
+        // Don't remove subscriptions aggressively as it can cause race conditions
+        subscriptionRegistry.removeSubscription(
+          `subscription:device:${device.id}`, 
+          `subscriber:connection:${device.id}`
+        ).catch(err =>
+          logger.warn('[Pushpin] Failed to remove subscription (may be expected)', { 
+            error: err instanceof Error ? err.message : String(err) 
+          })
+        );
+        
+        // Unregister connection from ConnectionManager
+        ConnectionManager.unregisterConnection(device.id);
+        
         DeviceStatusManager.setDeviceOffline(device.id, locals).catch(err =>
           logger.error('[Pushpin] Failed to set device offline', { 
             error: err instanceof Error ? err.message : String(err) 
@@ -375,31 +438,41 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       }
     });
 
-    // Publish connection event
-    try {
-      const connectionMessage = MessageFactory.createSystemMessage(
-        'device:connection',
-        `subscription:device:${device.id}`,
-        { deviceId: device.id, connected: true, connectedAt: new Date().toISOString(), protocol: 'sse' },
-        userInfo,
-        { echoToSender: false }
-      );
-      await publisher.publish(connectionMessage);
-      logger.info(`[Pushpin] Connection event published for device ${device.id}`);
-    } catch (e) {
-      logger.warn('[Pushpin] Initial publish failed', {
-        error: e instanceof Error ? e.message : String(e)
-      });
-    }
+    // Publish connection event (with small delay to ensure subscriptions are registered)
+    setTimeout(async () => {
+      try {
+        // Log current subscribers
+        const subscribers = await subscriptionRegistry.getByKey(`subscription:device:${device.id}`);
+        logger.info(`[Pushpin] Publishing connection event for device ${device.id} to ${subscribers.length} subscribers`);
+        
+        const connectionMessage = MessageFactory.createSystemMessage(
+          'device:connection',
+          `subscription:device:${device.id}`,
+          { deviceId: device.id, connected: true, connectedAt: new Date().toISOString(), protocol: 'sse' },
+          userInfo,
+          { echoToSender: false, excludeDevices: true }
+        );
+        await publisher.publish(connectionMessage);
+        logger.info(`[Pushpin] Connection event published for device ${device.id}`);
+      } catch (e) {
+        logger.warn('[Pushpin] Initial publish failed', {
+          error: e instanceof Error ? e.message : String(e)
+        });
+      }
+    }, 100); // 100ms delay to ensure UI subscriptions are registered
 
-    // Return SSE response
+    // Return SSE response with Pushpin GRIP headers
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        // Pushpin GRIP headers for long-lived connections
+        'Grip-Hold': 'stream',
+        'Grip-Channel': channel,
+        'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=60'
       }
     });
   } catch (error) {

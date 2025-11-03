@@ -107,27 +107,49 @@ export class DeviceAppService {
           orderBy = `created_at ${sortOrder.toUpperCase()}`;
           break;
       }
-      
-      // Get total count
+
+      // First, get the latest sync time for this device
+      const latestTimeResult = await this.clickhouse.query({
+        query: `
+          SELECT max(created_at) as latest_time
+          FROM mv_device_apps
+          WHERE device_id = {deviceId:String}
+        `,
+        query_params: { deviceId }
+      });
+
+      const latestTimeResponse = await latestTimeResult.json();
+      const latestTime = (latestTimeResponse?.data?.[0] as any)?.latest_time;
+
+      if (!latestTime) {
+        // No apps found for this device
+        return {
+          apps: [],
+          total: 0,
+          page,
+          limit
+        };
+      }
+
+      // Update where conditions to include only apps from the latest sync time
+      whereConditions += ' AND created_at = {latestTime:String}';
+      queryParams.latestTime = latestTime;
+
+      // Get total count (all apps from latest sync)
       const countResult = await this.clickhouse.query({
         query: `
           SELECT count() as total
-          FROM (
-            SELECT 
-              package_name,
-              ROW_NUMBER() OVER (PARTITION BY package_name ORDER BY created_at DESC) as rn
-            FROM mv_device_apps 
-            WHERE ${whereConditions}
-          ) ranked
-          WHERE rn = 1
+          FROM mv_device_apps 
+          WHERE ${whereConditions}
         `,
         query_params: queryParams
       });
 
       const countResponse = await countResult.json();
-      const total = Number(countResponse?.data?.[0]?.total || 0);
+      const total = Number((countResponse?.data?.[0] as any)?.total || 0);
 
-      // Get paginated apps
+      console.log("queryyy", whereConditions)
+      // Get paginated apps (all apps from latest sync)
       const result = await this.clickhouse.query({
         query: `
           SELECT 
@@ -140,22 +162,8 @@ export class DeviceAppService {
             created_at,
             last_modified,
             size_bytes
-          FROM (
-            SELECT 
-              device_id,
-              package_name,
-              app_name,
-              version,
-              app_type,
-              metadata,
-              created_at,
-              last_modified,
-              size_bytes,
-              ROW_NUMBER() OVER (PARTITION BY package_name ORDER BY created_at DESC) as rn
-            FROM mv_device_apps 
-            WHERE ${whereConditions}
-          ) ranked
-          WHERE rn = 1
+          FROM mv_device_apps 
+          WHERE ${whereConditions}
           ORDER BY ${orderBy}
           LIMIT {limit:UInt32} OFFSET {offset:UInt32}
         `,
@@ -336,13 +344,13 @@ export class DeviceAppService {
       }
 
       return {
-        total_devices: Number(stats.total_devices),
-        total_apps: Number(stats.total_apps),
-        unique_apps: Number(stats.unique_apps),
-        system_apps: Number(stats.system_apps),
-        normal_apps: Number(stats.normal_apps),
-        user_apps: Number(stats.user_apps),
-        last_sync: new Date(stats.last_sync)
+        total_devices: Number((stats as any).total_devices),
+        total_apps: Number((stats as any).total_apps),
+        unique_apps: Number((stats as any).unique_apps),
+        system_apps: Number((stats as any).system_apps),
+        normal_apps: Number((stats as any).normal_apps),
+        user_apps: Number((stats as any).user_apps),
+        last_sync: new Date((stats as any).last_sync)
       };
     } catch (error) {
       logger.error('Failed to query app stats from ClickHouse', {

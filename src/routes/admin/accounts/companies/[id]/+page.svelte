@@ -7,6 +7,9 @@
   import ErrorAlert from "$lib/components/ui_components_sveltekit/alerts/ErrorAlert.svelte";
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   import { superForm } from 'sveltekit-superforms/client';
+  import { zod } from 'sveltekit-superforms/adapters';
+  import { z } from 'zod';
+  import { validatePhoneNumber, getPhoneValidationMessage } from '$lib/utils/validation/phone';
   import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
   
   // Import custom form components
@@ -43,11 +46,30 @@
     deleteState.confirmationOpen = true;
   }
   
+  // Define the same schema as the server for client-side validation
+  const companySchema = z.object({
+    name: z.string()
+      .min(2, { message: "Name must be at least 2 characters" })
+      .max(100, { message: "Name must be less than 100 characters" }),
+    status: z.enum(["ACTIVE", "INACTIVE", "PENDING"]).default("ACTIVE"),
+    address: z.string().optional(),
+    contactEmail: z.string()
+      .min(1, { message: "Contact email is required" })
+      .email({ message: "Invalid email address" }),
+    contactPhone: z.string()
+      .refine(validatePhoneNumber, { message: getPhoneValidationMessage() })
+      .optional(),
+    description: z.string().optional(),
+    accountId: z.string().min(1, { message: "Account is required" })
+  });
+  
   // Use standard SuperForms approach with comprehensive error handling
   const { form, errors, enhance, submitting, message, delayed, timeout } = superForm(data.form, {
+    validators: zod(companySchema), // Add client-side validation
     taintedMessage: 'You have unsaved changes. Are you sure you want to leave?',
     invalidateAll: false, // Prevent automatic invalidation
     resetForm: false, // Don't reset the form after submission
+    validationMethod: 'oninput', // Validate on every input change
     delayMs: 500, // Show loading state after 500ms
     timeoutMs: 8000, // Timeout after 8 seconds
     
@@ -147,7 +169,7 @@
           const form = document.querySelector('form[action="?/updateCompany"]');
           if (form) form.requestSubmit();
         },
-        disabled: isLoading || !$form || Object.keys($errors).length > 0,
+        disabled: isLoading,
         loading: isLoading
       }
     ]}

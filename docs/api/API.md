@@ -4,9 +4,9 @@
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
 - [API Endpoints](#api-endpoints)
-  - [Server-Sent Events (SSE)](#server-sent-events-sse)
-  - [WhatsApp Webhook](#whatsapp-webhook)
-  - [Device JWT](#device-jwt)
+    - [Server-Sent Events (SSE)](#server-sent-events-sse)
+    - [WhatsApp Webhook](#whatsapp-webhook)
+    - [Device JWT](#device-jwt)
 
 ## Authentication & Authorization
 

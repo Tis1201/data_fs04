@@ -14,7 +14,10 @@ export const load = restrict(
         try {
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(groupSchema), {
-                id: 'group-form'
+                id: 'group-form',
+                defaults: {
+                    permissions: '{}' // Set default empty object as string
+                }
             });
             
             // Get all accounts for the dropdown
@@ -47,6 +50,10 @@ export const actions: Actions = {
             // Validate the form data
             const form = await superValidate(request, zod(groupSchema));
             
+            // Debug: Log the form data to see what's being sent
+            console.log('Form data received:', form.data);
+            console.log('Permissions value:', form.data.permissions, 'Type:', typeof form.data.permissions);
+            
             if (!form.valid) {
                 return fail(400, { form });
             }
@@ -69,7 +76,7 @@ export const actions: Actions = {
                     data: {
                         name: form.data.name,
                         description: form.data.description,
-                        permissions: JSON.parse(form.data.permissions),
+                        permissions: form.data.permissions, // Already transformed by schema
                         accountId: form.data.accountId
                     }
                 });

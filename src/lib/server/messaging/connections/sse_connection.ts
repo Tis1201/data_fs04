@@ -1,5 +1,6 @@
 import type { Connection, ConnectionMeta } from '../interfaces/connection';
 import { ConnectionManager } from '../core/connectionManager';
+import { subscriptionRegistry } from '../core/subscriptionRegistry';
 import type { RoutingMessage } from '../interfaces/message';
 import { logger } from '$lib/server/logger';
 import {
@@ -97,6 +98,14 @@ export class SSEConnection implements Connection {
     }
 
     try {
+      // Filter out status/data updates for device connections (they don't need their own status echoed back)
+      const messageType = (payload as any)?.type;
+      if (this.meta.deviceId === this.meta.id && 
+          (messageType === 'device:statusUpdate' || messageType === 'device:dataUpdate')) {
+        logger.debug(`[SSEConnection] Skipping ${messageType} for device connection ${this.meta.id}`);
+        return;
+      }
+
       const data = JSON.stringify({
         ...(payload as object),
         timestamp: new Date().toISOString()
@@ -180,14 +189,18 @@ export class SSEConnection implements Connection {
   markAsClosed(): void {
     logger.debug(`[SSEConnection] Connection ${this.meta.id} marked as closed by client`);
     this.controllerClosed = true;
-    this.cleanup();
+    this.cleanup().catch(err => {
+      logger.error(`[SSEConnection] Error during cleanup: ${err}`);
+    });
   }
 
   close(): void {
-    this.cleanup();
+    this.cleanup().catch(err => {
+      logger.error(`[SSEConnection] Error during cleanup: ${err}`);
+    });
   }
 
-  private cleanup(): void {
+  private async cleanup(): Promise<void> {
     if (!this.isAlive) {
       logger.debug(`[SSEConnection] Cleanup skipped - connection ${this.meta.id} already not alive`);
       return;
@@ -219,6 +232,27 @@ export class SSEConnection implements Connection {
       }
     }
 
+    // Clean up subscriptions for this connection
+    if (this.meta.id) {
+      try {
+        const connectionScope = `subscriber:connection:${this.meta.id}`;
+        const subscriptions = await subscriptionRegistry.getByScope(connectionScope);
+        
+        logger.debug(`[SSEConnection] Cleaning up ${subscriptions.length} subscriptions for connection ${this.meta.id}`);
+        
+        for (const sub of subscriptions) {
+          try {
+            await subscriptionRegistry.removeSubscription(sub.key, connectionScope);
+            logger.debug(`[SSEConnection] Removed subscription ${sub.key} for connection ${this.meta.id}`);
+          } catch (err) {
+            logger.error(`[SSEConnection] Failed to remove subscription ${sub.key}: ${String(err)}`);
+          }
+        }
+      } catch (error) {
+        logger.warn(`[SSEConnection] Error cleaning up subscriptions for ${this.meta.id}: ${error}`);
+      }
+    }
+
     // Unregister connection from connection manager
     if (this.meta.id) {
       try {
@@ -235,7 +269,5 @@ export class SSEConnection implements Connection {
         // Ignore - connection may have been cleaned up already
       }
     }
-
-    //Todo: Need to clean up its own subscriptions
   }
 }

@@ -4,7 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
-export const load = restrict(async ({ params, locals, depends }) => {
+export const load = restrict(async ({ params, locals, depends }: any) => {
   depends('app:preclaim');
   const { id } = params;
 
@@ -20,10 +20,7 @@ export const load = restrict(async ({ params, locals, depends }) => {
     });
 
     if (!preclaimSet) {
-      throw error(404, {
-        message: 'Pre-claim set not found',
-        code: 'PRECLAIM_SET_NOT_FOUND'
-      });
+      throw error(404, 'Pre-claim set not found');
     }
 
     // Attach creator user (model stores only createdBy string)
@@ -34,7 +31,20 @@ export const load = restrict(async ({ params, locals, depends }) => {
         })
       : null;
 
-    const preclaimSetOut = { ...preclaimSet, user: creator };
+    // Debug logging
+    logger.info(`Preclaim set ${id} creator lookup:`, {
+      createdBy: preclaimSet?.createdBy,
+      creatorFound: !!creator,
+      creatorName: creator?.name,
+      creatorEmail: creator?.email
+    });
+
+    // Add fallback display name for creator
+    const creatorDisplayName = creator?.name || creator?.email || 'Unknown';
+    const preclaimSetOut = { 
+      ...preclaimSet, 
+      user: creator ? { ...creator, displayName: creatorDisplayName } : null 
+    };
 
     const claims = preclaimSet.claims ?? [];
     // Compute metrics with safe fallbacks
@@ -60,9 +70,6 @@ export const load = restrict(async ({ params, locals, depends }) => {
     };
   } catch (err) {
     logger.error(`Error loading pre-claim set: ${err instanceof Error ? err.message : String(err)}`);
-    throw error(500, {
-      message: 'Failed to load pre-claim set details',
-      code: 'PRECLAIM_SET_LOAD_ERROR'
-    });
+    throw error(500, 'Failed to load pre-claim set details');
   }
 }, [SystemRole.ADMIN]) satisfies PageServerLoad;

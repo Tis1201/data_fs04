@@ -51,6 +51,15 @@
             }
         });
     
+    // Ensure permissions is always a string with proper default
+    $: if (typeof $form.permissions === 'object') {
+        console.log('Client-side: Converting object to string');
+        $form.permissions = '{}';
+    } else if (!$form.permissions || $form.permissions.trim() === '') {
+        console.log('Client-side: Setting empty permissions to default');
+        $form.permissions = '{}';
+    }
+    
     // Reactive states - using formHelpers pattern
     $: isLoading = $submitting || $delayed;
     $: hasTimeout = $timeout;
@@ -176,7 +185,6 @@
                         id="permissions" 
                         label="Permissions" 
                         error={$errors.permissions}
-                        required={true}
                         helpText="Enter permissions as a valid JSON object. Default is an empty object."
                     >
                         <Textarea

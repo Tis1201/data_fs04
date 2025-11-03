@@ -101,6 +101,9 @@
 
   // If the device is claimed while we're on this page, update the claimedDevice variable
   onMount(() => {
+    // Establish SSE connection for device communication
+    sseStore.connect('/api/sse');
+    
     const unsubscribe = deviceStore.subscribe(state => {
       if (state.claimStatus === 'claimed' && state.deviceId) {
         claimedDevice = {
@@ -114,7 +117,8 @@
 
     return () => {
       unsubscribe();
-      // Reset device store when component is destroyed
+      // Disconnect SSE and reset device store when component is destroyed
+      sseStore.disconnect();
       deviceStore.reset();
     };
   });

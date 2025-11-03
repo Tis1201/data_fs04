@@ -37,34 +37,77 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
         logger.info(`[WS Middleware] New WebSocket connection attempt from ${request.socket.remoteAddress}`);
         logger.debug(`[WS Middleware] Request headers:`, request.headers);
         
-        const rawCookieHeader = request.headers.cookie || '';
-        logger.debug(`[WS] Raw Cookie header: ${rawCookieHeader}`);
+        // Try to get session ID from query string first (for Pushpin compatibility)
+        const url = new URL(request.url || '', `http://${request.headers.host}`);
+        let currentSessionId = url.searchParams.get('session') || url.searchParams.get(lucia.sessionCookieName);
+        let currentAccountId = url.searchParams.get('account_id');
+        
+        // Fall back to cookies if not in query string
+        if (!currentSessionId) {
+          const rawCookieHeader = request.headers.cookie || '';
+          logger.debug(`[WS] Raw Cookie header: ${rawCookieHeader}`);
 
-        const parsed = cookie.parse(rawCookieHeader);
+          const parsed = cookie.parse(rawCookieHeader);
 
-        // 3) Look up the Lucia session cookie by its configured name
-        const currentSessionId = parsed[lucia.sessionCookieName];
-        const currentAccountId = parsed['current_account_id'];
+          // Look up the Lucia session cookie by its configured name
+          currentSessionId = parsed[lucia.sessionCookieName];
+          currentAccountId = parsed['current_account_id'];
+        }
+        
         logger.debug(`[WS] Extracted Lucia session ID: ${currentSessionId}, currentAccountId: ${currentAccountId}`);
 
         if (!currentSessionId) {
-          logger.warn(`[wss:kit] Unable to get Lucia session ID from cookie`);
-          ws.close(1008, "Unable to get Lucia session ID from cookie");
+          logger.warn(`[wss:kit] No authentication method provided`);
+          ws.close(1008, "No authentication method provided");
           return;
         }
         // const currentSessionId = event.cookies.get(lucia.sessionCookieName);
         // logger.debug(`[WS Middleware] [validate()] Session ID from cookie: ${currentSessionId}`);
         
 
-        logger.info(`[WS Middleware] Extracting user info from request...`);
-        const userInfo = await extractUserInfoFromRequest(request, event);
-        logger.info(`[WS Middleware] User info extracted:`, userInfo);
+        logger.info(`[WS Middleware] Validating session with Lucia...`);
+        // Validate session directly with Lucia (event.locals.auth not available in WebSocket context)
+        const sessionValidation = await lucia.validateSession(currentSessionId);
+        logger.info(`[WS Middleware] Session validation result:`, sessionValidation);
 
-        if ('error' in userInfo) {
-          logger.warn(`[wss:kit] ${userInfo.error}`);
-          ws.close(1008, userInfo.error);
+        if (!sessionValidation.session || !sessionValidation.user) {
+          logger.warn(`[wss:kit] Invalid or expired session`);
+          ws.close(1008, "Invalid or expired session");
           return;
         }
+
+        logger.info(`[WS Middleware] Loading user account memberships...`);
+        // Load account memberships
+        const memberships = await prisma.accountMembership.findMany({
+          where: { userId: sessionValidation.user.id, role: { not: 'SYSTEM' } },
+          include: {
+            account: {
+              select: { id: true, name: true, slug: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+
+        // Determine current account from cookie or fallback
+        let currentAccount = null;
+        if (currentAccountId) {
+          currentAccount = memberships.find(m => m.account.id === currentAccountId);
+        }
+        if (!currentAccount && memberships.length > 0) {
+          currentAccount = memberships[0];
+        }
+
+        // Build UserInfo object
+        const userInfo = {
+          id: sessionValidation.user.id,
+          email: sessionValidation.user.email,
+          name: null, // Name not available in Lucia session
+          systemRole: sessionValidation.user.systemRole,
+          source: 'session' as const,
+          memberships,
+          currentAccount
+        };
+        logger.info(`[WS Middleware] User authenticated:`, { userId: userInfo.id, email: userInfo.email });
 
         const meta = {
           userInfo: userInfo,

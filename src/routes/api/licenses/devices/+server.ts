@@ -15,8 +15,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         where: { 
             accountId,
             status: 'ACTIVE',
-            factoryTokens: {
-                some: { isUsed: false }   // ensures device has at least one unused token
+            // Exclude devices that already have active licenses
+            licenses: {
+                none: {
+                    status: 'ACTIVE'
+                }
             }
         },
         select: { 
@@ -24,10 +27,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
             name: true,
             hardwareId: true,
             deviceType: true,
-            factoryTokens: {
-                where: { isUsed: false }, 
-                select: { id: true, name: true, hardwareModel: true }
-            }
+            model: true
         },
         orderBy: { name: 'asc' }
     });
@@ -35,7 +35,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     const deviceOptions = devices
         .map((d: any) => ({
             value: d.id,
-            label: `${d.name}${d.hardwareId ? ` (${d.hardwareId})` : ''}${d.deviceType ? ` - ${d.deviceType}` : ''} [${d.factoryTokens.length} token(s)]`
+            label: `${d.name}${d.hardwareId ? ` (${d.hardwareId})` : ''}${d.deviceType ? ` - ${d.deviceType}` : ''}${d.model ? ` [${d.model}]` : ''}`
         }));
 
     return json({

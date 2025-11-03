@@ -29,7 +29,7 @@ export function validatePhoneNumber(phone: string): boolean {
  * @returns string with examples of valid formats
  */
 export function getPhoneValidationMessage(): string {
-    return "Please enter a valid phone number. Examples: +1 555-123-4567, (555) 123-4567, +44 20 7946 0958, +33 1 42 86 83 26";
+    return "Please enter a valid phone number. Examples: +1 415-808-1234, +1 650-253-0000";
 }
 
 /**

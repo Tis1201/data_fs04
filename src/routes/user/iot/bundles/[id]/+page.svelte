@@ -61,6 +61,7 @@
     import BundleDeviceProgressComponent from "$lib/components/ui_components_sveltekit/bundles/bundle_device_progress/BundleDeviceProgressComponent.svelte";
     import { subscribeBundleWave } from '$lib/bundles/realtime';
     import { onMount, onDestroy } from 'svelte';
+    import { sseStore } from '$lib/stores/sse-store';
 
     export let data: any;
     // Make bundle reactive to server invalidations
@@ -219,10 +220,31 @@
     let offlineDevicesCount = 0;
     let totalDevicesCount = 0;
     let deviceStatusVersion = 0; // Version counter to trigger reactive updates
+    
+    // Real-time device status tracking
+    let deviceConnectionStates = new Map<string, boolean>(); // deviceId -> connected
+    
     $: {
         deviceStatusVersion; // Reference to trigger recomputation
         totalDevicesCount = data?.bundleDevices?.length || 0;
-        onlineDevicesCount = data?.bundleDevices?.filter((d: any) => d.device?.connected)?.length || 0;
+        
+        // Calculate online count from real-time states if available, otherwise fallback to static data
+        if (deviceConnectionStates.size > 0) {
+            onlineDevicesCount = Array.from(deviceConnectionStates.values()).filter(connected => connected).length;
+            console.log('[UserBundleDetail] Using real-time device states:', {
+                deviceConnectionStates: Object.fromEntries(deviceConnectionStates),
+                onlineDevicesCount,
+                totalDevicesCount
+            });
+        } else {
+            onlineDevicesCount = data?.bundleDevices?.filter((d: any) => d.device?.connected)?.length || 0;
+            console.log('[UserBundleDetail] Using static device data:', {
+                onlineDevicesCount,
+                totalDevicesCount,
+                bundleDevices: data?.bundleDevices?.map((d: any) => ({ id: d.device?.id, connected: d.device?.connected }))
+            });
+        }
+        
         offlineDevicesCount = totalDevicesCount - onlineDevicesCount;
     }
     
@@ -339,7 +361,53 @@
         });
         
         console.log('[UserBundleDetail] SSE subscription setup completed');
+        
+        // Listen for device connection events
+        const unsubscribeDeviceConnections = sseStore.on('*', (msg: any) => {
+            console.log('[UserBundleDetail] Received SSE message for device status:', msg);
+            const raw = msg?.data ?? msg;
+            const evtType = raw?.type || msg?.event || raw?.payload?.type;
+            const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
+            
+            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') {
+                return;
+            }
+            
+            const c = evt as any;
+            const cDeviceId = c?.deviceId || c?.payload?.deviceId;
+            const connected = c?.connected ?? c?.payload?.connected ?? false;
+            
+            if (cDeviceId) {
+                console.log('[UserBundleDetail] Updating device connection state:', { deviceId: cDeviceId, connected });
+                deviceConnectionStates.set(cDeviceId, !!connected);
+                deviceStatusVersion++; // Trigger reactive update
+                console.log('[UserBundleDetail] Updated device connection states:', deviceConnectionStates);
+            }
+        });
+        
+        // Store cleanup function for device connections
+        const originalCleanup = unsubscribeRealtime;
+        unsubscribeRealtime = () => {
+            if (originalCleanup) originalCleanup();
+            try { unsubscribeDeviceConnections && unsubscribeDeviceConnections(); } catch {}
+        };
     }
+    
+    onMount(() => {
+        console.log('[UserBundleDetail] onMount - Initializing device connection states');
+        
+        // Initialize device connection states from static data
+        if (data?.bundleDevices) {
+            data.bundleDevices.forEach((d: any) => {
+                if (d.device?.id) {
+                    deviceConnectionStates.set(d.device.id, !!d.device.connected);
+                }
+            });
+            deviceStatusVersion++; // Trigger reactive update
+            console.log('[UserBundleDetail] Initialized device connection states:', deviceConnectionStates);
+        }
+    });
+    
     onDestroy(() => { 
         console.log('[UserBundleDetail] onDestroy - Cleaning up SSE subscription');
         try { 

@@ -41,7 +41,7 @@
   export let isLoading: any;
   export let actionStatus: any;
   export let deviceInformation: any = null;
-  export let sseStore: any = null;  // Pass down to child components to avoid multiple SSE connections
+  export let sseStore: any; // ✅ FIX: Receive sseStore as prop from parent
 
   let activeTab = "overview";
   let loading = false;

@@ -130,7 +130,8 @@ export const load = restrict(
               id: true,
               name: true,
               model: true,
-              status: true
+              status: true,
+              connected: true
             }
           });
           

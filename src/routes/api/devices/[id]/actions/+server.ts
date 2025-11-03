@@ -24,6 +24,12 @@ const ACTION_CONFIGS = {
         timeout: 1 * 60 * 1000, // 1 minute
         requiredFields: []
     },
+    refresh: {
+        actionType: 'refresh',
+        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        timeout: 1 * 60 * 1000, // 1 minute
+        requiredFields: []
+    },
     installApp: {
         actionType: 'install_app',
         sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
@@ -152,11 +158,21 @@ export const POST: RequestHandler = restrict(
                     name: true, 
                     connected: true, 
                     status: true,
-                    user: { select: { id: true } }
+                    createdBy: true,
+                    accountId: true,
+                    account: {
+                        select: {
+                            members: {
+                                select: {
+                                    userId: true
+                                }
+                            }
+                        }
+                    }
                 }
             });
 
-            logger.info(`[UnifiedActionAPI] Device query result:`, device ? { id: device.id, name: device.name, connected: device.connected, userId: device.user.id } : null);
+            logger.info(`[UnifiedActionAPI] Device query result:`, device ? { id: device.id, name: device.name, connected: device.connected, createdBy: device.createdBy, accountId: device.accountId } : null);
 
             if (!device) {
                 logger.warn(`[UnifiedActionAPI] Device not found: ${deviceId}`);
@@ -172,17 +188,27 @@ export const POST: RequestHandler = restrict(
             }
 
             // Check if user has access to this device
-            if (event.auth.user.systemRole !== SystemRole.ADMIN && device.user.id !== event.auth.user.id) {
-                logger.warn(`[UnifiedActionAPI] Access denied: user ${event.auth.user.id} tried to access device owned by ${device.user.id}`);
-                return json({ 
-                    success: false, 
-                    error: { 
-                        code: 'FORBIDDEN', 
-                        message: 'Access denied to this device',
-                        timestamp: new Date().toISOString(),
-                        requestId: crypto.randomUUID()
-                    }
-                }, { status: 403 });
+            if (event.auth.user.systemRole !== SystemRole.ADMIN) {
+                // Check direct ownership
+                const isOwner = device.createdBy === event.auth.user.id;
+                
+                // Check account membership if device has an account
+                const isAccountMember = device.accountId && device.account?.members?.some(
+                    (member: { userId: string }) => member.userId === event.auth.user.id
+                );
+                
+                if (!isOwner && !isAccountMember) {
+                    logger.warn(`[UnifiedActionAPI] Access denied: user ${event.auth.user.id} tried to access device owned by ${device.createdBy || 'unknown'} (accountId: ${device.accountId || 'none'})`);
+                    return json({ 
+                        success: false, 
+                        error: { 
+                            code: 'FORBIDDEN', 
+                            message: 'Access denied to this device',
+                            timestamp: new Date().toISOString(),
+                            requestId: crypto.randomUUID()
+                        }
+                    }, { status: 403 });
+                }
             }
 
             if (!device.connected) {

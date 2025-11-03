@@ -1,22 +1,21 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
+    import { ArrowLeft, Save, Webhook, Copy } from "lucide-svelte";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
     import { Checkbox } from "$lib/components/ui/checkbox";
-    // import { DatePicker } from "$lib/components/ui/date-picker";
-    import { Skeleton } from "$lib/components/ui/skeleton";
-    import { Copy } from "lucide-svelte";
     import { browser } from "$app/environment";
-    import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-    import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-    import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
-    import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
+    
+    // Import Admin Layout Components
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
+    
+    // Import Form Components
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
     import type { PageData } from "./$types";
     
     export let data: PageData;
@@ -30,15 +29,13 @@
         "New Webhook",
     ];
 
-    
     // Import the reusable form handler
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     
     // Create a form handler with standardized error handling
     const { form, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(data.form, {
         successRedirect: '/admin/settings/webhook',
-        validateOnInput: true,
-        debugMode: true,
+        validationMethod: 'oninput',
         onSuccess: (result) => {
             toast.success("Webhook created successfully");
         }
@@ -74,19 +71,50 @@
     }
 </script>
 
-<PageContainer crumbs={pageCrumbs}>
-    <PageHeader {title} />
-
-    <PageContent>
-        <FormContainer 
-            method="POST" 
-            action="?/create" 
-            {enhance} 
-            novalidate 
-            errorMessage={$errorMessage}
+<AdminPageLayout
+    {title}
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Cancel",
+            icon: ArrowLeft,
+            onClick: () => goto('/admin/settings/webhook'),
+            variant: "outline",
+            class: "h-9"
+        },
+        {
+            label: "Save",
+            icon: Save,
+            onClick: () => {
+                const form = document.querySelector('form[action="?/create"]');
+                if (form) form.requestSubmit();
+            },
+            class: "h-9",
+            disabled: $submitting
+        }
+    ]}
+    loading={$submitting}
+    showCreateButton={false}
+    compact={true}
+    contentSpacing="space-y-4"
+>
+    <FormContainer 
+        method="POST" 
+        action="?/create" 
+        {enhance} 
+        novalidate 
+        errorMessage={$errorMessage}
+        showAlerts={true}
+        disabled={$submitting}
+        class="w-full space-y-6"
+    >
+        <AdminCard
+            title="Webhook Information"
+            description="Create a new webhook endpoint"
+            icon={Webhook}
+            compact={true}
         >
-            
-            <FormCard title="Webhook Information">
+            <div class="space-y-6">
                 <FormRow columns={1}>
                     <FormField id="name" label="Name" error={$errors.name}>
                         <Input
@@ -150,13 +178,14 @@
                                     id="status" 
                                     name="status" 
                                     checked={$form.status === 'ACTIVE'}
-                                    on:change={(e) => {
-                                        $form.status = e.target.checked ? 'ACTIVE' : 'INACTIVE';
-                                        $form.active = e.target.checked; // Keep active in sync for backward compatibility
+                                    onCheckedChange={(checked) => {
+                                        $form.status = checked ? 'ACTIVE' : 'INACTIVE';
+                                        $form.active = checked;
+                                        // Force reactive update
+                                        $form = $form;
                                     }}
+                                    disabled={$submitting}
                                     aria-invalid={$errors.status ? 'true' : undefined}
-                                    {...$constraints.status}
-                                    value="ACTIVE"
                                 />
                                 <label for="status" class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
                                     Active
@@ -166,6 +195,9 @@
                                 {$form.status === 'ACTIVE' ? 'Webhook will be active and ready to receive requests' : 'Webhook will be created in inactive state'}
                             </div>
                         </div>
+                        <!-- Hidden inputs to ensure status is submitted -->
+                        <input type="hidden" name="status" value={$form.status} />
+                        <input type="hidden" name="active" value={$form.active} />
                     </FormField>
 
                     <!-- <FormField id="expiresAt" label="Expiration Date (Optional)" error={$errors.expiresAt}>
@@ -182,28 +214,7 @@
                         </p>
                     </FormField> -->
                 </FormRow>
-
-                <FormActions>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        on:click={() => goto("/admin/settings/webhook")}
-                        disabled={$submitting}
-                    >
-                        Cancel
-                    </Button>
-                    <Button type="submit" disabled={$submitting} class="min-w-[120px] relative">
-                        {#if $submitting}
-                            <span class="absolute inset-0 flex items-center justify-center">
-                                <Skeleton class="h-4 w-20" />
-                            </span>
-                            <span class="opacity-0">Create Webhook</span>
-                        {:else}
-                            Create Webhook
-                        {/if}
-                    </Button>
-                </FormActions>
-            </FormCard>
-        </FormContainer>
-    </PageContent>
-</PageContainer>
+            </div>
+        </AdminCard>
+    </FormContainer>
+</AdminPageLayout>

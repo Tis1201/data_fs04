@@ -153,7 +153,7 @@
                     {
                         label: "Edit",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/settings/events/${record.id}`)
+                        onClick: () => goto(`/admin/settings/listeners/${record.id}`)
                     },
                     {
                         label: isTogglingStatus && listenerToToggle?.id === record.id 

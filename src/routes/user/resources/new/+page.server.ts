@@ -12,28 +12,16 @@ import { getEnhancedPrisma } from '$lib/server/prisma';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
+import { getStorageConfig } from '$lib/server/storage';
 
 export const load = restrict(
-    async (event) => {
+    async (event: any) => {
         const { locals, auth } = event;
         try {
-            // Get the current account from auth
-            let userAccount = null;
-            
-            // Check if there's a current account ID in the cookies
-            const currentAccountId = event.cookies.get('current_account_id');
-            
-            
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(resourceSchema), {
-                id: 'resource-form',
-                dataType: 'json'
+                id: 'resource-form'
             });
-            
-            // Pre-fill the account ID if we have a user account
-            if (userAccount) {
-                form.data.accountId = userAccount.id;
-            }
             
             // Get resource types for the dropdown
             const resourceTypes = [
@@ -43,10 +31,13 @@ export const load = restrict(
                 { value: 'document', label: 'Document' }
             ];
             
+            // Get storage configuration
+            const storageConfig = getStorageConfig();
+
             return {
                 form,
-                userAccount,
-                resourceTypes
+                resourceTypes,
+                storageConfig
             };
         } catch (err) {
             logger.error(`Error loading resource form: ${err}`);
@@ -58,7 +49,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async (event) => {
+        async (event: any) => {
             const { request, locals, auth } = event;
             try {
                 // Get the current account from auth
@@ -77,6 +68,22 @@ export const actions: Actions = {
 
                 // Infer type/format if file exists and inject if missing
                 if (rawFile instanceof File) {
+                    // Validate file extension first
+                    const allowedExtensions = ['.zip', '.cpk', '.apk'];
+                    const fileName = rawFile.name.toLowerCase();
+                    const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+                    
+                    if (!hasValidExtension) {
+                        logger.warn(`Invalid file extension: ${rawFile.name}`);
+                        const form = await superValidate(zod(resourceSchema));
+                        return message(
+                            form,
+                            createErrorResponse('Invalid file format', {
+                                details: 'Only .zip, .cpk, and .apk files are allowed'
+                            })
+                        );
+                    }
+                    
                     const { type: inferredType, format: inferredFormat } = inferTypeAndFormatFromFile(rawFile);
                     if (!formData.get('type')) {
                         formData.set('type', inferredType);

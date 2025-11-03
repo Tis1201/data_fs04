@@ -107,7 +107,7 @@ export const GET: RequestHandler = restrictJWT(
                 }
                 
                 logger.info(`[JWT] Generating presigned URL for cloud storage`);
-                const downloadResult = await generateDownloadUrl(objectPath, 3600); // 1 hour expiry
+                const downloadResult = await generateDownloadUrl(objectPath, 3600, resource.name); // 1 hour expiry
                 
                 logger.info(`[JWT] Redirecting to presigned URL`, {
                   resourceId: id,

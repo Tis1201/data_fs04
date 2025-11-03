@@ -122,8 +122,8 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                             throw new Error(`Invalid resource path format: ${resource.path}`);
                         }
                         
-                        logger.info(`Generating fresh download URL for cloud storage. Object path: ${objectPath}`);
-                        const downloadResult = await generateDownloadUrl(objectPath, 3600); // 1 hour expiry
+                        logger.info(`Generating fresh download URL for cloud storage. Object path: ${objectPath}, filename: ${resource.name}`);
+                        const downloadResult = await generateDownloadUrl(objectPath, 3600, resource.name); // 1 hour expiry
                         
                         logger.info(`Redirecting to presigned download URL: ${downloadResult.url}`);
                         

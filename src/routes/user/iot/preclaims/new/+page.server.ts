@@ -140,6 +140,9 @@ export const actions: Actions = {
                         },
                         account: {
                             select: { name: true }
+                        },
+                        device: {
+                            select: { id: true }
                         }
                     }
                 });
@@ -154,6 +157,12 @@ export const actions: Actions = {
 
                 for (const existing of existingPreclaims) {
                     const conflictingRow = rows.find(r => r.macId === existing.macId);
+                    
+                    // Skip FULFILLED preclaims where the device no longer exists (allows reclaiming)
+                    if (existing.status === 'FULFILLED' && !existing.device) {
+                        continue;
+                    }
+                    
                     if (conflictingRow && existing.accountId !== accountId) {
                         conflicts.push({
                             macId: existing.macId,

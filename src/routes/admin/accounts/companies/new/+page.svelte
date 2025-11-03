@@ -44,6 +44,7 @@
     const { form, errors, enhance, submitting, message, delayed, timeout, tainted } = 
         superForm(data.form, {
             validators: zod(companySchema), // Schema validation for proper typing
+            validationMethod: 'oninput', // Validate on every input change
             ...getDetailPageFormConfig("Company"), // FormHelpers utilities for consistency
             onResult: async ({ result }) => {
                 if (result.type === "success") {

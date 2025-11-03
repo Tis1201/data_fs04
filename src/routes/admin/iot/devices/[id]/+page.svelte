@@ -240,7 +240,8 @@
                             duration: 2000
                         });
                     }
-                    return; // Don't process as connection event
+                    // Don't return here - let the message bubble to DeviceAppList component
+                    // The DeviceAppList component subscribes to the same SSE store and needs to receive this message
                 }
                 
                 // Normalize payloads that carry action in payload
@@ -409,20 +410,34 @@
             statusUnsubscribe = null;
         }
         
-        // Unsubscribe from device channel
-        if (sseStore.connectionId) {
-            console.log('[AdminDeviceDetail] Unsubscribing from device channel...');
-            fetch(`/api/sse/unsubscribe/device/${device.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: sseStore.connectionId })
-            }).catch(err => console.warn('Unsubscribe failed:', err));
-        }
+        // Only unsubscribe if we're not navigating to a subpage of this device
+        // Check current URL to see if we're still on a device-related page
+        const currentPath = window.location.pathname;
+        const isStillOnDevicePage = currentPath.includes(`/devices/${device.id}`);
         
-        // Disconnect this component's SSE connection (won't affect other tabs now!)
-        console.log('[AdminDeviceDetail] Disconnecting per-component SSE...');
-        sseStore.disconnect();
+        if (!isStillOnDevicePage) {
+            // Unsubscribe from device channel (best-effort cleanup)
+            if (sseStore.connectionId) {
+                console.log('[AdminDeviceDetail] Unsubscribing from device channel (navigating away)...');
+                fetch(`/api/sse/unsubscribe/device/${device.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: sseStore.connectionId })
+                }).catch(err => {
+                    // Ignore 404 errors - endpoint may not be available or connection already cleaned up
+                    if (err?.status !== 404) {
+                        console.warn('Unsubscribe failed:', err);
+                    }
+                });
+            }
+            
+            // Disconnect this component's SSE connection (won't affect other tabs now!)
+            console.log('[AdminDeviceDetail] Disconnecting per-component SSE...');
+            sseStore.disconnect();
+        } else {
+            console.log('[AdminDeviceDetail] Still on device subpage, keeping SSE connection active');
+        }
         console.log('[AdminDeviceDetail] Cleanup complete');
     });
 
@@ -537,22 +552,22 @@
     }
 
     async function restartDevice() {
-        console.log('[AdminDevice] restartDevice called - START');
+        console.log('[AdminDevice] refreshDevice called - START');
         console.log('[AdminDevice] Device ID:', device.id);
         console.log('[AdminDevice] SSE connectionId:', sseStore.connectionId);
         
         isLoading.set(true);
         actionStatus.set({
-            action: "restart",
+            action: "refresh",
             status: "loading",
-            message: "Sending restart command...",
+            message: "Sending refresh command...",
         });
-        const tempId = addActionLogRow('restart', 'Sending restart command…', 'in_progress');
+        const tempId = addActionLogRow('refresh', 'Sending refresh command…', 'in_progress');
         console.log('[AdminDevice] Created temp log with ID:', tempId);
 
         try {
             const url = `/api/devices/${device.id}/actions`;
-            const body = { action: 'restart' };
+            const body = { action: 'refresh' };
             console.log('[AdminDevice] Sending request:', { url, body });
             
             // Now that we use per-component SSE, fetch works without blocking!
@@ -573,37 +588,37 @@
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to restart device: ${response.statusText}`);
+                throw new Error(errorData.error?.message || `Failed to refresh device: ${response.statusText}`);
             }
 
             const result = await response.json();
             console.log('[AdminDevice] Success response data:', result);
             
             actionStatus.set({
-                action: "restart",
+                action: "refresh",
                 status: "success",
-                message: "Restart command sent",
+                message: "Refresh command sent",
             });
-            toast.success("Device restart initiated");
-            console.log('[AdminDevice] restartDevice - SUCCESS');
+            toast.success("Device refresh initiated");
+            console.log('[AdminDevice] refreshDevice - SUCCESS');
             
             // The real-time handler will update the temp log with the server's log ID
             // when it receives the device:statusUpdate message
             
         } catch (error) {
-            console.error('[AdminDevice] restartDevice - ERROR:', error);
+            console.error('[AdminDevice] refreshDevice - ERROR:', error);
             console.error('[AdminDevice] Error stack:', error instanceof Error ? error.stack : 'No stack');
             
             actionStatus.set({
-                action: "restart",
+                action: "refresh",
                 status: "error",
-                message: error instanceof Error ? error.message : "Failed to restart device",
+                message: error instanceof Error ? error.message : "Failed to refresh device",
             });
-            toast.error("Failed to restart device");
-            console.error("Error restarting device:", error);
-            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to restart device');
+            toast.error("Failed to refresh device");
+            console.error("Error refreshing device:", error);
+            updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to refresh device');
         } finally {
-            console.log('[AdminDevice] restartDevice - FINALLY');
+            console.log('[AdminDevice] refreshDevice - FINALLY');
             isLoading.set(false);
         }
     }
@@ -906,7 +921,8 @@
                 keepalive: true,
                 body: JSON.stringify({
                     action: 'updateFirmware',
-                    firmwareVersion: selectedFirmware.version ?? '1.0.0'
+                    firmwareVersion: selectedFirmware.version ?? '1.0.0',
+                    resourceId: selectedFirmware.id
                 })
             });
 
@@ -1072,7 +1088,8 @@
                 keepalive: true,
                 body: JSON.stringify({
                     action: 'installApp',
-                    packageName: selectedInstallApp.packageName ?? 'unknown'
+                    packageName: selectedInstallApp.packageName ?? 'unknown',
+                    resourceId: selectedInstallApp.id
                 })
             });
 
@@ -1188,9 +1205,9 @@
         isLoading.set(true);
         try {
             actionStatus.set({
-                action: 'pullFile',
+                action: 'pushFile',
                 status: 'in_progress',
-                message: 'Initiating file pull...'
+                message: 'Initiating file push...'
             });
 
             // Use the unified action API instead of direct SSE
@@ -1202,15 +1219,16 @@
                 credentials: 'include',
                 keepalive: true,
                 body: JSON.stringify({
-                    action: 'pullFile',
+                    action: 'pushFile',
                     sourcePath: selectedPullFile.path,
-                    destinationPath: pullFileDestinationPath.trim()
+                    destinationPath: pullFileDestinationPath.trim(),
+                    resourceId: selectedPullFile.id
                 })
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to pull file: ${response.statusText}`);
+                throw new Error(errorData.error?.message || `Failed to push file: ${response.statusText}`);
             }
 
             const result = await response.json();
@@ -1218,15 +1236,15 @@
             // Use the real log ID from the server response
             const realLogId = result.data?.operationId;
             if (realLogId) {
-                addActionLogRow('pullFile', 'File pull initiated…', 'in_progress', realLogId);
+                addActionLogRow('pushFile', 'File push initiated…', 'in_progress', realLogId);
             }
             
             actionStatus.set({
-                action: 'pullFile',
+                action: 'pushFile',
                 status: 'success',
-                message: 'File pull initiated',
+                message: 'File push initiated',
             });
-            toast.success('File pull initiated');
+            toast.success('File push initiated');
             showPullFileModal = false;
             
             // The real-time handler will update the log with progress
@@ -1234,12 +1252,12 @@
             
         } catch (error) {
             actionStatus.set({
-                action: 'pullFile',
+                action: 'pushFile',
                 status: 'failed',
-                message: error instanceof Error ? error.message : 'Failed to pull file',
+                message: error instanceof Error ? error.message : 'Failed to push file',
             });
-            toast.error('Failed to pull file');
-            console.error('Error pulling file:', error);
+            toast.error('Failed to push file');
+            console.error('Error pushing file:', error);
         } finally {
             isLoading.set(false);
         }
@@ -1264,9 +1282,9 @@
 
         isLoading.set(true);
         actionStatus.set({
-            action: 'pushFile',
+            action: 'pullFile',
             status: 'in_progress',
-            message: 'Initiating file push...'
+            message: 'Initiating file pull...'
         });
 
         try {
@@ -1279,7 +1297,7 @@
                 credentials: 'include',
                 keepalive: true,
                 body: JSON.stringify({
-                    action: 'pushFile',
+                    action: 'pullFile',
                     sourcePath: pushFileSourcePath.trim(),
                     destinationPath: pushFileSourcePath.trim() // Use same path as destination for now
                 })
@@ -1287,7 +1305,7 @@
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to push file: ${response.statusText}`);
+                throw new Error(errorData.error?.message || `Failed to pull file: ${response.statusText}`);
             }
 
             const result = await response.json();
@@ -1295,15 +1313,15 @@
             // Use the real log ID from the server response
             const realLogId = result.data?.operationId;
             if (realLogId) {
-                addActionLogRow('pushFile', 'File push initiated…', 'in_progress', realLogId);
+                addActionLogRow('pullFile', 'File pull initiated…', 'in_progress', realLogId);
             }
             
             actionStatus.set({
-                action: 'pushFile',
+                action: 'pullFile',
                 status: 'success',
-                message: 'File push initiated',
+                message: 'File pull initiated',
             });
-            toast.success('File push initiated');
+            toast.success('File pull initiated');
             showPushFileModal = false;
             
             // The real-time handler will update the log with the real log ID
@@ -1311,14 +1329,14 @@
             
         } catch (error) {
             actionStatus.set({
-                action: 'pushFile',
+                action: 'pullFile',
                 status: 'error',
-                message: error instanceof Error ? error.message : 'Failed to push file',
+                message: error instanceof Error ? error.message : 'Failed to pull file',
             });
-            toast.error('Failed to push file');
-            console.error('Error pushing file:', error);
+            toast.error('Failed to pull file');
+            console.error('Error pulling file:', error);
             // Create a temp log for error display
-            const tempId = addActionLogRow('pushFile', 'Failed to push file', 'failed');
+            const tempId = addActionLogRow('pullFile', 'Failed to pull file', 'failed');
         } finally {
             isLoading.set(false);
         }

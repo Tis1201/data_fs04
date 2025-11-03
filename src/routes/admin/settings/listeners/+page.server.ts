@@ -281,8 +281,8 @@ export const actions = {
                     return fail(404, { error: 'Listener endpoint not found' });
                 }
 
-                // Delete the webhook
-                await locals.prisma.listenerEndPoint.delete({
+                // Delete the listener
+                await locals.prisma.listenerEndpoint.delete({
                     where: { id }
                 });
 

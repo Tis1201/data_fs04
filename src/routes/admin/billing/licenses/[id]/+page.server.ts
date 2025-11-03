@@ -11,6 +11,7 @@ import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import jwt from 'jsonwebtoken';
 
 // Define the license renewal schema
 const licenseRenewalSchema = z.object({
@@ -25,7 +26,7 @@ const licenseRenewalSchema = z.object({
 
 export const actions: Actions = {
     download: restrict(
-        async ({ params, locals }) => {
+        async ({ params, locals }: any) => {
             const { id } = params;
             
             try {
@@ -43,10 +44,7 @@ export const actions: Actions = {
                 });
                 
                 if (!license) {
-                    throw error(404, {
-                        message: 'License not found',
-                        code: 'LICENSE_NOT_FOUND'
-                    });
+                    throw error(404, 'License not found');
                 }
                 
                 // Return the JWT as a downloadable file
@@ -58,16 +56,13 @@ export const actions: Actions = {
                 });
             } catch (err) {
                 logger.error(`Error downloading license ${id}: ${err}`);
-                throw error(500, {
-                    message: 'Failed to download license',
-                    code: 'LICENSE_DOWNLOAD_ERROR'
-                });
+                throw error(500, 'Failed to download license');
             }
         },
         [SystemRole.ADMIN]
     ),
     renew: restrict(
-        async ({ params, locals, request, auth }) => {
+        async ({ params, locals, request, auth }: any) => {
             const { id } = params;
             
             // Validate form data
@@ -108,8 +103,24 @@ export const actions: Actions = {
                 // Create renewal record
                 const { data } = form;
                 
+                // Get the signing key to regenerate JWT
+                const signingKey = await locals.prisma.jwtSigningKey.findFirst({
+                    where: {
+                        keyType: 'TOKEN',
+                        isActive: true
+                    }
+                });
+
+                if (!signingKey) {
+                    throw new FormValidationError(
+                        'No active TOKEN signing key found',
+                        'SIGNING_KEY_NOT_FOUND',
+                        500
+                    );
+                }
+
                 // Start a transaction to ensure both operations succeed or fail together
-                const result = await locals.prisma.$transaction(async (tx) => {
+                const result = await locals.prisma.$transaction(async (tx: any) => {
                     // Create the renewal record
                     const renewal = await tx.licenseRenewal.create({
                         data: {
@@ -126,12 +137,51 @@ export const actions: Actions = {
                             updatedBy: userInfo.id
                         }
                     });
+
+                    // Generate new JWT with updated expiration
+                    const now = Math.floor(Date.now() / 1000);
+                    const exp = Math.floor(data.newExpiresAt.getTime() / 1000);
                     
-                    // Update the license with new expiration date
+                    const payload: Record<string, any> = {
+                        // Standard claims
+                        iss: 'fs04_system',
+                        sub: existingLicense.deviceId || 'any_device',
+                        iat: now,
+                        exp: exp,
+                        
+                        // License-specific claims
+                        account_id: existingLicense.accountId,
+                        license_id: existingLicense.id,
+                        entitlements: [],
+                        expires_at: data.newExpiresAt.toISOString()
+                    };
+
+                    // Add MAC address for Android devices if available
+                    if (existingLicense.device?.model?.toUpperCase() === 'ANDROID') {
+                        const macAddress = existingLicense.device.macAddress || 
+                                        existingLicense.device.wifiMac || 
+                                        existingLicense.device.lanMac;
+                        if (macAddress) {
+                            payload['macAddress'] = macAddress;
+                        }
+                    }
+
+                    // Sign new JWT
+                    const newJwt = jwt.sign(
+                        payload,
+                        signingKey.privateKey,
+                        {
+                            algorithm: signingKey.algorithm as jwt.Algorithm,
+                            keyid: signingKey.keyId,
+                        }
+                    );
+                    
+                    // Update the license with new expiration date and JWT
                     const updatedLicense = await tx.license.update({
                         where: { id },
                         data: {
                             expiresAt: data.newExpiresAt,
+                            jwt: newJwt,
                             updatedBy: userInfo.id
                         }
                     });
@@ -178,7 +228,7 @@ export const actions: Actions = {
 };
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: any) => {
         const { id } = params;
 
         try {
@@ -201,10 +251,7 @@ export const load = restrict(
             });
             
             if (!license) {
-                throw error(404, {
-                    message: 'License not found',
-                    code: 'LICENSE_NOT_FOUND'
-                });
+                throw error(404, 'License not found');
             }
             
             // Create form for renewal
@@ -220,10 +267,7 @@ export const load = restrict(
             };
         } catch (err) {
             logger.error(`Error loading license ${id}: ${err}`);
-            throw error(500, {
-                message: 'Failed to load license',
-                code: 'LICENSE_LOAD_ERROR'
-            });
+            throw error(500, 'Failed to load license');
         }
     },
     [SystemRole.ADMIN]

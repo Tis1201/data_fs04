@@ -47,7 +47,9 @@ export async function queryClickHouseEvents(
 
     // Use a sliding window approach: look for events in the last N hours
     // This handles network delays, clock skew, and out-of-order events
-    const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+    // Convert to UTC+0 since ClickHouse stores data in UTC
+    const nowUTC = new Date();
+    const windowStart = new Date(nowUTC.getTime() - windowHours * 60 * 60 * 1000);
     const windowStartStr = windowStart.toISOString()
       .replace('T', ' ')
       .replace('Z', '')
@@ -75,7 +77,8 @@ export async function queryClickHouseEvents(
       LIMIT 10000
     `;
 
-    logger.debug(`[ClickHouse] Querying events for ${processableBundleIds.length} processable bundles from ${windowStartStr}`);
+    logger.debug(`[ClickHouse] Querying events for ${processableBundleIds.length} processable bundles from ${windowStartStr} (UTC)`);
+    logger.debug(`[ClickHouse] Query: ${query}`);
 
     const result = await client.query({
       query

@@ -12,6 +12,8 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import jwt from 'jsonwebtoken';
 import { DeviceModel } from '$lib/constants/device';
+import { getActiveTokenKey } from '$lib/server/jwt_issuer/keys/token-key';
+import { randomUUID } from 'crypto';
 
 export const load = restrict(
     async (event: any) => {
@@ -95,125 +97,144 @@ export const actions: Actions = {
 
 
                 const deviceId = form.data.deviceId.trim();
-                const expiresAtDate = new Date(form.data.expiresAt);
                 
-                let jwtToken;
-                let signingKey;
-                let factoryToken;
-
-                try {
-                    const device = await locals.prisma.device.findUnique({
-                        where: { id: deviceId },
-                        include: {
-                            factoryTokens: {
-                                where: { isUsed: false },
-                                include: { factory_signing_key: true }
-                            }
-                        }
-                    });
-
-                    if (!device) {
-                        return message(
-                            form,
-                            createErrorResponse('Invalid device', {
-                                details: `The selected device with ID '${deviceId}' does not exist.`
-                            })
-                        );
-                    }
-
-                    if (!device.factoryTokens.length) {
-                        return message(
-                            form,
-                            createErrorResponse('Missing factory token', {
-                                details: `The selected device with ID '${deviceId}' does not have unsued factory token.`
-                            })
-                        );
-                    }
-
-                    // Use factory token's signing key
-                    factoryToken = device.factoryTokens[0];
-                    signingKey = factoryToken.factory_signing_key;
-                    
-                    try {
-                        // Generate real JWT using factory token's signing key
-                        const payload = {
-                            iss: 'fs04_system',
-                            iat: Math.floor(Date.now() / 1000),
-                            exp: Math.floor(expiresAtDate.getTime() / 1000),
-                            sub: deviceId,
-                            accountId,
-                        };
-
-                        if (device.model?.toUpperCase() === DeviceModel.ANDROID) {
-                            const macAddress = device.macAddress || device.wifiMac || device.lanMac;
-                            if (macAddress) {
-                                payload['macAddress'] = macAddress;
-                            }
-                        }
-
-                        jwtToken = jwt.sign(
-                            payload,
-                            signingKey.privateKey,
-                            {
-                                algorithm: signingKey.algorithm,
-                                keyid: signingKey.keyId,
-                            }
-                        );
-                        
-                        logger.debug(`Generated JWT using factory token signing key: ${signingKey.keyId}`);
-                    } catch (signError) {
-                        logger.error(`Error signing JWT with factory token key: ${signError}`);
-                        return message(form, createErrorResponse('JWT signing failed', {
-                            details: 'Failed to sign license with factory token. Please check the signing key configuration.'
-                        }));
-                    }
-                } catch (deviceErr) {
-                    logger.error(`Error verifying device: ${String(deviceErr)}`);
+                // Validate and parse expiration date
+                if (!form.data.expiresAt || form.data.expiresAt === 'undefined') {
                     return message(
                         form,
-                        createErrorResponse('Error verifying device', {
-                            details: 'Failed to verify the selected device. Please try again.'
+                        createErrorResponse('Invalid expiration date', {
+                            details: 'Please select a valid expiration date for the license.'
+                        })
+                    );
+                }
+                
+                const expiresAtDate = new Date(form.data.expiresAt);
+                
+                // Check if date is valid
+                if (isNaN(expiresAtDate.getTime())) {
+                    return message(
+                        form,
+                        createErrorResponse('Invalid expiration date', {
+                            details: `The expiration date "${form.data.expiresAt}" is not a valid date.`
+                        })
+                    );
+                }
+                
+                // Check if date is in the future
+                if (expiresAtDate <= new Date()) {
+                    return message(
+                        form,
+                        createErrorResponse('Invalid expiration date', {
+                            details: 'The expiration date must be in the future.'
+                        })
+                    );
+                }
+                
+                // Validate device exists
+                const device = await locals.prisma.device.findUnique({
+                    where: { id: deviceId },
+                    select: {
+                        id: true,
+                        name: true,
+                        model: true,
+                        macAddress: true,
+                        wifiMac: true,
+                        lanMac: true
+                    }
+                });
+
+                if (!device) {
+                    return message(
+                        form,
+                        createErrorResponse('Invalid device', {
+                            details: `The selected device with ID '${deviceId}' does not exist.`
                         })
                     );
                 }
 
-                // Create the license and mark factory token as used
-                const result = await locals.prisma.$transaction(async (tx) => {
-                    const license = await tx.license.create({
-                        data: {
-                            accountId,
-                            deviceId: deviceId,
-                            // Convert expiresAt to Date object for database storage
-                            expiresAt: expiresAtDate,
-                            // Add description field
-                            description: form.data.description || null,
-                            keyId: signingKey.keyId,
-                            algorithm: signingKey.algorithm,
-                            jwt: jwtToken,
-                            createdBy: auth.user.id,
-                            updatedBy: auth.user.id
-                        }
-                    });
-
-                    await tx.factoryToken.update({
-                        where: { id: factoryToken.id },
-                        data: { isUsed: true, usedAt: new Date() }
-                    })
-
-                    return { license };
-                })
-
-                const { license } = result;
-                
-                // Get device name for the message if a device was selected
-                let deviceName = '';
-                if (deviceId) {
-                    const device = await locals.prisma.device.findUnique({
-                        where: { id: deviceId },
-                        select: { name: true }
-                    });
-                    deviceName = device?.name || 'Unknown Device';
+                // Get active TOKEN signing key (NOT factory key!)
+                let signingKey;
+                try {
+                    signingKey = await getActiveTokenKey(locals.prisma);
+                    logger.info(`Using TOKEN signing key: ${signingKey.keyId} for license`);
+                } catch (keyError) {
+                    logger.error(`Error fetching TOKEN signing key: ${keyError}`);
+                    return message(
+                        form,
+                        createErrorResponse('No TOKEN signing key available', {
+                            details: 'Please create a TOKEN signing key first. Factory keys cannot be used for licenses.'
+                        })
+                    );
                 }
+
+                // Generate license ID
+                const licenseId = randomUUID();
+
+                // Build JWT payload with all required claims
+                const now = Math.floor(Date.now() / 1000);
+                const exp = Math.floor(expiresAtDate.getTime() / 1000);
+                
+                const payload: Record<string, any> = {
+                    // Standard claims
+                    iss: 'fs04_system',
+                    sub: deviceId,              // device_id
+                    iat: now,
+                    exp: exp,
+                    
+                    // License-specific claims (per DEVICE_LICENSE.md)
+                    account_id: accountId,
+                    license_id: licenseId,
+                    entitlements: [],           // Empty array for now, can be extended
+                    expires_at: expiresAtDate.toISOString()
+                };
+
+                // Add MAC address for Android devices
+                if (device.model?.toUpperCase() === DeviceModel.ANDROID) {
+                    const macAddress = device.macAddress || device.wifiMac || device.lanMac;
+                    if (macAddress) {
+                        payload['macAddress'] = macAddress;
+                    }
+                }
+
+                // Sign JWT with TOKEN key
+                let jwtToken;
+                try {
+                    jwtToken = jwt.sign(
+                        payload,
+                        signingKey.privateKey,
+                        {
+                            algorithm: signingKey.algorithm as jwt.Algorithm,
+                            keyid: signingKey.keyId,
+                        }
+                    );
+                    
+                    logger.info(`Generated license JWT using TOKEN key: ${signingKey.keyId}`);
+                } catch (signError) {
+                    logger.error(`Error signing JWT with TOKEN key: ${signError}`);
+                    return message(form, createErrorResponse('JWT signing failed', {
+                        details: 'Failed to sign license JWT. Please check the TOKEN signing key configuration.'
+                    }));
+                }
+
+                // Create the license (no factory token involved!)
+                const license = await locals.prisma.license.create({
+                    data: {
+                        id: licenseId,
+                        accountId,
+                        deviceId: deviceId,
+                        expiresAt: expiresAtDate,
+                        description: form.data.description || null,
+                        keyId: signingKey.keyId,
+                        algorithm: signingKey.algorithm,
+                        signingKeyId: signingKey.id,  // ✅ Reference TOKEN signing key
+                        jwt: jwtToken,
+                        createdBy: auth.user.id,
+                        updatedBy: auth.user.id
+                    }
+                });
+                
+                // Use device name for the message
+                const deviceName = device?.name || 'Unknown Device';
                 
                 // Log the audit
                 await logAudit({
@@ -244,6 +265,7 @@ export const actions: Actions = {
                                 description: license.description,
                                 algorithm: license.algorithm,
                                 keyId: license.keyId,
+                                signingKeyId: license.signingKeyId,  // ✅ Include signing key reference
                                 jwt: license.jwt
                             }
                         }

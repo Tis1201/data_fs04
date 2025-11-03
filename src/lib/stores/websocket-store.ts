@@ -241,9 +241,32 @@ const createSocketStore = () => {
       return;
     }
 
+    // Get session cookie to pass as query parameter (for Pushpin compatibility)
+    console.log('[WebSocket] Reading session cookie...');
+    console.log('[WebSocket] All cookies:', document.cookie);
+    const sessionCookie = document.cookie.split('; ').find(row => row.startsWith('auth_session='));
+    console.log('[WebSocket] Session cookie:', sessionCookie);
+    const sessionId = sessionCookie ? sessionCookie.split('=')[1] : null;
+    console.log('[WebSocket] Extracted session ID:', sessionId ? `${sessionId.substring(0, 10)}...` : 'NOT FOUND');
+    
+    // Build query params with session if available
+    const params = new URLSearchParams(queryParams);
+    console.log('[WebSocket] Initial query params:', queryParams);
+    if (sessionId && !params.has('session')) {
+      params.set('session', sessionId);
+      console.log('[WebSocket] Added session to query params');
+    } else if (!sessionId) {
+      console.warn('[WebSocket] No session ID found in cookies!');
+    } else if (params.has('session')) {
+      console.log('[WebSocket] Session already in query params');
+    }
+    const queryString = params.toString();
+    console.log('[WebSocket] Final query string:', queryString);
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const url = `${protocol}//${host}${WS_URL_PATH}${queryParams ? '?' + queryParams : ''}`;
+    const url = `${protocol}//${host}${WS_URL_PATH}${queryString ? '?' + queryString : ''}`;
+    console.log('[WebSocket] Full URL (with session redacted):', url.replace(/session=[^&]+/, 'session=***'));
 
     try {
       console.log(`[WebSocket] Connecting to ${url} (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
@@ -253,7 +276,9 @@ const createSocketStore = () => {
       socket.onopen = () => {
         reconnectAttempts = 0;
         const socketId = 'ws-' + Math.random().toString(36).substring(2, 10);
-        console.log(`[WebSocket] Connected with ID: ${socketId}`);
+        console.log(`[WebSocket] ✅ Connection opened successfully!`);
+        console.log(`[WebSocket] Socket ID: ${socketId}`);
+        console.log(`[WebSocket] Ready state: ${socket?.readyState}`);
         
         set({
           status: 'OPEN',
@@ -332,6 +357,11 @@ const createSocketStore = () => {
       };
 
       socket.onclose = (event) => {
+        console.log('[WebSocket] ❌ Connection closed');
+        console.log('[WebSocket] Close code:', event.code);
+        console.log('[WebSocket] Close reason:', event.reason || 'No reason provided');
+        console.log('[WebSocket] Was clean:', event.wasClean);
+        
         addMessage({
           type: 'system',
           scope: 'system',
@@ -363,11 +393,16 @@ const createSocketStore = () => {
 
         // Don't try to reconnect if this was a clean close (e.g., logout)
         if (event.code === 1000) {
-          console.log('[WebSocket] Clean close, not reconnecting');
+          console.log('[WebSocket] Clean close (1000), not reconnecting');
           return;
+        }
+        
+        if (event.code === 1008) {
+          console.error('[WebSocket] Auth failure (1008):', event.reason);
         }
 
         // Attempt exponential-backoff reconnect up to MAX_RECONNECT_ATTEMPTS
+        console.log('[WebSocket] Will attempt to reconnect...');
         scheduleReconnect();
       };
 

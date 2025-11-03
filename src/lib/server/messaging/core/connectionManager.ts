@@ -36,7 +36,7 @@ class DefaultConnectionManager {
       protocol: connection.meta.protocol
     });
 
-    if (!connection.meta.id && connection.meta.nodeId !== 'device-listen') {
+    if (!connection.meta.id && connection.meta.nodeId !== 'device-listen' && connection.meta.nodeId !== 'device-pushpin-listen') {
       (connection.meta as any).id = uuidv4();
       logger.info(`[DEBUG] Assigned new UUID to connection: ${connection.meta.id}`);
     } else {

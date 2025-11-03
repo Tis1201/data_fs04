@@ -94,14 +94,14 @@
             ]
         },
 
-        {
-            label: "Integrations",
-            icon: Network,
-            initialExpanded: false,
-            subItems: [
-                { href: "/user/integrations/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }
-            ]
-        },
+        // {
+        //     label: "Integrations",
+        //     icon: Network,
+        //     initialExpanded: false,
+        //     subItems: [
+        //         { href: "/user/integrations/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }
+        //     ]
+        // },
 
 
         // { 
@@ -125,14 +125,14 @@
         //     icon: FileText,
         //     subItems: [] 
         // },
-        { 
-            label: "Analytics", 
-            icon: ActivitySquare, 
-            initialExpanded: false,
-            subItems: [
-                { href: "/user/analytics/logs", label: "Logs", icon: Logs },
-            ]
-        },
+        // {
+        //     label: "Analytics",
+        //     icon: ActivitySquare,
+        //     initialExpanded: false,
+        //     subItems: [
+        //         { href: "/user/analytics/logs", label: "Logs", icon: Logs },
+        //     ]
+        // },
         { 
             label: "Resources", 
             icon: Files, 

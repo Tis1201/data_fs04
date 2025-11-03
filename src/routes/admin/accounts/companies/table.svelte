@@ -265,29 +265,23 @@
             <!-- Search filter -->
             <div class="w-1/3">
                 <DebouncedTextFilter
-                    placeholder="Search by name, ID, or email..."
+                    placeholder="Search by name, ID, or contact email..."
                     paramName="search"
                     value={$page.url.searchParams.get('search') || ''}
                 />
             </div>
             
-            <!-- Account filter -->
-            <PopoverFilter
-                label="Account"
-                options={props.filters.accounts?.map(account => ({ label: account.name, value: account.id })) || []}
-                selectedValues={$page.url.searchParams.get('accountId')?.split(',').filter(Boolean) || []}
-                key="accountId"
-            />
-            
             <!-- Status filter -->
-            {#if props.filters.industries && props.filters.industries.length > 0}
-                <PopoverFilter
-                    label="Status"
-                    options={props.filters.industries.map(status => ({ label: status.toLowerCase(), value: status }))}
-                    selectedValues={$selectedStatuses}
-                    key="statuses"
-                />
-            {/if}
+            <PopoverFilter
+                label="Status"
+                options={[
+                    { label: 'Active', value: 'ACTIVE' },
+                    { label: 'Inactive', value: 'INACTIVE' },
+                    { label: 'Pending', value: 'PENDING' }
+                ]}
+                selectedValues={$selectedStatuses}
+                key="statuses"
+            />
         </div>
 
         <!-- Data table -->

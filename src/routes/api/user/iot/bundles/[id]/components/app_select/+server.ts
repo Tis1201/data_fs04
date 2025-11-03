@@ -38,8 +38,18 @@ export const GET = restrict(
       });
       const excludeIds = new Set(existing.map((e: { resourceId: string }) => e.resourceId));
 
-      // Use the reusable fetchTableData function
-      const result = await fetchTableData(locals, url, tableOptions as any);
+      // Add base filtering for APK and CPK files only
+      const baseWhere = {
+        format: {
+          in: ['apk', 'cpk']
+        }
+      };
+
+      // Use the reusable fetchTableData function with base filtering
+      const result = await fetchTableData(locals, url, {
+        ...tableOptions,
+        baseWhere
+      } as any);
 
       // Filter out already-in-bundle resources
       const filteredRecords = (result.records || []).filter((r: any) => !excludeIds.has(r.id));

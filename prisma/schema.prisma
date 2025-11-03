@@ -512,6 +512,7 @@ model JwtSigningKey {
   createdBy     User           @relation(fields: [createdById], references: [id])
   createdById   String
   factoryTokens FactoryToken[]
+  licenses      License[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt()
 
@@ -523,7 +524,7 @@ model JwtSigningKey {
 model FactoryToken {
   id                     String        @id() @default(cuid())
   name                   String?
-  token                  String?
+  token                  String
   hardwareModel          String
   firmwareVersion        String
   batchNumber            String?
@@ -884,6 +885,8 @@ model License {
   jwt          String
   keyId        String
   algorithm    String           @default("RS256")
+  signingKeyId String
+  signingKey   JwtSigningKey    @relation(fields: [signingKeyId], references: [id])
   renewals     LicenseRenewal[]
   entitlements Entitlement[]
 
@@ -891,6 +894,7 @@ model License {
   @@index([accountId])
   @@index([deviceId])
   @@index([status])
+  @@index([signingKeyId])
 }
 
 model LicenseRenewal {

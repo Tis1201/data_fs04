@@ -151,8 +151,26 @@ export const POST: RequestHandler = restrict(
             
             const message = messageResult.data as BaseMessage;
             
-            // Generate a connection ID if not provided in the message
-            const connectionId = message.senderConnectionId || `sse-${uuidv4()}`;
+            // Find the SSE connection for this user instead of generating a new one
+            let connectionId = message.senderConnectionId;
+            
+            if (!connectionId) {
+                // Find the SSE connection for this user
+                const userConnections = await ConnectionManager.getConnectionsByUser(auth.user.id);
+                const sseConnection = userConnections.find(conn => 
+                    conn.meta?.protocol === 'sse' && 
+                    conn.meta?.userInfo?.id === auth.user.id
+                );
+                
+                if (sseConnection) {
+                    connectionId = sseConnection.id;
+                    logger.debug(`[SSE] Found existing SSE connection: ${connectionId}`);
+                } else {
+                    // Fallback to generating a new one if no SSE connection found
+                    connectionId = `sse-${uuidv4()}`;
+                    logger.warn(`[SSE] No existing SSE connection found for user ${auth.user.id}, generated new ID: ${connectionId}`);
+                }
+            }
             
             // Determine if this is a WhatsApp message
             const isWhatsAppMessage = message.type === 'whatsapp';
