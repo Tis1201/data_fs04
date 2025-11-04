@@ -95,48 +95,48 @@ definitions:
         script:
           - set -euo pipefail
           - echo "Ensuring submodule HTTPS auth is configured"
-          - |
-            if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
-              git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
-              git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
-            else
-              echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
-            fi
-          - git submodule sync --recursive
-          - |
-            if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
-              git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
-                https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
-              git submodule sync --recursive
-            fi
-          - git submodule update --init --recursive
-          - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
-          - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
-          - ': "Ensure credentials are provided"'
-          - test -n "${GITLAB_USERNAME}" && test -n "${GITLAB_PASSWORD}" || { echo "GitLab credentials are not set"; exit 1; }
-          - echo "[${BITBUCKET_BRANCH}] Logging into GitLab registry"
-          - echo "${GITLAB_PASSWORD}" | docker login registry.gitlab.com -u "${GITLAB_USERNAME}" --password-stdin
-          - *export_registry
-          - *export_image_name
-          - *export_commit_tag
-          - *export_version_tag
-          - *assert_version
-          - *export_image_uri_commit
-          - *export_image_uri_version
-          - echo "Building Docker image ${IMAGE_URI_COMMIT} and ${IMAGE_URI_VERSION}"
-          - |
-            docker build \
-              --platform=linux/amd64 \
-              --memory=7g \
-              --memory-swap=7g \
-              -f docker/Dockerfile \
-              -t "${IMAGE_URI_COMMIT}" \
-              -t "${IMAGE_URI_VERSION}" \
-              .
-          - echo "Pushing Docker image ${IMAGE_URI_COMMIT}"
-          - docker push "${IMAGE_URI_COMMIT}"
-          - echo "Pushing Docker image ${IMAGE_URI_VERSION}"
-          - docker push "${IMAGE_URI_VERSION}"
+          # - |
+          #   if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
+          #     git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
+          #     git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
+          #   else
+          #     echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
+          #   fi
+          # - git submodule sync --recursive
+          # - |
+          #   if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
+          #     git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
+          #       https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
+          #     git submodule sync --recursive
+          #   fi
+          # - git submodule update --init --recursive
+          # - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
+          # - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
+          # - ': "Ensure credentials are provided"'
+          # - test -n "${GITLAB_USERNAME}" && test -n "${GITLAB_PASSWORD}" || { echo "GitLab credentials are not set"; exit 1; }
+          # - echo "[${BITBUCKET_BRANCH}] Logging into GitLab registry"
+          # - echo "${GITLAB_PASSWORD}" | docker login registry.gitlab.com -u "${GITLAB_USERNAME}" --password-stdin
+          # - *export_registry
+          # - *export_image_name
+          # - *export_commit_tag
+          # - *export_version_tag
+          # - *assert_version
+          # - *export_image_uri_commit
+          # - *export_image_uri_version
+          # - echo "Building Docker image ${IMAGE_URI_COMMIT} and ${IMAGE_URI_VERSION}"
+          # - |
+          #   docker build \
+          #     --platform=linux/amd64 \
+          #     --memory=7g \
+          #     --memory-swap=7g \
+          #     -f docker/Dockerfile \
+          #     -t "${IMAGE_URI_COMMIT}" \
+          #     -t "${IMAGE_URI_VERSION}" \
+          #     .
+          # - echo "Pushing Docker image ${IMAGE_URI_COMMIT}"
+          # - docker push "${IMAGE_URI_COMMIT}"
+          # - echo "Pushing Docker image ${IMAGE_URI_VERSION}"
+          # - docker push "${IMAGE_URI_VERSION}"
           - echo "Docker image pushed successfully"
     - step: &access_gke_dev
         name: Deploy image to dev GKE
@@ -182,7 +182,7 @@ pipelines:
       - step: *build_and_publish_image
       - step: *access_gke_dev
     main:
-      # - step: *build_and_publish_image
+      - step: *build_and_publish_image
       - step: *access_gke_production
   custom:
     Deploy-DEV-Manually:
