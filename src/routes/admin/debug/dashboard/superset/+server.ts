@@ -3,7 +3,6 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
-// const SUPERSET_INTERNAL_URL = 'http://superset-superset.fs04.svc.cluster.local:8088';
 const SUPERSET_URL = 'https://superset-dev.datarealities.com';
 const SUPERSET_USERNAME = 'admin';
 const SUPERSET_PASSWORD = 'ctctPUTPUT0823';
@@ -12,10 +11,7 @@ const DASHBOARD_ID = '299074ce-1bb7-4096-8244-a96e03a401b1';
 export const GET = restrict(
 	async () => {
 		try {
-			logger.debug('Starting guest token generation...');
-
-			// 1. Login
-			logger.debug('Starting guest token generation...');
+			// 1. Login to get access token and session cookies
 			const loginResp = await fetch(`${SUPERSET_URL}/api/v1/security/login`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -35,14 +31,12 @@ export const GET = restrict(
 
 			const loginData = await loginResp.json();
 			const accessToken = loginData.access_token;
-			logger.debug(`Got access token: ${accessToken.substring(0, 20)}...`);
 
 			// Extract session cookies from login response
 			const setCookieHeader = loginResp.headers.get('set-cookie');
 			logger.debug(`Login set-cookie: ${setCookieHeader}`);
 
-			// 2. Get CSRF
-			logger.debug('Step 2: Getting CSRF token...');
+			// 2. Fetch CSRF token with Authorization header and cookies
 			const csrfResp = await fetch(`${SUPERSET_URL}/api/v1/security/csrf_token/`, {
 				method: 'GET',
 				headers: {
@@ -76,25 +70,7 @@ export const GET = restrict(
 			// Combine all cookies
 			const allCookies = [setCookieHeader, csrfSetCookieHeader].filter(Boolean).join('; ');
 
-			// 3. Request guest token
-			logger.debug('Step 3: Requesting guest token...');
-			const payload = {
-				user: {
-					username: 'embed-client',
-					first_name: 'Embed',
-					last_name: 'Client'
-				},
-				resources: [
-					{
-						type: 'dashboard',
-						id: DASHBOARD_ID
-					}
-				],
-				rls: []
-			};
-
-			logger.debug(`Payload: ${JSON.stringify(payload)}`);
-
+			// 3. Request guest token with all cookies and CSRF header
 			const guestTokenResp = await fetch(`${SUPERSET_URL}/api/v1/security/guest_token/`, {
 				method: 'POST',
 				headers: {
@@ -104,7 +80,20 @@ export const GET = restrict(
 					Referer: SUPERSET_URL,
 					...(allCookies && { Cookie: allCookies })
 				},
-				body: JSON.stringify(payload)
+				body: JSON.stringify({
+					user: {
+						username: 'embed-client',
+						first_name: 'Embed',
+						last_name: 'Client'
+					},
+					resources: [
+						{
+							type: 'dashboard',
+							id: DASHBOARD_ID
+						}
+					],
+					rls: []
+				})
 			});
 
 			if (!guestTokenResp.ok) {
