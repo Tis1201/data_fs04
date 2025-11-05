@@ -23,32 +23,22 @@ x-dev-export-deployment: &dev_export_deployment export TARGET_K8S_DEPLOYMENT="fs
 x-dev-export-container: &dev_export_container export TARGET_K8S_CONTAINER="fs04-web"
 
 # PRD Cluster
-x-prd-export-project: &prd_export_project export TARGET_GCP_PROJECT="dr-iot-prd"
-x-prd-export-cluster-name: &prd_export_cluster_name export TARGET_GKE_CLUSTER_NAME="iot-prd-gke"
-x-prd-export-cluster-location: &prd_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="us-central1-a"
-x-prd-export-namespace: &prd_export_namespace export TARGET_K8S_NAMESPACE="fs04"
-x-prd-export-deployment: &prd_export_deployment export TARGET_K8S_DEPLOYMENT="fs04-web"
-x-prd-export-container: &prd_export_container export TARGET_K8S_CONTAINER="fs04-web"
+x-prd-export-project: &prd_export_project export TARGET_GCP_PROJECT="${PROD_GCP_PROJECT:?Set PROD_GCP_PROJECT}"
+x-prd-export-cluster-name: &prd_export_cluster_name export TARGET_GKE_CLUSTER_NAME="${PROD_GKE_CLUSTER_NAME:?Set PROD_GKE_CLUSTER_NAME}"
+x-prd-export-cluster-location: &prd_export_cluster_location export TARGET_GKE_CLUSTER_LOCATION="${PROD_GKE_CLUSTER_LOCATION:?Set PROD_GKE_CLUSTER_LOCATION}"
+x-prd-export-namespace: &prd_export_namespace export TARGET_K8S_NAMESPACE="${PROD_K8S_NAMESPACE:?Set PROD_K8S_NAMESPACE}"
+x-prd-export-deployment: &prd_export_deployment export TARGET_K8S_DEPLOYMENT="${PROD_K8S_DEPLOYMENT:?Set PROD_K8S_DEPLOYMENT}"
+x-prd-export-container: &prd_export_container export TARGET_K8S_CONTAINER="${PROD_K8S_CONTAINER:?Set PROD_K8S_CONTAINER}"
 
 x-deploy-gke-shared: &deploy_gke_shared |
   set -euo pipefail
   echo "Preparing ${TARGET_ENV} deployment"
   gcloud components install kubectl gke-gcloud-auth-plugin --quiet
   printf '%s' "$BITBUCKET_STEP_OIDC_TOKEN" > /tmp/oidc.token
-  
-  # Set WIF credentials based on environment
-  if [ "${TARGET_ENV}" = "production" ]; then
-    WIF_AUDIENCE="//iam.googleapis.com/projects/924078269021/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider"
-    SERVICE_ACCOUNT="fs04-builder@dr-iot-prd.iam.gserviceaccount.com"
-  else
-    WIF_AUDIENCE="//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider"
-    SERVICE_ACCOUNT="fs04-builder@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com"
-  fi
-  
   cat <<'EOF' > /tmp/oidc.json
   {
     "type": "external_account",
-    "audience": "WIF_AUDIENCE_PLACEHOLDER",
+    "audience": "//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider",
     "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
     "token_url": "https://sts.googleapis.com/v1/token",
     "credential_source": {
@@ -57,13 +47,9 @@ x-deploy-gke-shared: &deploy_gke_shared |
         "type": "text"
       }
     },
-    "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/SERVICE_ACCOUNT_PLACEHOLDER:generateAccessToken"
+    "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/fs04-builder@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com:generateAccessToken"
   }
   EOF
-  
-  # Replace placeholders with actual values
-  sed -i "s|WIF_AUDIENCE_PLACEHOLDER|${WIF_AUDIENCE}|g" /tmp/oidc.json
-  sed -i "s|SERVICE_ACCOUNT_PLACEHOLDER|${SERVICE_ACCOUNT}|g" /tmp/oidc.json
   export GOOGLE_APPLICATION_CREDENTIALS=/tmp/oidc.json
   gcloud auth login --cred-file="${GOOGLE_APPLICATION_CREDENTIALS}"
   gcloud config set project "${TARGET_GCP_PROJECT}"
@@ -74,9 +60,6 @@ x-deploy-gke-shared: &deploy_gke_shared |
   fi
   gcloud container clusters get-credentials "${TARGET_GKE_CLUSTER_NAME}" "${LOCATION_FLAG}" "${TARGET_GKE_CLUSTER_LOCATION}" --project "${TARGET_GCP_PROJECT}"
   echo "Using ${IMAGE_URI_VERSION} for ${TARGET_ENV} deployment"
-  echo "Setting imagePullPolicy to Always for ${TARGET_K8S_CONTAINER}"
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" patch deployment "${TARGET_K8S_DEPLOYMENT}" -p '{"spec":{"template":{"spec":{"containers":[{"name":"'"${TARGET_K8S_CONTAINER}"'","imagePullPolicy":"Always"}]}}}}'
-  echo "Updating container image to ${IMAGE_URI_VERSION}"
   kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_VERSION}"
   kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/"${TARGET_K8S_DEPLOYMENT}"
 
