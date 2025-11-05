@@ -6,7 +6,7 @@ import { logger } from '$lib/server/logger';
 const SUPERSET_URL = 'https://superset-dev.datarealities.com';
 const SUPERSET_USERNAME = 'admin';
 const SUPERSET_PASSWORD = 'ctctPUTPUT0823';
-const DASHBOARD_ID = '299074ce-1bb7-4096-8244-a96e03a401b1';
+const DASHBOARD_ID = 'ffccb079-3b83-449e-abdc-a9f0caef0f8f';
 
 export const GET = restrict(
 	async () => {
