@@ -197,17 +197,26 @@ export async function generatePresignedUrlGCloud(
     try {
         const expires = Date.now() + (expiresSeconds * 1000);
         const config = getStorageConfig();
+        
+        logger.info(`[GCLOUD] Generating presigned URL with contentType: ${contentType}`);
+        
         const storage = new Storage({ 
             projectId: config.projectId 
         }); // Uses VM SA; will "sign with IAM" automatically
 
         const file = storage.bucket(bucket).file(objectPath);
+        
+        // Don't include contentType in the signature to avoid 403 errors
+        // The client can send any Content-Type header without signature mismatch
         const [url] = await file.getSignedUrl({
             version: 'v4',
             action: 'write',
-            expires,
-            contentType
+            expires
+            // contentType is intentionally omitted to avoid signed header mismatch
         });
+
+        logger.info(`[GCLOUD] Generated presigned URL successfully for: ${objectPath}`);
+        logger.debug(`[GCLOUD] URL generated WITHOUT contentType in signature for flexibility`);
 
         return {
             url,
