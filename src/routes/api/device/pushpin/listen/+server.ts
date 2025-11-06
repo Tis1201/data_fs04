@@ -358,7 +358,6 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
           }
         });
         
-        // Send heartbeat every 30 seconds
         heartbeatInterval = setInterval(() => {
           sendMessage(controller, {
             id: crypto.randomUUID(),
@@ -373,7 +372,7 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
             },
             event: 'ping'
           });
-        }, 30000);
+        }, 15000);
         
         logger.info(`[Pushpin] SSE stream started for device ${device.id}`);
       },
@@ -470,9 +469,10 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
         'X-Accel-Buffering': 'no',
         'Access-Control-Allow-Origin': '*',
         // Pushpin GRIP headers for long-lived connections
+        // Cloudflare-compatible: shorter keep-alive interval (15s) for proxy compatibility
         'Grip-Hold': 'stream',
         'Grip-Channel': channel,
-        'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=60'
+        'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=15'
       }
     });
   } catch (error) {
