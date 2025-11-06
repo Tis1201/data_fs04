@@ -74,9 +74,6 @@ x-deploy-gke-shared: &deploy_gke_shared |
   fi
   gcloud container clusters get-credentials "${TARGET_GKE_CLUSTER_NAME}" "${LOCATION_FLAG}" "${TARGET_GKE_CLUSTER_LOCATION}" --project "${TARGET_GCP_PROJECT}"
   echo "Using ${IMAGE_URI_VERSION} for ${TARGET_ENV} deployment"
-  echo "Setting imagePullPolicy to Always for ${TARGET_K8S_CONTAINER}"
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" patch deployment "${TARGET_K8S_DEPLOYMENT}" -p '{"spec":{"template":{"spec":{"containers":[{"name":"'"${TARGET_K8S_CONTAINER}"'","imagePullPolicy":"Always"}]}}}}'
-  echo "Updating container image to ${IMAGE_URI_VERSION}"
   kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_VERSION}"
   kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/"${TARGET_K8S_DEPLOYMENT}"
 

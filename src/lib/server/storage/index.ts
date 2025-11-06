@@ -202,11 +202,14 @@ export async function generatePresignedUrlGCloud(
         }); // Uses VM SA; will "sign with IAM" automatically
 
         const file = storage.bucket(bucket).file(objectPath);
+        
+        // Don't include contentType in the signature to avoid 403 errors
+        // The client can send any Content-Type header without signature mismatch
         const [url] = await file.getSignedUrl({
             version: 'v4',
             action: 'write',
-            expires,
-            contentType
+            expires
+            // contentType is intentionally omitted to avoid signed header mismatch
         });
 
         return {
