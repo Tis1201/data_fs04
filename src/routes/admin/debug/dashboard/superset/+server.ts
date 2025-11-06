@@ -4,9 +4,10 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
 const SUPERSET_URL = 'https://superset-dev.datarealities.com';
+// const SUPERSET_URL = "http://localhost:8088";
 const SUPERSET_USERNAME = 'admin';
 const SUPERSET_PASSWORD = 'ctctPUTPUT0823';
-const DASHBOARD_ID = 'ffccb079-3b83-449e-abdc-a9f0caef0f8f';
+const DASHBOARD_ID = '8b01e0b9-578d-4d41-a1ab-3501427aa985';
 
 export const GET = restrict(
 	async () => {
