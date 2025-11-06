@@ -60,7 +60,10 @@
 
         ShieldPlus,
         FileCog,
-        Pin
+        Pin,
+
+        Book
+
     } from "lucide-svelte";
 
     export let className = "";
@@ -184,6 +187,7 @@
                 { href: "/admin/debug/sse", label: "SSE", icon: Zap },
                 { href: "/admin/debug/messaging", label: "Messaging", icon: MessageCircle },
                 { href: "/admin/debug/redis", label: "Redis", icon: Database },
+                { href: "/admin/debug/dashboard/superset", label: "Superset", icon: Book },
                 
                 // { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap }
             ]

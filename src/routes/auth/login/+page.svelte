@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { superForm } from 'sveltekit-superforms/client';
     import { Button } from '$lib/components/ui/button';
     import { Input } from '$lib/components/ui/input';
@@ -19,6 +20,11 @@
 
     let serverError: string | null = null;
     let forgotPasswordOpen = false;
+    let isHydrated = false;
+
+    onMount(() => {
+        isHydrated = true;
+    });
 
     const { form, errors, enhance, submitting } = superForm(data.form, {
         validators: zodClient(loginSchema),
@@ -174,7 +180,7 @@
                     <Button
                         type="submit"
                         class="w-full bg-[#44218d] hover:bg-[#44218d]/90 text-white"
-                        disabled={$submitting}
+                        disabled={$submitting || !isHydrated}
                     >
                         {$submitting ? 'Signing in...' : 'Sign in'}
                     </Button>
