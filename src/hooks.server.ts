@@ -13,6 +13,7 @@ import prisma from "$lib/server/prisma";
 import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
 import { _publishBundleDirect } from "./routes/api/admin/iot/bundles/[id]/publish/+server";
 import { startBundleStatusScheduler, cleanupBundleStatusScheduler } from "$lib/server/scheduler/bundleStatusScheduler";
+import { startDevicePresenceMonitor } from "$lib/server/device/devicePresenceMonitor";
 
 // Initialize WhatsApp clients on server startup (not during build)
 // Use a self-executing async function to avoid blocking the main thread
@@ -48,6 +49,16 @@ if (!building) {
                 logger.info('Bundle status scheduler started');
             } catch (e:any) {
                 logger.warn(`Failed to start bundle status scheduler: ${e?.message || String(e)}`);
+            }
+
+            // Start device presence monitor (if Redis/Pushpin enabled)
+            if (redis) {
+                try {
+                    startDevicePresenceMonitor(redis);
+                    logger.info('Device presence monitor started');
+                } catch (e:any) {
+                    logger.warn(`Failed to start device presence monitor: ${e?.message || String(e)}`);
+                }
             }
         } catch (error: unknown) {
             const e = error as any;

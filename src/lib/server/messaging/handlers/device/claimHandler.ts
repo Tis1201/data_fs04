@@ -82,6 +82,15 @@ export async function handleClaim(message: InMessage): Promise<void> {
       scope: `connection:${message.connectionId}` // Send to specific connection instead of user:self
     });
 
+    logger.info(`[DeviceHandler] Publishing claim success response: requestId=${successResponse.requestId}, connectionId=${message.connectionId}, scope=${successResponse.scope}`);
+    logger.debug(`[DeviceHandler] Success response structure:`, JSON.stringify({
+      id: successResponse.id,
+      type: successResponse.type,
+      requestId: successResponse.requestId,
+      scope: successResponse.scope,
+      payload: successResponse.payload
+    }, null, 2));
+
     await publisher.publish(successResponse);
 
     // Also send notification to the device via subscription scope

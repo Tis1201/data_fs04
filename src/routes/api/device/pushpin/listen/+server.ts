@@ -1,15 +1,17 @@
 // src/routes/api/device/pushpin/listen/+server.ts
+// Scalable Pushpin implementation for 100k+ devices
 import type { RequestHandler } from './$types';
 import { auth_device } from '$lib/server/device/deviceAuth';
-import { PushpinConnection } from '$lib/server/messaging/connections/pushpin_connection';
-import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
+import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
+import { PushpinConnection } from '$lib/server/messaging/connections/pushpin_connection';
 import { DeviceStatusManager } from '$lib/server/device/deviceStatusManager';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { getPresenceManager, getMessageRelay } from '$lib/server/pushpin/middleware';
 import { getRedisService } from '$lib/server/services/redisService';
-import { MessageRelay } from '$lib/server/pushpin/messageRelay';
+import { getPushpinPublishService } from '$lib/server/pushpin/publishService';
+import { publishDeviceStatusEvent } from '$lib/server/device/deviceEventPublisher';
 import { logger } from '$lib/server/logger';
 import { json } from '@sveltejs/kit';
 import crypto from 'crypto';
@@ -84,6 +86,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
  */
 export const GET: RequestHandler = async ({ locals, request, url }) => {
   try {
+    logger.info('[Pushpin GET] Request received', {
+      url: url.toString(),
+      hasToken: !!url.searchParams.get('token'),
+      headers: Object.fromEntries(request.headers.entries())
+    });
+    
     let device, userInfo, channel;
     
     // Check if using token-based authentication (two-step handshake)
@@ -151,6 +159,9 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       logger.info(`[Pushpin] Device ${device.id} authenticated via API key`);
     }
 
+    // Initialize Pushpin publish service for both auth flows
+    const pushpinPublish = getPushpinPublishService();
+
     // Best-effort side effects (never fail the stream)
     try { 
       await DeviceStatusManager.setDeviceOnline(device.id, locals, device.id);
@@ -162,63 +173,27 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       });
     }
 
-    let messageRelay = getMessageRelay();
-    if (!messageRelay) {
-      try {
-        const redisService = getRedisService(locals);
-        if (redisService) {
-          messageRelay = new MessageRelay(redisService);
-          logger.warn('[Pushpin] Created fallback MessageRelay');
-        } else {
-          logger.warn('[Pushpin] Redis service missing; relay disabled');
-        }
-      } catch (e) {
-        logger.warn('[Pushpin] Relay init failed', {
-          error: e instanceof Error ? e.message : String(e)
-        });
-      }
-    }
+    // Note: In stateless Pushpin mode, we don't maintain connection objects
+    // Pushpin handles the connection, pushpin-tracker handles presence
+    logger.info(`[Pushpin] Device ${device.id} authenticated for user ${userInfo.id}`);
 
-    // For SSE streaming, publish directly to Redis channel (not via messageRelay which uses pushpin_publish)
-    const publishFn = async (ch: string, msg: unknown) => {
-      try {
-        const redisService = getRedisService(locals);
-        if (redisService) {
-          // Publish directly to the channel, not to pushpin_publish relay
-          await redisService.publish(ch, JSON.stringify(msg));
-          logger.debug(`[Pushpin] Published directly to Redis channel: ${ch}`);
-        }
-      } catch (e) {
-        logger.warn('[Pushpin] Direct publish failed', {
-          error: e instanceof Error ? e.message : String(e),
-          channel: ch
-        });
-      }
-    };
-
-    try {
-      // Check if connection already exists before registering
-      const existingConnection = ConnectionManager.getConnection(device.id);
-      if (existingConnection) {
-        logger.info(`[Pushpin] Connection already exists for device ${device.id}, updating userInfo`);
-        
-        // CRITICAL FIX: Update the existing connection's meta.userInfo
-        // The authorization check looks at connection.meta.userInfo.id
-        existingConnection.meta.userInfo = userInfo;
-        logger.info(`[Pushpin] Updated connection meta.userInfo for device ${device.id} to user ${userInfo.id}`);
-      } else {
-        const connection = new PushpinConnection(
-          { id: device.id, userInfo, nodeId: 'device-pushpin-listen', protocol: 'pushpin', deviceId: device.id, connectedAt: Date.now() },
-          publishFn
-        );
-        ConnectionManager.registerConnection(connection);
-        logger.info(`[Pushpin] New connection registered for device ${device.id}`);
-      }
-    } catch (e) {
-      logger.warn('[Pushpin] Connection registration failed', {
-        error: e instanceof Error ? e.message : String(e)
-      });
-    }
+    // CRITICAL: Register virtual connection in ConnectionManager so publisher can route messages
+    // Even though Pushpin manages the actual connection, we need a connection entry for message routing
+    const pushpinConn = new PushpinConnection(
+      {
+        id: device.id,
+        deviceId: device.id,
+        nodeId: 'pushpin', // Static node ID for Pushpin connections
+        connectedAt: Date.now(),
+        protocol: 'pushpin' as const,
+        userInfo: userInfo
+      },
+      // Provide publish function so PushpinConnection can send messages via Pushpin Control Port
+      (channel: string, message: any) => pushpinPublish.publishToChannel(channel, message)
+    );
+    
+    ConnectionManager.registerConnection(pushpinConn);
+    logger.info(`[Pushpin] Registered virtual connection with publish function for device ${device.id}`);
 
     try {
       // Only add subscription if it doesn't already exist
@@ -233,255 +208,73 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       });
     }
 
-    logger.info(`[Pushpin] Device ${device.id} connected - Starting SSE stream`);
+    logger.info(`[Pushpin] Device ${device.id} connected - Returning GRIP response`);
 
-    // Set up Redis subscriber BEFORE creating the stream
-    const redisService = getRedisService(locals);
-    if (!redisService) {
-      logger.error('[Pushpin] Redis service not available for SSE streaming');
-      return new Response('Redis service unavailable', { status: 500 });
-    }
+    // SCALABLE APPROACH: Return immediately with GRIP headers
+    // Pushpin will hold the connection and we'll publish messages via Pushpin control endpoint
+    // This allows 100k+ devices because we don't maintain per-device state
 
-    const subscriber = redisService.client.duplicate();
-    
-    // Wait for the 'ready' event which means connection is fully established
-    const readyPromise = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Redis subscriber connection timeout after 5s'));
-      }, 5000);
-
-      subscriber.on('error', (err: Error) => {
-        clearTimeout(timeout);
-        logger.error('[Pushpin] Redis subscriber error event', {
-          error: err instanceof Error ? err.message : String(err)
-        });
-        reject(err);
-      });
-
-      subscriber.on('ready', () => {
-        clearTimeout(timeout);
-        logger.info('[Pushpin] Redis subscriber ready');
-        resolve();
-      });
-    });
-
-    try {
-
-      // Start connection
-      subscriber.connect().catch((err) => {
-        logger.debug('[Pushpin] Redis connect() promise rejected (expected, waiting for ready event)', {
-          error: err instanceof Error ? err.message : String(err)
-        });
-      });
-
-      // Wait for ready event
-      await readyPromise;
-      logger.info('[Pushpin] Redis subscriber fully connected and ready');
-      
-    } catch (err) {
-      logger.error('[Pushpin] Failed to connect Redis subscriber', {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined
-      });
-      if (subscriber) {
-        await subscriber.quit().catch(() => {});
-      }
-      return new Response('Failed to setup Redis subscriber', { status: 500 });
-    }
-
-
-
-      const encoder = new TextEncoder();
-    let heartbeatInterval: NodeJS.Timeout;
-    
-    // Helper to send SSE messages
-    const sendMessage = (controller: ReadableStreamDefaultController, data: any) => {
+    // Publish connection event asynchronously (don't block the response)
+    setTimeout(async () => {
       try {
-        const message = `data: ${JSON.stringify(data)}\n\n`;
-        controller.enqueue(encoder.encode(message));
-      } catch (err) {
-        logger.error('[Pushpin] Failed to encode message', { 
-          error: err instanceof Error ? err.message : String(err) 
+        // Use new centralized publisher that publishes to multiple channels:
+        // 1. subscription:device:{deviceId} (backward compatibility)
+        // 2. subscription:account:{accountId}:devices (for account members)
+        // 3. subscription:admin:devices (for admin users)
+        await publishDeviceStatusEvent(device, {
+          deviceId: device.id,
+          connected: true,
+          timestamp: new Date().toISOString()
         });
-      }
-    };
-    
-    // Set up message handler before subscribing
-    try {
-      // Subscribe to both the direct device channel and the subscription channel
-      await subscriber.subscribe(channel);
-      await subscriber.subscribe(`subscription:${channel}`);
-      logger.info(`[Pushpin] Subscribed to Redis channels: ${channel} and subscription:${channel}`);
-    } catch (err) {
-      logger.error('[Pushpin] Failed to subscribe to Redis channel', {
-        error: err instanceof Error ? err.message : String(err),
-        channel,
-        stack: err instanceof Error ? err.stack : undefined
-      });
-      await subscriber.quit().catch(() => {});
-      return new Response('Failed to subscribe to Redis channel', { status: 500 });
-    }
-    
-    // Create a ReadableStream for SSE
-    const stream = new ReadableStream({
-      start(controller) {
-        // Send initial connected message
-        sendMessage(controller, {
+        
+        // Also send initial connected message to the device
+        await pushpinPublish.publishToChannel(channel, {
           type: 'connected',
           deviceId: device.id,
           message: 'Device connected successfully',
           timestamp: new Date().toISOString()
         });
         
-        // Listen for Redis messages
-        subscriber.on('message', (chan: string, messageStr: string) => {
-          // Accept messages from both the direct device channel and subscription channel
-          if (chan !== channel && chan !== `subscription:${channel}`) return;
-          
-          try {
-            const data = JSON.parse(messageStr);
-            // Unwrap Redis envelope if present - match SSE format
-            if (data.type === 'channel_message' && data.payload) {
-              // For channel messages, send the payload directly
-              sendMessage(controller, data.payload);
-            } else if (data.type === 'device' && data.payload) {
-              // For device messages, send the full message structure
-              sendMessage(controller, data);
-            } else {
-              // For other messages, send as-is
-              sendMessage(controller, data);
-            }
-          } catch (err) {
-            logger.error('[Pushpin] Failed to parse Redis message', { 
-              error: err instanceof Error ? err.message : String(err) 
-            });
-          }
-        });
-        
-        heartbeatInterval = setInterval(() => {
-          sendMessage(controller, {
-            id: crypto.randomUUID(),
-            timestamp: new Date().toISOString(),
-            status: 200,
-            severity: 'info',
-            category: 'system',
-            message: 'Connection heartbeat',
-            meta: {
-              connectionId: device.id,
-              deviceId: device.id
-            },
-            event: 'ping'
-          });
-        }, 15000);
-        
-        logger.info(`[Pushpin] SSE stream started for device ${device.id}`);
-      },
-      
-      async cancel() {
-        // Cleanup when stream is cancelled
-        logger.info(`[Pushpin] SSE stream cancelled for device ${device.id}`);
-        clearInterval(heartbeatInterval);
-        
-        // Publish disconnect event to UI BEFORE cleanup
-        try {
-          const disconnectMessage = MessageFactory.createSystemMessage(
-            'device:connection',
-            `subscription:device:${device.id}`,
-            { deviceId: device.id, connected: false, disconnectedAt: new Date().toISOString(), protocol: 'sse' },
-            userInfo,
-            { echoToSender: false, excludeDevices: true }
-          );
-          await publisher.publish(disconnectMessage);
-          logger.info(`[Pushpin] Disconnect event published for device ${device.id}`);
-        } catch (e) {
-          logger.warn('[Pushpin] Failed to publish disconnect event', {
-            error: e instanceof Error ? e.message : String(e)
-          });
-        }
-        
-        subscriber.unsubscribe(channel).catch(err => 
-          logger.error('[Pushpin] Failed to unsubscribe from device channel', { 
-            error: err instanceof Error ? err.message : String(err) 
-          })
-        );
-        subscriber.unsubscribe(`subscription:${channel}`).catch(err => 
-          logger.error('[Pushpin] Failed to unsubscribe from subscription channel', { 
-            error: err instanceof Error ? err.message : String(err) 
-          })
-        );
-        subscriber.quit().catch(err =>
-          logger.error('[Pushpin] Failed to quit subscriber', { 
-            error: err instanceof Error ? err.message : String(err) 
-          })
-        );
-        
-        // Only remove subscription if this is the last connection for this device
-        // Don't remove subscriptions aggressively as it can cause race conditions
-        subscriptionRegistry.removeSubscription(
-          `subscription:device:${device.id}`, 
-          `subscriber:connection:${device.id}`
-        ).catch(err =>
-          logger.warn('[Pushpin] Failed to remove subscription (may be expected)', { 
-            error: err instanceof Error ? err.message : String(err) 
-          })
-        );
-        
-        // Unregister connection from ConnectionManager
-        ConnectionManager.unregisterConnection(device.id);
-        
-        DeviceStatusManager.setDeviceOffline(device.id, locals).catch(err =>
-          logger.error('[Pushpin] Failed to set device offline', { 
-            error: err instanceof Error ? err.message : String(err) 
-          })
-        );
-      }
-    });
-
-    // Publish connection event (with small delay to ensure subscriptions are registered)
-    setTimeout(async () => {
-      try {
-        // Log current subscribers
-        const subscribers = await subscriptionRegistry.getByKey(`subscription:device:${device.id}`);
-        logger.info(`[Pushpin] Publishing connection event for device ${device.id} to ${subscribers.length} subscribers`);
-        
-        const connectionMessage = MessageFactory.createSystemMessage(
-          'device:connection',
-          `subscription:device:${device.id}`,
-          { deviceId: device.id, connected: true, connectedAt: new Date().toISOString(), protocol: 'sse' },
-          userInfo,
-          { echoToSender: false, excludeDevices: true }
-        );
-        await publisher.publish(connectionMessage);
-        logger.info(`[Pushpin] Connection event published for device ${device.id}`);
+        logger.info(`[Pushpin] Connection event and welcome message published for device ${device.id}`);
       } catch (e) {
         logger.warn('[Pushpin] Initial publish failed', {
           error: e instanceof Error ? e.message : String(e)
         });
       }
-    }, 100); // 100ms delay to ensure UI subscriptions are registered
+    }, 100); // 100ms delay to ensure subscriptions are registered
 
-    // Return SSE response with Pushpin GRIP headers
-    return new Response(stream, {
+    // Return GRIP response immediately - Pushpin will hold the connection
+    // No ReadableStream, no Redis subscriber per device = SCALABLE!
+    return new Response('', {
+      status: 200,
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
         'Access-Control-Allow-Origin': '*',
-        // Pushpin GRIP headers for long-lived connections
-        // Cloudflare-compatible: shorter keep-alive interval (15s) for proxy compatibility
+        // GRIP headers tell Pushpin to hold this connection as a stream
         'Grip-Hold': 'stream',
         'Grip-Channel': channel,
+        // Use escaped newlines (\\n) for HTTP header - Pushpin will interpret them
         'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=15'
       }
     });
   } catch (error) {
     const msg = (error instanceof Error) ? error.message : String(error);
     const stack = (error instanceof Error) ? error.stack : undefined;
-    logger.error('Device Pushpin listen error', { 
+    
+    // Log error in multiple formats to ensure we see it
+    console.error('[Pushpin] CATCH BLOCK ERROR:', error);
+    console.error('[Pushpin] Error message:', msg);
+    console.error('[Pushpin] Error stack:', stack);
+    
+    logger.error('[Pushpin] Device Pushpin listen error', { 
       error: msg,
-      stack
+      stack,
+      errorType: error?.constructor?.name,
+      rawError: JSON.stringify(error, Object.getOwnPropertyNames(error))
     });
-    return new Response('Pushpin connection failed', { status: 500 });
+    
+    return new Response(`Pushpin connection failed: ${msg}`, { status: 500 });
   }
 };

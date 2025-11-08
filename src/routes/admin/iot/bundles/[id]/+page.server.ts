@@ -11,6 +11,7 @@ import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { isDeviceOnline } from '$lib/server/device/devicePresence';
 
 // Helper function to update bundle status based on wave statuses
 async function updateBundleStatus(prisma: any, bundleId: string) {
@@ -202,6 +203,12 @@ export const load = restrict(
               connected: true
             }
           });
+          
+          // Update online status from Redis (real-time presence tracking via pushpin-tracker)
+          if (device) {
+            const isOnline = await isDeviceOnline(device.id);
+            device.connected = isOnline;  // Override DB value with real-time Redis status
+          }
           
           return {
             ...bundleDevice,

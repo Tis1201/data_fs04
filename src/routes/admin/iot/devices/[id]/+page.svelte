@@ -1,5 +1,6 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
+    import { browser } from "$app/environment";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { writable } from "svelte/store";
@@ -220,12 +221,19 @@
         }
 
         // Lightweight connection status updates remain inline
-        console.log('[AdminDeviceDetail] Setting up SSE listener for device:connection messages');
+        console.log('[AdminDeviceDetail] ✅ SSE listener registered for device:', device.id);
         unsubConnectionLight = sseStore.on('*', (msg: any) => {
-            console.log('[AdminDeviceDetail] SSE message received:', msg);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('[AdminDeviceDetail] 📨 SSE MESSAGE RECEIVED:', {
+                event: msg?.event,
+                hasData: !!msg?.data,
+                timestamp: new Date().toISOString()
+            });
+            console.log('[AdminDeviceDetail] Full message object:', msg);
             try {
                 const evt = msg?.data ?? msg;
                 const evtType = evt?.type || msg?.event || evt?.payload?.type;
+                console.log('[AdminDeviceDetail] Extracted event type:', evtType);
                 
                 // 🆕 NEW: Handle data updates pushed via SSE
                 if (evtType === 'device:dataUpdate') {
@@ -244,18 +252,31 @@
                     // The DeviceAppList component subscribes to the same SSE store and needs to receive this message
                 }
                 
-                // Normalize payloads that carry action in payload
-                const normalized = evt?.payload?.action === 'device:connection' ? { ...evt.payload, type: 'device:connection' }
-                                  : evt;
+                // Normalize payloads - handle both old and new structures
+                // Old: { payload: { action: 'device:connection', deviceId, connected } }
+                // New: { type: 'device:connection', payload: { deviceId, connected } }
+                let normalized;
+                if (evt?.payload?.action === 'device:connection' || evt?.payload?.action === 'device:disconnection') {
+                    console.log('[AdminDeviceDetail] 📦 Using OLD event structure (payload.action)');
+                    normalized = { ...evt.payload, type: evt.payload.action };
+                } else if (evt?.type === 'device:connection' || evt?.type === 'device:disconnection') {
+                    console.log('[AdminDeviceDetail] 📦 Using NEW event structure (type + payload)');
+                    // New structure: merge type and payload for easier access
+                    normalized = {
+                        type: evt.type,
+                        deviceId: evt.payload?.deviceId,
+                        connected: evt.payload?.connected,
+                        connectedAt: evt.payload?.connectedAt,
+                        disconnectedAt: evt.payload?.disconnectedAt,
+                        timestamp: evt.payload?.timestamp,
+                        reason: evt.payload?.reason
+                    };
+                } else {
+                    console.log('[AdminDeviceDetail] 📦 Unknown structure, passing through');
+                    normalized = evt;
+                }
 
-                console.log('[AdminDeviceDetail] Parsing message:', {
-                    evt,
-                    evtType,
-                    msgEvent: msg?.event,
-                    normalized,
-                    deviceId: evt?.payload?.deviceId,
-                    currentDevice: device?.id
-                });
+                console.log('[AdminDeviceDetail] Normalized event:', normalized);
 
                 // Debug incoming messages minimally to avoid spam
                 if (evtType || normalized?.type) {
@@ -268,43 +289,46 @@
                 }
 
                 const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
-                console.log('[AdminDeviceDetail] Connection event check:', {
+                const isDisconnectionEvent = (evtType === 'device:disconnection') || (normalized?.type === 'device:disconnection');
+                console.log('[AdminDeviceDetail] Event type check:', {
                     isConnectionEvent,
+                    isDisconnectionEvent,
                     evtType,
                     normalizedType: normalized?.type
                 });
                 
-                if (!isConnectionEvent) {
-                    console.log('[AdminDeviceDetail] Not a connection event, ignoring');
+                if (!isConnectionEvent && !isDisconnectionEvent) {
+                    console.log('[AdminDeviceDetail] ⏭️  Not a connection/disconnection event, ignoring');
+                    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                     return;
                 }
 
                 const c = normalized;
-                const cDeviceId = c?.deviceId || c?.payload?.deviceId;
-                console.log('[AdminDeviceDetail] Device ID check:', {
-                    cDeviceId,
-                    cPayloadDeviceId: c?.payload?.deviceId,
+                const cDeviceId = c?.deviceId;
+                console.log('[AdminDeviceDetail] 🔍 Device ID extraction:', {
+                    deviceId: cDeviceId,
                     currentDevice: device.id,
-                    match: cDeviceId === device.id
+                    match: cDeviceId === device.id,
+                    hasDeviceId: !!cDeviceId
                 });
                 
                 if (!cDeviceId || cDeviceId !== device.id) {
-                    console.log('[AdminDeviceDetail] Not for this device, ignoring');
+                    console.log('[AdminDeviceDetail] ⏭️  Not for this device, ignoring');
+                    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                     return;
                 }
 
                 const prev = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
                 console.log('[AdminDeviceDetail] Previous device state:', prev);
-                const connected = c.connected ?? c.payload?.connected;
-                const connectedAt = c.connectedAt ?? c.payload?.connectedAt;
-                const disconnectedAt = c.disconnectedAt ?? c.payload?.disconnectedAt;
+                const connected = c?.connected ?? false;
+                const connectedAt = c?.connectedAt;
+                const disconnectedAt = c?.disconnectedAt;
                 
-                console.log('[AdminDeviceDetail] Connection data:', {
-                    connected,
-                    connectedAt,
-                    disconnectedAt,
-                    cConnected: c.connected,
-                    cPayloadConnected: c.payload?.connected
+                console.log('[AdminDeviceDetail] ✏️  Updating device:', {
+                    deviceId: cDeviceId,
+                    previousStatus: prev.connected,
+                    newStatus: connected,
+                    statusChanged: prev.connected !== connected
                 });
 
                 // Reassign the whole object to trigger reactive updates in Svelte
@@ -316,7 +340,8 @@
                 };
 
                 const next = { connected: !!device.connected, connectedAt: device.connectedAt, disconnectedAt: device.disconnectedAt };
-                console.log('[AdminDeviceDetail] Applied connection update:', { prev, next });
+                console.log('[AdminDeviceDetail] ✅ SUCCESS: Device status updated!', { prev, next });
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             } catch (e) {
                 console.warn('[DeviceDetail:SSE] Error processing message', e);
             }
@@ -412,7 +437,7 @@
         
         // Only unsubscribe if we're not navigating to a subpage of this device
         // Check current URL to see if we're still on a device-related page
-        const currentPath = window.location.pathname;
+        const currentPath = browser ? window.location.pathname : '';
         const isStillOnDevicePage = currentPath.includes(`/devices/${device.id}`);
         
         if (!isStillOnDevicePage) {
@@ -994,7 +1019,7 @@
             if (installAppSearch && installAppSearch.trim().length > 0) {
                 params.set('search', installAppSearch.trim());
             }
-            const url = `/api/admin/resources/apps?${params.toString()}`;
+            const url = `/api/resources/apps?${params.toString()}`;
             console.log('Fetching from URL:', url);
             const res = await fetch(url, { credentials: 'include' });
             console.log('Response status:', res.status);
@@ -1146,7 +1171,7 @@
             if (pullFileSearch && pullFileSearch.trim().length > 0) {
                 params.set('search', pullFileSearch.trim());
             }
-            const url = `/api/admin/resources/files?${params.toString()}`;
+            const url = `/api/resources/files?${params.toString()}`;
             console.log('Fetching from URL:', url);
             const res = await fetch(url, { credentials: 'include' });
             console.log('Response status:', res.status);

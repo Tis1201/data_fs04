@@ -218,7 +218,7 @@
                                     bundleId={''}
                                     apiPrefix={'/api/admin'}
                                     resourceMode={true}
-                                    resourcesEndpoint={'/api/admin/resources/apps'}
+                                    resourcesEndpoint={'/api/resources/apps'}
                                     resourceRuleId={data.rule.id}
                                     resourceExcludePackages={Array.from(selectedApps)}
                                     on:select={handleAppsSelected}

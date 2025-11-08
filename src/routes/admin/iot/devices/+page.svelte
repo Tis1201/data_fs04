@@ -8,6 +8,7 @@
     import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
     import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { sseStore } from "$lib/stores/sse-store";
+    import { subscribeToDeviceUpdates } from "$lib/stores/device-subscription";
     import { onMount } from 'svelte';
 
     export let data: PageData;
@@ -29,17 +30,56 @@
         ["Devices", null]
     ];
 
-    // Establish SSE connection once for the list page (DeviceTable will subscribe per-record)
-    onMount(() => {
-        // DISABLED: SSE now managed per-component only on pages that need it
-        // Device list page doesn't need real-time updates
-        /*
+    // Establish SSE connection and subscribe to admin devices channel
+    onMount(async () => {
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[AdminDeviceList] 🚀 Page mounted - Setting up SSE connection');
+        console.log('[AdminDeviceList] Current SSE state:', {
+            connectionId: sseStore.connectionId,
+            isConnected: sseStore.isConnected
+        });
+        
+        // Enable SSE for real-time device online/offline status updates
         try {
-            sseStore.connect(`/api/sse`, { withCredentials: true });
+            console.log('[AdminDeviceList] Attempting to connect to /api/sse...');
+            await sseStore.connect(`/api/sse`, { withCredentials: true });
+            console.log('[AdminDeviceList] ✅ SSE connect() call completed');
+            console.log('[AdminDeviceList] SSE state after connect:', {
+                connectionId: sseStore.connectionId,
+                isConnected: sseStore.isConnected
+            });
+            
+            // Wait a bit for connection to establish
+            await new Promise(resolve => setTimeout(resolve, 500));
+            console.log('[AdminDeviceList] SSE state after 500ms wait:', {
+                connectionId: sseStore.connectionId,
+                isConnected: sseStore.isConnected
+            });
         } catch (e) {
-            // ignore if already connected
+            console.warn('[AdminDeviceList] ⚠️  SSE connect() threw error:', e);
+            console.log('[AdminDeviceList] SSE state after error:', {
+                connectionId: sseStore.connectionId,
+                isConnected: sseStore.isConnected
+            });
         }
-        */
+        
+        // Subscribe to all devices (admin-level subscription)
+        // This replaces per-device subscriptions for scalability
+        console.log('[AdminDeviceList] Calling subscribeToDeviceUpdates("ADMIN")...');
+        const subscribed = await subscribeToDeviceUpdates('ADMIN');
+        
+        if (subscribed) {
+            console.log('[AdminDeviceList] ✅ Successfully subscribed to admin devices channel');
+        } else {
+            console.error('[AdminDeviceList] ❌ Failed to subscribe to admin devices channel');
+        }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        
+        return () => {
+            // Disconnect when leaving the page
+            console.log('[AdminDeviceList] Page unmounting - disconnecting SSE');
+            sseStore.disconnect();
+        };
     });
 </script>
 

@@ -312,21 +312,33 @@
                     action: evt?.payload?.action
                 });
                 
-                // Normalize payloads that carry action in payload
-                const normalized = evt?.payload?.action === 'device:connection' ? { ...evt.payload, type: 'device:connection' }
-                                  : evt;
+                // Normalize payloads - handle both old and new structures
+                // Old: { payload: { action: 'device:connection', deviceId, connected } }
+                // New: { type: 'device:connection', payload: { deviceId, connected } }
+                let normalized;
+                if (evt?.payload?.action === 'device:connection') {
+                    // Old structure: flatten payload with action into type
+                    normalized = { ...evt.payload, type: 'device:connection' };
+                } else if (evt?.type === 'device:connection' || evt?.type === 'device:disconnection') {
+                    // New structure: already has type at top level, keep as is
+                    normalized = evt;
+                } else {
+                    // Other structures: pass through
+                    normalized = evt;
+                }
 
                 console.log('[UserDeviceDetail] Parsed event:', {
                     evtType,
                     normalizedType: normalized?.type,
-                    forDevice: normalized?.deviceId,
+                    forDevice: normalized?.deviceId || normalized?.payload?.deviceId,
                     currentDevice: device?.id,
                     payload: normalized
                 });
 
                 const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
-                if (!isConnectionEvent) {
-                    console.log('[UserDeviceDetail] Not a connection event, ignoring');
+                const isDisconnectionEvent = (evtType === 'device:disconnection') || (normalized?.type === 'device:disconnection');
+                if (!isConnectionEvent && !isDisconnectionEvent) {
+                    console.log('[UserDeviceDetail] Not a connection/disconnection event, ignoring');
                     return;
                 }
 
@@ -1092,7 +1104,7 @@
             if (installAppSearch && installAppSearch.trim().length > 0) {
                 params.set('search', installAppSearch.trim());
             }
-            const url = `/api/admin/resources/apps?${params.toString()}`;
+            const url = `/api/resources/apps?${params.toString()}`;
             console.log('Fetching from URL:', url);
             const res = await fetch(url, { credentials: 'include' });
             console.log('Response status:', res.status);
@@ -1262,7 +1274,7 @@
             if (pullFileSearch && pullFileSearch.trim().length > 0) {
                 params.set('search', pullFileSearch.trim());
             }
-            const url = `/api/admin/resources/files?${params.toString()}`;
+            const url = `/api/resources/files?${params.toString()}`;
             console.log('Fetching from URL:', url);
             const res = await fetch(url, { credentials: 'include' });
             console.log('Response status:', res.status);

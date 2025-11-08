@@ -218,111 +218,123 @@
     // These are already imported from pagination-utils
     // Subscribe to connection events to update rows in real time
     onMount(() => {
+        console.log('[DeviceTable] ✅ SSE listener registered - waiting for device connection events...');
+        console.log('[DeviceTable] Total devices in table:', props.records.length);
+        
         const unsubscribe = sseStore.on('*', (msg: any) => {
-            console.log('[DeviceTable] Received SSE message:', msg);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('[DeviceTable] 📨 SSE MESSAGE RECEIVED:', {
+                event: msg?.event,
+                hasData: !!msg?.data,
+                timestamp: new Date().toISOString()
+            });
+            console.log('[DeviceTable] Full message object:', msg);
+            
             const raw = msg?.data ?? msg;
             const evtType = raw?.type || msg?.event || raw?.payload?.type;
-            const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
+            console.log('[DeviceTable] Extracted event type:', evtType);
             
-            console.log('[DeviceTable] Parsed message:', {
-                raw,
+            // Normalize payloads - handle both old and new structures
+            // Old: { payload: { action: 'device:connection', deviceId, connected } }
+            // New: { type: 'device:connection', payload: { deviceId, connected } }
+            let normalized;
+            if (raw?.payload?.action === 'device:connection' || raw?.payload?.action === 'device:disconnection') {
+                console.log('[DeviceTable] 📦 Using OLD event structure (payload.action)');
+                normalized = { ...raw.payload, type: raw.payload.action };
+            } else if (raw?.type === 'device:connection' || raw?.type === 'device:disconnection') {
+                console.log('[DeviceTable] 📦 Using NEW event structure (type + payload)');
+                normalized = {
+                    type: raw.type,
+                    deviceId: raw.payload?.deviceId,
+                    connected: raw.payload?.connected,
+                    connectedAt: raw.payload?.connectedAt,
+                    disconnectedAt: raw.payload?.disconnectedAt,
+                    timestamp: raw.payload?.timestamp,
+                    reason: raw.payload?.reason
+                };
+            } else {
+                console.log('[DeviceTable] 📦 Unknown structure, passing through');
+                normalized = raw;
+            }
+            
+            console.log('[DeviceTable] Normalized event:', normalized);
+            
+            const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
+            const isDisconnectionEvent = (evtType === 'device:disconnection') || (normalized?.type === 'device:disconnection');
+            
+            console.log('[DeviceTable] Event type check:', {
+                isConnectionEvent,
+                isDisconnectionEvent,
                 evtType,
-                evt,
-                msgEvent: msg?.event
+                normalizedType: normalized?.type
             });
             
-            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') {
-                console.log('[DeviceTable] Not a device:connection event, ignoring');
+            if (!isConnectionEvent && !isDisconnectionEvent) {
+                console.log('[DeviceTable] ⏭️  Not a connection/disconnection event, ignoring');
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 return;
             }
             
-            const c = evt as any;
-            const cDeviceId = c?.deviceId || c?.payload?.deviceId;
-            console.log('[DeviceTable] Device ID check:', {
-                cDeviceId,
-                cPayloadDeviceId: c?.payload?.deviceId,
-                cConnected: c?.connected,
-                cPayloadConnected: c?.payload?.connected
+            const c = normalized as any;
+            const cDeviceId = c?.deviceId;
+            console.log('[DeviceTable] 🔍 Device ID extraction:', {
+                deviceId: cDeviceId,
+                connected: c?.connected,
+                hasDeviceId: !!cDeviceId
             });
             
             if (!cDeviceId) {
-                console.log('[DeviceTable] No deviceId found, ignoring');
+                console.error('[DeviceTable] ❌ ERROR: No deviceId found in event!');
+                console.log('[DeviceTable] Normalized object:', normalized);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 return;
             }
             
             const idx = props.records.findIndex((r) => r.id === cDeviceId);
-            console.log('[DeviceTable] Device index in records:', idx);
+            console.log('[DeviceTable] 🔎 Searching for device in table:', {
+                deviceId: cDeviceId,
+                foundAtIndex: idx,
+                totalRecords: props.records.length,
+                recordIds: props.records.map((r: any) => r.id).slice(0, 5) // Show first 5 IDs
+            });
             
             if (idx >= 0) {
-                const connected = c?.connected ?? c?.payload?.connected ?? false;
-                console.log('[DeviceTable] Updating device at index', idx, 'to connected:', connected);
+                const connected = c?.connected ?? false;
+                const previousStatus = props.records[idx].connected;
+                console.log('[DeviceTable] ✏️  Updating device:', {
+                    index: idx,
+                    deviceId: cDeviceId,
+                    previousStatus,
+                    newStatus: connected,
+                    statusChanged: previousStatus !== connected
+                });
                 
                 props.records[idx].connected = !!connected;
-                if (connected && (c?.connectedAt || c?.payload?.connectedAt)) {
-                    (props.records[idx] as any).connectedAt = c?.connectedAt || c?.payload?.connectedAt;
+                if (connected && c?.connectedAt) {
+                    (props.records[idx] as any).connectedAt = c.connectedAt;
                 }
-                if (!connected && (c?.disconnectedAt || c?.payload?.disconnectedAt)) {
-                    (props.records[idx] as any).disconnectedAt = c?.disconnectedAt || c?.payload?.disconnectedAt;
+                if (!connected && c?.disconnectedAt) {
+                    (props.records[idx] as any).disconnectedAt = c.disconnectedAt;
                 }
                 props = { ...props }; // trigger re-render
-                console.log('[DeviceTable] Device updated, props refreshed');
+                console.log('[DeviceTable] ✅ SUCCESS: Device status updated!', {
+                    deviceId: cDeviceId,
+                    newStatus: connected,
+                    recordUpdated: true
+                });
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             } else {
-                console.log('[DeviceTable] Device not found in records');
+                console.warn('[DeviceTable] ⚠️  Device not found in current table view:', {
+                    deviceId: cDeviceId,
+                    reason: 'Device may be on a different page or filtered out'
+                });
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             }
         });
 
-        // Subscribe this connection to all device channels present in the table
-        const subscribedDeviceIds = new Set<string>();
-
-        async function subscribeToDevices(ids: string[]) {
-            // Try to get connectionId from store
-            let connId: string | null = null;
-            const unsub = sseStore.on('connected', (m: any) => {
-                connId = m?.data?.connectionId || m?.connectionId || null;
-            });
-            unsub();
-
-            // If not yet available, wait for connected event once
-            if (!connId) {
-                sseStore.on('connected', async (m: any) => {
-                    const id = m?.data?.connectionId || m?.connectionId || null;
-                    if (!id) return;
-                    for (const deviceId of ids) {
-                        if (subscribedDeviceIds.has(deviceId)) continue;
-                        try {
-                            await fetch(`/api/sse/subscribe/device/${deviceId}`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'include',
-                                body: JSON.stringify({ connectionId: id })
-                            });
-                            subscribedDeviceIds.add(deviceId);
-                        } catch (e) {
-                            // ignore failures; can try again on next change
-                        }
-                    }
-                });
-            } else {
-                // We have a connectionId; subscribe immediately
-                for (const deviceId of ids) {
-                    if (subscribedDeviceIds.has(deviceId)) continue;
-                    try {
-                        await fetch(`/api/sse/subscribe/device/${deviceId}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
-                            body: JSON.stringify({ connectionId: connId })
-                        });
-                        subscribedDeviceIds.add(deviceId);
-                    } catch (e) {
-                        // ignore
-                    }
-                }
-            }
-        }
-
-        // Initial subscribe
-        subscribeToDevices(props.records.map((r) => r.id));
+        // NOTE: No longer subscribing to individual devices
+        // The parent page now subscribes to the admin-level channel: subscription:admin:devices
+        // This single subscription covers ALL devices for scalability with 100k+ devices
 
         return () => {
             try { unsubscribe && unsubscribe(); } catch {}

@@ -124,7 +124,7 @@
                 {/if}
                 <button type="button" class="flex items-center gap-2 px-3 py-2 border rounded-md" on:click={() => appPickerOpen = true}><Plus class="w-4 h-4" /> Select Apps</button>
                 {#if appPickerOpen}
-                    <AppSelector open={true} bundleId={''} apiPrefix={'/api/admin'} resourceMode={true} resourcesEndpoint={'/api/admin/resources/apps'} resourceExcludePackages={Array.from(selectedApps)} on:select={(e) => { for (const r of e.detail) selectedApps.add(r.packageName || r.name); selectedApps = new Set(selectedApps); syncAppsToForm(); appPickerOpen = false; }} on:close={() => appPickerOpen = false} />
+                    <AppSelector open={true} bundleId={''} apiPrefix={'/api/admin'} resourceMode={true} resourcesEndpoint={'/api/resources/apps'} resourceExcludePackages={Array.from(selectedApps)} on:select={(e) => { for (const r of e.detail) selectedApps.add(r.packageName || r.name); selectedApps = new Set(selectedApps); syncAppsToForm(); appPickerOpen = false; }} on:close={() => appPickerOpen = false} />
                 {/if}
                 <input type="hidden" name="apps" value={formData.apps} />
             </div>

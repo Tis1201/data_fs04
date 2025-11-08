@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 import { logger } from '$lib/server/logger';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
 
 export const GET: RequestHandler = async ({ url, locals, params }) => {
   try {
@@ -94,11 +95,24 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
       take: perPage
     });
 
-    logger.info(`[DeviceSelector] returning ${devices.length} devices of total ${total}`);
+    // Batch check all device online statuses at once (much faster than sequential calls)
+    const deviceIds = devices.map(d => d.id);
+    const onlineStatusMap = await areDevicesOnline(deviceIds);
+    
+    // Override DB connected status with real-time status from Redis
+    const devicesWithRealTimeStatus = devices.map((device) => {
+      const isOnline = onlineStatusMap.get(device.id) ?? false;
+      return {
+        ...device,
+        connected: isOnline  // Override DB value with real-time Redis status
+      };
+    });
+
+    logger.info(`[DeviceSelector] returning ${devicesWithRealTimeStatus.length} devices of total ${total}`);
 
     return json({
       success: true,
-      devices,
+      devices: devicesWithRealTimeStatus,
       meta: {
         current_page: page,
         per_page: perPage,

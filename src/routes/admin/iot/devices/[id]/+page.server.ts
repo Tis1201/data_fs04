@@ -12,6 +12,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
+import { isDeviceOnline } from '$lib/server/device/devicePresence';
 
 export const load = restrict(
     async ({ params, locals, depends }) => {
@@ -146,9 +147,17 @@ export const load = restrict(
 
             const deviceInformation = await getLatestDeviceInformation(device.macAddress);
 
+            // Check real-time online status from pushpin-tracker (Redis)
+            // This is more accurate than the database 'connected' field
+            const isOnline = await isDeviceOnline(device.id);
+            console.log('[DeviceDetail] Real-time online status:', { deviceId: device.id, isOnline });
+
             return {
                 form,
-                device,
+                device: {
+                    ...device,
+                    connected: isOnline  // Override database value with real-time status
+                },
                 deviceActionLogs,
                 deviceInformation
             };

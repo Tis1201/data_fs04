@@ -21,9 +21,14 @@ export class SSEConnection implements Connection {
 
   constructor(
     public readonly meta: ConnectionMeta,
-    private readonly controller: ReadableStreamDefaultController
+    private readonly controller: ReadableStreamDefaultController,
+    private readonly enablePing: boolean = false // Only enable for device connections
   ) {
-    this.setupPing();
+    // Only setup ping for device connections (where deviceId exists)
+    // Web UI connections don't need pings as browsers auto-reconnect
+    if (this.enablePing && this.meta.deviceId) {
+      this.setupPing();
+    }
   }
 
   private setupPing(): void {
@@ -106,12 +111,35 @@ export class SSEConnection implements Connection {
         return;
       }
 
-      const data = JSON.stringify({
-        ...(payload as object),
+      // Explicitly preserve requestId and all OutMessage properties
+      // The (payload as object) cast can lose type information, so we explicitly include requestId
+      const payloadObj = payload as any;
+      const serializedData = {
+        ...payloadObj,  // Spread all properties
         timestamp: new Date().toISOString()
-      });
+      };
+      
+      // Ensure requestId is explicitly included (critical for request-response matching)
+      if (payloadObj?.requestId) {
+        serializedData.requestId = payloadObj.requestId;
+      }
+      
+      // Log requestId for debugging claim responses
+      if (messageType === 'device' && payloadObj?.payload?.action === 'claim') {
+        logger.info(`[SSEConnection] Sending device claim response: requestId=${payloadObj.requestId || 'MISSING'}, connectionId=${this.meta.id}`);
+        logger.debug(`[SSEConnection] Serialized data includes requestId: ${!!serializedData.requestId}`);
+      }
 
-      const message = `data: ${data}\n\n`;
+      const data = JSON.stringify(serializedData);
+
+      // Include SSE event type if the payload has a type field
+      let message: string;
+      if (messageType) {
+        message = `event: ${messageType}\ndata: ${data}\n\n`;
+      } else {
+        message = `data: ${data}\n\n`;
+      }
+      
       this.controller.enqueue(new TextEncoder().encode(message));
     } catch (error) {
       if (error instanceof Error && error.message.includes('Controller is already closed')) {
@@ -136,16 +164,24 @@ export class SSEConnection implements Connection {
     }
 
     try {
-      // Wrap to match Pushpin channel_message envelope so device receives identical schema
-      const channel = `device:${this.meta.deviceId}`;
-      const envelope = {
-        channel,
-        payload: response,
-        timestamp: Date.now(),
-        type: 'channel_message' as const
-      };
+      let message: string;
+      
+      // Only wrap in channel envelope for actual device connections
+      if (this.meta.deviceId) {
+        // Device connection: Wrap to match Pushpin channel_message envelope
+        const channel = `device:${this.meta.deviceId}`;
+        const envelope = {
+          channel,
+          payload: response,
+          timestamp: Date.now(),
+          type: 'channel_message' as const
+        };
+        message = `data: ${JSON.stringify(envelope)}\n\n`;
+      } else {
+        // Web UI connection: Send response directly without channel envelope
+        message = `data: ${JSON.stringify(response)}\n\n`;
+      }
 
-      const message = `data: ${JSON.stringify(envelope)}\n\n`;
       // logger.debug(`[SSEConnection] Enqueuing message for connection ${this.meta.id}: ${message.substring(0, 100)}...`);
       this.controller.enqueue(new TextEncoder().encode(message));
       // logger.debug(`[SSEConnection] Message enqueued successfully for connection ${this.meta.id}`);

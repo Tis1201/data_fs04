@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -132,16 +132,16 @@ export const load = restrict(
 );
 
 export const actions: Actions = {
-    deleteResource: restrict(
-        async ({ request, locals }) => {
-            const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-
-            if (!id) {
-                return { success: false, error: 'Resource ID is required' };
-            }
-
+    delete: restrict(
+        async ({ request, locals, url }) => {
             try {
+                const formData = await request.formData();
+                const id = formData.get('id')?.toString();
+
+                if (!id) {
+                    return fail(400, { error: 'Resource ID is required' });
+                }
+
                 // Get the resource first to get the file path
                 const resource = await locals.prisma.resource.findUnique({
                     where: { id },
@@ -149,7 +149,7 @@ export const actions: Actions = {
                 });
 
                 if (!resource) {
-                    return { success: false, error: 'Resource not found' };
+                    return fail(404, { error: 'Resource not found' });
                 }
 
                 // Delete the file from cloud storage first
@@ -180,12 +180,17 @@ export const actions: Actions = {
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
                     prisma: locals.prisma
-                })
+                });
 
-                return { success: true };
+                // Redirect to refresh the page and show updated list
+                throw redirect(303, url.pathname);
             } catch (err) {
+                // If it's a redirect, re-throw it
+                if (err && typeof err === 'object' && 'status' in err && err.status === 303) {
+                    throw err;
+                }
                 logger.error(`Error deleting resource: ${err}`);
-                return { success: false, error: 'Failed to delete resource' };
+                return fail(500, { error: 'Failed to delete resource' });
             }
         },
         [SystemRole.USER]

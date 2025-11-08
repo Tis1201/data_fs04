@@ -69,6 +69,22 @@ function createSSEStore() {
      * Add a message to the store and notify listeners
      */
     const addMessage = (message: SSEMessage) => {
+        // Enhanced logging for device messages
+        if (message.event === 'device:connection' || message.event === 'device:disconnection' || 
+            (message.data?.type && (message.data.type === 'device:connection' || message.data.type === 'device:disconnection'))) {
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('[SSE] 📬 addMessage() called for device event:', {
+                messageEvent: message.event,
+                dataType: message.data?.type,
+                deviceId: message.data?.payload?.deviceId || message.data?.deviceId,
+                connected: message.data?.payload?.connected || message.data?.connected,
+                registeredListeners: {
+                    specific: messageListeners[message.event]?.length || 0,
+                    wildcard: messageListeners['*']?.length || 0
+                }
+            });
+        }
+        
         update(state => {
             // Ensure messages is always an array and limit to last 10 messages
             const messages = Array.isArray(state.messages) ? state.messages : [];
@@ -87,13 +103,32 @@ function createSSEStore() {
             ...(messageListeners['*'] || [])
         ];
         
-        listeners.forEach(cb => {
+        if (message.event === 'device:connection' || message.event === 'device:disconnection' || 
+            (message.data?.type && (message.data.type === 'device:connection' || message.data.type === 'device:disconnection'))) {
+            console.log('[SSE] 📢 Notifying listeners:', {
+                totalListeners: listeners.length,
+                specificListeners: messageListeners[message.event]?.length || 0,
+                wildcardListeners: messageListeners['*']?.length || 0
+            });
+        }
+        
+        listeners.forEach((cb, index) => {
             try {
+                if (message.event === 'device:connection' || message.event === 'device:disconnection' || 
+                    (message.data?.type && (message.data.type === 'device:connection' || message.data.type === 'device:disconnection'))) {
+                    console.log(`[SSE] 📞 Calling listener ${index + 1}/${listeners.length}`);
+                }
                 cb(message);
             } catch (err) {
                 console.error(`SSE listener error [${message.event}]:`, err);
             }
         });
+        
+        if (message.event === 'device:connection' || message.event === 'device:disconnection' || 
+            (message.data?.type && (message.data.type === 'device:connection' || message.data.type === 'device:disconnection'))) {
+            console.log('[SSE] ✅ All listeners notified');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        }
     };
 
     /**
@@ -142,7 +177,8 @@ function createSSEStore() {
                 }));
             };
 
-            eventSource.onmessage = (event) => {
+            // Helper function to process SSE messages (used by both onmessage and custom event listeners)
+            const processSSEMessage = (event: MessageEvent) => {
                 try {
                     if (!event.data) {
                         console.warn('[SSE] Received empty message');
@@ -159,15 +195,21 @@ function createSSEStore() {
                         sender: data.sender
                     };
 
-                    // Debug logging for device messages
-                    if (data.type && data.type.startsWith('device:')) {
-                        console.log('[SSE] Received device message:', {
-                            eventType: event.type,
-                            messageEvent: message.event,
+                    // Enhanced logging for ALL device messages
+                    if (data.type && (data.type.startsWith('device:') || data.type === 'device:connection' || data.type === 'device:disconnection')) {
+                        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                        console.log('[SSE] 📨 DEVICE MESSAGE RECEIVED:', {
+                            rawEventType: event.type,
+                            parsedEventType: message.event,
                             dataType: data.type,
-                            payload: data.payload,
+                            hasPayload: !!data.payload,
+                            payloadKeys: data.payload ? Object.keys(data.payload) : [],
+                            deviceId: data.payload?.deviceId || data.deviceId,
+                            connected: data.payload?.connected || data.connected,
                             fullData: data
                         });
+                        console.log('[SSE] Full parsed message object:', message);
+                        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                     }
 
                     // Handle connection ID from connected event
@@ -189,8 +231,13 @@ function createSSEStore() {
 
                     // Check if this message is a response to a pending request
                     const requestId = data.requestId || (data.payload?.requestId as string);
+                    console.log(`[SSE] Checking for pending request. requestId: ${requestId}, hasPending: ${!!requestId && !!pendingRequests[requestId]}`);
+                    console.log(`[SSE] Pending requests:`, Object.keys(pendingRequests));
+                    console.log(`[SSE] Message data keys:`, Object.keys(data));
+                    console.log(`[SSE] Full data:`, data);
+                    
                     if (requestId && pendingRequests[requestId]) {
-                        console.log(`[SSE] Received response for request: ${requestId}`);
+                        console.log(`[SSE] ✅ Received response for request: ${requestId}`);
                         console.log(`[SSE] Response data:`, data);
 
                         // Add detailed logging for screenshot responses
@@ -213,15 +260,63 @@ function createSSEStore() {
                         delete pendingRequests[requestId];
                         resolve(data);
                     } else {
-                        console.log(`[SSE] Received non-request message:`, data);
+                        // Log when message doesn't match any pending request
+                        if (requestId) {
+                            console.warn(`[SSE] ⚠️ Message has requestId ${requestId} but no matching pending request`);
+                        }
+                        
+                        // Log all non-request messages for debugging
+                        if (data.type === 'device:connection' || data.type === 'device:disconnection') {
+                            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                            console.log(`[SSE] 📨 NON-REQUEST DEVICE MESSAGE:`, {
+                                type: data.type,
+                                payload: data.payload,
+                                fullData: data,
+                                messageEvent: message.event
+                            });
+                            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                        } else {
+                            console.log(`[SSE] Received non-request message:`, {
+                                type: data.type,
+                                event: message.event,
+                                hasPayload: !!data.payload,
+                                dataKeys: Object.keys(data)
+                            });
+                        }
                     }
-
 
                     addMessage(message);
                 } catch (err) {
                     console.error('[SSE] Error processing message:', err, 'Raw data:', event.data);
                 }
             };
+
+            // Use the same handler for default 'message' events
+            eventSource.onmessage = processSSEMessage;
+            
+            // CRITICAL: Add listeners for custom SSE event types
+            // Custom event types are NOT caught by onmessage, they require explicit addEventListener
+            // EventSource matches event types EXACTLY, not by prefix (e.g., 'device' won't catch 'device:connection')
+            
+            const customEventTypes = [
+                'device',                  // Claim responses
+                'device:connection',       // Device online
+                'device:disconnection',    // Device offline
+                'device:actionRequest',    // Action sent to device
+                'device:statusUpdate',     // Device status update
+                'device:dataUpdate',       // Device data update
+                'device:profileUpdate',    // Device profile update
+                'bundle:waveStatus',       // Bundle wave status
+                'bundle:status',           // Bundle status
+            ];
+            
+            customEventTypes.forEach(eventType => {
+                eventSource?.addEventListener(eventType, (event) => {
+                    console.log(`[SSE] 🎯 Received custom "${eventType}" event:`, event);
+                    processSSEMessage(event);
+                });
+            });
+            console.log(`[SSE] ✅ Added event listeners for ${customEventTypes.length} custom event types`);
 
             eventSource.onerror = (event) => {
                 console.error('[SSE] Connection error:', event);
@@ -237,11 +332,23 @@ function createSSEStore() {
                 // Note: The browser will automatically attempt to reconnect
             };
 
-            // Set up specific event listeners if needed
-            ['connected', 'webhook', 'notification'].forEach((eventType: string) => {
+            // Set up specific event listeners for custom event types
+            // This includes device events that are sent with custom SSE event types
+            // Note: processSSEMessage is already defined above and used by onmessage
+            [
+                'connected', 
+                'webhook', 
+                'notification', 
+                'device:connection', 
+                'device:disconnection',
+                'device:actionRequest',
+                'device:statusUpdate',
+                'device:dataUpdate',
+                'device:progressUpdate',
+                'device:profileUpdate'
+            ].forEach((eventType: string) => {
                 if (!eventSource) return;
-                const handler = (ev: MessageEvent<any>) => eventSource && eventSource.onmessage && eventSource.onmessage(ev as MessageEvent);
-                eventSource.addEventListener(eventType, handler as any);
+                eventSource.addEventListener(eventType, processSSEMessage as any);
             });
 
         } catch (error) {

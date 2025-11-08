@@ -4,6 +4,7 @@
  *  – Single-promise bootstrap (no race conditions)
  *  – Subscribes to device_status_changes, then hydrates online devices
  *  – Registers / unregisters devices in ConnectionManager
+ *  – SCALABLE: Uses Pushpin publish service for 100k+ devices
  *
  ***************************************************************************************/
 
@@ -17,6 +18,7 @@ import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionReg
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { PresenceManager } from './presence';
 import { MessageRelay } from './messageRelay';
+import { getPushpinPublishService } from './publishService';
 
 /****************************************************************************************
  *  Globals
@@ -58,7 +60,8 @@ async function bootstrap(redisService: ReturnType<typeof getRedisService>): Prom
 }
 
 /****************************************************************************************
- *  publish — enhanced with Redis Pub/Sub and presence tracking
+ *  publish — SCALABLE: Uses Pushpin's control endpoint directly
+ *  This allows 100k+ devices without Redis subscriber bottlenecks
  ***************************************************************************************/
 async function publish(
     redisService: ReturnType<typeof getRedisService>,
@@ -67,12 +70,21 @@ async function publish(
 ): Promise<void> {
     logger.debug(`[Pushpin] publish → ${channel}: ${JSON.stringify(message)}`);
     
-    // Use message relay for Redis Pub/Sub broadcasting
-    if (messageRelay) {
-        await messageRelay.publishToChannel(channel, message);
-    } else {
-        // Fallback to direct Redis publish
-        await redisService.publish(channel, JSON.stringify(message));
+    try {
+        // Use Pushpin publish service for direct Pushpin delivery
+        const pushpinPublish = getPushpinPublishService();
+        await pushpinPublish.publishToChannel(channel, message);
+    } catch (error) {
+        logger.error('[Pushpin] Failed to publish via Pushpin service', {
+            error: error instanceof Error ? error.message : String(error),
+            channel
+        });
+        
+        // Fallback to Redis (if there's a sidecar listening)
+        if (messageRelay) {
+            logger.debug('[Pushpin] Falling back to Redis publish');
+            await messageRelay.publishToChannel(channel, message);
+        }
     }
 }
 

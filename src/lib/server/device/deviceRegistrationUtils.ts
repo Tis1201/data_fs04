@@ -1,5 +1,4 @@
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
-import { publisher } from '$lib/server/messaging/core/publisher';
+import { getPushpinPublishService } from '$lib/server/pushpin/publishService';
 import { logger } from '$lib/server/logger';
 
 export interface DeviceRegistrationData {
@@ -15,29 +14,33 @@ export interface DeviceRegistrationData {
 }
 
 /**
- * Sends standardized device registration message to device
+ * Sends standardized device registration message to device via Pushpin
+ * 
+ * ARCHITECTURE:
+ * - Device is connected to Pushpin (not backend directly)
+ * - Backend publishes to Pushpin Control Port (5561)
+ * - Pushpin delivers message to device
+ * - No direct connection from backend to device
  */
 export async function sendDeviceRegistrationMessage(
     deviceId: string, 
     deviceData: DeviceRegistrationData
 ): Promise<void> {
-    const message = MessageFactory.createSystemMessage(
-        'device',
-        `subscription:device:${deviceId}`,
-        {
+    const pushpinPublish = getPushpinPublishService();
+    const channel = `device:${deviceId}`;
+    
+    // Publish via Pushpin Control Port
+    await pushpinPublish.publishToChannel(channel, {
+        type: 'device',
+        payload: {
             action: 'registered',
             ...deviceData,
             claimedAt: deviceData.claimedAt || new Date().toISOString()
         },
-        SystemUser,
-        { 
-            echoToSender: false,
-            sudo: true 
-        }
-    );
+        timestamp: new Date().toISOString()
+    });
     
-    await publisher.publish(message);
-    logger.info(`Device registration message sent for device ${deviceId}`);
+    logger.info(`[Pushpin] Device registration message sent for device ${deviceId} via Pushpin Control Port`);
 }
 
 /**

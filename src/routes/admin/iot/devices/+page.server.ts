@@ -12,6 +12,7 @@ import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
+import { isDeviceOnline } from '$lib/server/device/devicePresence';
 
 // Define table options for Devices
 const table_options = {
@@ -81,8 +82,19 @@ export const load = restrict(
             }
         });
 
+        // Update online status from Redis (real-time presence tracking via pushpin-tracker)
+        const devicesWithRealTimeStatus = await Promise.all(
+            result.records.map(async (device: any) => {
+                const isOnline = await isDeviceOnline(device.id);
+                return {
+                    ...device,
+                    connected: isOnline  // Override DB value with real-time Redis status
+                };
+            })
+        );
+
         return {
-            devices: result.records,
+            devices: devicesWithRealTimeStatus,
             availableTags,
             meta: result.meta
         };

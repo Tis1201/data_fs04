@@ -50,6 +50,7 @@
     import { subscribeBundleWave } from '$lib/bundles/realtime';
     import { onMount, onDestroy } from 'svelte';
     import { sseStore } from '$lib/stores/sse-store';
+    import { subscribeToDeviceUpdates } from '$lib/stores/device-subscription';
 
     export let data: any;
     // Make bundle reactive to server invalidations
@@ -357,11 +358,8 @@
     }
     
     // Establish SSE connection for real-time updates
-    onMount(() => {
-        // DISABLED: SSE now managed per-component only on pages that need it
-        // Bundle detail page should use per-component SSE if it needs real-time updates
-        console.log('[AdminBundleDetail] onMount - SSE connection disabled (use per-component if needed)');
-        /*
+    onMount(async () => {
+        // Enable SSE for real-time device status and wave updates
         console.log('[AdminBundleDetail] onMount - Establishing SSE connection');
         try {
             sseStore.connect(`/api/sse`, { withCredentials: true });
@@ -369,7 +367,11 @@
         } catch (e) {
             console.warn('[AdminBundleDetail] SSE connect failed (may already be connected):', e);
         }
-        */
+        
+        // Subscribe to admin-level device updates to receive all device connection/disconnection events
+        console.log('[AdminBundleDetail] Subscribing to admin-level device updates...');
+        await subscribeToDeviceUpdates('ADMIN');
+        console.log('[AdminBundleDetail] Admin-level device subscription completed');
         
         // Initialize device connection states from static data
         if (data?.bundleDevices) {
@@ -382,26 +384,106 @@
             console.log('[AdminBundleDetail] Initialized device connection states:', deviceConnectionStates);
         }
         
+        // Subscribe to device channels for real-time updates
+        const deviceIds = data?.bundleDevices?.map((d: any) => d.device?.id).filter(Boolean) || [];
+        console.log('[AdminBundleDetail] Device IDs to subscribe:', deviceIds);
+        
+        if (deviceIds.length > 0) {
+            const connId = sseStore.connectionId;
+            const isConnected = sseStore.isConnected;
+            console.log('[AdminBundleDetail] SSE state:', { connId, isConnected });
+            
+            if (connId) {
+                console.log('[AdminBundleDetail] Have connectionId, subscribing immediately');
+                // Subscribe immediately if we have a connection
+                for (const deviceId of deviceIds) {
+                    try {
+                        console.log('[AdminBundleDetail] Subscribing to device:', deviceId, 'with connectionId:', connId);
+                        const response = await fetch(`/api/sse/subscribe/device/${deviceId}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ connectionId: connId })
+                        });
+                        const result = await response.json();
+                        console.log('[AdminBundleDetail] Subscribe response for', deviceId, ':', result);
+                    } catch (e) {
+                        console.error('[AdminBundleDetail] Failed to subscribe to device:', deviceId, e);
+                    }
+                }
+            } else {
+                console.log('[AdminBundleDetail] No connectionId yet, waiting for connected event');
+                // Wait for connection and subscribe once established
+                const unsubOnce = sseStore.on('connected', async (m: any) => {
+                    try { unsubOnce(); } catch {}
+                    const id = m?.data?.connectionId || m?.connectionId || null;
+                    console.log('[AdminBundleDetail] Connected event received, connectionId:', id);
+                    if (!id) return;
+                    for (const deviceId of deviceIds) {
+                        try {
+                            console.log('[AdminBundleDetail] Subscribing to device:', deviceId);
+                            const response = await fetch(`/api/sse/subscribe/device/${deviceId}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                credentials: 'include',
+                                body: JSON.stringify({ connectionId: id })
+                            });
+                            const result = await response.json();
+                            console.log('[AdminBundleDetail] Subscribe response for', deviceId, ':', result);
+                        } catch (e) {
+                            console.error('[AdminBundleDetail] Failed to subscribe to device:', deviceId, e);
+                        }
+                    }
+                });
+            }
+        } else {
+            console.log('[AdminBundleDetail] No devices to subscribe to');
+        }
+        
         // Listen for device connection events
         const unsubscribeDeviceConnections = sseStore.on('*', (msg: any) => {
             console.log('[AdminBundleDetail] Received SSE message for device status:', msg);
             const raw = msg?.data ?? msg;
             const evtType = raw?.type || msg?.event || raw?.payload?.type;
-            const evt = raw?.payload?.action === 'device:connection' ? { ...raw.payload, type: 'device:connection' } : raw;
             
-            if (evtType !== 'device:connection' && evt?.type !== 'device:connection') {
+            // Handle both old and new event structures
+            let normalized;
+            if (raw?.payload?.action === 'device:connection' || raw?.payload?.action === 'device:disconnection') {
+                console.log('[AdminBundleDetail] 📦 Using OLD event structure (payload.action)');
+                normalized = { ...raw.payload, type: raw.payload.action };
+            } else if (raw?.type === 'device:connection' || raw?.type === 'device:disconnection') {
+                console.log('[AdminBundleDetail] 📦 Using NEW event structure (type + payload)');
+                normalized = {
+                    type: raw.type,
+                    deviceId: raw.payload?.deviceId,
+                    connected: raw.payload?.connected,
+                    connectedAt: raw.payload?.connectedAt,
+                    disconnectedAt: raw.payload?.disconnectedAt,
+                    timestamp: raw.payload?.timestamp,
+                    reason: raw.payload?.reason
+                };
+            } else {
+                // Not a device connection/disconnection event
                 return;
             }
             
-            const c = evt as any;
-            const cDeviceId = c?.deviceId || c?.payload?.deviceId;
-            const connected = c?.connected ?? c?.payload?.connected ?? false;
+            const isConnectionEvent = normalized?.type === 'device:connection';
+            const isDisconnectionEvent = normalized?.type === 'device:disconnection';
+            
+            if (!isConnectionEvent && !isDisconnectionEvent) {
+                return;
+            }
+            
+            const cDeviceId = normalized?.deviceId;
+            const connected = normalized?.connected ?? false;
             
             if (cDeviceId) {
-                console.log('[AdminBundleDetail] Updating device connection state:', { deviceId: cDeviceId, connected });
+                console.log('[AdminBundleDetail] ✏️  Updating device connection state:', { deviceId: cDeviceId, connected });
                 deviceConnectionStates.set(cDeviceId, !!connected);
                 deviceStatusVersion++; // Trigger reactive update
-                console.log('[AdminBundleDetail] Updated device connection states:', deviceConnectionStates);
+                console.log('[AdminBundleDetail] ✅ Updated device connection states:', Object.fromEntries(deviceConnectionStates));
+            } else {
+                console.warn('[AdminBundleDetail] ⚠️  No deviceId in event:', normalized);
             }
         });
         

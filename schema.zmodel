@@ -553,7 +553,7 @@ model DeviceTag {
   // Admins can do everything
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
-  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'USER', 'MEMBER']])
 }
 
 // Generic device action log for all operations (firmware update, screenshot, etc.)
