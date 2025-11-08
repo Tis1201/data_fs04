@@ -181,8 +181,10 @@ export class DefaultDeviceManager {
         // Remove PIN from store
         await pinSharedStore.remove(pin);
 
-        // Send registration message using shared utility
-        if (!isPreclaim && senderConnectionId && senderConnectionProtocol) {
+        // Send registration message to device via Pushpin
+        // IMPORTANT: Always send to device, regardless of UI connection status
+        // The device is connected to Pushpin, not dependent on UI SSE connection
+        if (!isPreclaim) {
             await sendDeviceRegistrationMessage(device.id, {
                 id: updatedDevice.id,
                 apiKey: updatedDevice.apiKey!,
