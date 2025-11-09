@@ -73,8 +73,8 @@ x-deploy-gke-shared: &deploy_gke_shared |
     LOCATION_FLAG="--region"
   fi
   gcloud container clusters get-credentials "${TARGET_GKE_CLUSTER_NAME}" "${LOCATION_FLAG}" "${TARGET_GKE_CLUSTER_LOCATION}" --project "${TARGET_GCP_PROJECT}"
-  echo "Using ${IMAGE_URI_VERSION} for ${TARGET_ENV} deployment"
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_VERSION}"
+  echo "Using ${IMAGE_URI_COMMIT} for ${TARGET_ENV} deployment"
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_COMMIT}"
   kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/"${TARGET_K8S_DEPLOYMENT}"
 
 definitions:
@@ -143,9 +143,8 @@ definitions:
           - export TARGET_ENV="dev"
           - *export_registry
           - *export_image_name
-          - *export_version_tag
-          - *assert_version
-          - *export_image_uri_version
+          - *export_commit_tag
+          - *export_image_uri_commit
           - *dev_export_project
           - *dev_export_cluster_name
           - *dev_export_cluster_location
@@ -162,9 +161,8 @@ definitions:
           - export TARGET_ENV="production"
           - *export_registry
           - *export_image_name
-          - *export_version_tag
-          - *assert_version
-          - *export_image_uri_version
+          - *export_commit_tag
+          - *export_image_uri_commit
           - *prd_export_project
           - *prd_export_cluster_name
           - *prd_export_cluster_location
