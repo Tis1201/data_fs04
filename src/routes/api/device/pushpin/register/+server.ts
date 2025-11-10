@@ -11,7 +11,7 @@ import {
     ResponseStatus,
     toResponse
 } from '$lib/shared/response_format';
-import { getPushpinPublishService } from '$lib/server/pushpin/publishService';
+import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
 import { ClaimStatus } from '@prisma/client';
@@ -189,24 +189,28 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                     });
                     logger.info(`[Register] Updated preclaim record for device ${deviceId}`);
                     
-                    // Publish "registered" message via Pushpin Control Port
-                    const pushpinPublish = getPushpinPublishService();
-                    await pushpinPublish.publishToChannel(channel, {
-                        type: 'device',
-                        payload: {
-                            action: 'registered',
-                            id: deviceId,
-                            apiKey: deviceWithApiKey.apiKey,
-                            accountId: preclaim.preclaim.accountId,
-                            userId: resolvedClaimUserId,
-                            name: 'Preclaimed Device',
-                            deviceType: 'UNKNOWN',
-                            status: 'ACTIVE'
-                        },
-                        timestamp: new Date().toISOString()
-                    });
-                    
-                    logger.info(`[Register] Published registration message for device ${deviceId} via Pushpin`);
+                    // Publish "registered" message via Redis Pub/Sub (sidecars relay to Pushpin)
+                    const messageRelay = getMessageRelay();
+                    if (!messageRelay) {
+                        logger.error(`[Register] MessageRelay not initialized - cannot publish registration message for device ${deviceId}`);
+                    } else {
+                        await messageRelay.publishToChannel(channel, {
+                            type: 'device',
+                            payload: {
+                                action: 'registered',
+                                id: deviceId,
+                                apiKey: deviceWithApiKey.apiKey,
+                                accountId: preclaim.preclaim.accountId,
+                                userId: resolvedClaimUserId,
+                                name: 'Preclaimed Device',
+                                deviceType: 'UNKNOWN',
+                                status: 'ACTIVE'
+                            },
+                            timestamp: new Date().toISOString()
+                        });
+                        
+                        logger.info(`[Register] Published registration message for device ${deviceId} via Redis Pub/Sub`);
+                    }
                 }
             } catch (error) {
                 logger.error(`[Register] Error in background registration: ${error}`);

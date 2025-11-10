@@ -8,6 +8,7 @@ import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
+import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
 
 // Define action types and their configurations (NEW UNIFIED FLOW)
@@ -244,30 +245,49 @@ export const POST: RequestHandler = restrict(
             
             logger.info(`[UnifiedActionAPI] Action log created:`, { logId: created.id, requestId });
 
-            // Send command to device via SSE
-            const routingMessage = MessageFactory.createSystemMessage(
-                actionConfig.sseAction,
-                `subscription:device:${deviceId}`,
-                {
-                    action,
+            const messageRelay = getMessageRelay();
+            
+            if (!messageRelay) {
+                logger.error(`[UnifiedActionAPI] MessageRelay not initialized - falling back to publisher system`);
+                // Fallback to old publisher system for backward compatibility
+                const routingMessage = MessageFactory.createSystemMessage(
+                    actionConfig.sseAction,
+                    `subscription:device:${deviceId}`,
+                    {
+                        action,
+                        deviceId,
+                        ...payload,
+                        logId: created.id,
+                        requestId
+                    },
+                    SystemUser,
+                    { echoToSender: false }
+                );
+                await publisher.publish(routingMessage);
+            } else {
+                // Use Redis Pub/Sub for scalable device messaging
+                const message = {
+                    type: actionConfig.sseAction,
+                    payload: {
+                        action,
+                        deviceId,
+                        ...payload,
+                        logId: created.id,
+                        requestId
+                    },
+                    timestamp: new Date().toISOString()
+                };
+                
+                logger.info(`[UnifiedActionAPI] Publishing message to device via Redis Pub/Sub...`, { 
+                    action: actionConfig.sseAction, 
                     deviceId,
-                    ...payload,
-                    logId: created.id,
-                    requestId
-                },
-                SystemUser,
-                { echoToSender: false }
-            );
-            
-            logger.info(`[UnifiedActionAPI] Publishing message to device...`, { 
-                sseAction: actionConfig.sseAction, 
-                scope: `subscription:device:${deviceId}`,
-                payload: { action, deviceId, logId: created.id }
-            });
+                    payload: { action, deviceId, logId: created.id }
+                });
 
-            await publisher.publish(routingMessage);
-            
-            logger.info(`[UnifiedActionAPI] Message published successfully`);
+                await messageRelay.publishToDevice(deviceId, message);
+                
+                logger.info(`[UnifiedActionAPI] Message published successfully via Redis Pub/Sub`);
+            }
 
             // Set up timeout
             setTimeout(async () => {

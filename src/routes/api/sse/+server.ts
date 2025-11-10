@@ -36,18 +36,18 @@ export const GET: RequestHandler = restrict(
             protocol: 'sse'
         });
 
-        let connection: SSEConnection | undefined;
+        let connectionId: string | undefined;
 
         // Create a readable stream for SSE
         const stream = new ReadableStream({
             async start(controller) {
 
                 // Create the SSE connection
-                connection = new SSEConnection(connectionMeta, controller);
+                const connection = new SSEConnection(connectionMeta, controller);
 
                 // Register the connection
                 ConnectionManager.registerConnection(connection);
-                const connectionId = connection.meta?.id;
+                connectionId = connection.meta?.id;
 
                 if (!connectionId) {
                     throw new Error('Failed to generate connection ID');
@@ -87,15 +87,19 @@ export const GET: RequestHandler = restrict(
             },
 
             async cancel() {
-                // IMPORTANT: Let SSEConnection handle its own cleanup
-                // This includes: stopping pings, closing controller, removing subscriptions, unregistering
-                if (connection) {
-                    logger.info(`[SSE] Connection closing for user ${auth.user?.id}, triggering cleanup`);
-                    await connection.close();
-                    logger.info(`[SSE] Connection ${connection.meta.id} cleanup complete`);
-                } else {
-                    logger.warn(`[SSE] Connection close requested but connection object not found`);
+
+                if (!connectionId) {
+                    throw new Error('Failed to get connection ID for removal');
                 }
+
+                // Remove the connection from the connection manager
+                ConnectionManager.unregisterConnection(connectionId);
+
+                // Remove any subscriptions for this connection
+                // const connectionScope = `subscriber:connection:${clientId}`;
+                // await subscriptionRegistry.removeSubscriptionsByScope(connectionScope);
+
+                logger.info(`[SSE] Web SSE connection closed for user ${auth.user?.id} with connectionId ${connectionId}`);
             }
         });
 
@@ -130,31 +134,7 @@ export const POST: RequestHandler = restrict(
             
             // Log the received message with focus on connectionId
             logger.debug(`SSE message received: ${JSON.stringify(body)}`);
-            logger.debug(`SSE message senderConnectionId from UI: ${body.senderConnectionId || 'NOT SET'}`);
-            
-            // Check if senderConnectionId matches any active connection
-            const userConnections = await ConnectionManager.getConnectionsByUser(auth.user.id);
-            // Filter out any undefined/null connections and connections without meta (cleanup issue in ConnectionManager)
-            const validConnections = userConnections.filter(conn => conn != null && conn.meta != null);
-            logger.debug(`[SSE] User ${auth.user.id} has ${validConnections.length} active connections (total: ${userConnections.length})`);
-            validConnections.forEach(conn => {
-                logger.debug(`[SSE] - Connection: ${conn.id}, protocol: ${conn.meta?.protocol || 'unknown'}, connectedAt: ${conn.meta?.connectedAt ? new Date(conn.meta.connectedAt).toISOString() : 'unknown'}`);
-            });
-            
-            // Also check if the connection exists directly (not filtered)
-            const directConnection = ConnectionManager.getConnection(body.senderConnectionId);
-            if (directConnection) {
-                logger.debug(`[SSE] ✓ Direct connection lookup found: ${body.senderConnectionId}, protocol: ${directConnection.meta?.protocol || 'unknown'}`);
-            } else {
-                logger.warn(`[SSE] ⚠️ Direct connection lookup failed for: ${body.senderConnectionId}`);
-            }
-            
-            const matchingConn = validConnections.find(c => c && c.id === body.senderConnectionId);
-            if (!matchingConn) {
-                logger.warn(`[SSE] ⚠️ senderConnectionId ${body.senderConnectionId} not found in active connections!`);
-            } else {
-                logger.debug(`[SSE] ✓ senderConnectionId ${body.senderConnectionId} matches active connection`);
-            }
+            logger.debug(`SSE message senderConnectionId: ${body.senderConnectionId || 'NOT SET'}`);
             
             // Validate the incoming message using the shared schema
             const messageResult = SSEMessageSchema.safeParse(body);
@@ -177,9 +157,7 @@ export const POST: RequestHandler = restrict(
             if (!connectionId) {
                 // Find the SSE connection for this user
                 const userConnections = await ConnectionManager.getConnectionsByUser(auth.user.id);
-                // Filter out any undefined/null connections and connections without meta
-                const validUserConnections = userConnections.filter(conn => conn != null && conn.meta != null);
-                const sseConnection = validUserConnections.find(conn => 
+                const sseConnection = userConnections.find(conn => 
                     conn.meta?.protocol === 'sse' && 
                     conn.meta?.userInfo?.id === auth.user.id
                 );

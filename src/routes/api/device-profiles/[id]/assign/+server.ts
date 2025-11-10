@@ -8,6 +8,7 @@ import prisma from '$lib/server/prisma';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
+import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
 export const POST: RequestHandler = restrict(
@@ -219,26 +220,49 @@ export const POST: RequestHandler = restrict(
                     // Continue with message sending even if DB update fails
                 }
 
-                // Send command to device via SSE using standardized format
-                const routingMessage = MessageFactory.createSystemMessage(
-                    'device:actionRequest',
-                    `subscription:device:${deviceId}`,
-                    {
-                        action: 'applyProfile',
-                        deviceId,
-                        logId: logId, // Use the ActionLog ID
-                        requestId: logId, // Keep requestId same as logId for consistency
-                        profileId,
-                        'sentAt': new Date().toISOString(),
-                        config,
-                    },
-                    SystemUser,
-                    { echoToSender: false }
-                );
+                // Send command to device via Redis Pub/Sub (sidecars relay to Pushpin)
+                // ARCHITECTURE: Backend → Redis Pub/Sub → Sidecars → Pushpin → Device
+                const messageRelay = getMessageRelay();
                 
-                await publisher.publish(routingMessage);
+                if (!messageRelay) {
+                    logger.error(`[DeviceProfile] MessageRelay not initialized - falling back to publisher system for device ${deviceId}`);
+                    // Fallback to old publisher system for backward compatibility
+                    const routingMessage = MessageFactory.createSystemMessage(
+                        'device:actionRequest',
+                        `subscription:device:${deviceId}`,
+                        {
+                            action: 'applyProfile',
+                            deviceId,
+                            logId: logId,
+                            requestId: logId,
+                            profileId,
+                            'sentAt': new Date().toISOString(),
+                            config,
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
+                    await publisher.publish(routingMessage);
+                } else {
+                    // Use Redis Pub/Sub for scalable device messaging
+                    const message = {
+                        type: 'device:actionRequest',
+                        payload: {
+                            action: 'applyProfile',
+                            deviceId,
+                            logId: logId,
+                            requestId: logId,
+                            profileId,
+                            'sentAt': new Date().toISOString(),
+                            config,
+                        },
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    await messageRelay.publishToDevice(deviceId, message);
+                }
                 
-                logger.info(`Message published for device ${deviceId}`);
+                logger.info(`Message published for device ${deviceId} via Redis Pub/Sub`);
 
             }))
 

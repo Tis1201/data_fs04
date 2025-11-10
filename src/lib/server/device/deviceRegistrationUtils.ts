@@ -1,4 +1,4 @@
-import { getPushpinPublishService } from '$lib/server/pushpin/publishService';
+import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { logger } from '$lib/server/logger';
 
 export interface DeviceRegistrationData {
@@ -14,23 +14,28 @@ export interface DeviceRegistrationData {
 }
 
 /**
- * Sends standardized device registration message to device via Pushpin
+ * Sends standardized device registration message to device via Redis Pub/Sub
  * 
- * ARCHITECTURE:
+ * ARCHITECTURE (Scalable - follows redis_pushpin.md):
  * - Device is connected to Pushpin (not backend directly)
- * - Backend publishes to Pushpin Control Port (5561)
+ * - Backend publishes to Redis Pub/Sub channel (REDIS_PUSHPIN_CHANNEL_NAME)
+ * - Sidecars subscribe to Redis and relay messages to their local Pushpin instances
  * - Pushpin delivers message to device
- * - No direct connection from backend to device
+ * - This enables horizontal scaling (100k+ devices)
  */
 export async function sendDeviceRegistrationMessage(
     deviceId: string, 
     deviceData: DeviceRegistrationData
 ): Promise<void> {
-    const pushpinPublish = getPushpinPublishService();
-    const channel = `device:${deviceId}`;
+    const messageRelay = getMessageRelay();
     
-    // Publish via Pushpin Control Port
-    await pushpinPublish.publishToChannel(channel, {
+    if (!messageRelay) {
+        logger.error(`[Redis Pub/Sub] MessageRelay not initialized - cannot send registration message to device ${deviceId}`);
+        throw new Error('MessageRelay not initialized - Redis service may not be available');
+    }
+    
+    // Create message payload
+    const message = {
         type: 'device',
         payload: {
             action: 'registered',
@@ -38,9 +43,20 @@ export async function sendDeviceRegistrationMessage(
             claimedAt: deviceData.claimedAt || new Date().toISOString()
         },
         timestamp: new Date().toISOString()
-    });
+    };
     
-    logger.info(`[Pushpin] Device registration message sent for device ${deviceId} via Pushpin Control Port`);
+    logger.info(`[Redis Pub/Sub] Publishing registration message for device ${deviceId}`);
+    logger.debug(`[Redis Pub/Sub] Registration message payload: ${JSON.stringify(message)}`);
+    
+    try {
+        // Publish to Redis Pub/Sub - sidecars will relay to Pushpin
+        // Channel format: device:{deviceId} (matches Pushpin channel)
+        await messageRelay.publishToDevice(deviceId, message);
+        logger.info(`[Redis Pub/Sub] ✓ Device registration message successfully published for device ${deviceId}`);
+    } catch (error) {
+        logger.error(`[Redis Pub/Sub] ✗ Failed to publish registration message for device ${deviceId}:`, error);
+        throw error; // Re-throw to ensure caller knows it failed
+    }
 }
 
 /**

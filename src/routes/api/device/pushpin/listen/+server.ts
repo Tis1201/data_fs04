@@ -10,7 +10,6 @@ import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { getPresenceManager, getMessageRelay } from '$lib/server/pushpin/middleware';
 import { getRedisService } from '$lib/server/services/redisService';
-import { getPushpinPublishService } from '$lib/server/pushpin/publishService';
 import { publishDeviceStatusEvent } from '$lib/server/device/deviceEventPublisher';
 import { logger } from '$lib/server/logger';
 import { json } from '@sveltejs/kit';
@@ -159,8 +158,12 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
       logger.info(`[Pushpin] Device ${device.id} authenticated via API key`);
     }
 
-    // Initialize Pushpin publish service for both auth flows
-    const pushpinPublish = getPushpinPublishService();
+    // Get MessageRelay for Redis Pub/Sub publishing
+    const messageRelay = getMessageRelay();
+    if (!messageRelay) {
+      logger.error('[Pushpin] MessageRelay not initialized');
+      return new Response('MessageRelay not available', { status: 500 });
+    }
 
     // Best-effort side effects (never fail the stream)
     try { 
@@ -188,8 +191,8 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
         protocol: 'pushpin' as const,
         userInfo: userInfo
       },
-      // Provide publish function so PushpinConnection can send messages via Pushpin Control Port
-      (channel: string, message: any) => pushpinPublish.publishToChannel(channel, message)
+      // Provide publish function so PushpinConnection can send messages via Redis Pub/Sub
+      (channel: string, message: any) => messageRelay.publishToChannel(channel, message)
     );
     
     ConnectionManager.registerConnection(pushpinConn);
@@ -227,13 +230,16 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
           timestamp: new Date().toISOString()
         });
         
-        // Also send initial connected message to the device
-        await pushpinPublish.publishToChannel(channel, {
-          type: 'connected',
-          deviceId: device.id,
-          message: 'Device connected successfully',
-          timestamp: new Date().toISOString()
-        });
+        // Also send initial connected message to the device via Redis Pub/Sub
+        const messageRelay = getMessageRelay();
+        if (messageRelay) {
+          await messageRelay.publishToChannel(channel, {
+            type: 'connected',
+            deviceId: device.id,
+            message: 'Device connected successfully',
+            timestamp: new Date().toISOString()
+          });
+        }
         
         logger.info(`[Pushpin] Connection event and welcome message published for device ${device.id}`);
       } catch (e) {

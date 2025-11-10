@@ -18,7 +18,7 @@ import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionReg
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { PresenceManager } from './presence';
 import { MessageRelay } from './messageRelay';
-import { getPushpinPublishService } from './publishService';
+// Removed: getPushpinPublishService - now using Redis Pub/Sub via MessageRelay
 
 /****************************************************************************************
  *  Globals
@@ -60,8 +60,9 @@ async function bootstrap(redisService: ReturnType<typeof getRedisService>): Prom
 }
 
 /****************************************************************************************
- *  publish — SCALABLE: Uses Pushpin's control endpoint directly
- *  This allows 100k+ devices without Redis subscriber bottlenecks
+ *  publish — SCALABLE: Uses Redis Pub/Sub (sidecars relay to Pushpin)
+ *  This allows 100k+ devices with horizontal scaling
+ *  Architecture: Backend → Redis Pub/Sub → Sidecars → Pushpin → Device
  ***************************************************************************************/
 async function publish(
     redisService: ReturnType<typeof getRedisService>,
@@ -70,21 +71,21 @@ async function publish(
 ): Promise<void> {
     logger.debug(`[Pushpin] publish → ${channel}: ${JSON.stringify(message)}`);
     
+    if (!messageRelay) {
+        logger.error('[Pushpin] MessageRelay not initialized - cannot publish');
+        throw new Error('MessageRelay not initialized');
+    }
+    
     try {
-        // Use Pushpin publish service for direct Pushpin delivery
-        const pushpinPublish = getPushpinPublishService();
-        await pushpinPublish.publishToChannel(channel, message);
+        // Publish to Redis Pub/Sub - sidecars will relay to Pushpin
+        await messageRelay.publishToChannel(channel, message);
+        logger.debug(`[Pushpin] ✓ Published to ${channel} via Redis Pub/Sub`);
     } catch (error) {
-        logger.error('[Pushpin] Failed to publish via Pushpin service', {
+        logger.error('[Pushpin] Failed to publish via Redis Pub/Sub', {
             error: error instanceof Error ? error.message : String(error),
             channel
         });
-        
-        // Fallback to Redis (if there's a sidecar listening)
-        if (messageRelay) {
-            logger.debug('[Pushpin] Falling back to Redis publish');
-            await messageRelay.publishToChannel(channel, message);
-        }
+        throw error; // Re-throw to ensure caller knows it failed
     }
 }
 
