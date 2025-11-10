@@ -1,8 +1,27 @@
 // Production server with proper WebSocket upgrade handling
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+// Only load .env if USE_PUSHPIN is not set (dotenv-cli already loaded it)
+if (!process.env.USE_PUSHPIN) {
+    try {
+        const dotenv = require('dotenv');
+        dotenv.config();
+        console.log('[Env] Environment variables loaded from .env file (fallback)');
+    } catch (error) {
+        console.warn('[Env] Could not load .env file:', error.message);
+        console.warn('[Env] Make sure to run via "npm run prodServer" or set environment variables');
+    }
+}
+
+console.log(`[Env] USE_PUSHPIN=${process.env.USE_PUSHPIN || 'not set'}`);
+
+// Import modules (they will have access to env vars)
 import { createServer } from 'http';
-import { handler } from './build/handler.js';
 import { readdirSync } from 'fs';
 import { join, resolve } from 'path';
+
+const { handler } = await import('./build/handler.js');
 
 // Create HTTP server
 const server = createServer(handler);
@@ -24,7 +43,12 @@ async function setupWebSocket() {
     
     // Import the WebSocket utilities using absolute path
     const hooksPath = join(chunksDir, hooksFile);
-    const { onHttpServerUpgrade } = await import(hooksPath);
+    const { startupWebsocketServer, onHttpServerUpgrade } = await import(hooksPath);
+    
+    // Initialize WebSocket server first (required before upgrade handler)
+    console.log('[WS] Initializing WebSocket server...');
+    startupWebsocketServer();
+    console.log('[WS] WebSocket server initialized');
     
     // Set up WebSocket upgrade handler
     server.on('upgrade', onHttpServerUpgrade);
@@ -40,7 +64,7 @@ async function setupWebSocket() {
 await setupWebSocket();
 
 // Start the server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5173;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Server started at http://localhost:${PORT}`);

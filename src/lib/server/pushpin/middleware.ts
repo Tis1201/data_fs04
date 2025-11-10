@@ -18,6 +18,8 @@ import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionReg
 import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { PresenceManager } from './presence';
 import { MessageRelay } from './messageRelay';
+import redis from '$lib/server/redis';
+import { building } from '$app/environment';
 // Removed: getPushpinPublishService - now using Redis Pub/Sub via MessageRelay
 
 /****************************************************************************************
@@ -27,6 +29,31 @@ let bootstrapPromise: Promise<void> | null = null;   // guards one-time init
 const adminPrisma = getAdminPrisma();
 let presenceManager: PresenceManager | null = null;
 let messageRelay: MessageRelay | null = null;
+
+/****************************************************************************************
+ *  Initialize MessageRelay at module load (synchronous, works in production)
+ *  This ensures it's available immediately, even in prodServer.js
+ ***************************************************************************************/
+if (!building && redis) {
+    try {
+        const redisService = {
+            client: redis,
+            publish: async (channel: string, message: string): Promise<number> => {
+                return redis.publish(channel, message);
+            }
+        } as any;
+        
+        messageRelay = new MessageRelay(redisService);
+        logger.info('[Pushpin] MessageRelay initialized at module load (synchronous)');
+    } catch (error) {
+        logger.error('[Pushpin] Failed to initialize MessageRelay at module load:', {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+        });
+    }
+} else if (!building) {
+    logger.debug('[Pushpin] MessageRelay not initialized at module load - Redis not available or USE_PUSHPIN not enabled');
+}
 
 /****************************************************************************************
  *  Middleware – exported
@@ -46,11 +73,24 @@ export const pushpinMiddleware: Handle = async ({ event, resolve }) => {
  *  Bootstrap sequence: subscribe first, hydrate second
  ***************************************************************************************/
 async function bootstrap(redisService: ReturnType<typeof getRedisService>): Promise<void> {
+    if (!redisService) {
+        logger.error('[Pushpin] Cannot bootstrap: Redis service not available');
+        return;
+    }
+    
     logger.info('[Pushpin] Bootstrapping (subscribe + hydrate + presence)');
     
-    // Initialize presence manager and message relay
+    // Initialize presence manager
     presenceManager = new PresenceManager(redisService);
-    messageRelay = new MessageRelay(redisService);
+    
+    // Initialize message relay if not already initialized at startup
+    // (It may have been initialized in hooks.server.ts for early availability)
+    if (!messageRelay) {
+        messageRelay = new MessageRelay(redisService);
+        logger.info('[Pushpin] MessageRelay initialized during bootstrap');
+    } else {
+        logger.debug('[Pushpin] MessageRelay already initialized at startup, reusing');
+    }
     
     await subscribeToDeviceStatusChange(redisService);
     await loadOnlineDevices(redisService);
@@ -320,6 +360,50 @@ export function getPresenceManager(): PresenceManager | null {
     return presenceManager;
 }
 
+/**
+ * Initialize MessageRelay at application startup
+ * This should be called from hooks.server.ts to ensure it's available early
+ */
+export function initializeMessageRelay(redisClient: typeof redis): void {
+    if (messageRelay) {
+        logger.info('[Pushpin] MessageRelay already initialized, skipping');
+        return;
+    }
+    
+    if (!redisClient) {
+        logger.error('[Pushpin] Cannot initialize MessageRelay: Redis client is null/undefined');
+        return;
+    }
+    
+    try {
+        logger.info('[Pushpin] Initializing MessageRelay with Redis client...');
+        
+        // Create a RedisService-like wrapper for MessageRelay
+        const redisService = {
+            client: redisClient,
+            publish: async (channel: string, message: string): Promise<number> => {
+                if (!redisClient) {
+                    throw new Error('Redis client not available');
+                }
+                return redisClient.publish(channel, message);
+            }
+        } as any;
+        
+        messageRelay = new MessageRelay(redisService);
+        logger.info('[Pushpin] ✓ MessageRelay successfully initialized at startup');
+    } catch (error) {
+        logger.error('[Pushpin] ✗ Failed to initialize MessageRelay:', {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+        });
+        throw error; // Re-throw so caller knows it failed
+    }
+}
+
+/**
+ * Get MessageRelay instance
+ * Returns null if not initialized (should be initialized at startup)
+ */
 export function getMessageRelay(): MessageRelay | null {
     return messageRelay;
 }
