@@ -120,6 +120,7 @@
 		"lucia": "^3.0.1",
 		"lucide-svelte": "^0.460.1",
 		"mode-watcher": "^0.4.1",
+		"mqtt": "^5.14.1",
 		"node-cache": "^5.1.2",
 		"nodemailer": "^6.9.16",
 		"pg": "^8.13.1",
