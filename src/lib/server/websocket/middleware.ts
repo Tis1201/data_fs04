@@ -13,7 +13,12 @@ import { addClient, removeClient } from './WSManager';
 
 export const websocketMiddleware: Handle = async ({ event, resolve }) => {
 
-  logger.info(`[WS Middleware] Called for path: ${event.url.pathname}`);
+  // Only process WebSocket upgrade requests
+  if (event.request.headers.get('upgrade') !== 'websocket') {
+    return await resolve(event);
+  }
+
+  logger.info(`[WS Middleware] Called for WebSocket upgrade: ${event.url.pathname}`);
 
   logger.debug(`[WS Middleware]: ${event.url.pathname}`); 
 
@@ -22,7 +27,7 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
     return await resolve(event);
   }
 
-  logger.info(`[WS Middleware] Processing non-auth path: ${event.url.pathname}`);
+  logger.info(`[WS Middleware] Processing WebSocket path: ${event.url.pathname}`);
 
   if (!wssInitialized) {
     logger.info(`[WS Middleware] Initializing WebSocket server`);
