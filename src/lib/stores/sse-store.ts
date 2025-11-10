@@ -2,6 +2,34 @@ import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { generateRequestId } from "$lib/utils/ApiUtils";
 
+type SSEAuthListener = (enabled: boolean) => void;
+
+const sseAuthListeners = new Set<SSEAuthListener>();
+let sseGlobalAuthEnabled = true;
+
+function registerSSEAuthListener(listener: SSEAuthListener) {
+    sseAuthListeners.add(listener);
+    listener(sseGlobalAuthEnabled);
+    return () => {
+        sseAuthListeners.delete(listener);
+    };
+}
+
+function broadcastSSEAuthEnabled(enabled: boolean) {
+    if (sseGlobalAuthEnabled === enabled) {
+        return;
+    }
+
+    sseGlobalAuthEnabled = enabled;
+    sseAuthListeners.forEach((cb) => {
+        try {
+            cb(enabled);
+        } catch (err) {
+            console.error('[SSE] Auth listener error:', err);
+        }
+    });
+}
+
 
 export type SSEMessage = {
     id: string;
@@ -58,6 +86,7 @@ function createSSEStore() {
     });
 
     let eventSource: EventSource | null = null;
+    let allowConnections = true;
     const messageListeners: Record<string, ((message: SSEMessage) => void)[]> = {};
     const pendingRequests: Record<string, {
         resolve: (value: any) => void;
@@ -102,6 +131,17 @@ function createSSEStore() {
     function connect(url: string, options: { withCredentials?: boolean } = {}) {
         if (!browser) return;
 
+        // CRITICAL: Check if we're on an auth page - if so, DO NOT connect
+        if (window.location.pathname.startsWith('/auth/')) {
+            console.log('[SSE] On auth page, preventing connection');
+            return;
+        }
+
+        if (!allowConnections) {
+            console.log('[SSE] Connections disabled, preventing SSE connect');
+            return;
+        }
+        
         // Prevent duplicate connections (idempotent)
         if (eventSource?.readyState === EventSource.OPEN) {
             console.log('[SSE] Already connected, reusing existing connection');
@@ -281,6 +321,37 @@ function createSSEStore() {
     }
 
     /**
+     * Force disconnect and reconnect with fresh session credentials
+     * This should be called when user authentication changes
+     */
+    function resetForNewUser() {
+        console.log('[SSE] Resetting connection for new user');
+        disconnect();
+        
+        // Clear any cached connection state
+        set({
+            status: 'CLOSED',
+            error: null,
+            lastEvent: null,
+            connectionId: null,
+            messages: []
+        });
+        
+        // Clear all pending requests
+        Object.values(pendingRequests).forEach(({ reject, timer }) => {
+            clearTimeout(timer);
+            reject(new Error('SSE connection reset for new user'));
+        });
+        Object.keys(pendingRequests).forEach(rid => delete pendingRequests[rid]);
+        
+        console.log('[SSE] Connection reset completed');
+    }
+
+    function setAuthEnabled(enabled: boolean) {
+        broadcastSSEAuthEnabled(enabled);
+    }
+
+    /**
      * Subscribe to specific event types
      */
     function on(event: string, callback: (message: SSEMessage) => void) {
@@ -457,6 +528,15 @@ function createSSEStore() {
         on,
         clearMessages,
         sendRequest,
+        resetForNewUser,
+        setAuthEnabled,
+        destroy: registerSSEAuthListener((enabled) => {
+            allowConnections = enabled;
+            if (!enabled) {
+                console.log('[SSE] Disabling connections due to auth state');
+                disconnect();
+            }
+        }),
         
         // Helper methods
         get isConnected() {

@@ -73,8 +73,11 @@ const createSocketStore = () => {
 
   let socket: WebSocket | null = null;
   let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let sessionMonitorInterval: ReturnType<typeof setInterval> | null = null;
   let reconnectAttempts = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastSessionId: string | null = null;
+  let allowConnections = true;
 
   // messageListeners[type] = [ callback1, callback2, ... ]
   const messageListeners: Record<string, ((data: any) => void)[]> = {};
@@ -91,6 +94,31 @@ const createSocketStore = () => {
   > = {};
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Get the current session ID from cookies
+   */
+  const getCurrentSessionId = (): string | null => {
+    if (!browser) return null;
+    const sessionCookie = document.cookie.split('; ').find(row => row.startsWith('auth_session='));
+    return sessionCookie ? sessionCookie.split('=')[1] : null;
+  };
+
+  /**
+   * Check if session has changed and force reconnection if needed
+   */
+  const checkSessionChange = (): boolean => {
+    const currentSessionId = getCurrentSessionId();
+    if (lastSessionId && currentSessionId && lastSessionId !== currentSessionId) {
+      console.log('[WebSocket] Session changed, forcing reconnection');
+      lastSessionId = currentSessionId;
+      return true;
+    }
+    if (!lastSessionId && currentSessionId) {
+      lastSessionId = currentSessionId;
+    }
+    return false;
+  };
 
   /**
    * push a message into the reactive `messages` array.
@@ -205,13 +233,21 @@ const createSocketStore = () => {
     }, delay);
   };
 
-  /**
-   * Establish a WebSocket connection to ws(s)://<host><WS_URL_PATH>[?queryParams].
-   * Sets up event handlers for open, message, close, error.
-   * On close, will attempt exponential-backoff reconnect up to MAX_RECONNECT_ATTEMPTS.
-   */
-  const connect = (queryParams = '') => {
-    // If already have a socket that isn't fully closed, close it first
+  const connect = () => {
+    // CRITICAL: Check if we're on an auth page - if so, DO NOT connect
+    if (browser && window.location.pathname.startsWith('/auth/')) {
+      console.log('[WebSocket] On auth page, preventing connection');
+      return;
+    }
+
+    if (!allowConnections) {
+      console.log('[WebSocket] Connections disabled, skipping connect');
+      return;
+    }
+
+    const baseParams: Record<string, string> = {};
+    
+    // Close existing socket if any
     if (socket) {
       try {
         // Remove all event listeners to prevent memory leaks
@@ -250,8 +286,8 @@ const createSocketStore = () => {
     console.log('[WebSocket] Extracted session ID:', sessionId ? `${sessionId.substring(0, 10)}...` : 'NOT FOUND');
     
     // Build query params with session if available
-    const params = new URLSearchParams(queryParams);
-    console.log('[WebSocket] Initial query params:', queryParams);
+    const params = new URLSearchParams(baseParams as Record<string, string>);
+    console.log('[WebSocket] Initial query params:', baseParams);
     if (sessionId && !params.has('session')) {
       params.set('session', sessionId);
       console.log('[WebSocket] Added session to query params');
@@ -287,10 +323,17 @@ const createSocketStore = () => {
           messages: []
         });
 
-        // Start a ping interval to keep the connection alive
+        // Start a ping interval to keep the connection alive and monitor session changes
         if (pingInterval) clearInterval(pingInterval);
         pingInterval = setInterval(() => {
           if (socket && socket.readyState === WebSocket.OPEN) {
+            // Check for session changes during ping
+            if (checkSessionChange()) {
+              console.log('[WebSocket] Session changed during ping, forcing reconnection');
+              resetConnection(true);
+              return;
+            }
+            
             try {
               socket.send(JSON.stringify({ type: 'ping' }));
             } catch (err) {
@@ -300,6 +343,17 @@ const createSocketStore = () => {
             }
           }
         }, PING_INTERVAL);
+
+        // Start a separate session monitor to catch session changes more frequently
+        if (sessionMonitorInterval) clearInterval(sessionMonitorInterval);
+        sessionMonitorInterval = setInterval(() => {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            if (checkSessionChange()) {
+              console.log('[WebSocket] Session change detected by monitor, forcing reconnection');
+              resetConnection(true);
+            }
+          }
+        }, 5000); // Check every 5 seconds
       };
 
       socket.onmessage = (event) => {
@@ -449,7 +503,7 @@ const createSocketStore = () => {
 
   /**
    * Gracefully close the WebSocket connection,
-   * clear ping interval, any reconnect timers, and reject pending requests.
+   * clear ping interval, session monitor, any reconnect timers, and reject pending requests.
    */
   const disconnect = () => {
     if (socket) {
@@ -459,6 +513,10 @@ const createSocketStore = () => {
     if (pingInterval) {
       clearInterval(pingInterval);
       pingInterval = null;
+    }
+    if (sessionMonitorInterval) {
+      clearInterval(sessionMonitorInterval);
+      sessionMonitorInterval = null;
     }
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -656,6 +714,9 @@ const createSocketStore = () => {
   const resetConnection = (immediate = false) => {
     console.log(`[WebSocket] Resetting connection${immediate ? ' (immediate)' : ' (with backoff)'}`);
     
+    // Reset session tracking
+    lastSessionId = getCurrentSessionId();
+    
     // Reset reconnection attempts if we're forcing a reset
     if (immediate) {
       reconnectAttempts = 0;
@@ -680,8 +741,31 @@ const createSocketStore = () => {
     }
   };
 
-  // Automatically connect on store initialization
-  connect();
+  /**
+   * Force disconnect and reconnect with fresh session credentials
+   * This should be called when user authentication changes
+   */
+  const resetForNewUser = () => {
+    console.log('[WebSocket] Resetting connection for new user');
+    
+    // Clear session tracking to force refresh
+    lastSessionId = null;
+    
+    // Force immediate reset with fresh connection
+    resetConnection(true);
+  };
+
+  const setAuthEnabled = (enabled: boolean) => {
+    allowConnections = enabled;
+    if (!enabled) {
+      console.log('[WebSocket] Disabling connections due to auth state');
+      disconnect();
+    }
+  };
+
+  // NOTE: Do NOT auto-connect here. Connection lifecycle is managed by AuthStateHandler
+  // to ensure proper session handling and prevent multiple connections.
+  // connect();
 
   return {
     subscribe,
@@ -702,7 +786,9 @@ const createSocketStore = () => {
     get status() {
       return getStatus();
     },
-    resetConnection
+    resetConnection,
+    resetForNewUser,
+    setAuthEnabled
   };
 };
 

@@ -2,16 +2,24 @@
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
     import { sseStore } from '$lib/stores/sse-store';
+    import { socketStore } from '$lib/stores/websocket-store';
     import { browser } from '$app/environment';
     
     // Track the previous authentication state and route
     let previousAuthState: boolean | null = null;
     let previousPath: string | null = null;
     let unsubscribe: () => void;
+    let isInitializing = false; // Flag to prevent duplicate connections during mount
     
     // Function to handle WebSocket and SSE connections based on auth state
     function handleAuthStateChange(isAuthenticated: boolean, currentPath: string) {
         if (!browser) return;
+        
+        // Skip if we're still initializing to prevent duplicate connections
+        if (isInitializing) {
+            console.log('[AuthStateHandler] Skipping auth state change during initialization');
+            return;
+        }
         
         console.log('[AuthStateHandler] Auth state changed:', { 
             previousAuthState, 
@@ -22,53 +30,133 @@
         
         const isRouteChange = previousPath !== null && previousPath !== currentPath;
         
-        // NOTE: SSE connections are now managed per-component (not globally)
-        // Each page that needs SSE creates its own connection using createComponentSSE()
-        // This prevents connection pool exhaustion and provides better lifecycle management
+        // CRITICAL: Force disconnect if navigating to auth pages (logout/login)
+        if (currentPath.startsWith('/auth/login') || currentPath.startsWith('/auth/logout')) {
+            console.log('[AuthStateHandler] Navigating to auth page, FORCE CLOSING all connections');
+            try {
+                socketStore.setAuthEnabled?.(false);
+                sseStore.setAuthEnabled?.(false);
+                sseStore.disconnect();
+                socketStore.disconnect();
+                sseStore.resetForNewUser();
+                socketStore.resetForNewUser();
+            } catch (err) {
+                console.error('[AuthStateHandler] Error force closing connections:', err);
+            }
+            previousAuthState = false;
+            previousPath = currentPath;
+            return; // Exit early
+        }
         
-        /* DISABLED: Global SSE management moved to per-component
         // If auth state changed from logged out to logged in
         if (previousAuthState === false && isAuthenticated === true) {
             console.log('[AuthStateHandler] User logged in, resetting connections');
             // Small delay to ensure auth cookies are set before reconnecting
             setTimeout(() => {
-                // Connect to SSE endpoint
+                socketStore.setAuthEnabled?.(true);
+                sseStore.setAuthEnabled?.(true);
+                // Reset WebSocket connection with new session
+                if (socketStore) {
+                    console.log('[AuthStateHandler] Resetting WebSocket connection');
+                    socketStore.resetForNewUser();
+                }
+                // Reset SSE connection with new session
                 if (sseStore) {
-                    console.log('[AuthStateHandler] Connecting to SSE endpoint');
-                    sseStore.connect('/api/sse');
+                    console.log('[AuthStateHandler] Resetting SSE connection');
+                    sseStore.resetForNewUser();
+                    // Reconnect after reset
+                    setTimeout(() => {
+                        sseStore.connect('/api/sse');
+                    }, 50);
                 }
             }, 100);
         }
         // If auth state changed from logged in to logged out
         else if (previousAuthState === true && isAuthenticated === false) {
-            console.log('[AuthStateHandler] User logged out, disconnecting SSE connection');
-            sseStore.disconnect();
+            console.log('[AuthStateHandler] User logged out, force disconnecting ALL connections');
+            // Force immediate disconnection of ALL connections
+            try {
+                socketStore.setAuthEnabled?.(false);
+                sseStore.setAuthEnabled?.(false);
+                sseStore.disconnect();
+                socketStore.disconnect();
+            } catch (err) {
+                console.warn('[AuthStateHandler] Error disconnecting stores:', err);
+            }
+            
+            // Additional cleanup - force close any lingering connections
+            try {
+                if (sseStore.resetForNewUser) {
+                    sseStore.resetForNewUser();
+                }
+                if (socketStore.resetForNewUser) {
+                    socketStore.resetForNewUser();
+                }
+            } catch (err) {
+                console.warn('[AuthStateHandler] Error resetting stores:', err);
+            }
+            
+            console.log('[AuthStateHandler] All connections forcefully closed on logout');
         }
         // If we're navigating to a user route and connections are not open
         else if (isAuthenticated && isRouteChange && currentPath.startsWith('/user')) {
             console.log('[AuthStateHandler] Navigating to user route, checking connections');
+            // Check WebSocket connection
+            if (socketStore && socketStore.status !== 'OPEN') {
+                console.log('[AuthStateHandler] WebSocket not connected, resetting');
+                socketStore.resetForNewUser();
+            }
             // Check SSE connection
             if (sseStore && !sseStore.isConnected) {
-                console.log('[AuthStateHandler] SSE not connected, connecting');
-                sseStore.connect('/api/sse');
+                console.log('[AuthStateHandler] SSE not connected, resetting');
+                sseStore.resetForNewUser();
+                setTimeout(() => {
+                    sseStore.connect('/api/sse');
+                }, 50);
             }
         }
         // If we're authenticated but connections are not open
         else if (isAuthenticated) {
+            // Check WebSocket
+            if (socketStore && socketStore.status !== 'OPEN') {
+                console.log('[AuthStateHandler] Authenticated but WebSocket not connected, resetting');
+                socketStore.resetForNewUser();
+            }
             // Check SSE
             if (sseStore && !sseStore.isConnected) {
-                console.log('[AuthStateHandler] Authenticated but SSE not connected, connecting');
-                sseStore.connect('/api/sse');
+                console.log('[AuthStateHandler] Authenticated but SSE not connected, resetting');
+                sseStore.resetForNewUser();
+                setTimeout(() => {
+                    sseStore.connect('/api/sse');
+                }, 50);
             }
         }
         // If we're not authenticated but connections are open
         else if (!isAuthenticated) {
-            if (sseStore && sseStore.isConnected) {
-                console.log('[AuthStateHandler] Not authenticated but SSE is connected, disconnecting');
-                sseStore.disconnect();
+            console.log('[AuthStateHandler] Not authenticated, ensuring all connections are closed');
+            try {
+                socketStore.setAuthEnabled?.(false);
+                sseStore.setAuthEnabled?.(false);
+                if (socketStore && socketStore.status === 'OPEN') {
+                    console.log('[AuthStateHandler] Force closing WebSocket connection');
+                    socketStore.disconnect();
+                }
+                if (sseStore && sseStore.isConnected) {
+                    console.log('[AuthStateHandler] Force closing SSE connection');
+                    sseStore.disconnect();
+                }
+                
+                // Additional cleanup to ensure no lingering connections
+                if (sseStore.resetForNewUser) {
+                    sseStore.resetForNewUser();
+                }
+                if (socketStore.resetForNewUser) {
+                    socketStore.resetForNewUser();
+                }
+            } catch (err) {
+                console.warn('[AuthStateHandler] Error during cleanup:', err);
             }
         }
-        */
         
         // Update previous state
         previousAuthState = isAuthenticated;
@@ -77,6 +165,9 @@
     
     onMount(() => {
         if (!browser) return;
+        
+        // Set initialization flag to prevent duplicate connections
+        isInitializing = true;
         
         // Initialize previous state
         previousAuthState = !!$page.data.user;
@@ -87,36 +178,54 @@
             path: previousPath 
         });
         
-        // DISABLED: Initial SSE connection now handled per-component
-        /*
         // Initial connection check
-        if (previousAuthState && sseStore && !sseStore.isConnected) {
-            console.log('[AuthStateHandler] Initial mount: Connecting SSE');
-            sseStore.connect('/api/sse');
+        if (previousAuthState) {
+            console.log('[AuthStateHandler] Initial mount: Connecting with authenticated user');
+            socketStore.setAuthEnabled?.(true);
+            sseStore.setAuthEnabled?.(true);
+            // Reset WebSocket connection to ensure fresh session
+            if (socketStore) {
+                socketStore.resetForNewUser();
+            }
+            // Reset and connect SSE to ensure fresh session
+            if (sseStore) {
+                sseStore.resetForNewUser();
+                setTimeout(() => {
+                    sseStore.connect('/api/sse');
+                }, 50);
+            }
         }
-        */
+        
+        // Clear initialization flag after connections are established
+        setTimeout(() => {
+            isInitializing = false;
+            console.log('[AuthStateHandler] Initialization complete');
+        }, 200);
         
         // Subscribe to page store to detect auth state and route changes
         unsubscribe = page.subscribe(($page) => {
             const isAuthenticated = !!$page.data.user;
             const currentPath = $page.url.pathname;
+            if (!isAuthenticated) {
+                socketStore.setAuthEnabled?.(false);
+                sseStore.setAuthEnabled?.(false);
+            }
             handleAuthStateChange(isAuthenticated, currentPath);
         });
         
-        // DISABLED: SSE cleanup now handled per-component
-        /*
         // Add event listener for page unload (which happens during logout)
         const handleBeforeUnload = () => {
             console.log('[AuthStateHandler] Page unloading, cleaning up');
             sseStore.disconnect();
+            socketStore.disconnect();
         };
         
         window.addEventListener('beforeunload', handleBeforeUnload);
-        */
         
         // Cleanup function
         return () => {
             if (unsubscribe) unsubscribe();
+            window.removeEventListener('beforeunload', handleBeforeUnload);
             console.log('[AuthStateHandler] Unmounted');
         };
     });
