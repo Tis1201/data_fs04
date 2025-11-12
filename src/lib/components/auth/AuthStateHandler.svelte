@@ -3,6 +3,7 @@
     import { page } from '$app/stores';
     import { sseStore } from '$lib/stores/sse-store';
     import { socketStore } from '$lib/stores/websocket-store';
+    import { mqttStore } from '$lib/stores/mqtt-store';
     import { browser } from '$app/environment';
     
     // Track the previous authentication state and route
@@ -36,10 +37,13 @@
             try {
                 socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
+                mqttStore.setAuthEnabled?.(false);
                 sseStore.disconnect();
                 socketStore.disconnect();
-                sseStore.resetForNewUser();
-                socketStore.resetForNewUser();
+                mqttStore.disconnect();
+                sseStore.resetForNewUser?.();
+                socketStore.resetForNewUser?.();
+                mqttStore.resetForNewUser?.();
             } catch (err) {
                 console.error('[AuthStateHandler] Error force closing connections:', err);
             }
@@ -55,18 +59,26 @@
             setTimeout(() => {
                 socketStore.setAuthEnabled?.(true);
                 sseStore.setAuthEnabled?.(true);
+                mqttStore.setAuthEnabled?.(true);
                 // Reset WebSocket connection with new session
                 if (socketStore) {
                     console.log('[AuthStateHandler] Resetting WebSocket connection');
-                    socketStore.resetForNewUser();
+                    socketStore.resetForNewUser?.();
                 }
                 // Reset SSE connection with new session
                 if (sseStore) {
                     console.log('[AuthStateHandler] Resetting SSE connection');
-                    sseStore.resetForNewUser();
+                    sseStore.resetForNewUser?.();
                     // Reconnect after reset
                     setTimeout(() => {
                         sseStore.connect('/api/sse');
+                    }, 50);
+                }
+                if (mqttStore) {
+                    console.log('[AuthStateHandler] Resetting MQTT connection');
+                    mqttStore.resetForNewUser();
+                    setTimeout(() => {
+                        mqttStore.connect?.();
                     }, 50);
                 }
             }, 100);
@@ -78,8 +90,10 @@
             try {
                 socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
+                mqttStore.setAuthEnabled?.(false);
                 sseStore.disconnect();
                 socketStore.disconnect();
+                mqttStore.disconnect();
             } catch (err) {
                 console.warn('[AuthStateHandler] Error disconnecting stores:', err);
             }
@@ -87,10 +101,13 @@
             // Additional cleanup - force close any lingering connections
             try {
                 if (sseStore.resetForNewUser) {
-                    sseStore.resetForNewUser();
+                    sseStore.resetForNewUser?.();
                 }
                 if (socketStore.resetForNewUser) {
-                    socketStore.resetForNewUser();
+                    socketStore.resetForNewUser?.();
+                }
+                if (mqttStore.resetForNewUser) {
+                    mqttStore.resetForNewUser?.();
                 }
             } catch (err) {
                 console.warn('[AuthStateHandler] Error resetting stores:', err);
@@ -137,6 +154,7 @@
             try {
                 socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
+                mqttStore.setAuthEnabled?.(false);
                 if (socketStore && socketStore.status === 'OPEN') {
                     console.log('[AuthStateHandler] Force closing WebSocket connection');
                     socketStore.disconnect();
@@ -145,13 +163,18 @@
                     console.log('[AuthStateHandler] Force closing SSE connection');
                     sseStore.disconnect();
                 }
+                console.log('[AuthStateHandler] Force closing MQTT connection');
+                mqttStore.disconnect();
                 
                 // Additional cleanup to ensure no lingering connections
                 if (sseStore.resetForNewUser) {
-                    sseStore.resetForNewUser();
+                    sseStore.resetForNewUser?.();
                 }
                 if (socketStore.resetForNewUser) {
-                    socketStore.resetForNewUser();
+                    socketStore.resetForNewUser?.();
+                }
+                if (mqttStore.resetForNewUser) {
+                    mqttStore.resetForNewUser?.();
                 }
             } catch (err) {
                 console.warn('[AuthStateHandler] Error during cleanup:', err);
@@ -183,6 +206,7 @@
             console.log('[AuthStateHandler] Initial mount: Connecting with authenticated user');
             socketStore.setAuthEnabled?.(true);
             sseStore.setAuthEnabled?.(true);
+            mqttStore.setAuthEnabled?.(true);
             // Reset WebSocket connection to ensure fresh session
             if (socketStore) {
                 socketStore.resetForNewUser();
@@ -192,6 +216,12 @@
                 sseStore.resetForNewUser();
                 setTimeout(() => {
                     sseStore.connect('/api/sse');
+                }, 50);
+            }
+            if (mqttStore) {
+                mqttStore.resetForNewUser();
+                setTimeout(() => {
+                    mqttStore.connect?.();
                 }, 50);
             }
         }
@@ -209,6 +239,7 @@
             if (!isAuthenticated) {
                 socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
+                mqttStore.setAuthEnabled?.(false);
             }
             handleAuthStateChange(isAuthenticated, currentPath);
         });
@@ -218,6 +249,7 @@
             console.log('[AuthStateHandler] Page unloading, cleaning up');
             sseStore.disconnect();
             socketStore.disconnect();
+            mqttStore.disconnect();
         };
         
         window.addEventListener('beforeunload', handleBeforeUnload);
