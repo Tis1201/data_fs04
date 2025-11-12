@@ -300,6 +300,14 @@ export function createMQTTStore() {
 
     const handleMessage = (topic: string, payload: Buffer) => {
         const { raw, parsed } = parsePayload(new Uint8Array(payload));
+
+        console.log('[MQTT] Received message:', {
+            topic,
+            payload: parsed,
+            raw,
+            receivedAt: new Date().toISOString()
+        });
+
         const message: MQTTMessage = {
             topic,
             payload: parsed,

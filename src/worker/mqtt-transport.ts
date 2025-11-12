@@ -12,10 +12,10 @@ const brokerUrl = process.env.MQTT_BROKER_URL;
 const sharedGroup = 'server';
 
 const topics = [
-  `$share/${sharedGroup}/mqtt/device/+/requests`,
-  `$share/${sharedGroup}/mqtt/device/+/events`,
-  `$share/${sharedGroup}/mqtt/user/+/requests`,
-  `$share/${sharedGroup}/mqtt/user/+/events`
+  `$share/${sharedGroup}/device/+/requests`,
+  `$share/${sharedGroup}/device/+/events`,
+  `$share/${sharedGroup}/user/+/requests`,
+  `$share/${sharedGroup}/user/+/events`
 ];
 
 const defaultClientId = `fs04-worker-${os.hostname()}-${Date.now()}`;
