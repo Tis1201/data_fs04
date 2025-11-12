@@ -13,6 +13,7 @@ import prisma from "$lib/server/prisma";
 import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
 import { _publishBundleDirect } from "./routes/api/admin/iot/bundles/[id]/publish/+server";
 import { startBundleStatusScheduler, cleanupBundleStatusScheduler } from "$lib/server/scheduler/bundleStatusScheduler";
+import { startMqttTransport } from "./worker/mqtt-transport";
 
 // Initialize WhatsApp clients on server startup (not during build)
 // Use a self-executing async function to avoid blocking the main thread
@@ -54,6 +55,15 @@ if (!building) {
             logger.error('Error in WhatsApp initialization process', { error: e?.message, stack: e?.stack });
         }
     })();
+
+    const globalAny = globalThis as unknown as { __mqttTransportStarted?: boolean };
+    if (!globalAny.__mqttTransportStarted) {
+        logger.info('Initializing MQTT transport from hooks.server');
+        startMqttTransport();
+        globalAny.__mqttTransportStarted = true;
+    } else {
+        logger.debug('MQTT transport already initialized, skipping');
+    }
 }
 
 // Device manager middleware to add deviceManager to locals
