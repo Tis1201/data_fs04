@@ -1,64 +1,73 @@
 import type { Connection, ConnectionMeta } from '../interfaces/connection';
 import { ConnectionManager } from '../core/connectionManager';
 import type { InMessage } from '../interfaces/message';
+import type { ExtendedWebSocket } from '../../websocket/WebSocketUtils';
+import { logger } from '../../logger';
 
 export class WSConnection implements Connection {
   meta: ConnectionMeta;
-  private socket: WebSocket;
+  private socket: ExtendedWebSocket;
 
-  constructor(meta: ConnectionMeta, socket: WebSocket) {
+  constructor(meta: ConnectionMeta, socket: ExtendedWebSocket) {
     this.meta = meta;
     this.socket = socket;
   }
 
   start(): void {
+    logger.info(`[WSConnection] Connection started: ${this.meta.id}`);
 
-    this.socket.on('message', async (msg) => {
+    (this.socket as any).on('message', async (msg: Buffer) => {
       await this.handleMessage(msg);
     });
 
-    this.socket.on('error', (err) => {
-      console.warn(`[WSConnection] error on ${this.meta.id}:`, err);
+    (this.socket as any).on('error', (err: Error) => {
+      logger.warn(`[WSConnection] Error on ${this.meta.id}:`, err);
     });
 
-    this.socket.on('close', () => {
-      console.info(`[WSConnection] connection closed: ${this.meta.id}`);
-      ConnectionManager.unregisterConnection(this.meta.id);
+    (this.socket as any).on('close', () => {
+      logger.info(`[WSConnection] Connection closed: ${this.meta.id}`);
+      const connectionId = this.meta.id;
+      if (connectionId) {
+        ConnectionManager.unregisterConnection(connectionId);
+      }
     });
-    
   }
 
 
   async send(payload: any): Promise<void> {
-    if (this.socket.readyState === this.socket.OPEN) {
-      this.socket.send(JSON.stringify(payload));
+    const ws = this.socket as any;
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify(payload));
     } else {
     }
   }
 
-  async handleMessage(raw: string): Promise<void> {
-    // Here you can parse and dispatch the message
+  async handleMessage(raw: string | Buffer): Promise<void> {
     let parsed: any;
+    const rawString = Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw);
 
     try {
-      parsed = JSON.parse(raw.toString());
+      parsed = JSON.parse(rawString);
     } catch (e) {
-      console.warn(`[WSConnection] Invalid JSON from ${this.meta.id}:`, raw);
+      logger.warn(`[WSConnection] Invalid JSON from ${this.meta.id}: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
 
-    // Compose the full Message object
+    const connectionId = this.meta.id;
+    if (!connectionId) {
+      logger.error(`[WSConnection] Cannot create message: connection ID is missing`);
+      return;
+    }
+
     const message: InMessage = {
       type: parsed.type,
       scope: parsed.scope,
       payload: parsed.payload,
       userInfo: this.meta.userInfo,
       protocol: this.meta.protocol,
-      connectionId: this.meta.id,
-      // Extract requestId if it exists in the parsed message
+      connectionId: connectionId,
       requestId: parsed.requestId,
     };
-
 
     if(parsed.type === 'ping') {
       this.send({ type: 'pong' });
@@ -69,11 +78,14 @@ export class WSConnection implements Connection {
       const { MessageDispatcher } = await import("../core/dispatcher");
       await MessageDispatcher.dispatch(message);
     } catch (error) {
-      console.error(`[WSConnection] Error stack:`, error.stack);
+      logger.error(`[WSConnection] Error in dispatch:`, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
   close(): void {
-    this.socket.close();
+    const connectionId = this.meta.id;
+    if (connectionId) {
+      (this.socket as any).close();
+    }
   }
 }

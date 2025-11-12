@@ -1,5 +1,5 @@
 import type { Handle } from "@sveltejs/kit";
-import { GlobalThisWSS, type ExtendedWebSocket, type ExtendedGlobal, startupWebsocketServer, wssInitialized } from "$lib/server/websocket/WebSocketUtils";
+import { GlobalThisWSS, type ExtendedWebSocket, type ExtendedGlobal, startupWebsocketServer, wssInitialized, setConnectionHandlerSetup } from "$lib/server/websocket/WebSocketUtils";
 import { building } from "$app/environment";
 import { logger } from "$lib/server/logger";
 import { WSConnection } from "../messaging/connections/ws_connection";
@@ -11,36 +11,23 @@ import cookie from 'cookie';
 import prisma, { getEnhancedPrisma } from "$lib/server/prisma";
 import { addClient, removeClient } from './WSManager';
 
-export const websocketMiddleware: Handle = async ({ event, resolve }) => {
-
-  // Only process WebSocket upgrade requests
-  if (event.request.headers.get('upgrade') !== 'websocket') {
-    return await resolve(event);
-  }
-
-  logger.info(`[WS Middleware] Called for WebSocket upgrade: ${event.url.pathname}`);
-
-  logger.debug(`[WS Middleware]: ${event.url.pathname}`); 
-
-  if (event.url.pathname.startsWith('/auth/')) {
-    logger.info(`[WS Middleware] Skipping auth path`);
-    return await resolve(event);
-  }
-
-  logger.info(`[WS Middleware] Processing WebSocket path: ${event.url.pathname}`);
-
-  if (!wssInitialized) {
-    logger.info(`[WS Middleware] Initializing WebSocket server`);
-    startupWebsocketServer();
-
+// Connection handler function that will be called when WebSocket connections are established
+function setupWebSocketConnectionHandler() {
     const wss = (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS];
-
-    if (wss !== undefined) {
-      logger.info(`[WS Middleware] WebSocket server initialized, setting up connection handler`);
-      logger.info(`[WS Middleware] WebSocket server instance: ${wss}`);
-      wss.on('connection', async (ws: ExtendedWebSocket, request) => {
-        logger.info(`[WS Middleware] New WebSocket connection attempt from ${request.socket.remoteAddress}`);
-        logger.debug(`[WS Middleware] Request headers:`, request.headers);
+    
+    if (!wss) {
+        logger.warn(`[WS Middleware] WebSocket server not available for handler setup`);
+        return;
+    }
+    
+    // Check if handler is already set up
+    const hasHandler = (wss as any).listenerCount && (wss as any).listenerCount('connection') > 0;
+    if (hasHandler) {
+        return;
+    }
+    
+    (wss as any).on('connection', async (ws: ExtendedWebSocket, request: any) => {
+        logger.info(`[WS Middleware] New WebSocket connection from ${request.socket.remoteAddress}`);
         
         // Try to get session ID from query string first (for Pushpin compatibility)
         const url = new URL(request.url || '', `http://${request.headers.host}`);
@@ -59,30 +46,19 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
           currentAccountId = parsed['current_account_id'];
         }
         
-        logger.debug(`[WS] Extracted Lucia session ID: ${currentSessionId}, currentAccountId: ${currentAccountId}`);
-
         if (!currentSessionId) {
-          logger.warn(`[wss:kit] No authentication method provided`);
-          ws.close(1008, "No authentication method provided");
+          logger.warn(`[WS Middleware] No authentication method provided`);
+          (ws as any).close(1008, "No authentication method provided");
           return;
         }
-        // const currentSessionId = event.cookies.get(lucia.sessionCookieName);
-        // logger.debug(`[WS Middleware] [validate()] Session ID from cookie: ${currentSessionId}`);
-        
 
-        logger.info(`[WS Middleware] Validating session with Lucia...`);
-        // Validate session directly with Lucia (event.locals.auth not available in WebSocket context)
         const sessionValidation = await lucia.validateSession(currentSessionId);
-        logger.info(`[WS Middleware] Session validation result:`, sessionValidation);
-
         if (!sessionValidation.session || !sessionValidation.user) {
-          logger.warn(`[wss:kit] Invalid or expired session`);
-          ws.close(1008, "Invalid or expired session");
+          logger.warn(`[WS Middleware] Invalid or expired session`);
+          (ws as any).close(1008, "Invalid or expired session");
           return;
         }
 
-        logger.info(`[WS Middleware] Loading user account memberships...`);
-        // Load account memberships
         const memberships = await prisma.accountMembership.findMany({
           where: { userId: sessionValidation.user.id, role: { not: 'SYSTEM' } },
           include: {
@@ -93,7 +69,6 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
           orderBy: { createdAt: 'desc' }
         });
 
-        // Determine current account from cookie or fallback
         let currentAccount = null;
         if (currentAccountId) {
           currentAccount = memberships.find(m => m.account.id === currentAccountId);
@@ -102,17 +77,15 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
           currentAccount = memberships[0];
         }
 
-        // Build UserInfo object
         const userInfo = {
           id: sessionValidation.user.id,
           email: sessionValidation.user.email,
-          name: null, // Name not available in Lucia session
+          name: null,
           systemRole: sessionValidation.user.systemRole,
           source: 'session' as const,
           memberships,
           currentAccount
         };
-        logger.info(`[WS Middleware] User authenticated:`, { userId: userInfo.id, email: userInfo.email });
 
         const meta = {
           userInfo: userInfo,
@@ -122,23 +95,16 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
           socketId: ws.socketId,
         };
 
-        logger.info(`[WS Middleware] Creating WSConnection with meta:`, meta);
         const connection = new WSConnection(meta, ws);
-        
-        logger.info(`[WS Middleware] Registering connection with ConnectionManager...`);
         ConnectionManager.registerConnection(connection);
-        logger.info(`[WS Middleware] Connection registered with ID: ${connection.meta.id}`);
+        logger.info(`[WS Middleware] WebSocket connection established: ${connection.meta.id} for user ${userInfo.id}`);
 
-        // WebSocketManager.getInstance().addClient(ws);
         ws.sessionId = currentSessionId;
-        logger.info(`[WS Middleware] Adding client to WSManager...`);
         const clientId = addClient(ws, meta.userInfo?.id);
-        logger.info(`[WS Middleware] Client added with ID: ${clientId}`);
 
         
         // Set up cleanup on close
         const onClose = () => {
-
           if (clientId) {
             removeClient(clientId);
           }
@@ -151,10 +117,8 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
           
           logger.debug(`[WS] Cleaning up connection ${connectionId} for user ${meta.userInfo}`);
           ConnectionManager.unregisterConnection(connectionId);
-          ws.removeListener('close', onClose);
-          ws.removeListener('error', onClose);
-
-          // WebSocketManager.getInstance().removeClient(ws);
+          (ws as any).removeListener('close', onClose);
+          (ws as any).removeListener('error', onClose);
         };
         
         // Add error handler for the connection
@@ -162,40 +126,61 @@ export const websocketMiddleware: Handle = async ({ event, resolve }) => {
             logger.error(`[WS] Connection error for client ${clientId}:`, error);
         };
         
-        ws.on('error', onError);
+        (ws as any).on('error', onError);
         
         // Clean up all listeners when connection is closed
         const cleanup = () => {
-            ws.off('close', onClose);
-            ws.off('error', onError);
-            ws.off('error', onClose);
+            (ws as any).off('close', onClose);
+            (ws as any).off('error', onError);
+            (ws as any).off('error', onClose);
         };
         
-        ws.on('close', () => {
+        (ws as any).on('close', () => {
             cleanup();
             onClose();
         });
         
-        // Remove the simple message handler that overrides WSConnection
-        // The WSConnection will handle messages properly
-        
         try {
-            logger.info(`[WS] Starting connection for client ${clientId} with connection ID: ${connection.meta.id}`);
-            logger.info(`[WS] WebSocket readyState before start: ${ws.readyState}`);
-            connection.start(); // start event listeners inside WSConnection
-            logger.info(`[WS] Successfully started connection for client ${clientId}`);
-            logger.info(`[WS] WebSocket readyState after start: ${ws.readyState}`);
-        } catch (error) {
-            logger.error(`[WS] Failed to start connection for client ${clientId}:`, error);
-            logger.error(`[WS] Error stack:`, error.stack);
-            ws.close(1011, 'Internal server error');
+            connection.start();
+        } catch (error: any) {
+            logger.error(`[WS Middleware] Failed to start connection:`, error);
+            (ws as any).close(1011, 'Internal server error');
         }
-      });
+    });
+}
+
+// Register the connection handler setup function so it can be called from WebSocketUtils
+if (!building) {
+    setConnectionHandlerSetup(setupWebSocketConnectionHandler);
+}
+
+export const websocketMiddleware: Handle = async ({ event, resolve }) => {
+  // Only process WebSocket upgrade requests
+  if (event.request.headers.get('upgrade') !== 'websocket') {
+    return await resolve(event);
+  }
+
+  if (event.url.pathname.startsWith('/auth/')) {
+    return await resolve(event);
+  }
+
+  const wss = (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS];
+  
+  if (!wssInitialized && wss === undefined) {
+    startupWebsocketServer();
+  }
+
+  if (wss !== undefined) {
+    const hasConnectionHandler = (wss as any).listenerCount && (wss as any).listenerCount('connection') > 0;
+    if (!hasConnectionHandler) {
+      setupWebSocketConnectionHandler();
     }
+  } else {
+    logger.warn(`[WS Middleware] WebSocket server not available`);
   }
 
   if (!building) {
-    const wss = (globalThis as ExtendedGlobal)[GlobalThisWSS];
+    const wss = (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS];
     if (wss !== undefined) {
       event.locals.wss = wss;
     }

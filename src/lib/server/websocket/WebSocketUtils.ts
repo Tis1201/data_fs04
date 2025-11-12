@@ -37,31 +37,48 @@ export const createWSSGlobalInstance = () => {
     return wss;
 };
 
+// Import connection handler setup function
+let connectionHandlerSetup: (() => void) | null = null;
+
+export function setConnectionHandlerSetup(setupFn: () => void) {
+    connectionHandlerSetup = setupFn;
+    logger.info(`[WebSocket] Connection handler setup function registered`);
+    
+    // If WebSocket server already exists, set up handler immediately
+    const wss = (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS];
+    if (wss) {
+        const hasHandler = (wss as any).listenerCount && (wss as any).listenerCount('connection') > 0;
+        if (!hasHandler) {
+            logger.info(`[WebSocket] Setting up connection handler immediately`);
+            setupFn();
+        }
+    }
+}
+
 export const onHttpServerUpgrade = (req: IncomingMessage, sock: Duplex, head: Buffer) => {
-    logger.info(`[WebSocket] Upgrade handler called`);
     const pathname = req.url ? parse(req.url).pathname : null;
-    logger.info(`[WebSocket] Upgrade request for path: ${pathname}`);
     
     if (pathname !== '/websocket') {
-        logger.info(`[WebSocket] Ignoring upgrade request for path: ${pathname}`);
         return;
     }
 
-    logger.info(`[WebSocket] Processing upgrade request for /websocket`);
-    const wss = (globalThis as ExtendedGlobal)[GlobalThisWSS];
+    const wss = (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS];
     if (!wss) {
-        logger.error('[wss:global] WebSocket server not initialized');
+        logger.error('[WebSocket] WebSocket server not initialized');
         sock.destroy();
         return;
     }
 
-    logger.info(`[WebSocket] WebSocket server found, handling upgrade`);
-    logger.info(`[WebSocket] WebSocket server instance: ${wss}`);
-    wss.handleUpgrade(req, sock, head, (ws) => {
-        logger.debug('[handleUpgrade] creating new connection');
-        logger.info(`[WebSocket] About to emit 'connection' event`);
-        wss.emit('connection', ws, req);
-        logger.info(`[WebSocket] 'connection' event emitted`);
+    // Ensure connection handler is set up
+    const hasHandler = (wss as any).listenerCount && (wss as any).listenerCount('connection') > 0;
+    if (!hasHandler && connectionHandlerSetup) {
+        connectionHandlerSetup();
+    } else if (!hasHandler) {
+        logger.warn(`[WebSocket] No connection handler set up`);
+    }
+
+    (wss as any).handleUpgrade(req, sock, head, (ws: any) => {
+        (wss as any).emit('connection', ws, req);
     });
 };
 

@@ -553,14 +553,22 @@ const createSocketStore = () => {
    *      { type: eventOrMessage, scope: 'system', payload: data || {}, timestamp: now }
    */
   const send = (eventOrMessage: string | ClientMessage, data?: any) => {
-    console.log('[WebSocket] Send', eventOrMessage);
+    console.log('[WebSocket] ===== SEND CALLED =====');
+    console.log('[WebSocket] Event/Message:', eventOrMessage);
+    console.log('[WebSocket] Data:', data);
+    console.log('[WebSocket] Socket exists:', !!socket);
+    console.log('[WebSocket] Socket readyState:', socket?.readyState);
+    console.log('[WebSocket] WebSocket.OPEN:', WebSocket.OPEN);
+    
     if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.warn('[WebSocket] ⚠️ Socket not ready! State:', socket?.readyState);
       if (!socket || socket.readyState === WebSocket.CLOSED) {
+        console.log('[WebSocket] Socket closed, attempting reconnect...');
         // Force a reconnect, then retry after 1 second
         connect('');
         setTimeout(() => send(eventOrMessage, data), 1000);
       }
-      console.log("[WebSocket] Sending data", data);
+      console.log("[WebSocket] Cannot send - socket not open");
       return;
     }
 
@@ -574,8 +582,13 @@ const createSocketStore = () => {
         };
 
     try {
-      console.log("[WebSocket] Sending data", message);
-      socket.send(JSON.stringify(message));
+      const messageString = JSON.stringify(message);
+      console.log("[WebSocket] ===== ACTUALLY SENDING MESSAGE ======");
+      console.log("[WebSocket] Message object:", message);
+      console.log("[WebSocket] Message string length:", messageString.length);
+      console.log("[WebSocket] Message string (first 500 chars):", messageString.substring(0, 500));
+      socket.send(messageString);
+      console.log("[WebSocket] ✅ Message sent successfully via socket.send()");
       addMessage({
         type: message.type,
         scope: message.scope,

@@ -58,8 +58,6 @@ export class MessageRelay {
     };
 
     await this.redisService.publish(this.publishChannel, JSON.stringify(payload));
-    logger.debug(`Published message to channel ${channel} via Redis Pub/Sub`);
-    logger.debug(`Published message ${ JSON.stringify(payload)} via Redis Pub/Sub`);
   }
 
   /**

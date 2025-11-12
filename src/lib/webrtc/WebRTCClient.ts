@@ -48,7 +48,10 @@ export class WebRTCClient {
   }
 
   connect() {
-    console.log('[WebRTCClient] Initiating connection...');
+    console.log('[WebRTCClient] ===== INITIATING CONNECTION =====');
+    console.log('[WebRTCClient] Device ID:', this.deviceId);
+    console.log('[WebRTCClient] Socket store available:', !!socketStore);
+    
     // Clean up any existing connection before connecting
     if (this.peerConnection || this.dataChannel) {
       console.log('[WebRTCClient] Cleaning up existing connection before reconnecting');
@@ -60,8 +63,17 @@ export class WebRTCClient {
       payload: { action: 'message', type: 'webrtc:connect', deviceId: this.deviceId },
       scope: `subscription:device:${this.deviceId}`
     };
-    console.log('[WebRTCClient] Sending connect message:', message);
-    socketStore.send(message);
+    console.log('[WebRTCClient] ===== PREPARING TO SEND CONNECT MESSAGE =====');
+    console.log('[WebRTCClient] Message object:', JSON.stringify(message, null, 2));
+    console.log('[WebRTCClient] Calling socketStore.send()...');
+    
+    try {
+      socketStore.send(message);
+      console.log('[WebRTCClient] ✅ socketStore.send() called successfully');
+    } catch (error) {
+      console.error('[WebRTCClient] ❌ Error calling socketStore.send():', error);
+      console.error('[WebRTCClient] Error stack:', error instanceof Error ? error.stack : 'No stack');
+    }
   }
 
   setTerminalCallback(cb: TerminalOutputCallback) {

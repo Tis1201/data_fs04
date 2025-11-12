@@ -253,6 +253,11 @@
 		if (!browser) return;
 		
 		console.log('[Terminal] onMount - Initializing WebRTC client');
+		
+		// Set the deviceId in the device store so WebRTC messages are properly routed
+		deviceStore.updateDevice({ deviceId });
+		console.log('[Terminal] Device ID set in device store:', deviceId);
+		
 		// Initialize WebRTC client fresh on every mount
 		// This ensures reconnection works correctly when navigating back to the terminal page
 		if (webrtcClient) {
