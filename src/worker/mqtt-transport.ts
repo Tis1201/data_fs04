@@ -4,19 +4,17 @@ import os from 'node:os';
 import process from 'node:process';
 
 import { logger } from '$lib/server/logger';
+import { handleIncoming } from '$lib/server/mqtt-messaging/handlers';
+import { registerMqttTransport } from '$lib/server/mqtt-messaging/transport';
+import { getWorkerSubscriptions } from '$lib/server/mqtt-messaging/subscriptions';
 
 let client: MqttClient | null = null;
 let started = false;
 
 const brokerUrl = process.env.MQTT_BROKER_URL;
-const sharedGroup = 'server';
+const sharedGroup = process.env.MQTT_WORKER_SHARED_GROUP ?? 'server';
 
-const topics = [
-  `$share/${sharedGroup}/device/+/requests`,
-  `$share/${sharedGroup}/device/+/events`,
-  `$share/${sharedGroup}/user/+/requests`,
-  `$share/${sharedGroup}/user/+/events`
-];
+const topics = getWorkerSubscriptions(sharedGroup);
 
 const defaultClientId = `fs04-worker-${os.hostname()}-${Date.now()}`;
 
@@ -87,6 +85,24 @@ export function startMqttListener(): void {
 
   client = mqtt.connect(brokerUrl, connectionOptions);
 
+  registerMqttTransport({
+    publish: async (topic, payload, options = {}) => {
+      if (!client) {
+        throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        client!.publish(topic, payload, options, (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+  });
+
   client.on('connect', (connack: IConnackPacket) => {
     const reason = connack.reasonCode ?? connack.returnCode;
     logger.info(
@@ -122,12 +138,10 @@ export function startMqttListener(): void {
   });
 
   client.on('message', async (topic, payload) => {
-    const messageText = payload.toString('utf8');
-
-    logger.debug(`[MQTT Transport] Received message on ${topic}: ${messageText}`);
+    logger.debug(`[MQTT Transport] Received message on ${topic}`);
 
     try {
-      // Placeholder: add business logic here (persist, forward via Pushpin, etc.)
+      await handleIncoming(topic, payload);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       logger.error(`[MQTT Transport] Error processing message on ${topic}: ${error}`);
@@ -191,19 +205,25 @@ export async function publishMqttMessage(
   payload: string | Buffer,
   options: mqtt.IClientPublishOptions = {}
 ): Promise<void> {
-  if (!client) {
-    throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
-  }
-
-  return new Promise((resolve, reject) => {
-    client!.publish(topic, payload, options, (err) => {
-      if (err) {
-        logger.error(`[MQTT Transport] Failed to publish on ${topic}: ${err.message}`);
-        reject(err);
-      } else {
-        logger.debug(`[MQTT Transport] Published message on ${topic}`);
-        resolve();
+  const transport = {
+    publish: async (topic: string, payload: string | Buffer, options: mqtt.IClientPublishOptions = {}) => {
+      if (!client) {
+        throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
       }
-    });
-  });
+
+      return new Promise<void>((resolve, reject) => {
+        client!.publish(topic, payload, options, (err) => {
+          if (err) {
+            logger.error(`[MQTT Transport] Failed to publish on ${topic}: ${err.message}`);
+            reject(err);
+          } else {
+            logger.debug(`[MQTT Transport] Published message on ${topic}`);
+            resolve();
+          }
+        });
+      });
+    }
+  };
+
+  await transport.publish(topic, payload, options);
 }
