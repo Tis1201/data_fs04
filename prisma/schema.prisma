@@ -49,6 +49,7 @@ model Account {
   whatsappAccounts   WhatsAppAccount[]
   preclaimSets       PreclaimSet[]
   preclaimDevices    PreclaimDevice[]
+  factoryDevices     FactoryDevice[]     @relation("AccountFactoryDevices")
   licenses           License[]
   entitlements       Entitlement[]
   deviceProfiles     DeviceProfile[]
@@ -362,6 +363,7 @@ model Device {
   apiKeyRotatedAt      DateTime?
   claimedAt            DateTime?
   claimedBy            String?
+  factoryRecord        FactoryDevice?           @relation("DeviceFactoryRecord")
   actionLogs           DeviceActionLog[]        @relation("DeviceToActionLogs")
   bundleInstallDevices BundleInstallDevice[]
   tags                 DeviceTag[]              @relation("DeviceTags")
@@ -379,6 +381,29 @@ model Device {
   @@index([status])
   @@index([accountId])
   @@index([companyId])
+}
+
+model FactoryDevice {
+  id                  String    @id() @default(cuid())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt()
+  status              String    @default("PENDING")
+  hardwareFingerprint String?   @unique()
+  factoryJwtId        String?
+  metadata            String?
+  claimedAt           DateTime?
+  expiresAt           DateTime?
+  lastSeenAt          DateTime?
+  lastSeenIp          String?
+  lastSeenUserAgent   String?
+  accountId           String?
+  account             Account?  @relation("AccountFactoryDevices", fields: [accountId], references: [id], onDelete: SetNull)
+  claimedDeviceId     String?   @unique()
+  claimedDevice       Device?   @relation("DeviceFactoryRecord", fields: [claimedDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([accountId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model DeviceTag {
