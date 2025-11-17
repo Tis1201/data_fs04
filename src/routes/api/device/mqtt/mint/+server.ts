@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { env as privateEnv } from '$env/dynamic/private';
 import { restrictDevice } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import jwt, { type Algorithm } from 'jsonwebtoken';
@@ -28,13 +29,16 @@ export const POST: RequestHandler = restrictDevice(async ({ locals, device, user
 
   try {
     const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+    const mqttUsername = `device:${device.id}`;
 
     const token = jwt.sign(
       {
         deviceId: device.id,
         accountId: device.accountId,
         userId: userInfo.id,
-        deviceName: device.name
+        deviceName: device.name,
+        scope: 'device:mqtt',
+        mqttUsername
       },
       signingKey.privateKey,
       {
@@ -42,13 +46,27 @@ export const POST: RequestHandler = restrictDevice(async ({ locals, device, user
         expiresIn: '1h',
         issuer: 'fs04',
         audience: 'https://fs04.datarealities.com',
-        subject: device.id,
+        subject: mqttUsername,
         keyid: signingKey.id
       }
     );
 
+    const brokerUrl = privateEnv.MQTT_BROKER_URL;
+
+    if (!brokerUrl) {
+      logger.error('[MqttMintAPI] MQTT_BROKER_URL is not configured');
+      return json(
+        createErrorResponse('MQTT broker URL is not configured', {
+          details: 'Set MQTT_BROKER_URL in the server environment'
+        }),
+        { status: 500 }
+      );
+    }
+
     return json(createSuccessResponse({
-      jwt: token
+      jwt: token,
+      mqttUsername,
+      brokerUrl
     }));
   } catch (err) {
     logger.error(`[MqttMintAPI] Error: ${String(err)}`);

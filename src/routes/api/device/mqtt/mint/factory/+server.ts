@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { env as privateEnv } from '$env/dynamic/private';
 import jwt, { type Algorithm } from 'jsonwebtoken';
 
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
@@ -90,11 +91,13 @@ export const POST: RequestHandler = async (event) => {
         }
 
         const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+        const mqttUsername = `factory:${factoryDevice.id}`;
         const token = jwt.sign(
             {
-                factoryDeviceId: factoryDevice.id,
+                // factoryDeviceId: factoryDevice.id,
                 hardwareFingerprint,
-                scope: 'factory:mqtt'
+                scope: 'factory:mqtt',
+                // mqttUsername
             },
             signingKey.privateKey,
             {
@@ -102,17 +105,29 @@ export const POST: RequestHandler = async (event) => {
                 expiresIn: '15m',
                 issuer: 'fs04',
                 audience: 'https://fs04.datarealities.com',
-                subject: factoryDevice.id,
+                subject: mqttUsername,
                 keyid: signingKey.id
             }
         );
+
+        const brokerUrl = privateEnv.MQTT_BROKER_URL;
+
+        if (!brokerUrl) {
+            logger.error('[FactoryMqttMintAPI] MQTT_BROKER_URL is not configured');
+            return json(
+                createErrorResponse('MQTT broker URL is not configured', {
+                    details: 'Set MQTT_BROKER_URL in the server environment'
+                }),
+                { status: 500 }
+            );
+        }
 
         logger.info(`[FactoryMqttMintAPI] Minted MQTT credential for factory device ${factoryDevice.id}`);
 
         return json(
             createSuccessResponse({
                 jwt: token,
-                factoryDeviceId: factoryDevice.id
+                brokerUrl
             })
         );
     } catch (err) {

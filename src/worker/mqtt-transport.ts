@@ -2,11 +2,20 @@ import 'dotenv/config';
 import mqtt, { type IClientOptions, type IConnackPacket, type MqttClient } from 'mqtt';
 import os from 'node:os';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
-import { logger } from '$lib/server/logger';
-import { handleIncoming } from '$lib/server/mqtt-messaging/handlers';
-import { registerMqttTransport } from '$lib/server/mqtt-messaging/transport';
-import { getWorkerSubscriptions } from '$lib/server/mqtt-messaging/subscriptions';
+import { logger } from '../lib/server/logger';
+import { handleIncoming, registerHandler } from '../lib/server/mqtt-messaging/handlers';
+import { registerMqttTransport } from '../lib/server/mqtt-messaging/transport';
+import { getWorkerSubscriptions } from '../lib/server/mqtt-messaging/subscriptions';
+import { registerDeviceHandlers } from '../lib/server/mqtt-messaging/device-handlers';
+import { PrismaClient } from '@prisma/client';
+
+// Use raw Prisma client for the worker (no Zenstack enhancement)
+// Zenstack codegen artifacts aren't available when running outside SvelteKit
+const adminPrisma = new PrismaClient();
+
+registerDeviceHandlers(adminPrisma);
 
 let client: MqttClient | null = null;
 let started = false;
@@ -141,7 +150,7 @@ export function startMqttListener(): void {
     logger.debug(`[MQTT Transport] Received message on ${topic}`);
 
     try {
-      await handleIncoming(topic, payload);
+      await handleIncoming(topic, payload, adminPrisma);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       logger.error(`[MQTT Transport] Error processing message on ${topic}: ${error}`);
@@ -198,6 +207,13 @@ export function startMqttListener(): void {
 
 export function startMqttTransport(): void {
   startMqttListener();
+}
+
+if (process.argv[1]) {
+  const entryHref = pathToFileURL(process.argv[1]).href;
+  if (import.meta.url === entryHref) {
+    startMqttTransport();
+  }
 }
 
 export async function publishMqttMessage(

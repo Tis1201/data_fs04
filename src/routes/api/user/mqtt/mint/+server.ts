@@ -4,6 +4,7 @@ import { logger } from '$lib/server/logger';
 import { env as privateEnv } from '$env/dynamic/private';
 import jwt, { type Algorithm } from 'jsonwebtoken';
 
+
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
 export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
@@ -30,13 +31,16 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
 
   try {
     const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+    const mqttUsername = `web:${user.id}`;
 
     const token = jwt.sign(
       {
         userId: user.id,
         accountId: user.primaryAccountId ?? null,
         username: user.email,
-        name: user.name
+        name: user.name ?? null,
+        scope: 'web:mqtt',
+        mqttUsername
       },
       signingKey.privateKey,
       {
@@ -44,7 +48,7 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
         expiresIn: '1h',
         issuer: 'fs04',
         audience: 'https://fs04.datarealities.com',
-        subject: user.id,
+        subject: mqttUsername,
         keyid: signingKey.id
       }
     );
@@ -63,7 +67,8 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
 
     return json(createSuccessResponse({
       jwt: token,
-      brokerUrl
+      brokerUrl,
+      mqttUsername
     }));
   } catch (err) {
     logger.error(`[UserMqttMintAPI] Error: ${String(err)}`);

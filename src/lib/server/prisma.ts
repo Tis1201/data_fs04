@@ -1,7 +1,8 @@
 import { enhance } from '@zenstackhq/runtime';
 import { PrismaClient } from '@prisma/client';
-import { dev } from '$app/environment';
 import { logger } from './logger';
+
+const dev = process.env.NODE_ENV !== 'production';
 
 declare global {
     var prisma: PrismaClient | undefined;

@@ -39,17 +39,24 @@ if (!building) {
             try {
                 startBundleAutoPublishScheduler(prisma as any, async (bundleId: string) => _publishBundleDirect(prisma as any, bundleId));
                 logger.info('Bundle auto-publish scheduler started');
-            } catch (e:any) {
+            } catch (e: any) {
                 logger.warn(`Failed to start auto-publish scheduler: ${e?.message || String(e)}`);
             }
 
+            // if (import.meta.hot) {
+            //     import.meta.hot.dispose(() => {
+            //         const globalAny = globalThis as unknown as { __mqttTransportStarted?: boolean };
+            //         globalAny.__mqttTransportStarted = false;
+            //     });
+            // }
+
             // Start bundle status scheduler (ClickHouse or file-based polling)
-            try {
-                await startBundleStatusScheduler();
-                logger.info('Bundle status scheduler started');
-            } catch (e:any) {
-                logger.warn(`Failed to start bundle status scheduler: ${e?.message || String(e)}`);
-            }
+            // try {
+            //     await startBundleStatusScheduler();
+            //     logger.info('Bundle status scheduler started');
+            // } catch (e: any) {
+            //     logger.warn(`Failed to start bundle status scheduler: ${e?.message || String(e)}`);
+            // }
         } catch (error: unknown) {
             const e = error as any;
             logger.error('Error in WhatsApp initialization process', { error: e?.message, stack: e?.stack });
@@ -166,7 +173,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 
     // Use auth middleware
-    return authMiddleware({event, resolve});
+    return authMiddleware({ event, resolve });
 };
 
 // Export WebSocket utilities for use in production server

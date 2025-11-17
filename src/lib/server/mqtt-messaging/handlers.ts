@@ -1,16 +1,49 @@
 import { parseEnvelope } from './envelope';
 import { logger } from '$lib/server/logger';
+import type { PrismaClient } from '@prisma/client';
 
-export type MessageHandler = (topic: string, envelope: ReturnType<typeof parseEnvelope>) => Promise<void>;
+export type HandlerArgs<P extends PrismaClient = PrismaClient> = {
+    topic: string;
+    envelope: ReturnType<typeof parseEnvelope>;
+    prisma: P;
+};
 
-const handlers = new Map<string, MessageHandler>();
+export type MessageHandler<P extends PrismaClient = PrismaClient> = (args: HandlerArgs<P>) => Promise<void>;
 
-export function registerHandler(prefix: string, handler: MessageHandler): void {
-    handlers.set(prefix, handler);
+type RegisteredHandler = {
+    handler: MessageHandler;
+    prisma: PrismaClient;
+};
+
+const handlers = new Map<string, RegisteredHandler>();
+
+export function registerHandler<P extends PrismaClient>(
+    prefix: string,
+    handler: MessageHandler<P>,
+    prisma: P
+): void {
+    handlers.set(prefix, { handler, prisma });
 }
 
-export async function handleIncoming(topic: string, payload: Buffer): Promise<void> {
+export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
     let envelope;
+
+    logger.debug(`[MQTT Messaging] Received message on ${topic}`);
+
+    // Find matching handler
+    let matchedEntry: RegisteredHandler | undefined;
+    for (const [prefix, entry] of handlers) {
+        if (topic.startsWith(prefix)) {
+            matchedEntry = entry;
+            break;
+        }
+    }
+
+    if (!matchedEntry) {
+        logger.warn('[MQTT Messaging] No handler registered for topic', { topic });
+        return;
+    }
+
     try {
         envelope = parseEnvelope(JSON.parse(payload.toString('utf8')));
     } catch (error) {
@@ -21,12 +54,9 @@ export async function handleIncoming(topic: string, payload: Buffer): Promise<vo
         return;
     }
 
-    for (const [prefix, handler] of handlers) {
-        if (topic.startsWith(prefix)) {
-            await handler(topic, envelope);
-            return;
-        }
-    }
-
-    logger.warn('[MQTT Messaging] No handler registered for topic', { topic });
+    await matchedEntry.handler({
+        topic,
+        envelope,
+        prisma: matchedEntry.prisma
+    });
 }
