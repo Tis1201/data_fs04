@@ -172,11 +172,14 @@ export const POST: RequestHandler = restrict(
                 }
             }
             
-            // Determine if this is a WhatsApp message
+            // Determine if this is a message that should be dispatched to a handler
             const isWhatsAppMessage = message.type === 'whatsapp';
             const isDeviceMessage   = message.type === 'device';
+            const isTerminalMessage = message.type === 'terminal';
+            const isRDPMessage      = message.type === 'rdp';
+            const isRoomMessage     = message.type === 'room';
             
-            // Create a routing message for the publisher (will be used for non-WhatsApp messages)
+            // Create a routing message for the publisher (will be used for non-handled messages)
             const routingMessage: RoutingMessage = {
                 id: uuidv4(),
                 type: message.type,
@@ -211,15 +214,19 @@ export const POST: RequestHandler = restrict(
             };
             
             // Log the message being processed
-            logger.info(`[SSE] Processing message: type=${inMessage.type}, action=${inMessage.payload?.action}`);
+            logger.info(`[SSE] Processing message: type=${inMessage.type}, action=${inMessage.payload?.type || inMessage.payload?.action}`);
+            logger.debug(`[SSE] Message flags: isDeviceMessage=${isDeviceMessage}, isTerminalMessage=${isTerminalMessage}, isRDPMessage=${isRDPMessage}, isWhatsAppMessage=${isWhatsAppMessage}, isRoomMessage=${isRoomMessage}`);
             
-            if (isWhatsAppMessage || isDeviceMessage) {
-                // For WhatsApp messages, directly dispatch to the handler
+            if (isWhatsAppMessage || isDeviceMessage || isTerminalMessage || isRDPMessage || isRoomMessage) {
+                // For WhatsApp, device, terminal, RDP, and room messages, directly dispatch to the handler
+                logger.debug(`[SSE] Dispatching to MessageDispatcher for type=${inMessage.type}`);
                 await MessageDispatcher.dispatch(inMessage);
-                // The WhatsApp handler will publish responses via the publisher
+                logger.debug(`[SSE] MessageDispatcher.dispatch completed for type=${inMessage.type}`);
+                // The handlers will publish responses via the publisher or MessageRelay
             } 
             else {
                 // For other message types, use the publisher as before
+                logger.debug(`[SSE] Publishing message directly (not dispatched): type=${inMessage.type}`);
                 await publisher.publish(routingMessage);
             }
             

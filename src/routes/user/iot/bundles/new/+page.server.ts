@@ -27,7 +27,8 @@ export const load = restrict(
                     waveSize: 500,
                     scheduledAt: null,
                     scheduledAtTimezone: 'UTC',
-                    scheduledAtStartIfMissed: false
+                    scheduledAtStartIfMissed: false,
+                    activePeriodDays: 1
                 }
             });
 
@@ -89,6 +90,7 @@ export const actions: Actions = {
                             scheduledAt: scheduledDateTime,
                             scheduledAtTimezone: form.data.scheduledAtTimezone || 'UTC',
                             scheduledAtStartIfMissed: form.data.scheduledAtStartIfMissed || false,
+                            activePeriodDays: Math.min(Math.max(form.data.activePeriodDays || 1, 1), 30), // Clamp between 1 and 30
                             accountId: currentAccount.accountId,
                             createdBy: userInfo.id,
                             updatedBy: userInfo.id

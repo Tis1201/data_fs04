@@ -125,13 +125,13 @@ Contributions welcome! Please fork, branch, and submit pull requests. Adhere to 
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## WebSocket Communication
+## Server-Sent Events (SSE) Communication
 
-The application uses a robust WebSocket-based communication pattern for real-time interactions with devices. The `sendRequest` method in `websocket-store.ts` provides a convenient way to send messages and wait for responses.
+The application uses Server-Sent Events (SSE) for all real-time interactions with devices. The `sendRequest` method in `sse-store.ts` provides a convenient way to send messages and wait for responses.
 
 ### `sendRequest` Pattern
 
-The `sendRequest` method provides a request-response pattern over WebSockets with the following features:
+The `sendRequest` method provides a request-response pattern over SSE with the following features:
 - Automatic request ID generation and tracking
 - Timeout handling
 - Type-safe responses
@@ -141,7 +141,7 @@ The `sendRequest` method provides a request-response pattern over WebSockets wit
 ### Basic Usage
 
 ```typescript
-const response = await socketStore.sendRequest(
+const response = await sseStore.sendRequest(
   {
     type: 'message-type',
     scope: 'subscription:scope',
@@ -458,15 +458,23 @@ Account-specific roles that define permissions within a particular account:
    });
    ```
 
-### WebSocket (Deprecated)
+### WebSocket (Removed)
 
-> ⚠️ **Deprecation Notice**: WebSocket support has been deprecated in favor of Server-Sent Events (SSE).
-> Existing WebSocket code is being phased out and will be removed in a future release.
-> Please migrate to using SSE for real-time communication.
+> ✅ **Migration Complete**: WebSocket has been fully removed and replaced with Server-Sent Events (SSE).
 
-For reference, the deprecated WebSocket implementation was previously located in:
-- `src/lib/server/websocket/` (server-side)
-- `src/lib/stores/websocket-store.ts` (client-side)
+> **All real-time communication now uses SSE**:
+> - ✅ Terminal: Migrated to SSE
+> - ✅ RDP control/input: Migrated to SSE
+> - ✅ WebRTC signaling: Migrated to SSE
+> - ✅ WhatsApp: Migrated to SSE
+> - ✅ Device store: Migrated to SSE
+> - ✅ Room functionality: Migrated to SSE
+
+> See [`WEBSOCKET_DEPRECATION_PLAN.md`](./WEBSOCKET_DEPRECATION_PLAN.md) for migration details.
+
+**Legacy Files (Unused)**:
+- `src/lib/server/websocket/` - Legacy files kept for reference (not used in active codebase)
+- `src/lib/stores/websocket-store.ts` - Legacy store (only used in debug pages)
 
 ## Production Deployment
 
@@ -474,8 +482,8 @@ In production, the real-time communication is handled through Server-Sent Events
 
 2. **Custom Server**:
    - `prodServer.ts` creates an HTTP server with the SvelteKit handler
-   - Attaches WebSocket server to the same HTTP server
-   - Handles WebSocket upgrade requests
+   - SSE connections are handled by route handlers
+   - No WebSocket upgrade handling needed
 
 3. **ZenStack Integration**:
    - Custom build process copies ZenStack files to the production build

@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export class WhatsAppHandler implements Handler {
     supports(type: string): boolean {
-        return type.startsWith('message:');
+        return type === 'whatsapp';
     }
 
     async handle(message: InMessage): Promise<void> {
@@ -151,10 +151,11 @@ export class WhatsAppHandler implements Handler {
             subscriptionRegistry.addSubscription(`subscription:whatsapp:${client.getId()}`, `subscriber:connection:${message.connectionId}`);
 
             // Create response message with the same requestId
+            // Send directly to the requesting connection to ensure it's received
             const qrMessage: InMessage = {
                 id: message.id, // Preserve original message ID if available
                 type: 'whatsapp',
-                scope: message.scope,
+                scope: `connection:${message.connectionId}`, // Send directly to the requesting connection
                 protocol: message.protocol,
                 connectionId: message.connectionId,
                 userInfo: message.userInfo,
@@ -168,10 +169,13 @@ export class WhatsAppHandler implements Handler {
                 }
             };
 
-            // // Send initial response to unblock the client
+            // Send initial response directly to the requesting connection
+            // Note: echoToSender must be true because the sender connection IS the target connection
             const initialResponse: RoutingMessage = MessageFactory.toRoutingMessage(qrMessage, {
                 systemGenerated: true,
-                echoToSender: true
+                echoToSender: true, // Must be true to send response back to the requesting connection
+                senderConnectionId: message.connectionId,
+                senderConnectionProtocol: message.protocol
             });
             publisher.publish(initialResponse);
             
@@ -203,10 +207,10 @@ export class WhatsAppHandler implements Handler {
         } catch (error) {
             logger.error(`[WhatsAppHandler] Error handling QR request: ${error.message}`, error);
             
-            // Send error response with the same requestId
+            // Send error response with the same requestId directly to the requesting connection
             const errorMessage: InMessage = {
                 type: 'whatsapp',
-                scope: message.scope,
+                scope: `connection:${message.connectionId}`, // Send directly to the requesting connection
                 protocol: message.protocol,
                 connectionId: message.connectionId,
                 userInfo: message.userInfo,
@@ -222,7 +226,9 @@ export class WhatsAppHandler implements Handler {
             
             const errorRoutingMessage: RoutingMessage = MessageFactory.toRoutingMessage(errorMessage, {
                 systemGenerated: true,
-                echoToSender: true
+                echoToSender: true, // Must be true to send response back to the requesting connection
+                senderConnectionId: message.connectionId,
+                senderConnectionProtocol: message.protocol
             });
             
             publisher.publish(errorRoutingMessage);

@@ -640,6 +640,7 @@ model Bundle {
   scheduledAt              DateTime?
   scheduledAtTimezone      String?
   scheduledAtStartIfMissed Boolean                @default(false)
+  activePeriodDays         Int                    @default(1)
   apps                     BundleApp[]
   waves                    BundleWave[]
   devices                  BundleDevice[]

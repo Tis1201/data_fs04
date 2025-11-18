@@ -368,6 +368,7 @@ export const actions: Actions = {
           scheduledAt: data.scheduledAt,
           scheduledAtTimezone: data.scheduledAtTimezone || 'UTC',
           scheduledAtStartIfMissed: data.scheduledAtStartIfMissed || false,
+          activePeriodDays: Math.min(Math.max(data.activePeriodDays || 1, 1), 30), // Clamp between 1 and 30
           // updateStrategy removed
           accountId: data.accountId,
           updatedBy: userInfo.id

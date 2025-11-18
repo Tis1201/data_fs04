@@ -26,49 +26,11 @@ const { handler } = await import('./build/handler.js');
 // Create HTTP server
 const server = createServer(handler);
 
-// Dynamically find and import WebSocket utilities
-async function setupWebSocket() {
-  try {
-    // Find the hooks.server file (name changes with each build)
-    const chunksDir = resolve('./build/server/chunks');
-    const files = readdirSync(chunksDir);
-    const hooksFile = files.find(file => file.startsWith('hooks.server-') && file.endsWith('.js'));
-    
-    if (!hooksFile) {
-      console.log('[WS] hooks.server file not found, WebSocket will not be available');
-      return;
-    }
-    
-    console.log(`[WS] Found hooks.server file: ${hooksFile}`);
-    
-    // Import the WebSocket utilities using absolute path
-    const hooksPath = join(chunksDir, hooksFile);
-    const { startupWebsocketServer, onHttpServerUpgrade } = await import(hooksPath);
-    
-    // Initialize WebSocket server first (required before upgrade handler)
-    console.log('[WS] Initializing WebSocket server...');
-    startupWebsocketServer();
-    console.log('[WS] WebSocket server initialized');
-    
-    // Set up WebSocket upgrade handler
-    server.on('upgrade', onHttpServerUpgrade);
-    console.log('[WS] WebSocket upgrade handler set up');
-    
-  } catch (error) {
-    console.log('[WS] Failed to set up WebSocket:', error.message);
-    console.log('[WS] WebSocket will not be available');
-  }
-}
-
-// Set up WebSocket
-await setupWebSocket();
-
 // Start the server
 const PORT = process.env.PORT || 5173;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Server started at http://localhost:${PORT}`);
-  console.log(`WebSocket server available at ws://localhost:${PORT}/websocket`);
 });
 
 // Handle graceful shutdown

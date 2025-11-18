@@ -2,6 +2,7 @@ import { createClient, type RedisClientType } from 'redis';
 import { logger } from '$lib/server/logger';
 import type { BundleProcessingStateData, StateManager } from './types';
 import { BundleProcessingState } from './types';
+import { getAdminPrisma } from '$lib/server/prisma';
 
 export class RedisStateManager implements StateManager {
   private client: RedisClientType | null = null;
@@ -132,6 +133,7 @@ export class RedisStateManager implements StateManager {
       const states = await Promise.all(statePromises);
       
       const processableBundles: string[] = [];
+      const failedCancelledBundles: Array<{ bundleId: string; state: BundleProcessingStateData }> = [];
 
       for (let i = 0; i < bundles.length; i++) {
         const bundleId = bundles[i];
@@ -147,13 +149,96 @@ export class RedisStateManager implements StateManager {
         else if (state.state === BundleProcessingState.COMPLETED) {
           continue;
         }
-        // All other statuses (TIMEOUT_PENDING, FAILED, CANCELLED) are processable within grace period
-        else {
+        // TIMEOUT_PENDING bundles use fixed grace period
+        else if (state.state === BundleProcessingState.TIMEOUT_PENDING) {
           const gracePeriodEnd = new Date(state.updatedAt.getTime() + 
             this.gracePeriodHours * 60 * 60 * 1000);
           
           if (now <= gracePeriodEnd) {
             processableBundles.push(bundleId);
+          }
+        }
+        // FAILED and CANCELLED bundles use bundle's active period (not fixed grace period)
+        else if (state.state === BundleProcessingState.FAILED || state.state === BundleProcessingState.CANCELLED) {
+          failedCancelledBundles.push({ bundleId, state });
+        }
+      }
+
+      // Batch fetch bundle data for FAILED/CANCELLED bundles to check active period
+      if (failedCancelledBundles.length > 0) {
+        try {
+          const prisma = getAdminPrisma();
+          const bundleIds = failedCancelledBundles.map(b => b.bundleId);
+          
+          // Batch fetch bundle data
+          const bundleData = await (prisma as any).bundle.findMany({
+            where: { id: { in: bundleIds } },
+            select: { id: true, scheduledAt: true, activePeriodDays: true }
+          });
+          
+          // Batch fetch first wave start times
+          const firstWaves = await (prisma as any).bundleWave.findMany({
+            where: { bundleId: { in: bundleIds } },
+            select: { bundleId: true, startTime: true },
+            orderBy: { startTime: 'asc' }
+          });
+          
+          // Group first waves by bundleId (get the earliest startTime for each bundle)
+          const firstWaveMap = new Map<string, Date>();
+          for (const wave of firstWaves) {
+            if (wave.startTime && (!firstWaveMap.has(wave.bundleId) || wave.startTime < firstWaveMap.get(wave.bundleId)!)) {
+              firstWaveMap.set(wave.bundleId, wave.startTime);
+            }
+          }
+          
+          // Create bundle data map
+          const bundleDataMap = new Map(bundleData.map((b: any) => [b.id, b]));
+          
+          // Check active period for each FAILED/CANCELLED bundle
+          for (const { bundleId, state } of failedCancelledBundles) {
+            const bundle = bundleDataMap.get(bundleId);
+            if (!bundle) {
+              // Bundle not found, use fallback grace period
+              const gracePeriodEnd = new Date(state.updatedAt.getTime() + 
+                this.gracePeriodHours * 60 * 60 * 1000);
+              if (now <= gracePeriodEnd) {
+                processableBundles.push(bundleId);
+              }
+              continue;
+            }
+            
+            // Get actual start time (first wave's startTime - when deployment actually began)
+            const actualStartTime = firstWaveMap.get(bundleId) || bundle.scheduledAt;
+            const activePeriodDays = (bundle.activePeriodDays ?? 1); // Default to 1 day if null
+            
+            let activePeriodEnd: Date;
+            if (actualStartTime) {
+              activePeriodEnd = new Date(
+                actualStartTime.getTime() + 
+                (activePeriodDays * 24 * 60 * 60 * 1000)
+              );
+            } else {
+              // Fallback: bundle was never actually started, use bundle state updatedAt + default active period
+              activePeriodEnd = new Date(
+                state.updatedAt.getTime() + 
+                (1 * 24 * 60 * 60 * 1000) // 1 day default
+              );
+            }
+            
+            // Include bundle if still within active period
+            if (now <= activePeriodEnd) {
+              processableBundles.push(bundleId);
+            }
+          }
+        } catch (error) {
+          logger.warn(`[RedisStateManager] Failed to check active period for FAILED/CANCELLED bundles: ${error instanceof Error ? error.message : String(error)}`);
+          // Fallback: use grace period for all FAILED/CANCELLED bundles
+          for (const { bundleId, state } of failedCancelledBundles) {
+            const gracePeriodEnd = new Date(state.updatedAt.getTime() + 
+              this.gracePeriodHours * 60 * 60 * 1000);
+            if (now <= gracePeriodEnd) {
+              processableBundles.push(bundleId);
+            }
           }
         }
       }

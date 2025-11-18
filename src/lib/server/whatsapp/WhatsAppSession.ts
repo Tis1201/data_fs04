@@ -43,6 +43,14 @@ export class WhatsAppSession extends EventEmitter {
   // Caches
   private groupCache = new NodeCache({ stdTTL: 5 * 60, useClones: false }); // 5 minute TTL for group metadata
   private msgRetryCounterCache = new NodeCache(); // For tracking message retries
+  
+  // Retry logic to prevent infinite reconnection loops
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5; // Maximum number of consecutive reconnection attempts
+  private lastReconnectTime = 0;
+  private reconnectBackoffMs = 1000; // Start with 1 second backoff
+  private maxBackoffMs = 30000; // Maximum 30 seconds backoff
+  private reconnectTimer: NodeJS.Timeout | null = null;
 
   constructor(prisma: PrismaClient, session_id?: string) {
     super();
@@ -120,6 +128,12 @@ export class WhatsAppSession extends EventEmitter {
     this.sock.ev.removeAllListeners('connection.update');
     this.sock.ev.removeAllListeners('creds.update');
     this.sock.ev.removeAllListeners('messages.upsert');
+    
+    // Clear any pending reconnection attempts when tearing down
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private handleConnectionUpdate = async (update: any) => {
@@ -155,27 +169,38 @@ export class WhatsAppSession extends EventEmitter {
         
         this.emit('disconnected', `Connection closed: ${errorMessage}`);
 
+        // Handle different disconnect reasons
         if (statusCode === DisconnectReason.restartRequired) {
           console.log(`[${this.session_id}] Restarting connection due to restartRequired...`);
-          this.createSocket();
+          this.scheduleReconnect('restartRequired');
         } else if (statusCode === DisconnectReason.connectionClosed) {
           console.log(`[${this.session_id}] Restarting connection due to connectionClosed...`);
-          this.createSocket();
+          this.scheduleReconnect('connectionClosed');
         } else if (statusCode === DisconnectReason.connectionLost) {
           console.log(`[${this.session_id}] Restarting connection due to connectionLost...`);
-          this.createSocket();
+          this.scheduleReconnect('connectionLost');
         } else if (statusCode === DisconnectReason.connectionReplaced) {
           console.log(`[${this.session_id}] Connection replaced - not restarting automatically`);
+          this.reconnectAttempts = 0; // Reset on expected disconnects
         } else if (statusCode === DisconnectReason.loggedOut) {
           console.log(`[${this.session_id}] Logged out - not restarting automatically`);
+          this.reconnectAttempts = 0; // Reset on expected disconnects
         } else {
-          console.log(`[${this.session_id}] Unknown disconnect reason, attempting to restart connection...`);
-          this.createSocket();
+          // Unknown disconnect reason - check if we should retry
+          const shouldRetry = this.shouldRetryReconnect(statusCode);
+          if (shouldRetry) {
+            console.log(`[${this.session_id}] Unknown disconnect reason (${statusCode}), attempting to restart connection (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})...`);
+            this.scheduleReconnect('unknown');
+          } else {
+            console.error(`[${this.session_id}] Max reconnection attempts reached or error code ${statusCode} indicates permanent failure. Stopping reconnection.`);
+            this.emit('error', new Error(`Connection failed permanently: ${errorMessage} (code: ${statusCode})`));
+          }
         }
       }
 
       if (connection === 'open') {
-
+        // Reset retry counter on successful connection
+        this.resetReconnectState();
         
         try {
           const user = this.sock?.user;
@@ -222,6 +247,79 @@ export class WhatsAppSession extends EventEmitter {
   };
   
   // Helper method to translate disconnect reason codes to readable names
+  /**
+   * Determines if reconnection should be attempted based on error code and retry count
+   */
+  private shouldRetryReconnect(statusCode: number | undefined): boolean {
+    // Don't retry if we've exceeded max attempts
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      return false;
+    }
+    
+    // Don't retry on certain error codes that indicate permanent failures
+    // 405 = Method Not Allowed (HTTP error, likely network/proxy issue) - stop after 1 retry
+    // 401 = Unauthorized (authentication issue) - stop after 1 retry
+    // 403 = Forbidden (permission issue) - stop after 1 retry
+    if (statusCode === 405 || statusCode === 401 || statusCode === 403) {
+      // Only retry once for these errors, then stop
+      if (this.reconnectAttempts >= 1) {
+        console.warn(`[${this.session_id}] Error code ${statusCode} indicates permanent failure. Stopping after ${this.reconnectAttempts} attempt(s).`);
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  /**
+   * Schedules a reconnection attempt with exponential backoff
+   */
+  private scheduleReconnect(reason: string): void {
+    // Clear any existing reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
+    // Check if we should retry
+    if (!this.shouldRetryReconnect(undefined)) {
+      console.error(`[${this.session_id}] Max reconnection attempts (${this.maxReconnectAttempts}) reached. Stopping reconnection.`);
+      return;
+    }
+    
+    // Increment retry counter
+    this.reconnectAttempts++;
+    
+    // Calculate backoff time (exponential backoff with jitter)
+    const backoffTime = Math.min(
+      this.reconnectBackoffMs * Math.pow(2, this.reconnectAttempts - 1),
+      this.maxBackoffMs
+    );
+    const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+    const delay = backoffTime + jitter;
+    
+    console.log(`[${this.session_id}] Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${Math.round(delay)}ms (reason: ${reason})`);
+    
+    // Schedule the reconnection
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.lastReconnectTime = Date.now();
+      this.createSocket();
+    }, delay);
+  }
+
+  /**
+   * Resets reconnection state (called on successful connection)
+   */
+  private resetReconnectState(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this.reconnectBackoffMs = 1000;
+  }
+
   private getDisconnectReasonName(code: number): string {
     const reasonMap: Record<number, string> = {
       [DisconnectReason.connectionClosed]: 'CONNECTION_CLOSED',
@@ -281,6 +379,9 @@ export class WhatsAppSession extends EventEmitter {
   }
 
   public async shutdown() {
+    // Clear any pending reconnection attempts
+    this.resetReconnectState();
+    
     if (this.sock) {
       this.teardownListeners();
       await this.sock.logout();

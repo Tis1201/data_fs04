@@ -1,5 +1,6 @@
 <script lang="ts">
     import DeviceTable from "./table.svelte";
+    import DeviceStatistics from "../../../admin/iot/devices/DeviceStatistics.svelte";
     import { page } from "$app/stores";
     import { goto } from "$app/navigation";
     import { Plus } from "lucide-svelte";
@@ -16,7 +17,7 @@
     export let data: PageData;
     
     // Extract data from the server
-    $: ({ devices: records, meta, availableTags, userRole, accountId } = data);
+    $: ({ devices: records, meta, availableTags, userRole, accountId, deviceStats } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
     $: props = { records: records as any, availableTags: availableTags || [], pagination, sort, loading };
@@ -73,6 +74,10 @@
             />
         </svelte:fragment>
     </PageHeader>
+
+    {#if deviceStats}
+        <DeviceStatistics stats={deviceStats} />
+    {/if}
 
     <DeviceTable {props} />
 </PageContainer>

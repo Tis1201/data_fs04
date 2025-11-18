@@ -12,7 +12,7 @@ import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
-import { isDeviceOnline } from '$lib/server/device/devicePresence';
+import { isDeviceOnline, areDevicesOnline } from '$lib/server/device/devicePresence';
 
 // Define table options for Devices
 const table_options = {
@@ -93,10 +93,97 @@ export const load = restrict(
             })
         );
 
+        // Fetch device statistics grouped by OS
+        const allDevices = await locals.prisma.device.findMany({
+            select: {
+                id: true,
+                osVersion: true,
+                deviceType: true
+            }
+        });
+
+        // Batch check online status for all devices
+        const deviceIds = allDevices.map((d: { id: string; osVersion: string | null; deviceType: string | null }) => d.id);
+        const onlineStatusMap = await areDevicesOnline(deviceIds);
+
+        // Initialize statistics counters
+        const stats = {
+            total: { total: 0, android: 0, linux: 0, windows: 0, apple: 0 },
+            online: { total: 0, android: 0, linux: 0, windows: 0, apple: 0 },
+            offline: { total: 0, android: 0, linux: 0, windows: 0, apple: 0 }
+        };
+
+        // Count devices by OS and online status
+        for (const device of allDevices) {
+            const isOnline = onlineStatusMap.get(device.id) || false;
+            
+            // Determine OS from osVersion field (deviceType is for device categories, not OS)
+            const osVersion = (device.osVersion || '').toLowerCase().trim();
+            
+            // Map OS to our categories based on osVersion
+            let category: 'android' | 'linux' | 'windows' | 'apple' | null = null;
+            
+            if (osVersion) {
+                // Apple/macOS/iOS detection (check first to avoid "darwin" matching "win")
+                if (osVersion.includes('darwin') || 
+                    osVersion.includes('ios') || 
+                    osVersion.includes('macos') || 
+                    osVersion.includes('mac os') ||
+                    osVersion.includes('apple')) {
+                    category = 'apple';
+                }
+                // Android detection
+                else if (osVersion.includes('android')) {
+                    category = 'android';
+                }
+                // Linux detection (various distributions)
+                else if (osVersion.includes('linux') || 
+                         osVersion.includes('ubuntu') || 
+                         osVersion.includes('debian') || 
+                         osVersion.includes('centos') || 
+                         osVersion.includes('redhat') ||
+                         osVersion.includes('rhel') ||
+                         osVersion.includes('fedora') ||
+                         osVersion.includes('arch') ||
+                         osVersion.includes('suse')) {
+                    category = 'linux';
+                }
+                // Windows detection (more specific to avoid matching "darwin")
+                else if (osVersion.includes('windows') || 
+                         (osVersion.includes('win') && !osVersion.includes('darwin')) ||
+                         osVersion.includes('nt ')) {
+                    category = 'windows';
+                }
+            }
+
+            // Always count in total
+            stats.total.total++;
+            
+            if (category) {
+                stats.total[category]++;
+
+                if (isOnline) {
+                    stats.online.total++;
+                    stats.online[category]++;
+                } else {
+                    stats.offline.total++;
+                    stats.offline[category]++;
+                }
+            } else {
+                // Count devices with unknown/missing OS in total only
+                if (isOnline) {
+                    stats.online.total++;
+                } else {
+                    stats.offline.total++;
+                }
+            }
+        }
+
         return {
             devices: devicesWithRealTimeStatus,
             availableTags,
-            meta: result.meta
+            meta: result.meta,
+            deviceStats: stats
         };
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route

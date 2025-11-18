@@ -209,14 +209,15 @@
         deviceError = "";
         
         try {
-            // First, get all device keys using a pattern match
+            // Get all presence keys (presence:device:*)
+            // This is the actual key pattern used by pushpin-tracker
             const response = await fetch('/admin/debug/redis', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    key: 'device:*:status',
+                    key: 'presence:device:*',
                     value: '_KEYS_PATTERN_',
                     command: 'keys'
                 })
@@ -229,54 +230,78 @@
                 return;
             }
             
-            const deviceKeys = data.keys || [];
+            const presenceKeys = data.keys || [];
             const devices = [];
             
-            // For each device key, get the status and metadata
-            for (const key of deviceKeys) {
-                const deviceId = key.split(':')[1]; // Extract device ID from key pattern
+            // For each presence key, get the device information
+            for (const key of presenceKeys) {
+                // Extract device ID from key pattern: presence:device:<device-id>
+                const deviceId = key.replace('presence:device:', '');
                 
-                // Get device status
-                const statusResponse = await fetch(`/admin/debug/redis?key=${encodeURIComponent(key)}`);
-                const statusData = await statusResponse.json();
-                
-                // Get device metadata
-                const metaResponse = await fetch(`/admin/debug/redis?key=${encodeURIComponent(`device:${deviceId}:meta`)}`);
-                const metaData = await metaResponse.json();
-                
-                // Get device history
-                const historyResponse = await fetch('/admin/debug/redis', {
+                // Get presence data (this is a hash with channel, source, mode, subscribers, ttl)
+                const presenceResponse = await fetch('/admin/debug/redis', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        key: `device:${deviceId}:history`,
-                        value: '0 9', // Get last 10 entries
-                        command: 'lrange'
+                        key: key,
+                        value: '',
+                        command: 'hgetall'
                     })
                 });
                 
-                const historyData = await historyResponse.json();
+                const presenceData = await presenceResponse.json();
                 
-                let deviceInfo = {
+                // Get TTL for the presence key
+                const ttlResponse = await fetch('/admin/debug/redis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        key: key,
+                        value: '',
+                        command: 'ttl'
+                    })
+                });
+                
+                const ttlData = await ttlResponse.json();
+                
+                // Build device info from presence data
+                let deviceInfo: any = {
                     id: deviceId,
-                    status: statusData.exists ? statusData.value : 'unknown'
+                    status: 'online' // If presence key exists, device is online
                 };
                 
-                // Add metadata if available
-                if (metaData.exists && metaData.value) {
-                    try {
-                        const meta = JSON.parse(metaData.value);
-                        deviceInfo = { ...deviceInfo, ...meta };
-                    } catch (e) {
-                        console.error(`Error parsing metadata for device ${deviceId}:`, e);
-                    }
+                // Parse presence hash data if available
+                if (presenceData.result && typeof presenceData.result === 'object') {
+                    deviceInfo.channel = presenceData.result.channel || '';
+                    deviceInfo.source = presenceData.result.source || '';
+                    deviceInfo.mode = presenceData.result.mode || '';
+                    deviceInfo.subscribers = parseInt(presenceData.result.subscribers || '0', 10);
                 }
                 
-                // Add history if available
-                if (historyData.result && Array.isArray(historyData.result)) {
-                    deviceInfo.history = historyData.result;
+                // Add TTL if available
+                if (ttlData.result !== undefined) {
+                    deviceInfo.ttl = ttlData.result;
+                }
+                
+                // Try to get device metadata (optional, may not exist)
+                try {
+                    const metaResponse = await fetch(`/admin/debug/redis?key=${encodeURIComponent(`device:${deviceId}:meta`)}`);
+                    const metaData = await metaResponse.json();
+                    
+                    if (metaData.exists && metaData.value) {
+                        try {
+                            const meta = JSON.parse(metaData.value);
+                            deviceInfo = { ...deviceInfo, ...meta };
+                        } catch (e) {
+                            // Ignore parse errors for metadata
+                        }
+                    }
+                } catch (e) {
+                    // Ignore errors when fetching metadata
                 }
                 
                 devices.push(deviceInfo);
@@ -564,6 +589,41 @@
                             </div>
                             
                             <div class="mt-2 text-sm text-muted-foreground grid grid-cols-2 gap-2">
+                                {#if device.channel}
+                                    <div>
+                                        <span class="font-medium">Channel:</span> 
+                                        {device.channel}
+                                    </div>
+                                {/if}
+                                
+                                {#if device.source}
+                                    <div>
+                                        <span class="font-medium">Source:</span> 
+                                        {device.source}
+                                    </div>
+                                {/if}
+                                
+                                {#if device.mode}
+                                    <div>
+                                        <span class="font-medium">Mode:</span> 
+                                        {device.mode}
+                                    </div>
+                                {/if}
+                                
+                                {#if device.subscribers !== undefined}
+                                    <div>
+                                        <span class="font-medium">Subscribers:</span> 
+                                        {device.subscribers}
+                                    </div>
+                                {/if}
+                                
+                                {#if device.ttl !== undefined}
+                                    <div>
+                                        <span class="font-medium">TTL:</span> 
+                                        {device.ttl > 0 ? `${device.ttl}s` : 'Expired'}
+                                    </div>
+                                {/if}
+                                
                                 {#if device.first_connected}
                                     <div>
                                         <span class="font-medium">First connected:</span> 

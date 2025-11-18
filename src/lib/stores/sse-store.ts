@@ -348,6 +348,13 @@ function createSSEStore() {
                 'device:profileUpdate',    // Device profile update
                 'bundle:waveStatus',       // Bundle wave status
                 'bundle:status',           // Bundle status
+                'terminal',                // Terminal responses (connect, input, resize, etc.)
+                'terminal:output',         // Terminal output from device
+                'terminal:error',          // Terminal errors
+                'rdp',                     // RDP responses (start, stop, mouse, keyboard)
+                'rdp:error',               // RDP errors
+                'whatsapp',                // WhatsApp messages (QR codes, connection status, etc.)
+                'room',                    // Room messages (create, join, leave, list, etc.)
             ];
             
             customEventTypes.forEach(eventType => {
@@ -356,7 +363,7 @@ function createSSEStore() {
                     processSSEMessage(event);
                 });
             });
-            console.log(`[SSE] ✅ Added event listeners for ${customEventTypes.length} custom event types`);
+            console.log(`[SSE] ✅ Added event listeners for ${customEventTypes.length} custom event types:`, customEventTypes);
 
             eventSource.onerror = (event) => {
                 console.error('[SSE] Connection error:', event);
@@ -635,6 +642,45 @@ function createSSEStore() {
         on,
         clearMessages,
         sendRequest,
+        /**
+         * Send a message without waiting for a response (fire-and-forget)
+         * Useful for WebRTC signaling messages that don't need responses
+         */
+        sendMessageWithoutResponse: (partialMsg: { type: string; scope: string; payload: Record<string, any>; requestId?: string }) => {
+            if (!browser) return Promise.resolve();
+            
+            const getConnectionId = (): string | null => {
+                let id: string | null = null;
+                const unsub = subscribe(state => { id = state.connectionId; });
+                unsub();
+                return id;
+            };
+            
+            const connectionId = getConnectionId();
+            const requestId = partialMsg.requestId || generateRequestId('');
+            
+            const message = {
+                ...partialMsg,
+                timestamp: new Date().toISOString(),
+                requestId,
+                senderConnectionId: connectionId || ''
+            };
+            
+            // Send via POST but don't wait for SSE response
+            return fetch('/api/sse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(message),
+                credentials: 'include'
+            }).then(response => {
+                if (!response.ok) {
+                    return response.json().then(errorData => {
+                        throw new Error(`SSE message failed: ${errorData.error || response.statusText}`);
+                    });
+                }
+                return response.json(); // Return the HTTP response, don't wait for SSE event
+            });
+        },
         resetForNewUser,
         setAuthEnabled,
         destroy: registerSSEAuthListener((enabled) => {

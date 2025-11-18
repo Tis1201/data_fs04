@@ -1,12 +1,14 @@
 import type { InMessage } from "../interfaces/message";
 import { webrtcHandler } from '../../handlers/WebRTCHandler';
 import { terminalHandler } from '../../handlers/TerminalHandler';
+import { rdpHandler } from '../../handlers/RDPHandler';
 // import { ChatHandler } from '../handlers/chatHandler';
 // import { WebhookHandler } from '../handlers/webhookHandler';
 import { messageHandler } from '../handlers/messageHandler';
 import { whatsappHandler } from "../handlers/whatsappHandler";
 import { deviceHandler } from "../handlers/deviceHandler";
 import { handleDeviceConnection } from "../handlers/device/connectionHandler";
+import { roomHandler } from "../handlers/roomHandler";
 import { AuditLogger } from "./auditLogger";
 
 export interface MessageDispatcher {
@@ -32,11 +34,21 @@ export const MessageDispatcher: MessageDispatcher = {
       console.log(`[Dispatcher] Routing webrtc message:`, { type, payload: message.payload });
       try {
         await webrtcHandler.handle(message);
+        console.log(`[Dispatcher] WebRTC handler completed successfully`);
       } catch (error) {
         console.error(`[Dispatcher] Error in webrtcHandler.handle:`, error);
         console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
       }
       return;
+    }
+    
+    // Debug: Log if WebRTC message was not caught
+    if (type === 'device' && message.payload?.type?.startsWith('webrtc:')) {
+      console.log(`[Dispatcher] WARNING: WebRTC message not caught by handler!`, {
+        type,
+        payloadType: message.payload?.type,
+        supportsResult: webrtcHandler.supports(type, message)
+      });
     }
 
     if (type === 'terminal') {
@@ -44,6 +56,16 @@ export const MessageDispatcher: MessageDispatcher = {
         await terminalHandler.handle(message);
       } catch (error) {
         console.error(`[Dispatcher] Error in terminalHandler.handle:`, error);
+        console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+      }
+      return;
+    }
+
+    if (type === 'rdp') {
+      try {
+        await rdpHandler.handle(message);
+      } catch (error) {
+        console.error(`[Dispatcher] Error in rdpHandler.handle:`, error);
         console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
       }
       return;
@@ -59,6 +81,16 @@ export const MessageDispatcher: MessageDispatcher = {
 
     if ( type === 'whatsapp') {
       return whatsappHandler.handle(message);
+    }
+
+    if (type === 'room') {
+      try {
+        await roomHandler.handle(message);
+      } catch (error) {
+        console.error(`[Dispatcher] Error in roomHandler.handle:`, error);
+        console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+      }
+      return;
     }
 
     if (type === 'device:connection') {

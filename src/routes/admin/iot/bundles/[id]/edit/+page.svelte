@@ -199,22 +199,6 @@
                             </FormField>
                             
                             <FormField 
-                                id="version" 
-                                label="Version"
-                                error={err($errors.version)}
-                            >
-                                <Input
-                                    id="version"
-                                    name="version"
-                                    placeholder="Enter version"
-                                    bind:value={$form.version}
-                                    disabled={$submitting}
-                                />
-                            </FormField>
-                        </FormRow>
-
-                        <FormRow columns={3}>
-                            <FormField 
                                 id="waveSize" 
                                 label="Wave Size"
                                 error={err($errors.waveSize)}
@@ -229,6 +213,9 @@
                                     disabled={$submitting}
                                 />
                             </FormField>
+                        </FormRow>
+
+                        <FormRow columns={3}>
                             <FormField id="scheduledAt" label="Scheduled Date" error={err($errors.scheduledAt)}>
                                 <EnhancedDatePicker
                                     id="scheduledAt"
@@ -247,6 +234,34 @@
                                     bind:value={(($form).scheduledTime)}
                                     disabled={$submitting}
                                 />
+                            </FormField>
+                            <FormField id="activePeriodDays" label="Active Period (Days)" error={err($errors.activePeriodDays)}>
+                                <div class="space-y-2">
+                                    <Input
+                                        id="activePeriodDays"
+                                        name="activePeriodDays"
+                                        type="number"
+                                        bind:value={$form.activePeriodDays}
+                                        placeholder="1"
+                                        min="1"
+                                        max="30"
+                                        disabled={$submitting}
+                                        aria-invalid={$errors.activePeriodDays ? 'true' : undefined}
+                                        on:input={(e) => {
+                                            if ($submitting) return;
+                                            const val = Number(e.currentTarget.value);
+                                            if (val > 30) {
+                                                $form.activePeriodDays = 30;
+                                            } else if (val < 1 && val !== 0) {
+                                                $form.activePeriodDays = 1;
+                                            }
+                                        }}
+                                    />
+                                    <p class="text-xs text-muted-foreground">
+                                        How long devices can automatically receive this bundle after it starts (1-30 days). 
+                                        Default: 1 day. Late device responses will be accepted during this period.
+                                    </p>
+                                </div>
                             </FormField>
                         </FormRow>
 

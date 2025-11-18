@@ -1,49 +1,52 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/stores';
-	import { socketStore } from '$lib/stores/websocket-store';
-	import { webRTCStore } from '$lib/stores/webrtc-store';
-	import { deviceStore } from "$lib/stores/device-store";
-	import { Button } from '$lib/components/ui/button';
-	import { Badge } from '$lib/components/ui/badge';
-	import { Loader2, Monitor, ArrowLeft } from 'lucide-svelte';
-	import { WebRTCClient } from '$lib/webrtc/WebRTCClient';
 	import { browser } from "$app/environment";
-	import type { WebRTCMessage } from "$lib/stores/webrtc-store";
-	import PageContainer from "$lib/components/ui_components_sveltekit/layout/PageContainer.svelte";
-	import PageHeader from "$lib/components/ui_components_sveltekit/layout/PageHeader.svelte";
-	import PageContent from "$lib/components/ui_components_sveltekit/layout/PageContent.svelte";
+	import { page } from "$app/stores";
+	import { onDestroy, onMount } from "svelte";
+	import { goto } from "$app/navigation";
+	import { ArrowLeft } from "lucide-svelte";
+	import { Button } from "$lib/components/ui/button";
+	import { WebRTCClient } from '$lib/webrtc/WebRTCClient';
+	import { webRTCStore } from "$lib/stores/webrtc-store";
+	import { deviceStore } from "$lib/stores/device-store";
+	import { sseStore } from "$lib/stores/sse-store";
     import { AdminPageLayout, AdminCard } from "$lib/components/admin";
     import RDPVideo from "$lib/webrtc/RDPVideo.svelte";
 
-	// Get device ID from route params
+	/****************************************************************************
+	 * 
+	 * Variables 
+	 * 
+	 ****************************************************************************/
+	// Get device ID from URL
 	const deviceId = $page.params.id;
 
-	// Page breadcrumbs
+	// State variables
+	let isConnecting = false;
+	let connecting = false;
+	let connected = false;
+	let currentVideoStreamId: string | null = null;
+	let isVideoPaused = true;
+
+	// WebRTC client
+	let webrtcClient: WebRTCClient | undefined;
+	
+    // Video rendered by shared component
+
+	// Define breadcrumbs for this page
 	const pageCrumbs: [string, string][] = [
 		["Home", "/user"],
+		["IoT", "/user/iot"],
 		["Devices", "/user/iot/devices"],
 		["Device", `/user/iot/devices/${deviceId}`],
 		["RDP", ""]
 	];
-	
-	// WebRTC client
-	let webrtcClient: WebRTCClient;
-	
-    // Video rendered by shared component
-	
-	// Connection state
-	let isConnecting = false;
-	let connecting = false;
-	let connected = false;
-	let isVideoPaused = true;
-	let currentVideoStreamId: string | null = null;
-	
+
 	// Track resources for cleanup
-    let pingInterval: ReturnType<typeof setInterval> | null = null;
+	let pingInterval: ReturnType<typeof setInterval> | null = null;
+	let unsubscribeWebRTC: () => void;
 	let unsubscribeDevice: () => void;
-	let previousWebRTCMessage: WebRTCMessage | null = null;
-	
+	let previousWebRTCMessage: any = null;
+
 	// Video stream handling - get from WebRTC store
 	let videoStream: MediaStream | null = $webRTCStore.videoStream;
 	let playAttemptInProgress = false;
@@ -73,8 +76,11 @@
 		webrtcClient = new WebRTCClient(deviceId as string);
 		console.log('[RDP] New WebRTC client created');
 		
-		// Note: Video track handling is now done automatically by WebRTCClient
-		// which updates the WebRTC store, and our reactive statement will pick it up
+		// Video track handling is now done automatically by WebRTC client
+		// The WebRTC store will be updated with the video stream
+		
+		// Track handler is no longer needed - WebRTC client handles video streams automatically
+		// The video stream will be available in $webRTCStore.videoStream
 		
 		// Set up data channel open callback
 		webrtcClient.setDataChannelOpenCallback((dataChannel) => {
@@ -86,87 +92,135 @@
 				dataChannelStatus: 'open'
 			}));
 			
-			// Request video stream after data channel is open
+			// Auto-request RDP when data channel opens
 			setTimeout(() => {
 				requestRDP();
-			}, 1000); // Wait a bit for connection to stabilize
+			}, 1000);
 		});
+	}
+
+	// Connection Management Functions
+	function connectToDevice() {
+		if (!webrtcClient) {
+			console.error('WebRTC client not initialized');
+			return;
+		}
 		
-		// Set up connection state callback
-		// Note: Connection state is now handled by reactive statement above
+		console.log('Connecting to device:', deviceId);
+		isConnecting = true;
 		
+		// Start the WebRTC connection
+		webrtcClient?.connect();
+		
+		// Set up ping interval
+		pingInterval = setInterval(() => {
+			if (webrtcClient && $webRTCStore.connectionStatus === 'connected') {
+				webrtcClient.sendPing();
+			}
+		}, 30000); // Ping every 30 seconds
+		
+		// Subscribe to WebRTC store updates
+		unsubscribeWebRTC = webRTCStore.subscribe((store) => {
+			console.log('WebRTC store update:', store);
+		});
+
 		// Subscribe to device store for WebRTC signaling messages
 		unsubscribeDevice = deviceStore.subscribe(async (state) => {
 			// Process new WebRTC messages
 			if (state.latestWebRTCMessage && 
 			    state.latestWebRTCMessage !== previousWebRTCMessage) {
 				previousWebRTCMessage = state.latestWebRTCMessage;
-				await webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage);
+				console.log('Processing WebRTC message from device store:', state.latestWebRTCMessage);
+				await webrtcClient?.handleWebRTCMessage(state.latestWebRTCMessage);
 			}
 		});
-		
-		// Start ping interval to keep connection alive
-		// pingInterval = setInterval(() => {
-		// 	if ($webRTCStore.dataChannelStatus === 'open') {
-		// 		webrtcClient.sendPing();
-		// 	}
-		// }, 10000); // Send ping every 10 seconds
 	}
-	
-	// Connect to device
-	async function connectToDevice() {
-		console.log("Connecting to device...");
-		if (!webrtcClient) return;
-		
-		isConnecting = true;
-		
-		try {
-			// Connect to device
-			webrtcClient.connect();
-		} catch (error) {
-			console.error('Error connecting to device:', error);
-			connecting = false;
-		}
-	}
-	
-	// Request RDP stream
+
+	// Request RDP stream via SSE (control message)
 	function requestRDP() {
-		if (!webrtcClient) return;
-
-		// Check if data channel is open
-		if ($webRTCStore.dataChannelStatus !== 'open') {
-			console.warn('Data channel not open, cannot request video stream');
-			return;
+		console.log('[RDP] Requesting RDP stream via SSE');
+		
+		// Ensure SSE connection is established
+		if (!$sseStore.isConnected) {
+			console.log('[RDP] SSE not connected, connecting...');
+			sseStore.connect('/api/sse', { withCredentials: true });
 		}
 
-		// Request device to start RDP video over the data channel
-		webrtcClient.sendRDPStart({
-			frameRate: 60,
-			quality: 80,
-			captureMode: 'screen'
+		// Send RDP start request via SSE
+		sseStore.sendRequest({
+			type: 'rdp',
+			scope: 'user:self',
+			payload: {
+				type: 'rdp:start',
+				deviceId: deviceId,
+				options: {
+					frameRate: 60,
+					quality: 80,
+					captureMode: 'screen'
+				}
+			}
+		}).then(() => {
+			console.log('[RDP] RDP start request sent via SSE');
+		}).catch(error => {
+			console.error('[RDP] Failed to send RDP start request:', error);
 		});
-		// RDP start request sent
-
-        // If no video appears after a timeout, try requesting again
-        setTimeout(() => {
-            if (!connected && !videoStream) {
-                console.log('No video received, requesting again...');
-                webrtcClient.sendRDPStart({ frameRate: 60, quality: 80, captureMode: 'screen' });
-            }
-        }, 5000);
+		
+		// Also set up a fallback retry in case the first request fails
+		setTimeout(() => {
+			if (connected && !$webRTCStore.videoStream) {
+				console.log('[RDP] Retrying RDP start request...');
+				sseStore.sendRequest({
+					type: 'rdp',
+					scope: 'user:self',
+					payload: {
+						type: 'rdp:start',
+						deviceId: deviceId,
+						options: {
+							frameRate: 60,
+							quality: 80,
+							captureMode: 'test'
+						}
+					}
+				}).catch(error => {
+					console.error('[RDP] Failed to retry RDP start request:', error);
+				});
+			}
+		}, 3000);
 	}
+
+    // Monitor for video stream availability
+    $: {
+        // WebRTC store updated
+        if (browser) {
+            setTimeout(() => {
+                if ($webRTCStore.connectionStatus !== 'connected' && !$webRTCStore.videoStream) {
+                    console.log('No video received, requesting again via SSE...');
+                    // Use SSE instead of WebRTC data channel (per migration plan)
+                    sseStore.sendRequest({
+                        type: 'rdp',
+                        scope: 'user:self',
+                        payload: {
+                            type: 'rdp:start',
+                            deviceId: deviceId,
+                            options: {
+                                frameRate: 60,
+                                quality: 80,
+                                captureMode: 'test'
+                            }
+                        }
+                    }).catch(error => {
+                        console.error('[RDP] Failed to retry RDP start request:', error);
+                    });
+                }
+            }, 5000);
+        }
+    }
 	
 	// Disconnect from device
 	function disconnectFromDevice() {
 		if (!webrtcClient) return;
 		
-		// Clean up video stream
-		if (videoStream) {
-			videoStream.getTracks().forEach(track => {
-				track.stop();
-			});
-			videoStream = null;
-		}
+		// Video stream cleanup is handled by WebRTC store
 		
         // Video element cleanup handled by shared component
 		
@@ -174,34 +228,31 @@
 		currentVideoStreamId = null;
 		isVideoPaused = true;
 		
-		// Clean up WebRTC client
+		// Close WebRTC connection
 		webrtcClient.cleanup();
 		
-		// Update state
+		// Reset connection state
 		isConnecting = false;
 		
+		console.log('Disconnected from device');
+	}
+
+	// Reset connection state
+	function resetConnection() {
 		// Update WebRTC store
 		webRTCStore.update(state => ({
 			...state,
 			connectionStatus: 'disconnected',
-			dataChannelStatus: 'closed'
+			dataChannelStatus: 'closed',
+			peerConnection: null,
+			dataChannel: null,
+			videoStream: null,  // Clear the video stream to prevent reuse
+			latestMessage: null,
+			error: null
 		}));
 	}
-	
-	// Handle WebRTC connection state changes
-    $: {
-        if ($webRTCStore.connectionStatus === 'connected') {
-            isConnecting = false;
-        } else if ($webRTCStore.connectionStatus === 'error') {
-            isConnecting = false;
-        }
-        // For 'disconnected' state, keep isConnecting as-is to show the connecting indicator
-    }
-	
+
 	// Note: Connection state is now handled by reactive statement above
-	
-    // Monitor video play/pause state handled by component
-    function updateVideoState() {}
 	
     // Stream assignment handled by shared component
 	
@@ -223,30 +274,59 @@
 	}
 
 	function handleMouseClick(event: MouseEvent) {
-		if (!webrtcClient || !connected) return;
+		if (!connected) return;
 		
 		const { x, y } = getVideoCoordinates(event);
-		// Mouse click sent
+		console.log('[RDP] Sending mouse click via SSE:', { button: 'left', x, y });
 		
-		// Send mouse click to device
-		webrtcClient.sendMouseClick('left', x, y);
+		// Send mouse click to device via SSE
+		sseStore.sendRequest({
+			type: 'rdp',
+			scope: 'user:self',
+			payload: {
+				type: 'rdp:mouse',
+				deviceId: deviceId,
+				mouse: {
+					action: 'click',
+					button: 'left',
+					x: x,
+					y: y
+				}
+			}
+		}).catch(error => {
+			console.error('[RDP] Failed to send mouse click:', error);
+		});
 		
-		// Focus the video element to capture keyboard events
         (event.currentTarget as HTMLVideoElement)?.focus();
 	}
 
 	function handleRightClick(event: MouseEvent) {
-		if (!webrtcClient || !connected) return;
+		if (!connected) return;
 		
 		const { x, y } = getVideoCoordinates(event);
-		// Right click sent
+		console.log('[RDP] Sending right click via SSE:', { button: 'right', x, y });
 		
-		// Send right click to device
-		webrtcClient.sendMouseClick('right', x, y);
+		// Send right click to device via SSE
+		sseStore.sendRequest({
+			type: 'rdp',
+			scope: 'user:self',
+			payload: {
+				type: 'rdp:mouse',
+				deviceId: deviceId,
+				mouse: {
+					action: 'click',
+					button: 'right',
+					x: x,
+					y: y
+				}
+			}
+		}).catch(error => {
+			console.error('[RDP] Failed to send right click:', error);
+		});
 	}
 
 	function handleMouseMove(event: MouseEvent) {
-		if (!webrtcClient || !connected) return;
+		if (!connected) return;
 		
 		// Throttle mouse move events to avoid flooding
 		if (Date.now() - lastMouseMoveTime < 50) return; // 20 FPS max
@@ -254,14 +334,27 @@
 		
 		const { x, y } = getVideoCoordinates(event);
 		
-		// Send mouse move to device
-		webrtcClient.sendMouseMove(x, y);
+		// Send mouse move to device via SSE (no requestId needed for frequent events)
+		sseStore.sendRequest({
+			type: 'rdp',
+			scope: 'user:self',
+			payload: {
+				type: 'rdp:mouse',
+				deviceId: deviceId,
+				mouse: {
+					action: 'move',
+					x: x,
+					y: y
+				}
+			}
+		}).catch(error => {
+			// Silently fail for mouse moves to avoid console spam
+			console.debug('[RDP] Failed to send mouse move:', error);
+		});
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (!webrtcClient || !connected) return;
-		
-		// Key down sent
+		if (!connected) return;
 		
 		// Prevent default browser behavior for most keys
 		if (!['F12', 'F5'].includes(event.key)) {
@@ -275,8 +368,24 @@
 		if (event.shiftKey) modifiers.push('shift');
 		if (event.metaKey) modifiers.push('meta');
 		
-		// Send key press to device
-		webrtcClient.sendKeyPress(event.key, modifiers);
+		console.log('[RDP] Sending key press via SSE:', { key: event.key, modifiers });
+		
+		// Send key press to device via SSE
+		sseStore.sendRequest({
+			type: 'rdp',
+			scope: 'user:self',
+			payload: {
+				type: 'rdp:keyboard',
+				deviceId: deviceId,
+				keyboard: {
+					key: event.key,
+					modifiers: modifiers,
+					action: 'keydown'
+				}
+			}
+		}).catch(error => {
+			console.error('[RDP] Failed to send key press:', error);
+		});
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -289,28 +398,78 @@
 	}
 
 	function handleMouseWheel(event: WheelEvent) {
-		if (!webrtcClient || !connected) return;
+		if (!connected) return;
 		
 		event.preventDefault();
 		
 		const direction = event.deltaY > 0 ? 'down' : 'up';
 		const amount = Math.abs(Math.round(event.deltaY / 10)); // Normalize scroll amount
 		
-		// Mouse wheel sent
+		console.log('[RDP] Sending mouse scroll via SSE:', { direction, amount });
 		
-		// Send scroll to device
-		webrtcClient.sendMouseScroll(direction, amount);
+		// Send scroll to device via SSE
+		sseStore.sendRequest({
+			type: 'rdp',
+			scope: 'user:self',
+			payload: {
+				type: 'rdp:mouse',
+				deviceId: deviceId,
+				mouse: {
+					action: 'scroll',
+					direction: direction,
+					amount: amount
+				}
+			}
+		}).catch(error => {
+			console.error('[RDP] Failed to send mouse scroll:', error);
+		});
 	}
 
 	// Set up interval and initialize on mount
-	let videoStateInterval: ReturnType<typeof setInterval> | null = null;
 	onMount(() => {
 		if (browser) {
-			// Initialize WebRTC client first
+			// Ensure SSE connection is established for RDP control/input
+			if (!$sseStore.isConnected) {
+				console.log('[RDP] Connecting to SSE...');
+				sseStore.connect('/api/sse', { withCredentials: true });
+			}
+
+			// Subscribe to device updates so we can receive RDP messages
+			let lastSubscribedConnectionId: string | null = null;
+			const subscribeToDevice = () => {
+				const connId = sseStore.connectionId;
+				if (!connId || connId === lastSubscribedConnectionId) {
+					return;
+				}
+				console.log('[RDP] Subscribing to device channel:', { deviceId, connId });
+				fetch(`/api/sse/subscribe/device/${deviceId}`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					credentials: 'include',
+					body: JSON.stringify({ connectionId: connId })
+				}).then(() => {
+					lastSubscribedConnectionId = connId;
+					console.log('[RDP] Successfully subscribed to device channel');
+				}).catch((err) => {
+					console.warn('[RDP] Failed to subscribe to device channel:', err);
+				});
+			};
+
+			// Subscribe immediately if connectionId is available
+			if (sseStore.connectionId) {
+				subscribeToDevice();
+			}
+
+			// Also subscribe when connection is established
+			sseStore.on('connected', (msg: any) => {
+				const connId = msg?.data?.connectionId || sseStore.connectionId;
+				if (connId && connId !== lastSubscribedConnectionId) {
+					subscribeToDevice();
+				}
+			});
+
+			// Initialize WebRTC client for video streaming
 			initWebRTC();
-			
-			// Set up video state monitoring
-			videoStateInterval = setInterval(updateVideoState, 1000);
 			
 			// Automatically connect to device when page loads
 			setTimeout(() => {
@@ -330,45 +489,62 @@
 			pingInterval = null;
 		}
 		
-		if (videoStateInterval) {
-			clearInterval(videoStateInterval);
-			videoStateInterval = null;
+		// Send RDP stop command via SSE
+		if (connected) {
+			try {
+				sseStore.sendRequest({
+					type: 'rdp',
+					scope: 'user:self',
+					payload: {
+						type: 'rdp:stop',
+						deviceId: deviceId
+					}
+				}).catch(error => {
+					console.error('[RDP] Failed to send stop command:', error);
+				});
+			} catch (error) {
+				console.warn('[RDP] Error sending stop command:', error);
+			}
+		}
+
+		// Clean up WebRTC resources
+		if (webrtcClient) {
+			
+			// Video stream cleanup is handled by WebRTC store
+			
+            // Video element cleanup handled by shared component
+			
+			// Close WebRTC connection
+			try {
+				webrtcClient.cleanup();
+			} catch (error) {
+				console.log('WebRTC cleanup error:', error);
+			}
 		}
 		
 		// Unsubscribe from stores
-		if (unsubscribeDevice) {
-			unsubscribeDevice();
+		if (unsubscribeWebRTC) {
+			try {
+				unsubscribeWebRTC();
+			} catch (error) {
+				console.log('Error unsubscribing from WebRTC store:', error);
+			}
 		}
-		
-        // No WebRTC store unsubscribe needed (callbacks used)
-		
-		// Clean up video stream
-		if (videoStream) {
-			videoStream.getTracks().forEach(track => {
-				track.stop();
-			});
-			videoStream = null;
-		}
-		
 
-		// Video element cleanup handled by shared component
-		
-		// Reset video state
-		currentVideoStreamId = null;
-		isVideoPaused = true;
-		
-		// Clean up WebRTC client
-		if (webrtcClient) {
-			webrtcClient.cleanup();
+		if (unsubscribeDevice) {
+			try {
+				unsubscribeDevice();
+			} catch (error) {
+				console.log('Error unsubscribing from device store:', error);
+			}
 		}
 		
-		// Reset WebRTC store state
-		webRTCStore.update(state => ({
-			...state,
-			connectionStatus: 'disconnected',
-			dataChannelStatus: 'closed',
-			videoStream: null  // Clear the video stream to prevent reuse
-		}));
+		// Reset connection state
+		try {
+			resetConnection();
+		} catch (error) {
+			console.log('Error resetting connection:', error);
+		}
 		
 		// RDP component destroyed, WebRTC resources cleaned up
 	});
@@ -381,9 +557,6 @@
 <AdminPageLayout 
 	title="Device Remote Desktop" 
 	crumbs={pageCrumbs}
-	actionLabel="Back to Device"
-	actionIcon={ArrowLeft}
-	actionHref={"/user/iot/devices/" + deviceId}
 >
 	<svelte:fragment slot="header">
 		<div class="flex gap-2 items-center">
@@ -398,10 +571,6 @@
 					<div class="h-3 w-3 bg-green-500 rounded-full"></div>
 					Connected
 				</div>
-				<!-- Only show disconnect as an option -->
-				<Button on:click={disconnectFromDevice} variant="outline" size="sm">
-					Disconnect
-				</Button>
 			{:else}
 				<div class="flex items-center gap-2 text-sm text-red-600">
 					<div class="h-3 w-3 bg-red-500 rounded-full"></div>
@@ -411,12 +580,11 @@
 		</div>
 	</svelte:fragment>
 	
-	<AdminCard
+    <AdminCard
 		title="Remote Desktop Connection"
 		description="View and interact with the device's screen through this remote desktop interface."
-		icon={Monitor}
 	>
-                <div class="flex flex-col items-center">
+                <div class="flex flex-col items-center space-y-4 w-full">
                     <RDPVideo
                         videoStream={videoStream}
                         connected={connected}

@@ -5,8 +5,7 @@ import { building } from "$app/environment";
 import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
 import { authMiddleware } from "$lib/server/auth/middleware";
 import { pushpinMiddleware } from "$lib/server/pushpin/middleware";
-import { websocketMiddleware } from "$lib/server/websocket/middleware";
-import { startupWebsocketServer, onHttpServerUpgrade } from "$lib/server/websocket/WebSocketUtils";
+// WebSocket middleware removed - all communication now uses SSE
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
 import prisma from "$lib/server/prisma";
@@ -104,8 +103,8 @@ const MAX_BODY_SIZE = getMaxBodySize();
 // Combine middleware functions
 export const handle: Handle = async ({ event, resolve }) => {
     // Custom body size check for large payloads (like screenshots)
-    // Skip check if BODY_SIZE_LIMIT=0 (no limit) or for WebSocket upgrade requests
-    if (MAX_BODY_SIZE > 0 && !event.request.headers.get('upgrade')) {
+    // Skip check if BODY_SIZE_LIMIT=0 (no limit)
+    if (MAX_BODY_SIZE > 0) {
         const contentLength = event.request.headers.get('content-length');
         if (contentLength) {
             const length = parseInt(contentLength, 10);
@@ -147,28 +146,11 @@ export const handle: Handle = async ({ event, resolve }) => {
             if (redis && enablePushpin) {
                 return pushpinMiddleware({
                     event: authEvent,
-                    resolve: async (pushpinEvent) => {
-                        // After pushpin middleware, apply WebSocket middleware
-                        return websocketMiddleware({
-                            event: pushpinEvent,
-                            resolve
-                        });
-                    }
+                    resolve
                 });
             }
-            // If Pushpin disabled or no Redis, apply WebSocket middleware directly after auth
-            return websocketMiddleware({
-                event: authEvent,
-                resolve
-            });
+            // If Pushpin disabled or no Redis, resolve directly (SSE is handled by routes)
+            return resolve(authEvent);
         }
     });
-
-
-
-    // Use auth middleware
-    return authMiddleware({event, resolve});
 };
-
-// Export WebSocket utilities for use in production server
-export { startupWebsocketServer, onHttpServerUpgrade };

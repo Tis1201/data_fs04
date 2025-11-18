@@ -7,9 +7,12 @@
 
 import type { InMessage, RoutingMessage } from '../messaging/interfaces/message';
 import type { Handler } from '../messaging/interfaces/handler';
-import { MessageFactory, MessageValidator, MessageRouter } from '../../types/unified';
+import { MessageFactory, SystemUser } from '../messaging/interfaces/message';
+import { MessageValidator, MessageRouter } from '../../types/unified';
 import { getLoggingManager } from '../../managers/LoggingManager';
 import { publisher } from '../messaging/core/publisher';
+import { getMessageRelay } from '../pushpin/middleware';
+import { logger } from '../logger';
 
 // ============================================================================
 // TERMINAL HANDLER CLASS
@@ -27,20 +30,17 @@ class TerminalHandlerClass implements Handler {
   }
 
   async handle(message: InMessage): Promise<void> {
-    this.logger?.logTerminal('handle', message.deviceId || 'unknown', 'Handling Terminal message', {
-      messageType: message.type,
-      payloadType: (message as any)?.payload?.type
-    });
+    const terminalMessage = message as any as InMessage & { payload: { type: string; deviceId: string; [key: string]: any } };
+    const deviceId: string = String(terminalMessage.payload?.deviceId || terminalMessage.deviceId || message.deviceId || 'unknown');
+    
+    this.logger?.logTerminal('handle', deviceId, `Handling Terminal message (type: ${message.type}, payloadType: ${terminalMessage.payload?.type})`);
 
     try {
       // Validate message
       if (!MessageValidator.validate(message)) {
-        this.logger?.logError('terminal', 'Invalid Terminal message format', { message });
+        logger.error(`[TerminalHandler] Invalid Terminal message format: ${JSON.stringify(message)}`);
         throw new Error('Invalid message format');
       }
-
-      const terminalMessage = message as any as InMessage & { payload: { type: string; deviceId: string; [key: string]: any } };
-      const deviceId = terminalMessage.payload?.deviceId || terminalMessage.deviceId || 'unknown';
 
       // Handle different Terminal actions
       switch (terminalMessage.payload?.type) {
@@ -63,13 +63,13 @@ class TerminalHandlerClass implements Handler {
           await this.handleError(terminalMessage);
           break;
         default:
-          this.logger?.logWarn('terminal', `Unknown Terminal message type: ${terminalMessage.payload?.type}`);
+          logger.warn(`[TerminalHandler] Unknown Terminal message type: ${terminalMessage.payload?.type}`);
       }
 
       this.logger?.logTerminal('handle', deviceId, 'Terminal message handled successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal message', { error, message });
-      throw error;
+      logger.error(`[TerminalHandler] Failed to handle Terminal message: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
     }
   }
 
@@ -111,7 +111,7 @@ class TerminalHandlerClass implements Handler {
       const isDeviceOnline = true; // Mock for now
 
       if (!isDeviceOnline) {
-        this.logger?.logWarn('terminal', 'Device is offline', { deviceId });
+        logger.warn(`[TerminalHandler] Device is offline: ${deviceId}`);
         await this.sendErrorResponse(deviceId, 'Device is offline', message);
         return;
       }
@@ -123,9 +123,18 @@ class TerminalHandlerClass implements Handler {
         connectionState: 'connecting'
       });
 
+      // Send success response back to UI
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'terminal:connect',
+          deviceId,
+          message: 'Terminal connection initiated'
+        });
+      }
+
       this.logger?.logTerminal('connect', deviceId, 'Terminal connect handled successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal connect', { error, deviceId });
+      logger.error(`[TerminalHandler] Failed to handle Terminal connect for device ${deviceId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -151,7 +160,7 @@ class TerminalHandlerClass implements Handler {
 
       this.logger?.logTerminal('disconnect', deviceId, 'Terminal disconnect handled successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal disconnect', { error, deviceId });
+      logger.error(`[TerminalHandler] Failed to handle Terminal disconnect for device ${deviceId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -170,9 +179,18 @@ class TerminalHandlerClass implements Handler {
         input
       });
 
+      // Send success response back to UI
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'terminal:input',
+          deviceId,
+          message: 'Terminal input sent'
+        });
+      }
+
       this.logger?.logTerminal('input', deviceId, 'Terminal input handled successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal input', { error, deviceId, input });
+      logger.error(`[TerminalHandler] Failed to handle Terminal input for device ${deviceId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -193,7 +211,7 @@ class TerminalHandlerClass implements Handler {
 
       this.logger?.logTerminal('output', deviceId, 'Terminal output handled successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal output', { error, deviceId, output });
+      logger.error(`[TerminalHandler] Failed to handle Terminal output for device ${deviceId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -214,9 +232,20 @@ class TerminalHandlerClass implements Handler {
         cols
       });
 
+      // Send success response back to UI
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'terminal:resize',
+          deviceId,
+          rows,
+          cols,
+          message: 'Terminal resized'
+        });
+      }
+
       this.logger?.logTerminal('resize', deviceId, 'Terminal resize handled successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal resize', { error, deviceId, rows, cols });
+      logger.error(`[TerminalHandler] Failed to handle Terminal resize for device ${deviceId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -225,7 +254,7 @@ class TerminalHandlerClass implements Handler {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
     const error = (message as any)?.payload?.error || 'Unknown Terminal error';
     
-    this.logger?.logError('terminal', 'Terminal error received', { error, deviceId });
+    logger.error(`[TerminalHandler] Terminal error received for device ${deviceId}: ${error}`);
 
     try {
       // Update action log
@@ -245,99 +274,140 @@ class TerminalHandlerClass implements Handler {
 
       this.logger?.logTerminal('error', deviceId, 'Terminal error handled successfully');
     } catch (err) {
-      this.logger?.logError('terminal', 'Failed to handle Terminal error', { error: err, deviceId });
+      logger.error(`[TerminalHandler] Failed to handle Terminal error for device ${deviceId}: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
   }
 
   private async forwardToDevice(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
-    const scope = MessageRouter.getScope({
-      type: 'terminal',
-      action: data.action,
-      deviceId,
-      data: {},
+    
+    // Use MessageRelay to publish to device via Pushpin
+    const messageRelay = getMessageRelay();
+    
+    if (!messageRelay) {
+      const error = 'MessageRelay not available - cannot send terminal message to device';
+      logger.error(`[TerminalHandler] ${error} (deviceId: ${deviceId}, action: ${data.action})`);
+      throw new Error(error);
+    }
+    
+    // Prepare terminal message for device
+    // Device expects messages in format: { type: 'terminal:input', data: '...', timestamp: ... }
+    const terminalMessage: any = {
+      type: data.action, // terminal:input, terminal:resize, terminal:connect, terminal:disconnect
       timestamp: Date.now()
-    } as any);
-
-    // Create a proper RoutingMessage for the publisher
-    const routingMessage = {
-      id: MessageFactory.generateId(),
-      type: 'device', // Device expects 'device' type messages, not 'terminal'
-      scope,
-      payload: {
-        ...data, // Spread data first
-        action: 'message', // Override action to 'message' after spreading
-        type: data.action, // Keep the full terminal:connect action
-        deviceId,
-      },
-      userInfo: message.userInfo,
-      protocol: message.protocol,
-      connectionId: message.connectionId,
-      requestId: message.requestId,
-      systemGenerated: false
     };
-
-    await publisher.publish(routingMessage);
+    
+    // Add specific fields based on action type
+    if (data.action === 'terminal:input') {
+      terminalMessage.data = data.input;
+    } else if (data.action === 'terminal:resize') {
+      terminalMessage.rows = data.rows;
+      terminalMessage.cols = data.cols;
+    } else if (data.action === 'terminal:connect' || data.action === 'terminal:disconnect') {
+      terminalMessage.connectionState = data.connectionState;
+    }
+    
+    // Publish to device via Pushpin
+    await messageRelay.publishToDevice(deviceId, terminalMessage);
+    
+    this.logger?.logTerminal(data.action, deviceId, `Published to device via Pushpin`, {
+      action: data.action,
+      ...(data.action === 'terminal:input' ? { inputLength: data.input?.length } : {}),
+      ...(data.action === 'terminal:resize' ? { rows: data.rows, cols: data.cols } : {})
+    });
+    
+    logger.debug(`[TerminalHandler] Published ${data.action} to device ${deviceId} via Pushpin`);
   }
 
   private async forwardToClient(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
-    const scope = MessageRouter.getScope({
-      type: 'terminal',
-      action: data.action,
-      deviceId,
-      data: {},
-      timestamp: Date.now()
-    } as any);
+    
+    // Use subscription scope so all UI connections subscribed to this device receive the message
+    const scope = `subscription:device:${deviceId}`;
 
     // Create a proper RoutingMessage for the publisher
-    const routingMessage = {
-      id: MessageFactory.generateId(),
-      type: 'device', // Device expects 'device' type messages, not 'terminal'
+    // The type field in payload will be used as the SSE event type
+    const routingMessage = MessageFactory.createSystemMessage(
+      data.action, // terminal:output, terminal:error - this becomes the SSE event type
       scope,
-      payload: {
-        action: 'message',
-        type: data.action, // Keep the full terminal:output action
+      {
+        type: data.action, // terminal:output, terminal:error
         deviceId,
-        ...data
+        ...data // Include output, error, etc.
       },
-      userInfo: message.userInfo,
-      protocol: message.protocol,
-      connectionId: message.connectionId,
-      requestId: message.requestId,
-      systemGenerated: false
-    };
+      SystemUser,
+      {
+        excludeDevices: true // Exclude device connections - terminal output should only go to UI
+      }
+    );
+    
+    // Preserve requestId if it exists
+    if (message.requestId) {
+      routingMessage.requestId = message.requestId;
+    }
+
+    this.logger?.logTerminal(data.action, deviceId, `Publishing to UI via SSE`, {
+      action: data.action,
+      scope
+    });
 
     await publisher.publish(routingMessage);
   }
 
-  private async sendErrorResponse(deviceId: string, error: string, originalMessage: InMessage): Promise<void> {
-    const scope = MessageRouter.getScope({
-      type: 'terminal',
-      action: 'error',
-      deviceId,
-      data: { error },
-      timestamp: Date.now()
-    } as any);
+  private async sendSuccessResponse(originalMessage: InMessage, data: any): Promise<void> {
+    const deviceId = data.deviceId;
+    
+    // Send response back to the original sender connection
+    const responseMessage = MessageFactory.createSystemMessage(
+      'terminal',
+      `connection:${originalMessage.connectionId}`,
+      {
+        type: data.action,
+        deviceId,
+        success: true,
+        ...data
+      },
+      SystemUser,
+      {
+        targetConnectionId: originalMessage.connectionId,
+        targetProtocol: originalMessage.protocol,
+        echoToSender: true
+      }
+    );
 
-    // Create a proper RoutingMessage for the publisher
-    const errorMessage = {
-      id: MessageFactory.generateId(),
-      type: 'device', // Device expects 'device' type messages, not 'terminal'
-      scope,
-      payload: {
-        action: 'message',
+    // Preserve requestId so UI can match response to request
+    if (originalMessage.requestId) {
+      responseMessage.requestId = originalMessage.requestId;
+    }
+
+    await publisher.publish(responseMessage);
+    this.logger?.logTerminal(data.action, deviceId, 'Sent success response to UI');
+  }
+
+  private async sendErrorResponse(deviceId: string, error: string, originalMessage: InMessage): Promise<void> {
+    // Send error response back to the original sender connection
+    const errorMessage = MessageFactory.createSystemMessage(
+      'terminal',
+      `connection:${originalMessage.connectionId}`,
+      {
         type: 'terminal:error',
         deviceId,
+        success: false,
         error
       },
-      userInfo: originalMessage.userInfo,
-      protocol: originalMessage.protocol,
-      connectionId: originalMessage.connectionId,
-      requestId: originalMessage.requestId,
-      systemGenerated: false
-    };
+      SystemUser,
+      {
+        targetConnectionId: originalMessage.connectionId,
+        targetProtocol: originalMessage.protocol,
+        echoToSender: true
+      }
+    );
+
+    // Preserve requestId so UI can match response to request
+    if (originalMessage.requestId) {
+      errorMessage.requestId = originalMessage.requestId;
+    }
 
     await publisher.publish(errorMessage);
   }

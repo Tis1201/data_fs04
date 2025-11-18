@@ -13,6 +13,7 @@ import { deviceEditSchema } from '../../../../admin/iot/devices/[id]/schema';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
+import { isDeviceOnline } from '$lib/server/device/devicePresence';
 
 
 const apiKeySchema = z.object({
@@ -87,6 +88,13 @@ export const load = restrict(
                 throw error(404, "Device not found");
             }
 
+            // Update online status from Redis (real-time presence tracking)
+            const isOnline = await isDeviceOnline(device.id);
+            const deviceWithRealTimeStatus = {
+                ...device,
+                connected: isOnline  // Override DB value with real-time Redis status
+            };
+
             const form = await superValidate(
                 {
                     id: device.id,
@@ -133,7 +141,7 @@ export const load = restrict(
 
             return {
                 form,
-                device,
+                device: deviceWithRealTimeStatus, // Use device with real-time status
                 deviceActionLogs,
                 deviceInformation // 🆕 Add this
             };

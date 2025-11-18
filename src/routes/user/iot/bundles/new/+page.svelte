@@ -342,6 +342,36 @@
                         <input type="hidden" name="scheduledAtTimezone" bind:value={$form.scheduledAtTimezone} />
                     </FormRow>
 
+                    <FormRow columns={1}>
+                        <FormField id="activePeriodDays" label="Active Period (Days)" error={$errors.activePeriodDays}>
+                            <div class="space-y-2">
+                                <Input
+                                    id="activePeriodDays"
+                                    name="activePeriodDays"
+                                    type="number"
+                                    bind:value={$form.activePeriodDays}
+                                    placeholder="1"
+                                    min="1"
+                                    max="30"
+                                    aria-invalid={$errors.activePeriodDays ? 'true' : undefined}
+                                    on:input={(e) => {
+                                        const val = Number(e.currentTarget.value);
+                                        if (val > 30) {
+                                            $form.activePeriodDays = 30;
+                                        } else if (val < 1 && val !== 0) {
+                                            $form.activePeriodDays = 1;
+                                        }
+                                    }}
+                                    {...$constraints.activePeriodDays}
+                                />
+                                <p class="text-xs text-muted-foreground">
+                                    How long devices can automatically receive this bundle after it starts (1-30 days). 
+                                    Default: 1 day. Late device responses will be accepted during this period.
+                                </p>
+                            </div>
+                        </FormField>
+                    </FormRow>
+
                     <div class="p-3 rounded-md bg-muted/50">
                         <h4 class="text-sm font-medium mb-2">Device Behavior</h4>
                         <div class="space-y-3">

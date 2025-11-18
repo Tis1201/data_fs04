@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { socketStore } from './websocket-store';
+import { sseStore } from './sse-store';
 
 export interface WebRTCMessage {
     type: WebRTCMessageType;
@@ -45,14 +45,28 @@ function createWebRTCStore() {
     const { subscribe, update } = writable<WebRTCState>(initialState);
 
     if (browser) {
-        socketStore.on('webrtc', (message: any) => {
-            console.log(`Received WebRTC message:`, message);
+        // Listen to WebRTC messages via SSE (device events)
+        sseStore.on('device', (message: any) => {
+            const payload = message.data?.payload || message.data || message.payload;
             
-            // Store only the latest message
-            update(state => ({
-                ...state,
-                latestMessage: message
-            }));
+            // Check if this is a WebRTC message
+            if (payload?.action === 'message' && payload?.type?.startsWith('webrtc:')) {
+                console.log(`[WebRTCStore] Received WebRTC message via SSE:`, payload);
+                
+                const webrtcMessage: WebRTCMessage = {
+                    type: payload.type as any,
+                    sdp: payload.sdp,
+                    candidate: payload.candidate,
+                    data: payload,
+                    timestamp: payload.timestamp || new Date().toISOString()
+                };
+                
+                // Store only the latest message
+                update(state => ({
+                    ...state,
+                    latestMessage: webrtcMessage
+                }));
+            }
         });
     }
 

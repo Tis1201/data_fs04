@@ -126,8 +126,17 @@ export class WhatsAppAccountClient{
         }
     }
 
-    private handle_error(error: { type: string; error: string }) {
-        logger.error(`Error in WhatsApp session ${this.id}: ${error.type} - ${error.error}`);
+    private handle_error(error: Error | { type: string; error: string }) {
+        // Handle both Error objects and error objects with type/error properties
+        const errorType = error instanceof Error ? 'connection_error' : error.type;
+        const errorMessage = error instanceof Error ? error.message : error.error;
+        
+        logger.error(`Error in WhatsApp session ${this.id}: ${errorType} - ${errorMessage}`);
+        
+        // Update connection state to disconnected
+        this.updateConnectionState('disconnected', errorMessage).catch(err => {
+            logger.error(`[${this.id}] Failed to update connection state: ${err}`);
+        });
         
         const routingMessage = MessageFactory.createSystemMessage(
             'whatsapp',
@@ -136,8 +145,8 @@ export class WhatsAppAccountClient{
                 action: 'error',
                 content: {
                     clientId: this.id,
-                    type: error.type,
-                    message: error.error
+                    type: errorType,
+                    message: errorMessage
                 }
             },
             SystemUser,

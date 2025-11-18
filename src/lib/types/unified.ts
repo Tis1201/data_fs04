@@ -380,15 +380,71 @@ export class MessageValidator {
   }
 
   private static validateTerminal(message: any): message is TerminalMessage {
-    return message.action && 
-           ['connect', 'disconnect', 'input', 'output', 'resize', 'error'].includes(message.action) &&
-           message.data && typeof message.data === 'object';
+    // Support both old format (message.action) and new format (payload.type with terminal: prefix)
+    let action: string | undefined;
+    
+    if (message.action) {
+      // Old format: message.action = 'connect', 'disconnect', etc.
+      action = message.action;
+    } else if (message.payload?.type) {
+      // New format: payload.type = 'terminal:connect', 'terminal:input', etc.
+      const payloadType = message.payload.type;
+      if (payloadType.startsWith('terminal:')) {
+        action = payloadType.replace('terminal:', '');
+      } else {
+        action = payloadType;
+      }
+    }
+    
+    if (!action) {
+      return false;
+    }
+    
+    const validActions = ['connect', 'disconnect', 'input', 'output', 'resize', 'error'];
+    if (!validActions.includes(action)) {
+      return false;
+    }
+    
+    // For new format, payload itself is the data object
+    // For old format, message.data should exist
+    const hasData = message.data && typeof message.data === 'object' ||
+                    message.payload && typeof message.payload === 'object';
+    
+    return hasData;
   }
 
   private static validateRDP(message: any): message is RDPMessage {
-    return message.action && 
-           ['start', 'stop', 'mouse', 'keyboard', 'error'].includes(message.action) &&
-           message.data && typeof message.data === 'object';
+    // Support both old format (message.action) and new format (payload.type with rdp: prefix)
+    let action: string | undefined;
+    
+    if (message.action) {
+      // Old format: message.action = 'start', 'stop', etc.
+      action = message.action;
+    } else if (message.payload?.type) {
+      // New format: payload.type = 'rdp:start', 'rdp:stop', etc.
+      const payloadType = message.payload.type;
+      if (payloadType.startsWith('rdp:')) {
+        action = payloadType.replace('rdp:', '');
+      } else {
+        action = payloadType;
+      }
+    }
+    
+    if (!action) {
+      return false;
+    }
+    
+    const validActions = ['start', 'stop', 'mouse', 'keyboard', 'error'];
+    if (!validActions.includes(action)) {
+      return false;
+    }
+    
+    // For new format, payload itself is the data object
+    // For old format, message.data should exist
+    const hasData = message.data && typeof message.data === 'object' ||
+                    message.payload && typeof message.payload === 'object';
+    
+    return hasData;
   }
 
   private static validateDevice(message: any): message is DeviceMessage {

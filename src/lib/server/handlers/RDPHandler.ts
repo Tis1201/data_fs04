@@ -5,11 +5,14 @@
  * Provides clean separation of concerns for RDP functionality.
  */
 
-import type { InMessage } from '../messaging/interfaces/message';
+import type { InMessage, RoutingMessage } from '../messaging/interfaces/message';
 import type { Handler } from '../messaging/interfaces/handler';
-import { MessageFactory, MessageValidator, MessageRouter } from '../../types/unified';
+import { MessageFactory, SystemUser } from '../messaging/interfaces/message';
+import { MessageValidator } from '../../types/unified';
 import { getLoggingManager } from '../../managers/LoggingManager';
 import { publisher } from '../messaging/core/publisher';
+import { getMessageRelay } from '../pushpin/middleware';
+import { logger } from '../logger';
 
 // ============================================================================
 // RDP HANDLER CLASS
@@ -110,6 +113,15 @@ class RDPHandlerClass implements Handler {
         options
       });
 
+      // Send success response back to UI
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'rdp:start',
+          deviceId,
+          message: 'RDP session started'
+        });
+      }
+
       this.logger?.logRDP('start', deviceId, 'RDP start handled successfully');
     } catch (error) {
       this.logger?.logError('rdp', 'Failed to handle RDP start', { error, deviceId, options });
@@ -135,6 +147,15 @@ class RDPHandlerClass implements Handler {
         deviceId
       });
 
+      // Send success response back to UI
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'rdp:stop',
+          deviceId,
+          message: 'RDP session stopped'
+        });
+      }
+
       this.logger?.logRDP('stop', deviceId, 'RDP stop handled successfully');
     } catch (error) {
       this.logger?.logError('rdp', 'Failed to handle RDP stop', { error, deviceId });
@@ -156,6 +177,15 @@ class RDPHandlerClass implements Handler {
         mouse: mouseEvent
       });
 
+      // Send success response back to UI (optional, for request-response matching)
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'rdp:mouse',
+          deviceId,
+          message: 'Mouse event sent'
+        });
+      }
+
       this.logger?.logRDP('mouse', deviceId, 'RDP mouse event handled successfully');
     } catch (error) {
       this.logger?.logError('rdp', 'Failed to handle RDP mouse event', { error, deviceId, mouseEvent });
@@ -176,6 +206,15 @@ class RDPHandlerClass implements Handler {
         deviceId,
         keyboard: keyboardEvent
       });
+
+      // Send success response back to UI (optional, for request-response matching)
+      if (message.requestId) {
+        await this.sendSuccessResponse(message, {
+          action: 'rdp:keyboard',
+          deviceId,
+          message: 'Keyboard event sent'
+        });
+      }
 
       this.logger?.logRDP('keyboard', deviceId, 'RDP keyboard event handled successfully');
     } catch (error) {
@@ -215,77 +254,130 @@ class RDPHandlerClass implements Handler {
 
   private async forwardToDevice(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
-    const scope = MessageRouter.getScope({
-      type: 'rdp',
-      action: data.action,
-      deviceId,
-      data: {},
+    
+    // Use MessageRelay to publish to device via Pushpin
+    const messageRelay = getMessageRelay();
+    
+    if (!messageRelay) {
+      const error = 'MessageRelay not available - cannot send RDP message to device';
+      logger.error(`[RDPHandler] ${error} (deviceId: ${deviceId}, action: ${data.action})`);
+      throw new Error(error);
+    }
+    
+    // Prepare RDP message for device
+    // Device expects messages in format: { type: 'rdp:start', options: {...}, timestamp: ... }
+    const rdpMessage: any = {
+      type: data.action, // rdp:start, rdp:stop, rdp:mouse, rdp:keyboard
       timestamp: Date.now()
-    } as any);
-
-    const routingMessage = MessageFactory.createRDP(
-      data.action.replace('rdp:', '') as any,
-      deviceId,
-      data,
-      {
-        userId: message.userInfo.id,
-        requestId: message.requestId,
-        connectionId: (message as any).connectionId,
-        protocol: (message as any).protocol,
-        scope
-      }
-    );
-
-    await publisher.publish(routingMessage);
+    };
+    
+    // Add specific fields based on action type
+    if (data.action === 'rdp:start') {
+      rdpMessage.options = data.options || {};
+    } else if (data.action === 'rdp:mouse') {
+      rdpMessage.mouse = data.mouse || {};
+    } else if (data.action === 'rdp:keyboard') {
+      rdpMessage.keyboard = data.keyboard || {};
+    }
+    
+    // Publish to device via Pushpin
+    await messageRelay.publishToDevice(deviceId, rdpMessage);
+    
+    this.logger?.logRDP(data.action, deviceId, `Published to device via Pushpin`, {
+      action: data.action
+    });
+    
+    logger.debug(`[RDPHandler] Published ${data.action} to device ${deviceId} via Pushpin`);
   }
 
   private async forwardToClient(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
-    const scope = MessageRouter.getScope({
-      type: 'rdp',
-      action: data.action,
-      deviceId,
-      data: {},
-      timestamp: Date.now()
-    } as any);
+    
+    // Use subscription scope so all UI connections subscribed to this device receive the message
+    const scope = `subscription:device:${deviceId}`;
 
-    const routingMessage = MessageFactory.createRDP(
-      data.action.replace('rdp:', '') as any,
-      deviceId,
-      data,
+    // Create a proper RoutingMessage for the publisher
+    // The type field in payload will be used as the SSE event type
+    const routingMessage = MessageFactory.createSystemMessage(
+      data.action, // rdp:error - this becomes the SSE event type
+      scope,
       {
-        userId: message.userInfo.id,
-        requestId: message.requestId,
-        connectionId: (message as any).connectionId,
-        protocol: (message as any).protocol,
-        scope
+        type: data.action, // rdp:error
+        deviceId,
+        ...data // Include error, etc.
+      },
+      SystemUser,
+      {
+        excludeDevices: true // Exclude device connections - RDP messages should only go to UI
       }
     );
+    
+    // Preserve requestId if it exists
+    if (message.requestId) {
+      routingMessage.requestId = message.requestId;
+    }
+
+    this.logger?.logRDP(data.action, deviceId, `Publishing to UI via SSE`, {
+      action: data.action,
+      scope
+    });
 
     await publisher.publish(routingMessage);
   }
 
-  private async sendErrorResponse(deviceId: string, error: string, originalMessage: InMessage): Promise<void> {
-    const scope = MessageRouter.getScope({
-      type: 'rdp',
-      action: 'error',
-      deviceId,
-      data: { error },
-      timestamp: Date.now()
-    } as any);
-
-    const errorMessage = MessageFactory.createRDP(
-      'error',
-      deviceId,
-      { error },
+  private async sendSuccessResponse(originalMessage: InMessage, data: any): Promise<void> {
+    const deviceId = data.deviceId;
+    
+    // Send response back to the original sender connection
+    const responseMessage = MessageFactory.createSystemMessage(
+      'rdp',
+      `connection:${originalMessage.connectionId}`,
       {
-        userId: originalMessage.userInfo.id,
-        requestId: originalMessage.requestId,
-        connectionId: (originalMessage as any).connectionId,
-        protocol: (originalMessage as any).protocol,
-        scope
+        type: data.action,
+        deviceId,
+        success: true,
+        ...data
+      },
+      SystemUser,
+      {
+        targetConnectionId: originalMessage.connectionId,
+        targetProtocol: originalMessage.protocol,
+        echoToSender: true
       }
     );
+
+    // Preserve requestId so UI can match response to request
+    if (originalMessage.requestId) {
+      responseMessage.requestId = originalMessage.requestId;
+    }
+
+    await publisher.publish(responseMessage);
+    this.logger?.logRDP(data.action, deviceId, 'Sent success response to UI');
+  }
+
+  private async sendErrorResponse(deviceId: string, error: string, originalMessage: InMessage): Promise<void> {
+    // Send error response back to the original sender connection
+    const errorMessage = MessageFactory.createSystemMessage(
+      'rdp',
+      `connection:${originalMessage.connectionId}`,
+      {
+        type: 'rdp:error',
+        deviceId,
+        success: false,
+        error
+      },
+      SystemUser,
+      {
+        targetConnectionId: originalMessage.connectionId,
+        targetProtocol: originalMessage.protocol,
+        echoToSender: true
+      }
+    );
+
+    // Preserve requestId so UI can match response to request
+    if (originalMessage.requestId) {
+      errorMessage.requestId = originalMessage.requestId;
+    }
 
     await publisher.publish(errorMessage);
   }

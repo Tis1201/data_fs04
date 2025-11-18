@@ -8,6 +8,13 @@ import type { ClickHouseEvent } from '$lib/server/clickhouse/client';
 import { eventDeduplication } from '$lib/server/state/eventDeduplication';
 import { getStateManager } from '$lib/server/state/stateManagerFactory';
 import { BundleProcessingState } from '$lib/server/state/types';
+import {
+  calculateActivePeriodEnd,
+  isWithinActivePeriod,
+  findDeviceProgress,
+  validateWaveCanAcceptEvents,
+  getBundleData
+} from './bundleEventHelpers';
 
 export type FileStatusEvent = {
   deviceId: string;
@@ -452,36 +459,14 @@ async function processDeviceEventsBatch(bundleId: string, deviceId: string, even
     status = 'COMPLETED';
   }
   
-  // Find device progress record by looking up bundleDevice first
-  const bundleDevice = await (prisma as any).bundleDevice.findFirst({
-    where: { bundleId, deviceId },
-    select: { id: true }
-  });
-  
-  if (!bundleDevice) {
-    logger.warn(`[BundleEventProcessor] No bundleDevice found for device ${deviceId} in bundle ${bundleId}`);
+  // Find device progress record using helper function
+  const result = await findDeviceProgress(bundleId, deviceId, waveId);
+  if (!result) {
+    logger.warn(`[BundleEventProcessor] No existing progress found for device ${deviceId} in bundle ${bundleId}, wave ${waveId}. Device may not be assigned to this wave.`);
     return null;
   }
-  
-  const deviceProgress = await (prisma as any).bundleDeviceProgress.findFirst({
-    where: { 
-      bundleId,
-      bundleDeviceId: bundleDevice.id
-    },
-    select: { 
-      id: true, 
-      waveId: true, 
-      status: true, 
-      metadata: true, 
-      createdAt: true,
-      bundleDeviceId: true
-    }
-  });
 
-  if (!deviceProgress) {
-    logger.warn(`[BundleEventProcessor] No existing progress found for device ${deviceId} in bundle ${bundleId}`);
-    return null;
-  }
+  const { progress: deviceProgress } = result;
 
   const correctWaveId = deviceProgress.waveId;
   
@@ -496,10 +481,21 @@ async function processDeviceEventsBatch(bundleId: string, deviceId: string, even
     return null;
   }
   
-  // Check if wave is in terminal state
-  if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(correctWave.status)) {
-    // logger.warn(`[BundleEventProcessor] Device ${deviceId} sent progress for wave ${correctWaveId} but wave is in terminal state: ${correctWave.status}`);
+  // Validate if wave can accept events using helper function
+  const validation = await validateWaveCanAcceptEvents(
+    bundleId,
+    correctWaveId,
+    correctWave.status,
+    latestEvent.timestamp ? new Date(latestEvent.timestamp) : new Date()
+  );
+
+  if (!validation.canAccept) {
+    logger.debug(`[BundleEventProcessor] Device ${deviceId} sent progress for wave ${correctWaveId}: ${validation.reason}`);
     return null;
+  }
+
+  if (validation.reason) {
+    logger.info(`[BundleEventProcessor] Device ${deviceId} sent progress for wave ${correctWaveId}: ${validation.reason}`);
   }
 
   // Find existing progress row
@@ -510,6 +506,13 @@ async function processDeviceEventsBatch(bundleId: string, deviceId: string, even
 
   const isTerminalNext = ['COMPLETED', 'FAILED', 'CANCELLED'].includes(status);
   const metadataStr = JSON.stringify({ progress });
+  
+  // Check if existing record is terminal
+  const existingIsTerminal = existing ? ['COMPLETED', 'FAILED', 'CANCELLED'].includes(existing.status) : false;
+  
+  // For terminal waves (FAILED/CANCELLED), we allow updates during active period
+  // So we should allow updates even if existing is terminal, as long as the wave check passed above
+  const allowTerminalUpdate = existingIsTerminal && ['FAILED', 'CANCELLED'].includes(correctWave.status);
 
   return {
     deviceId,
@@ -526,7 +529,7 @@ async function processDeviceEventsBatch(bundleId: string, deviceId: string, even
       updatedBy: 'system'
     },
     isNew: !existing,
-    isTerminal: existing ? ['COMPLETED', 'FAILED', 'CANCELLED'].includes(existing.status) : false
+    isTerminal: existingIsTerminal && !allowTerminalUpdate // Only mark as terminal if we're not allowing the update
   };
 }
 
@@ -621,18 +624,65 @@ async function shouldProcessEvent(event: ClickHouseEvent): Promise<boolean> {
       return true;
       
     case BundleProcessingState.TIMEOUT_PENDING:
-      if (!bundleState.timeoutAt) return false;
-      
-      const gracePeriodEnd = new Date(bundleState.timeoutAt.getTime() + 
-        bundleState.gracePeriodHours * 60 * 60 * 1000);
-      
-      return new Date(event.ts) <= gracePeriodEnd;
+      // Grace period is now tied to active period, not fixed 2-hour window
+      try {
+        const withinPeriod = await isWithinActivePeriod(event.bundle_id, event.ts);
+        if (withinPeriod) {
+          return true;
+        }
+        
+        // Fallback to old logic if active period check fails
+        if (bundleState.timeoutAt) {
+          const gracePeriodEnd = new Date(
+            bundleState.timeoutAt.getTime() + bundleState.gracePeriodHours * 60 * 60 * 1000
+          );
+          return new Date(event.ts) <= gracePeriodEnd;
+        }
+        return false;
+      } catch (error) {
+        logger.warn(`[BundleEventProcessor] Failed to check grace period for bundle ${event.bundle_id}: ${error instanceof Error ? error.message : String(error)}`);
+        // Fallback to old logic if error occurs
+        if (bundleState.timeoutAt) {
+          const gracePeriodEnd = new Date(
+            bundleState.timeoutAt.getTime() + bundleState.gracePeriodHours * 60 * 60 * 1000
+          );
+          return new Date(event.ts) <= gracePeriodEnd;
+        }
+        return false;
+      }
       
     case BundleProcessingState.COMPLETED:
+      // COMPLETED bundles never accept new events
+      return false;
+      
     case BundleProcessingState.FAILED:
     case BundleProcessingState.CANCELLED:
-      // logger.debug(`[BundleEventProcessor] Skipping event for bundle ${event.bundle_id} - bundle is in terminal state: ${bundleState.state}`);
-      return false;
+      // FAILED and CANCELLED bundles can still accept late device responses during active period
+      try {
+        const withinPeriod = await isWithinActivePeriod(event.bundle_id, event.ts);
+        if (withinPeriod) {
+          return true;
+        }
+        
+        // Fallback: use grace period from bundle state if active period check fails
+        if (bundleState.timeoutAt) {
+          const gracePeriodEnd = new Date(
+            bundleState.timeoutAt.getTime() + bundleState.gracePeriodHours * 60 * 60 * 1000
+          );
+          return new Date(event.ts) <= gracePeriodEnd;
+        }
+        return false;
+      } catch (error) {
+        logger.warn(`[BundleEventProcessor] Failed to check active period for FAILED/CANCELLED bundle ${event.bundle_id}: ${error instanceof Error ? error.message : String(error)}`);
+        // Fallback: use grace period from bundle state
+        if (bundleState.timeoutAt) {
+          const gracePeriodEnd = new Date(
+            bundleState.timeoutAt.getTime() + bundleState.gracePeriodHours * 60 * 60 * 1000
+          );
+          return new Date(event.ts) <= gracePeriodEnd;
+        }
+        return false;
+      }
       
     default:
       return false;

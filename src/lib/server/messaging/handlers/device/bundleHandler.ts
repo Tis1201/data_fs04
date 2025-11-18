@@ -119,12 +119,18 @@ export async function handleBundleStatus(message: InMessage): Promise<void> {
       const bundleId: string = (targetProgress as any).bundleId;
       logger.info(`[AutoStart] Wave ${waveId} reached terminal status: ${waveStatus}, attempting to start next wave for bundle ${bundleId}`);
       
-      // Unregister completed wave from timeout tracking
-      try {
-        await unregisterWaveTimeout(waveId);
-        logger.info(`[BundleHandler] Unregistered completed wave ${waveId} from timeout tracking`);
-      } catch (timeoutErr: any) {
-        logger.warn(`[BundleHandler] Failed to unregister completed wave from timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
+      // COMPLETED waves: Remove from Redis immediately (all devices finished, no more data expected)
+      // FAILED waves: Keep in Redis until bundle active period expires (devices may still send updates/retry)
+      if (waveStatus === 'COMPLETED') {
+        try {
+          await unregisterWaveTimeout(waveId);
+          logger.info(`[BundleHandler] Unregistered COMPLETED wave ${waveId} from timeout tracking`);
+        } catch (timeoutErr: any) {
+          logger.warn(`[BundleHandler] Failed to unregister COMPLETED wave from timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
+        }
+      } else {
+        // FAILED wave: Keep in Redis for late device responses during active period
+        logger.debug(`[BundleHandler] Keeping FAILED wave ${waveId} in Redis timeout tracking until bundle active period expires`);
       }
       
       await checkAndAutoStartNextWave(bundleId, waveId);

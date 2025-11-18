@@ -51,26 +51,44 @@ export async function registerWaveTimeout(waveId: string, bundleId: string, star
     lastChecked: Date.now()
   };
   
+  logger.info(`[BundleTimeoutManager] Attempting to register wave ${waveId} for bundle ${bundleId} (startTime: ${startTime.toISOString()}, timeout: ${timeout}ms)`);
+  
   if (isRedisAvailable()) {
     // Use Redis for distributed caching
     try {
       const stateManager = getStateManager() as any;
       const redis = stateManager.redisClient;
       
+      if (!redis) {
+        throw new Error('Redis client is null');
+      }
+      
       // Store wave timeout info in Redis with TTL
       const key = `${REDIS_KEYS.WAVE_TIMEOUT}${waveId}`;
-      await redis.setEx(key, Math.ceil(timeout / 1000) + 300, JSON.stringify(waveInfo)); // TTL = timeout + 5min buffer
+      const ttlSeconds = Math.ceil(timeout / 1000) + 300; // TTL = timeout + 5min buffer
+      await redis.setEx(key, ttlSeconds, JSON.stringify(waveInfo));
       
       // Add to active waves set
-      await redis.sAdd(REDIS_KEYS.WAVE_TIMEOUT_SET, waveId);
+      const added = await redis.sAdd(REDIS_KEYS.WAVE_TIMEOUT_SET, waveId);
       
-      logger.info(`[BundleTimeoutManager] Registered wave ${waveId} for bundle ${bundleId} with timeout ${timeout}ms in Redis`);
+      // Verify registration
+      const verifyKey = await redis.get(key);
+      const verifySet = await redis.sIsMember(REDIS_KEYS.WAVE_TIMEOUT_SET, waveId);
+      
+      if (verifyKey && verifySet) {
+        logger.info(`[BundleTimeoutManager] Successfully registered wave ${waveId} for bundle ${bundleId} in Redis (TTL: ${ttlSeconds}s, setAdded: ${added}, verified: true)`);
+      } else {
+        logger.error(`[BundleTimeoutManager] Wave ${waveId} registration verification failed (key exists: ${!!verifyKey}, in set: ${verifySet})`);
+        throw new Error('Wave registration verification failed');
+      }
     } catch (e: any) {
-      logger.warn(`[BundleTimeoutManager] Failed to register wave in Redis, falling back to memory: ${String(e?.message || e)}`);
+      logger.error(`[BundleTimeoutManager] Failed to register wave ${waveId} in Redis: ${String(e?.message || e)}. Stack: ${e?.stack || 'N/A'}`);
+      logger.warn(`[BundleTimeoutManager] Falling back to memory cache for wave ${waveId}`);
       waveTimeoutCache.set(waveId, waveInfo);
     }
   } else {
     // Use in-memory cache
+    logger.warn(`[BundleTimeoutManager] Redis not available, using memory cache for wave ${waveId}`);
     waveTimeoutCache.set(waveId, waveInfo);
     logger.info(`[BundleTimeoutManager] Registered wave ${waveId} for bundle ${bundleId} with timeout ${timeout}ms in memory`);
   }
@@ -126,6 +144,62 @@ export function getActiveWavesCount(): number {
 
 export function getActiveWavesForBundle(bundleId: string): WaveTimeoutInfo[] {
   return Array.from(waveTimeoutCache.values()).filter(wave => wave.bundleId === bundleId);
+}
+
+// Remove all waves for a bundle from Redis (called when bundle active period expires)
+export async function unregisterAllWavesForBundle(bundleId: string): Promise<void> {
+  if (isRedisAvailable()) {
+    try {
+      const stateManager = getStateManager() as any;
+      const redis = stateManager.redisClient;
+      
+      // Get all active waves from Redis
+      const activeWaves = await redis.sMembers(REDIS_KEYS.WAVE_TIMEOUT_SET);
+      
+      // Filter waves for this bundle
+      const bundleWaves: string[] = [];
+      for (const waveId of activeWaves) {
+        try {
+          const key = `${REDIS_KEYS.WAVE_TIMEOUT}${waveId}`;
+          const waveData = await redis.get(key);
+          if (waveData) {
+            const waveInfo: WaveTimeoutInfo = JSON.parse(waveData);
+            if (waveInfo.bundleId === bundleId) {
+              bundleWaves.push(waveId);
+            }
+          }
+        } catch (e: any) {
+          // Skip invalid wave data
+          continue;
+        }
+      }
+      
+      // Remove all waves for this bundle
+      for (const waveId of bundleWaves) {
+        await unregisterWaveTimeout(waveId);
+      }
+      
+      logger.info(`[BundleTimeoutManager] Unregistered ${bundleWaves.length} waves for bundle ${bundleId} from Redis timeout tracking`);
+    } catch (e: any) {
+      logger.warn(`[BundleTimeoutManager] Failed to unregister waves for bundle ${bundleId}: ${String(e?.message || e)}`);
+    }
+  } else {
+    // Remove from memory cache
+    const wavesToRemove: string[] = [];
+    for (const [waveId, waveInfo] of waveTimeoutCache.entries()) {
+      if (waveInfo.bundleId === bundleId) {
+        wavesToRemove.push(waveId);
+      }
+    }
+    
+    for (const waveId of wavesToRemove) {
+      waveTimeoutCache.delete(waveId);
+    }
+    
+    if (wavesToRemove.length > 0) {
+      logger.info(`[BundleTimeoutManager] Unregistered ${wavesToRemove.length} waves for bundle ${bundleId} from memory timeout tracking`);
+    }
+  }
 }
 
 // Marks devices as FAILED due to inactivity if wave has exceeded the timeout window
@@ -234,8 +308,91 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
         select: { status: true }
       });
       
-      if (currentWave && ['COMPLETED', 'FAILED', 'CANCELLED'].includes(currentWave.status)) {
-        logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: already terminal (${currentWave.status}), removing from cache`);
+      // Log wave status for debugging
+      if (!currentWave) {
+        logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: not found in database, skipping`);
+        continue;
+      }
+      
+      logger.debug(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: database status = ${currentWave.status}`);
+      
+      // If wave is IN_PROGRESS, continue to timeout check (don't skip)
+      if (currentWave.status === 'IN_PROGRESS') {
+        logger.debug(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: IN_PROGRESS, proceeding to timeout check`);
+        // Continue to timeout processing below
+      } else if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(currentWave.status)) {
+        // COMPLETED waves: Remove from Redis immediately (all devices finished, no more data expected)
+        if (currentWave.status === 'COMPLETED') {
+          logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: COMPLETED, removing from cache immediately`);
+          unregisterWaveTimeout(waveInfo.waveId);
+          continue;
+        }
+        
+        // FAILED and CANCELLED waves: Keep in Redis until bundle active period expires
+        // This allows late device responses during the active period - devices may still send updates/retry
+        logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: already terminal (${currentWave.status}), KEEPING in cache until bundle active period expires (NOT removing)`);
+        
+        // Extend TTL for FAILED/CANCELLED waves to match bundle active period
+        if (isRedisAvailable() && (currentWave.status === 'FAILED' || currentWave.status === 'CANCELLED')) {
+          try {
+            const bundle = await (prisma as any).bundle.findUnique({
+              where: { id: bundleId },
+              select: { activePeriodDays: true, scheduledAt: true }
+            });
+            
+            if (bundle) {
+              // Get actual start time (first wave's startTime)
+              const firstWave = await (prisma as any).bundleWave.findFirst({
+                where: { bundleId: bundleId },
+                orderBy: { startTime: 'asc' },
+                select: { startTime: true }
+              });
+              
+              const actualStartTime = firstWave?.startTime || bundle.scheduledAt;
+              const activePeriodDays = (bundle.activePeriodDays ?? 1);
+              
+              if (actualStartTime) {
+                // Calculate when active period expires
+                const activePeriodEnd = new Date(
+                  actualStartTime.getTime() + 
+                  (activePeriodDays * 24 * 60 * 60 * 1000)
+                );
+                
+                // Calculate TTL in seconds (time until active period expires)
+                const now = new Date();
+                const ttlSeconds = Math.max(
+                  Math.ceil((activePeriodEnd.getTime() - now.getTime()) / 1000),
+                  3600 // Minimum 1 hour TTL
+                );
+                
+                // Extend the Redis key TTL
+                const stateManager = getStateManager() as any;
+                const redis = stateManager.redisClient;
+                const key = `${REDIS_KEYS.WAVE_TIMEOUT}${waveInfo.waveId}`;
+                
+                // Check if key exists before extending
+                const exists = await redis.exists(key);
+                if (exists) {
+                  await redis.expire(key, ttlSeconds);
+                  logger.info(`[BundleTimeoutManager] Extended TTL for ${currentWave.status} wave ${waveInfo.waveId} to ${ttlSeconds}s (active period ends in ${Math.round(ttlSeconds / 3600)} hours)`);
+                } else {
+                  // Key expired, re-register with extended TTL (convert to milliseconds)
+                  const extendedTimeoutMs = ttlSeconds * 1000;
+                  await registerWaveTimeout(waveInfo.waveId, bundleId, new Date(waveInfo.startTime), extendedTimeoutMs);
+                  logger.info(`[BundleTimeoutManager] Re-registered ${currentWave.status} wave ${waveInfo.waveId} with extended TTL of ${ttlSeconds}s`);
+                }
+              }
+            }
+          } catch (ttlErr: any) {
+            logger.warn(`[BundleTimeoutManager] Failed to extend TTL for ${currentWave.status} wave ${waveInfo.waveId}: ${String(ttlErr?.message || ttlErr)}`);
+          }
+        }
+        
+        // Note: FAILED waves remain in Redis timeout tracking until bundle active period expires
+        // This allows late device responses during the active period - devices can still upload data later
+        // Even if wave is FAILED, devices may send status updates during the active period
+        // Wave will be removed by bundle cleanup manager when bundle active period expires
+        // DO NOT call unregisterWaveTimeout() for FAILED waves here!
         
         // Publish real-time update for already-terminal wave so UI can update
         try {
@@ -269,7 +426,7 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
           logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} - Failed to publish terminal wave status update: ${String(updateErr?.message || updateErr)}`);
         }
         
-        unregisterWaveTimeout(waveInfo.waveId);
+        // Skip timeout processing for FAILED/CANCELLED waves, but keep in cache
         continue;
       }
     } catch (e: any) {
@@ -277,16 +434,19 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
     }
     
     const elapsedMs = now - waveInfo.startTime;
-    logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: elapsed=${elapsedMs}ms, timeout=${waveInfo.timeoutMs}ms`);
+    const elapsedMinutes = Math.round(elapsedMs / (60 * 1000));
+    const timeoutMinutes = Math.round(waveInfo.timeoutMs / (60 * 1000));
+    
+    logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: elapsed=${elapsedMinutes}min, timeout=${timeoutMinutes}min (${elapsedMs}ms / ${waveInfo.timeoutMs}ms)`);
     
     if (elapsedMs < waveInfo.timeoutMs) {
-      logger.debug(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: not timed out yet (${elapsedMs}ms < ${waveInfo.timeoutMs}ms)`);
+      logger.debug(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: not timed out yet (${elapsedMinutes}min < ${timeoutMinutes}min)`);
       // Update last checked time
       waveInfo.lastChecked = now;
       continue;
     }
     
-    logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: TIMED OUT after ${elapsedMs}ms`);
+    logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: TIMED OUT after ${elapsedMinutes}min (timeout was ${timeoutMinutes}min)`);
 
     try {
       // Mark any devices with PENDING/IN_PROGRESS and no recent start as FAILED
@@ -372,8 +532,70 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
         }
       }
 
-      // Remove from cache since wave is now terminal
-      unregisterWaveTimeout(waveInfo.waveId);
+      // COMPLETED waves: Remove from Redis immediately (all devices finished, no more data expected)
+      // FAILED waves: Keep in Redis until bundle active period expires (devices may still send updates/retry)
+      if (waveStatus === 'COMPLETED') {
+        unregisterWaveTimeout(waveInfo.waveId);
+        logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Removed COMPLETED wave ${waveInfo.waveId} from timeout tracking`);
+      } else if (waveStatus === 'FAILED') {
+        // FAILED wave: Extend TTL to match bundle active period
+        try {
+          const bundle = await (prisma as any).bundle.findUnique({
+            where: { id: bundleId },
+            select: { activePeriodDays: true, scheduledAt: true }
+          });
+          
+          if (bundle) {
+            // Get actual start time (first wave's startTime)
+            const firstWave = await (prisma as any).bundleWave.findFirst({
+              where: { bundleId: bundleId },
+              orderBy: { startTime: 'asc' },
+              select: { startTime: true }
+            });
+            
+            const actualStartTime = firstWave?.startTime || bundle.scheduledAt;
+            const activePeriodDays = (bundle.activePeriodDays ?? 1);
+            
+            if (actualStartTime) {
+              // Calculate when active period expires
+              const activePeriodEnd = new Date(
+                actualStartTime.getTime() + 
+                (activePeriodDays * 24 * 60 * 60 * 1000)
+              );
+              
+              // Calculate TTL in seconds (time until active period expires)
+              const now = new Date();
+              const ttlSeconds = Math.max(
+                Math.ceil((activePeriodEnd.getTime() - now.getTime()) / 1000),
+                3600 // Minimum 1 hour TTL
+              );
+              
+              // Extend the Redis key TTL
+              if (isRedisAvailable()) {
+                const stateManager = getStateManager() as any;
+                const redis = stateManager.redisClient;
+                const key = `${REDIS_KEYS.WAVE_TIMEOUT}${waveInfo.waveId}`;
+                
+                // Check if key exists before extending
+                const exists = await redis.exists(key);
+                if (exists) {
+                  await redis.expire(key, ttlSeconds);
+                  logger.info(`[BundleTimeoutManager] Extended TTL for FAILED wave ${waveInfo.waveId} to ${ttlSeconds}s (active period ends in ${Math.round(ttlSeconds / 3600)} hours)`);
+                } else {
+                  // Key expired, re-register with extended TTL (convert to milliseconds)
+                  const extendedTimeoutMs = ttlSeconds * 1000;
+                  await registerWaveTimeout(waveInfo.waveId, bundleId, new Date(waveInfo.startTime), extendedTimeoutMs);
+                  logger.info(`[BundleTimeoutManager] Re-registered FAILED wave ${waveInfo.waveId} with extended TTL of ${ttlSeconds}s`);
+                }
+              }
+            }
+          }
+        } catch (ttlErr: any) {
+          logger.warn(`[BundleTimeoutManager] Failed to extend TTL for FAILED wave ${waveInfo.waveId}: ${String(ttlErr?.message || ttlErr)}`);
+        }
+        
+        logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Keeping FAILED wave ${waveInfo.waveId} in Redis until bundle active period expires`);
+      }
 
     } catch (e: any) {
       logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId} timeout handling failed: ${String(e?.message || e)}`);
@@ -386,16 +608,28 @@ export async function syncCacheWithDatabase() {
   logger.info(`[BundleTimeoutManager] Syncing cache with database`);
   
   try {
-    // Find all waves in progress with startTime
+    // Find all waves that should be tracked:
+    // 1. IN_PROGRESS waves (active waves)
+    // 2. FAILED waves (need to stay until bundle active period expires)
+    // 3. CANCELLED waves (need to stay until bundle active period expires)
+    // Note: COMPLETED waves are NOT synced (they're removed immediately)
     const waves = await (prisma as any).bundleWave.findMany({
       where: {
-        status: 'IN_PROGRESS',
+        status: { in: ['IN_PROGRESS', 'FAILED', 'CANCELLED'] },
         startTime: { not: null }
       },
-      select: { id: true, startTime: true, bundleId: true }
+      select: { id: true, startTime: true, bundleId: true, status: true }
     });
     
-    logger.info(`[BundleTimeoutManager] Found ${waves.length} waves in progress in database`);
+    const inProgressCount = waves.filter((w: any) => w.status === 'IN_PROGRESS').length;
+    const failedCount = waves.filter((w: any) => w.status === 'FAILED').length;
+    const cancelledCount = waves.filter((w: any) => w.status === 'CANCELLED').length;
+    
+    logger.info(`[BundleTimeoutManager] Found ${waves.length} waves to sync (IN_PROGRESS: ${inProgressCount}, FAILED: ${failedCount}, CANCELLED: ${cancelledCount})`);
+    
+    if (waves.length === 0) {
+      logger.info(`[BundleTimeoutManager] No waves to sync - this is normal if no bundles are currently active or failed`);
+    }
     
     if (isRedisAvailable()) {
       // Clear Redis cache and sync with database
@@ -415,29 +649,177 @@ export async function syncCacheWithDatabase() {
         await redis.del(REDIS_KEYS.WAVE_TIMEOUT_SET);
         
         // Register each wave in Redis
+        // For FAILED/CANCELLED waves, use extended TTL based on bundle active period
+        // Only sync waves if bundle active period hasn't expired yet
+        let syncedCount = 0;
+        let skippedCount = 0;
+        
         for (const wave of waves) {
-          await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime);
+          if (wave.status === 'IN_PROGRESS') {
+            // IN_PROGRESS waves: always sync (they're still active)
+            await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime);
+            syncedCount++;
+          } else if (wave.status === 'FAILED' || wave.status === 'CANCELLED') {
+            // FAILED/CANCELLED waves: only sync if bundle active period hasn't expired
+            try {
+              const bundle = await (prisma as any).bundle.findUnique({
+                where: { id: wave.bundleId },
+                select: { activePeriodDays: true, scheduledAt: true }
+              });
+              
+              if (bundle) {
+                const actualStartTime = wave.startTime;
+                const activePeriodDays = (bundle.activePeriodDays ?? 1);
+                
+                // Calculate when active period expires
+                const activePeriodEnd = new Date(
+                  actualStartTime.getTime() + 
+                  (activePeriodDays * 24 * 60 * 60 * 1000)
+                );
+                
+                const now = new Date();
+                
+                // Check if active period has expired
+                if (now > activePeriodEnd) {
+                  // Active period expired, skip this wave
+                  logger.info(`[BundleTimeoutManager] Skipping ${wave.status} wave ${wave.id} - bundle active period expired (ended ${Math.round((now.getTime() - activePeriodEnd.getTime()) / (24 * 60 * 60 * 1000))} days ago)`);
+                  skippedCount++;
+                  continue;
+                }
+                
+                // Calculate TTL based on remaining active period
+                const ttlSeconds = Math.max(
+                  Math.ceil((activePeriodEnd.getTime() - now.getTime()) / 1000),
+                  3600 // Minimum 1 hour TTL
+                );
+                
+                // Register with extended TTL
+                const extendedTimeoutMs = ttlSeconds * 1000;
+                await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime, extendedTimeoutMs);
+                logger.info(`[BundleTimeoutManager] Re-registered ${wave.status} wave ${wave.id} with extended TTL of ${ttlSeconds}s (active period ends in ${Math.round(ttlSeconds / 3600)} hours)`);
+                syncedCount++;
+              } else {
+                // Bundle not found, skip this wave
+                logger.warn(`[BundleTimeoutManager] Bundle ${wave.bundleId} not found, skipping wave ${wave.id}`);
+                skippedCount++;
+              }
+            } catch (err: any) {
+              logger.warn(`[BundleTimeoutManager] Failed to check active period for ${wave.status} wave ${wave.id}, skipping: ${String(err?.message || err)}`);
+              skippedCount++;
+            }
+          }
         }
         
-        logger.info(`[BundleTimeoutManager] Redis cache synced with ${waves.length} waves`);
+        logger.info(`[BundleTimeoutManager] Sync completed: ${syncedCount} waves synced, ${skippedCount} waves skipped (active period expired or bundle not found)`);
+        
+        // Log summary is already done above
       } catch (e: any) {
         logger.warn(`[BundleTimeoutManager] Failed to sync Redis cache, falling back to memory: ${String(e?.message || e)}`);
         // Fallback to memory sync
         waveTimeoutCache.clear();
+        let syncedCount = 0;
+        let skippedCount = 0;
+        
         for (const wave of waves) {
-          await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime);
+          if (wave.status === 'IN_PROGRESS') {
+            await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime);
+            syncedCount++;
+          } else if (wave.status === 'FAILED' || wave.status === 'CANCELLED') {
+            // For memory cache, also check active period and use extended timeout
+            try {
+              const bundle = await (prisma as any).bundle.findUnique({
+                where: { id: wave.bundleId },
+                select: { activePeriodDays: true, scheduledAt: true }
+              });
+              
+              if (bundle) {
+                const actualStartTime = wave.startTime;
+                const activePeriodDays = (bundle.activePeriodDays ?? 1);
+                const activePeriodEnd = new Date(
+                  actualStartTime.getTime() + 
+                  (activePeriodDays * 24 * 60 * 60 * 1000)
+                );
+                const now = new Date();
+                
+                // Check if active period has expired
+                if (now > activePeriodEnd) {
+                  logger.info(`[BundleTimeoutManager] Skipping ${wave.status} wave ${wave.id} - bundle active period expired`);
+                  skippedCount++;
+                  continue;
+                }
+                
+                const ttlSeconds = Math.max(
+                  Math.ceil((activePeriodEnd.getTime() - now.getTime()) / 1000),
+                  3600
+                );
+                const extendedTimeoutMs = ttlSeconds * 1000;
+                await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime, extendedTimeoutMs);
+                syncedCount++;
+              } else {
+                skippedCount++;
+              }
+            } catch (err: any) {
+              skippedCount++;
+            }
+          }
         }
+        
+        logger.info(`[BundleTimeoutManager] Memory cache sync completed: ${syncedCount} waves synced, ${skippedCount} waves skipped`);
       }
     } else {
       // Clear memory cache and sync with database
       waveTimeoutCache.clear();
       
       // Register each wave in memory
+      // For FAILED/CANCELLED waves, use extended TTL based on bundle active period
+      // Only sync waves if bundle active period hasn't expired yet
+      let syncedCount = 0;
+      let skippedCount = 0;
+      
       for (const wave of waves) {
-        await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime);
+        if (wave.status === 'IN_PROGRESS') {
+          await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime);
+          syncedCount++;
+        } else if (wave.status === 'FAILED' || wave.status === 'CANCELLED') {
+          try {
+            const bundle = await (prisma as any).bundle.findUnique({
+              where: { id: wave.bundleId },
+              select: { activePeriodDays: true, scheduledAt: true }
+            });
+            
+            if (bundle) {
+              const actualStartTime = wave.startTime;
+              const activePeriodDays = (bundle.activePeriodDays ?? 1);
+              const activePeriodEnd = new Date(
+                actualStartTime.getTime() + 
+                (activePeriodDays * 24 * 60 * 60 * 1000)
+              );
+              const now = new Date();
+              
+              // Check if active period has expired
+              if (now > activePeriodEnd) {
+                logger.info(`[BundleTimeoutManager] Skipping ${wave.status} wave ${wave.id} - bundle active period expired`);
+                skippedCount++;
+                continue;
+              }
+              
+              const ttlSeconds = Math.max(
+                Math.ceil((activePeriodEnd.getTime() - now.getTime()) / 1000),
+                3600
+              );
+              const extendedTimeoutMs = ttlSeconds * 1000;
+              await registerWaveTimeout(wave.id, wave.bundleId, wave.startTime, extendedTimeoutMs);
+              syncedCount++;
+            } else {
+              skippedCount++;
+            }
+          } catch (err: any) {
+            skippedCount++;
+          }
+        }
       }
       
-      logger.info(`[BundleTimeoutManager] Memory cache synced with ${waveTimeoutCache.size} waves`);
+      logger.info(`[BundleTimeoutManager] Memory cache sync completed: ${syncedCount} waves synced, ${skippedCount} waves skipped (active period expired or bundle not found)`);
     }
   } catch (e: any) {
     logger.error(`[BundleTimeoutManager] Failed to sync cache with database: ${String(e?.message || e)}`);

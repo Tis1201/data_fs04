@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { socketStore } from '$lib/stores/websocket-store';
+import { sseStore } from '$lib/stores/sse-store';
 import { browser } from '$app/environment';
 
 interface RoomState {
@@ -14,66 +14,84 @@ interface RoomState {
 function createRoomStore() {
   const { subscribe, set, update } = writable<RoomState>({});
 
-  // Event-driven room message handling (consistent with webrtc-store)
+  // Event-driven room message handling via SSE
   if (browser) {
-    socketStore.on('room', (msg: any) => {
-      console.log('[roomStore] Received room message:', msg);
-      switch (msg.action) {
+    sseStore.on('room', (message: any) => {
+      console.log('[roomStore] Received room message via SSE:', message);
+      
+      // Extract payload from SSE message format
+      const payload = message.data?.payload || message.data || message.payload;
+      const action = payload?.action;
+      
+      if (!action) {
+        console.warn('[roomStore] No action in room message:', message);
+        return;
+      }
+      
+      switch (action) {
         case 'created': {
           // Accept both legacy (status) and new flat payloads
-          if (msg.status) {
-  update(r => ({
-    ...r,
-    roomId: msg.roomId,
-    status: {
-      ...msg.status,
-      participants: msg.status.participants || [],
-      password: msg.status.password ?? msg.password // always include password if present
-    },
-    error: undefined // Only clear error on successful creation
-  }));
-} else {
-  update(r => ({
-    ...r,
-    roomId: msg.id,
-    status: {
-      id: msg.id,
-      name: msg.name,
-      description: msg.description,
-      participantCount: msg.participantCount,
-      maxParticipants: msg.maxParticipants,
-      hasPassword: msg.hasPassword,
-      lastActivity: msg.lastActivity,
-      createdAt: msg.createdAt,
-      metadata: msg.metadata,
-      admins: msg.admins,
-      createdBy: msg.createdBy,
-      participants: msg.participants || [],
-      password: msg.password // always include password if present
-    },
-    error: undefined // Only clear error on successful creation
-  }));
-}
+          if (payload.status) {
+            update(r => ({
+              ...r,
+              roomId: payload.roomId,
+              status: {
+                ...payload.status,
+                participants: payload.status.participants || [],
+                password: payload.status.password ?? payload.password // always include password if present
+              },
+              error: undefined // Only clear error on successful creation
+            }));
+          } else {
+            update(r => ({
+              ...r,
+              roomId: payload.id,
+              status: {
+                id: payload.id,
+                name: payload.name,
+                description: payload.description,
+                participantCount: payload.participantCount,
+                maxParticipants: payload.maxParticipants,
+                hasPassword: payload.hasPassword,
+                lastActivity: payload.lastActivity,
+                createdAt: payload.createdAt,
+                metadata: payload.metadata,
+                admins: payload.admins,
+                createdBy: payload.createdBy,
+                participants: payload.participants || [],
+                password: payload.password // always include password if present
+              },
+              error: undefined // Only clear error on successful creation
+            }));
+          }
+          break;
+        }
+        case 'joined': {
+          console.log('[roomStore] Room joined:', payload);
+          // Update room status if needed
+          break;
+        }
+        case 'left': {
+          console.log('[roomStore] Room left:', payload);
+          // Update room status if needed
           break;
         }
         case 'error': {
-          update(r => ({ ...r, error: msg.error }));
+          update(r => ({ ...r, error: payload.error }));
           break;
         }
         case 'list': {
-          if (msg.rooms) {
-            update(r => ({ ...r, rooms: msg.rooms }));
+          if (payload.rooms) {
+            update(r => ({ ...r, rooms: payload.rooms }));
           }
           break;
         }
         // Add more cases as needed
         default:
-          // Optionally handle unknown actions or status
+          console.log('[roomStore] Unknown room action:', action);
           break;
       }
       // Do not clear error on other room actions
-
-      // Add other room actions as needed
     });
     // // Backward compatibility for legacy 'room:create' messages
     // socketStore.on('room:create', (msg: any) => {
@@ -90,49 +108,81 @@ function createRoomStore() {
     // });
   }
 
-  function sendOrWarn(payload: any, label: string) {
-    if (typeof socketStore.send === 'function') {
-      socketStore.send(payload);
-      console.log(`${label} sent via socketStore.send`);
-    } else {
-      console.warn(`[roomStore] socketStore.send is not available, cannot send:`, payload);
-    }
-  }
-
   function clearError() {
     update(r => ({ ...r, error: undefined }));
   }
 
-  function createRoom() {
-    const trySend = () => sendOrWarn({ type: 'room', action: 'create', data: {} }, 'Create');
-    const MAX_RETRIES = 5;
-    const BASE_DELAY = 200;
-    let attempt = 0;
-
-    function attemptSend() {
-      const status = get(socketStore).status;
-      if (status === 'OPEN') {
-        trySend();
-      } else if (attempt < MAX_RETRIES) {
-        attempt++;
-        setTimeout(attemptSend, BASE_DELAY * Math.pow(2, attempt));
-      } else {
-        console.warn('[roomStore] Failed to create room: WebSocket not open after retries');
-      }
+  async function createRoom() {
+    if (!browser) return;
+    try {
+      await sseStore.sendRequest({
+        type: 'room',
+        scope: 'user:self',
+        payload: {
+          action: 'create',
+          data: {}
+        }
+      }, 10000, 'room_create');
+    } catch (error) {
+      console.error('[roomStore] Failed to create room:', error);
+      update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to create room' }));
     }
-    attemptSend();
   }
 
-  function joinRoom(roomId: string, role: string = 'viewer') {
-    sendOrWarn({ type: 'room', action: 'join', roomId, role }, 'Join');
+  async function joinRoom(roomId: string, role: string = 'viewer', password?: string) {
+    if (!browser) return;
+    try {
+      await sseStore.sendRequest({
+        type: 'room',
+        scope: 'user:self',
+        payload: {
+          action: 'join',
+          data: {
+            roomId,
+            role,
+            password
+          }
+        }
+      }, 10000, 'room_join');
+    } catch (error) {
+      console.error('[roomStore] Failed to join room:', error);
+      update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to join room' }));
+    }
   }
 
-  function leaveRoom(roomId: string) {
-    sendOrWarn({ type: 'room', action: 'leave', roomId }, 'Leave');
+  async function leaveRoom(roomId: string) {
+    if (!browser) return;
+    try {
+      await sseStore.sendRequest({
+        type: 'room',
+        scope: 'user:self',
+        payload: {
+          action: 'leave',
+          data: {
+            roomId
+          }
+        }
+      }, 10000, 'room_leave');
+    } catch (error) {
+      console.error('[roomStore] Failed to leave room:', error);
+      update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to leave room' }));
+    }
   }
 
-  function listRooms() {
-    sendOrWarn({ type: 'room', action: 'list' }, 'List');
+  async function listRooms() {
+    if (!browser) return;
+    try {
+      await sseStore.sendRequest({
+        type: 'room',
+        scope: 'user:self',
+        payload: {
+          action: 'list'
+        }
+      }, 10000, 'room_list');
+    } catch (error) {
+      console.error('[roomStore] Failed to list rooms:', error);
+      update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to list rooms' }));
+    }
   }
 
   function reset() {

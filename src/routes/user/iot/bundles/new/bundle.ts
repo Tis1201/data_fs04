@@ -13,6 +13,7 @@ export const bundleSchema = z.object({
     scheduledTime: z.string().optional().nullable(),
     scheduledAtTimezone: z.string().default('UTC').optional().nullable(),
     scheduledAtStartIfMissed: z.boolean().default(false),
+    activePeriodDays: z.coerce.number().int().min(1, 'Active period must be at least 1 day').max(30, 'Active period cannot exceed 30 days').default(1),
     accountId: z.string().optional()
 });
 

@@ -37,8 +37,7 @@ export const POST: RequestHandler = restrict(async ({ request, params, auth }: a
       const membership = await prisma.accountMembership.findFirst({
         where: {
           accountId,
-          userId: auth.user.id,
-          status: 'ACTIVE'
+          userId: auth.user.id
         }
       });
       

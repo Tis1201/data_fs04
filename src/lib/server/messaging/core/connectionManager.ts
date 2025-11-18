@@ -29,7 +29,7 @@ class DefaultConnectionManager {
   }
 
   registerConnection(connection: Connection, ttlSeconds: number = 3600): void {
-    logger.info(`[DEBUG] ConnectionManager received connection:`, {
+    logger.debug(`[ConnectionManager] Received connection:`, {
       hasId: !!connection.meta.id,
       id: connection.meta.id,
       nodeId: connection.meta.nodeId,
@@ -38,9 +38,9 @@ class DefaultConnectionManager {
 
     if (!connection.meta.id && connection.meta.nodeId !== 'device-listen' && connection.meta.nodeId !== 'device-pushpin-listen') {
       (connection.meta as any).id = uuidv4();
-      logger.info(`[DEBUG] Assigned new UUID to connection: ${connection.meta.id}`);
+      logger.debug(`[ConnectionManager] Assigned new UUID to connection: ${connection.meta.id}`);
     } else {
-      logger.info(`[DEBUG] Preserving existing connection ID: ${connection.meta.id}`);
+      logger.debug(`[ConnectionManager] Preserving existing connection ID: ${connection.meta.id}`);
     }
 
     const id = connection.meta.id!; // Now guaranteed to exist
@@ -50,6 +50,12 @@ class DefaultConnectionManager {
     if (!userInfo?.id) {
       logger.error('[ConnectionManager] Cannot register connection without userInfo.id');
       return;
+    }
+
+    // Check if connection with this ID already exists
+    const existingConnection = this.liveConnections.get(id);
+    if (existingConnection) {
+      logger.warn(`[ConnectionManager] Connection ${id} already exists! Overwriting. This may indicate a connection leak or duplicate registration.`);
     }
 
     this.liveConnections.set(id, connection);

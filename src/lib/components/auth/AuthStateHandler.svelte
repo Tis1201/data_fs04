@@ -2,7 +2,6 @@
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
     import { sseStore } from '$lib/stores/sse-store';
-    import { socketStore } from '$lib/stores/websocket-store';
     import { browser } from '$app/environment';
     
     // Track the previous authentication state and route
@@ -11,7 +10,7 @@
     let unsubscribe: () => void;
     let isInitializing = false; // Flag to prevent duplicate connections during mount
     
-    // Function to handle WebSocket and SSE connections based on auth state
+    // Function to handle SSE connections based on auth state
     function handleAuthStateChange(isAuthenticated: boolean, currentPath: string) {
         if (!browser) return;
         
@@ -34,12 +33,9 @@
         if (currentPath.startsWith('/auth/login') || currentPath.startsWith('/auth/logout')) {
             console.log('[AuthStateHandler] Navigating to auth page, FORCE CLOSING all connections');
             try {
-                socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
                 sseStore.disconnect();
-                socketStore.disconnect();
                 sseStore.resetForNewUser();
-                socketStore.resetForNewUser();
             } catch (err) {
                 console.error('[AuthStateHandler] Error force closing connections:', err);
             }
@@ -53,13 +49,7 @@
             console.log('[AuthStateHandler] User logged in, resetting connections');
             // Small delay to ensure auth cookies are set before reconnecting
             setTimeout(() => {
-                socketStore.setAuthEnabled?.(true);
                 sseStore.setAuthEnabled?.(true);
-                // Reset WebSocket connection with new session
-                if (socketStore) {
-                    console.log('[AuthStateHandler] Resetting WebSocket connection');
-                    socketStore.resetForNewUser();
-                }
                 // Reset SSE connection with new session
                 if (sseStore) {
                     console.log('[AuthStateHandler] Resetting SSE connection');
@@ -76,10 +66,8 @@
             console.log('[AuthStateHandler] User logged out, force disconnecting ALL connections');
             // Force immediate disconnection of ALL connections
             try {
-                socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
                 sseStore.disconnect();
-                socketStore.disconnect();
             } catch (err) {
                 console.warn('[AuthStateHandler] Error disconnecting stores:', err);
             }
@@ -88,9 +76,6 @@
             try {
                 if (sseStore.resetForNewUser) {
                     sseStore.resetForNewUser();
-                }
-                if (socketStore.resetForNewUser) {
-                    socketStore.resetForNewUser();
                 }
             } catch (err) {
                 console.warn('[AuthStateHandler] Error resetting stores:', err);
@@ -101,11 +86,6 @@
         // If we're navigating to a user route and connections are not open
         else if (isAuthenticated && isRouteChange && currentPath.startsWith('/user')) {
             console.log('[AuthStateHandler] Navigating to user route, checking connections');
-            // Check WebSocket connection
-            if (socketStore && socketStore.status !== 'OPEN') {
-                console.log('[AuthStateHandler] WebSocket not connected, resetting');
-                socketStore.resetForNewUser();
-            }
             // Check SSE connection
             if (sseStore && !sseStore.isConnected) {
                 console.log('[AuthStateHandler] SSE not connected, resetting');
@@ -117,11 +97,6 @@
         }
         // If we're authenticated but connections are not open
         else if (isAuthenticated) {
-            // Check WebSocket
-            if (socketStore && socketStore.status !== 'OPEN') {
-                console.log('[AuthStateHandler] Authenticated but WebSocket not connected, resetting');
-                socketStore.resetForNewUser();
-            }
             // Check SSE
             if (sseStore && !sseStore.isConnected) {
                 console.log('[AuthStateHandler] Authenticated but SSE not connected, resetting');
@@ -135,12 +110,7 @@
         else if (!isAuthenticated) {
             console.log('[AuthStateHandler] Not authenticated, ensuring all connections are closed');
             try {
-                socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
-                if (socketStore && socketStore.status === 'OPEN') {
-                    console.log('[AuthStateHandler] Force closing WebSocket connection');
-                    socketStore.disconnect();
-                }
                 if (sseStore && sseStore.isConnected) {
                     console.log('[AuthStateHandler] Force closing SSE connection');
                     sseStore.disconnect();
@@ -149,9 +119,6 @@
                 // Additional cleanup to ensure no lingering connections
                 if (sseStore.resetForNewUser) {
                     sseStore.resetForNewUser();
-                }
-                if (socketStore.resetForNewUser) {
-                    socketStore.resetForNewUser();
                 }
             } catch (err) {
                 console.warn('[AuthStateHandler] Error during cleanup:', err);
@@ -181,12 +148,7 @@
         // Initial connection check
         if (previousAuthState) {
             console.log('[AuthStateHandler] Initial mount: Connecting with authenticated user');
-            socketStore.setAuthEnabled?.(true);
             sseStore.setAuthEnabled?.(true);
-            // Reset WebSocket connection to ensure fresh session
-            if (socketStore) {
-                socketStore.resetForNewUser();
-            }
             // Reset and connect SSE to ensure fresh session
             if (sseStore) {
                 sseStore.resetForNewUser();
@@ -207,7 +169,6 @@
             const isAuthenticated = !!$page.data.user;
             const currentPath = $page.url.pathname;
             if (!isAuthenticated) {
-                socketStore.setAuthEnabled?.(false);
                 sseStore.setAuthEnabled?.(false);
             }
             handleAuthStateChange(isAuthenticated, currentPath);
@@ -217,7 +178,6 @@
         const handleBeforeUnload = () => {
             console.log('[AuthStateHandler] Page unloading, cleaning up');
             sseStore.disconnect();
-            socketStore.disconnect();
         };
         
         window.addEventListener('beforeunload', handleBeforeUnload);

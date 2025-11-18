@@ -8,13 +8,11 @@
 	import { page } from "$app/stores";
     
 	import { deviceStore } from "$lib/stores/device-store";
-	import { socketStore } from "$lib/stores/websocket-store";
 	import { onDestroy, onMount } from "svelte";
 	import { browser } from "$app/environment";
 	import { ArrowLeft, Terminal as TerminalIcon } from "lucide-svelte";
 	import { Button } from "$lib/components/ui/button";
-	import { WebRTCClient } from "./webrtc-client";
-	import { webRTCStore } from "$lib/stores/webrtc-store";
+	import { sseStore } from "$lib/stores/sse-store";
 	import TerminalContainer from "$lib/components/ui_components_sveltekit/terminal/TerminalContainer.svelte";
 	import { AdminPageLayout, AdminCard } from "$lib/components/admin";
     
@@ -28,20 +26,14 @@
 
 	// State variables
 	let terminalInstance: Terminal | undefined;
-	let webrtcClient: WebRTCClient | undefined;
 	let connecting = false;
 	let connected = false;
 	
 	// Track resources for cleanup
-	let pingInterval: ReturnType<typeof setInterval> | null = null;
 	let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-	let unsubscribeWebRTC: (() => void) | undefined;
 	let fitAddon: any;
-
-	// Subscribe to the deviceStore for all device-related events
-	let unsubscribeDevice: () => void;
-	let previousTerminalMessage: any = null;
-	let previousWebRTCMessage: any = null;
+	let unsubscribeTerminalOutput: (() => void) | undefined;
+	let unsubscribeDevice: (() => void) | undefined;
 
 	
 	// Define breadcrumbs for this page
@@ -101,144 +93,132 @@
 
 	/****************************************************************************
 	 * 
-	 * Init Device Connection 
+	 * Init Device Connection (SSE-based)
 	 * 
 	 ****************************************************************************/
 	function initDevice(terminal: Terminal) {
-		terminal.write(
-			`\r\nPlease wait...\r\n`,
-		);
+		terminal.write(`\r\nConnecting to device terminal...\r\n`);
 
-		// Ensure webrtcClient is initialized
-		if (!webrtcClient) {
-			console.error('[Terminal] WebRTC client not initialized, cannot init device');
-			terminal.write("\r\n\x1b[1;31mError: WebRTC client not initialized\x1b[0m\r\n");
-			return;
+		// Ensure SSE connection is established
+		if (!$sseStore.isConnected) {
+			console.log('[Terminal] SSE not connected, connecting...');
+			sseStore.connect();
 		}
 
-		// Set terminal callback for WebRTC client to handle terminal output
-		webrtcClient.setTerminalCallback((message) => {
-			if (terminalInstance) {
-				terminalInstance.write(message);
-			}
-		});
-		
-		// Set up data channel open callback - this is triggered when the data channel is ready for use
-		webrtcClient.setDataChannelOpenCallback((dataChannel) => {
+		// Send terminal connect message
+		sendTerminalConnect();
 
-			
-			// Update WebRTC store to reflect the open data channel
-			webRTCStore.update(state => ({
-				...state,
-				dataChannelStatus: 'open'
-			}));
-			
-			// Send terminal dimensions when data channel is open
-			if (terminalInstance && fitAddon && webrtcClient) {
-				try {
-					const dimensions = fitAddon.proposeDimensions();
-					if (dimensions) {
-						webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-					}
-				} catch (error) {
-					console.error("Error sending terminal dimensions:", error);
+		// Send terminal dimensions when ready
+		if (terminalInstance && fitAddon) {
+			try {
+				const dimensions = fitAddon.proposeDimensions();
+				if (dimensions) {
+					sendTerminalResize(dimensions.rows, dimensions.cols);
 				}
+			} catch (error) {
+				console.error("Error sending terminal dimensions:", error);
 			}
-			
-			// Send a carriage return to bring the terminal prompt into view
-			if (webrtcClient) {
-				webrtcClient.sendTerminalInput('\r');
-			}
-		});
-		
-		// Set up connection state callback - this is triggered when the WebRTC connection state changes
-		webrtcClient.setConnectionStateCallback((state) => {
-
-			
-			// Update WebRTC store with the new connection state
-			webRTCStore.update(currentState => ({
-				...currentState,
-				connectionState: state
-			}));
-			
-			// Update terminal with connection state changes
-			if (terminalInstance) {
-				if (state === 'connected') {
-					terminalInstance.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
-					connecting = false;
-					connected = true;
-				} else if (state === 'disconnected') {
-					// Don't change UI immediately for disconnected state
-					// as it might reconnect automatically
-					console.log('Connection disconnected - may reconnect automatically');
-				} else if (state === 'failed' || state === 'closed') {
-					connecting = false;
-					connected = false;
-					
-					// Show reconnection message
-					terminalInstance.write("\r\n\x1b[1;33mConnection lost. Reconnecting...\x1b[0m");
-					
-					// Attempt to reconnect after a brief delay
-					setTimeout(() => {
-						console.log('Attempting to reconnect...');
-						connecting = true;
-						if (webrtcClient) {
-							webrtcClient.connect();
-						}
-					}, 2000);
-				}
-			}
-		});
-
-		// Initialize WebRTC connection
-		if (webrtcClient) {
-			webrtcClient.connect();
 		}
+
+		// Send a carriage return to bring the terminal prompt into view
+		setTimeout(() => {
+			sendTerminalInput('\r');
+		}, 500);
+
+		connecting = false;
+		connected = true;
+		terminal.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
 	}
 
 	/****************************************************************************
 	 * 
-	 * Handle Terminal Messages 
+	 * Send Terminal Messages via SSE
 	 * 
 	 ****************************************************************************/
-	function handleTerminalMessage(message: any) {
-		console.log("[Terminal] ===== TERMINAL MESSAGE HANDLER ======");
-		console.log("[Terminal] Received message:", message);
-		console.log("[Terminal] Terminal instance:", !!terminalInstance);
-		console.log("[Terminal] Device ID:", deviceId);
-		
+	function sendTerminalConnect() {
+		sseStore.sendRequest({
+			type: 'terminal',
+			scope: 'user:self',
+			payload: {
+				type: 'terminal:connect',
+				deviceId: deviceId
+			}
+		}).catch(error => {
+			console.error('[Terminal] Failed to send connect message:', error);
+			if (terminalInstance) {
+				terminalInstance.write("\r\n\x1b[1;31mError: Failed to connect to terminal\x1b[0m\r\n");
+			}
+		});
+	}
+
+	function sendTerminalInput(input: string) {
+		// Process input - handle line endings consistently
+		let processedInput = input;
+		if (processedInput === '\r\n' || processedInput === '\n') {
+			processedInput = '\r';
+		}
+
+		sseStore.sendRequest({
+			type: 'terminal',
+			scope: 'user:self',
+			payload: {
+				type: 'terminal:input',
+				deviceId: deviceId,
+				input: processedInput
+			}
+		}).catch(error => {
+			console.error('[Terminal] Failed to send input:', error);
+		});
+	}
+
+	function sendTerminalResize(rows: number, cols: number) {
+		sseStore.sendRequest({
+			type: 'terminal',
+			scope: 'user:self',
+			payload: {
+				type: 'terminal:resize',
+				deviceId: deviceId,
+				rows: rows,
+				cols: cols
+			}
+		}).catch(error => {
+			console.error('[Terminal] Failed to send resize:', error);
+		});
+	}
+
+	/****************************************************************************
+	 * 
+	 * Handle Terminal Output from SSE
+	 * 
+	 ****************************************************************************/
+	function handleTerminalOutput(message: any) {
 		if (!terminalInstance || !message) {
-			console.log("[Terminal] Missing terminal instance or message");
 			return;
 		}
+
+		// Extract data from message - handle both direct payload and nested payload structures
+		const rawData = message.data || message.payload || message;
+		const data = rawData.payload || rawData; // Support nested payload structure
+		const deviceIdFromMessage = data.deviceId || rawData.deviceId || data.device_id || rawData.device_id;
 		
 		// Only process messages for this specific device
-		if (message.deviceId !== deviceId) {
-			console.log("[Terminal] Message not for this device:", message.deviceId, "!=", deviceId);
+		if (deviceIdFromMessage && deviceIdFromMessage !== deviceId) {
 			return;
 		}
-		
-		console.log("[Terminal] Processing terminal message:", message);
-		
-		// Handle different terminal message types
-		switch (message.type) {
-			case "terminal-response":
-				if (message.output) {
-					terminalInstance.write(`${message.output}\r\n`);
-				}
-				break;
-				
-			case "terminal-connected":
-				terminalInstance.write(
-					"\r\n\x1b[1;32mConnected to device terminal!\x1b[0m\r\n"
-				);
-				break;
-				
-			case "terminal-error":
-				terminalInstance.write(
-					`\r\n\x1b[1;31mError: ${message.error || 'Unknown error'}\x1b[0m\r\n`
-				);
-				break;
+
+		// Handle terminal output
+		if (data.type === 'terminal:output' || rawData.type === 'terminal:output' || message.event === 'terminal:output') {
+			// Check multiple possible locations for output
+			const output = data.output || rawData.output || data.data || rawData.data || '';
+			if (output) {
+				console.log('[Terminal] Writing output to terminal:', output.substring(0, 100));
+				terminalInstance.write(output);
+			} else {
+				console.warn('[Terminal] Received terminal:output message but no output found:', { data, rawData, message });
+			}
+		} else if (data.type === 'terminal:error' || rawData.type === 'terminal:error' || message.event === 'terminal:error') {
+			const error = data.error || rawData.error || data.message || rawData.message || 'Unknown error';
+			terminalInstance.write(`\r\n\x1b[1;31mError: ${error}\x1b[0m\r\n`);
 		}
 	}
 	
@@ -252,68 +232,69 @@
 		// Only run browser-specific code in the browser environment
 		if (!browser) return;
 		
-		console.log('[Terminal] onMount - Initializing WebRTC client');
+		console.log('[Terminal] onMount - Initializing SSE-based terminal');
 		
-		// Set the deviceId in the device store so WebRTC messages are properly routed
-		deviceStore.updateDevice({ deviceId });
-		console.log('[Terminal] Device ID set in device store:', deviceId);
-		
-		// Initialize WebRTC client fresh on every mount
-		// This ensures reconnection works correctly when navigating back to the terminal page
-		if (webrtcClient) {
-			console.log('[Terminal] Cleaning up existing WebRTC client');
-			webrtcClient.cleanup();
+		// Ensure SSE connection is established
+		if (!$sseStore.isConnected) {
+			console.log('[Terminal] Connecting to SSE...');
+			sseStore.connect();
 		}
-		webrtcClient = new WebRTCClient(deviceId);
-		console.log('[Terminal] New WebRTC client created');
-		
-		// Subscribe to device store
+
+		// Subscribe to device updates so we can receive terminal output
+		// This is required for terminal output messages to reach the UI
+		let lastSubscribedConnectionId: string | null = null;
+		const subscribeToDevice = () => {
+			const connId = sseStore.connectionId;
+			if (!connId || connId === lastSubscribedConnectionId) {
+				return;
+			}
+			console.log('[Terminal] Subscribing to device channel for terminal output:', { deviceId, connId });
+			fetch(`/api/sse/subscribe/device/${deviceId}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				credentials: 'include',
+				body: JSON.stringify({ connectionId: connId })
+			}).then(() => {
+				lastSubscribedConnectionId = connId;
+				console.log('[Terminal] Successfully subscribed to device channel');
+			}).catch((err) => {
+				console.warn('[Terminal] Failed to subscribe to device channel:', err);
+			});
+		};
+
+		// Subscribe immediately if connectionId is available
+		if (sseStore.connectionId) {
+			subscribeToDevice();
+		}
+
+		// Also subscribe when connection is established
+		sseStore.on('connected', (msg: any) => {
+			const connId = msg?.data?.connectionId || sseStore.connectionId;
+			if (connId && connId !== lastSubscribedConnectionId) {
+				subscribeToDevice();
+			}
+		});
+
+		// Subscribe to terminal output events via SSE
+		unsubscribeTerminalOutput = sseStore.on('terminal:output', (message) => {
+			console.log('[Terminal] Received terminal:output via SSE:', message);
+			handleTerminalOutput(message);
+		});
+
+		// Also listen for device:statusUpdate to handle device offline
 		unsubscribeDevice = deviceStore.subscribe(state => {
-			// Handle device status changes
 			if (terminalInstance && state.deviceId === deviceId) {
-				// Show disconnection message if device goes offline
 				if (state.status === 'offline') {
 					terminalInstance.write(
 						"\r\n\x1b[1;31mDevice disconnected. Terminal session ended.\x1b[0m\r\n"
 					);
+					connected = false;
 				}
 			}
-			
-			// Process new terminal messages
-			if (state.latestTerminalMessage && 
-			    state.latestTerminalMessage !== previousTerminalMessage) {
-				previousTerminalMessage = state.latestTerminalMessage;
-				handleTerminalMessage(state.latestTerminalMessage);
-			}
-			
-		// Process new WebRTC messages
-		if (state.latestWebRTCMessage && 
-		    state.latestWebRTCMessage !== previousWebRTCMessage) {
-			console.log('[Terminal] ===== PROCESSING NEW WEBRTC MESSAGE =====');
-			console.log('[Terminal] Latest WebRTC message:', state.latestWebRTCMessage);
-			console.log('[Terminal] Previous WebRTC message:', previousWebRTCMessage);
-			previousWebRTCMessage = state.latestWebRTCMessage;
-			// Handle WebRTC message without await since this is not an async function
-			if (webrtcClient) {
-				webrtcClient.handleWebRTCMessage(state.latestWebRTCMessage).catch(error => {
-					console.error('[Terminal] Error handling WebRTC message:', error);
-				});
-			}
-		}
 		});
-		
-		// Start ping interval
-		// pingInterval = setInterval(() => {
-		// 	if ($webRTCStore.dataChannelStatus === 'open') {
-		// 		webrtcClient.sendPing();
-		// 	}
-		// }, 10000); // Send ping every 10 seconds
 		
 		// Set up window resize handler with debounce
 		window.addEventListener("resize", handleResize);
-		
-		// We no longer need to subscribe to WebRTC store for connection status
-		// as we're now using callbacks directly in the initDevice function
 	});
 
 	/****************************************************************************
@@ -321,28 +302,35 @@
 	 * Lifecycle - OnDestroy 
 	 * 
 	 ****************************************************************************/
-	// Clean up subscription and WebRTC connection on component destroy
+	// Clean up subscriptions on component destroy
 	onDestroy(() => {
 		// Skip cleanup in SSR
 		if (!browser) return;
 		
+		// Send disconnect message
+		if (connected) {
+			sseStore.sendRequest({
+				type: 'terminal',
+				scope: 'user:self',
+				payload: {
+					type: 'terminal:disconnect',
+					deviceId: deviceId
+				}
+			}).catch(error => {
+				console.error('[Terminal] Failed to send disconnect message:', error);
+			});
+		}
+		
 		// Unsubscribe from stores
+		if (unsubscribeTerminalOutput) {
+			unsubscribeTerminalOutput();
+		}
+		
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
 		}
 		
-		// We don't need to unsubscribe from WebRTC store anymore since we're using callbacks
-		// but we'll keep the variable check for backward compatibility
-		if (unsubscribeWebRTC) {
-			unsubscribeWebRTC();
-		}
-		
 		// Clean up timers
-		if (pingInterval) {
-			clearInterval(pingInterval);
-			pingInterval = null;
-		}
-		
 		if (resizeTimeout) {
 			clearTimeout(resizeTimeout);
 			resizeTimeout = null;
@@ -353,24 +341,12 @@
 			window.removeEventListener("resize", handleResize);
 		}
 		
-		// Clean up WebRTC resources
+		// Clean up terminal
 		if (terminalInstance) {
 			terminalInstance.write("\r\n\x1b[1;33mClosing connection...\x1b[0m\r\n");
 		}
 		
-		// Properly clean up WebRTC client
-		if (webrtcClient) {
-			webrtcClient.cleanup();
-		}
-		
-		// Reset WebRTC store state
-		webRTCStore.update(state => ({
-			...state,
-			connectionState: 'closed',
-			dataChannelStatus: 'closed'
-		}));
-		
-		console.log('Terminal component destroyed, WebRTC resources cleaned up');
+		console.log('[Terminal] Component destroyed, resources cleaned up');
 	});
 	
 	// Handle window resize events
@@ -382,19 +358,17 @@
 			clearTimeout(resizeTimeout);
 		}
 		resizeTimeout = setTimeout(() => {
-			if (fitAddon && terminalInstance) {
+			if (fitAddon && terminalInstance && connected) {
 				try {
 					fitAddon.fit();
-					// Send terminal resize event when WebRTC is connected
-					if ($webRTCStore.dataChannelStatus === 'open' && webrtcClient) {
-						const dimensions = fitAddon.proposeDimensions();
-						if (dimensions) {
-							webrtcClient.sendTerminalResize(dimensions.rows, dimensions.cols);
-							console.log(`Terminal resized to ${dimensions.rows} rows x ${dimensions.cols} columns`);
-						}
+					// Send terminal resize event via SSE
+					const dimensions = fitAddon.proposeDimensions();
+					if (dimensions) {
+						sendTerminalResize(dimensions.rows, dimensions.cols);
+						console.log(`[Terminal] Resized to ${dimensions.rows} rows x ${dimensions.cols} columns`);
 					}
 				} catch (error) {
-					console.error("Error fitting terminal on resize:", error);
+					console.error("[Terminal] Error fitting terminal on resize:", error);
 				}
 			}
 		}, 100); // Debounce resize events
@@ -447,19 +421,9 @@
 	function onData(event: CustomEvent<string>) {
 		const data = event.detail;
 		
-		// Handle line endings consistently
-		// The terminal component often sends \r when Enter is pressed
-		// We need to ensure we don't get double line breaks
-		let processedData = data;
-		
-		// Send command to device
-		if (terminalInstance) {
-			// Check if WebRTC data channel is open
-			if ($webRTCStore.dataChannelStatus === 'open' && webrtcClient) {
-				// Send via WebRTC only; do NOT echo locally
-				webrtcClient.sendTerminalInput(processedData);
-			}
-			// Note: sendCommand fallback removed as it's not defined in this context
+		// Send input to device via SSE
+		if (terminalInstance && connected) {
+			sendTerminalInput(data);
 		}
 	}
 
@@ -476,8 +440,8 @@
 		// Special key handling
 		if (data.domEvent.ctrlKey && data.domEvent.key === 'c') {
 			// Handle Ctrl+C - send SIGINT
-			if ($webRTCStore.dataChannelStatus === 'open' && webrtcClient) {
-				webrtcClient.sendTerminalInput('\x03'); // ASCII code for Ctrl+C
+			if (connected) {
+				sendTerminalInput('\x03'); // ASCII code for Ctrl+C
 			}
 		}
 	}

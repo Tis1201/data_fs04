@@ -69,8 +69,8 @@ export const POST = restrict(
             // Handle special commands
             if (command === 'keys') {
                 // For security, only allow certain patterns
-                if (!key.startsWith('device:')) {
-                    return json({ error: 'Only device: key patterns are allowed for security reasons' }, { status: 403 });
+                if (!key.startsWith('device:') && !key.startsWith('presence:device:')) {
+                    return json({ error: 'Only device: and presence:device: key patterns are allowed for security reasons' }, { status: 403 });
                 }
                 
                 // Use the Redis client directly for the KEYS command
@@ -80,6 +80,34 @@ export const POST = restrict(
                 return json({
                     success: true,
                     keys
+                });
+            } else if (command === 'hgetall') {
+                // For security, only allow certain patterns
+                if (!key.startsWith('device:') && !key.startsWith('presence:device:')) {
+                    return json({ error: 'Only device: and presence:device: key patterns are allowed for security reasons' }, { status: 403 });
+                }
+                
+                // Use the Redis client directly for the HGETALL command
+                const result = await redisService.client.hgetall(key);
+                logger.debug(`User ${auth.user.id} executed HGETALL command on key: ${key}`);
+                
+                return json({
+                    success: true,
+                    result
+                });
+            } else if (command === 'ttl') {
+                // For security, only allow certain patterns
+                if (!key.startsWith('device:') && !key.startsWith('presence:device:')) {
+                    return json({ error: 'Only device: and presence:device: key patterns are allowed for security reasons' }, { status: 403 });
+                }
+                
+                // Use the Redis client directly for the TTL command
+                const result = await redisService.client.ttl(key);
+                logger.debug(`User ${auth.user.id} executed TTL command on key: ${key}`);
+                
+                return json({
+                    success: true,
+                    result
                 });
             } else if (command === 'publish') {
                 // Handle publishing messages to devices via the messages channel

@@ -17,7 +17,7 @@
     import { onDestroy, onMount } from "svelte";
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { createClientMessage, type ClientMessage } from "$lib/types/messages";
-    import { socketStore } from "$lib/stores/websocket-store";
+    import { sseStore } from "$lib/stores/sse-store";
   
     export let data: PageData;
     const title = "Create WhatsApp Account";
@@ -183,13 +183,84 @@
     }
 
     // Function to request a new QR code
-    function requestNewQRCode() {
-        const message = createClientMessage('whatsapp', 'user:self', { action: 'request_qr' });
-        socketStore.send(message);
+    async function requestNewQRCode() {
+        console.log('[WHATSAPP_FORM] Requesting new QR code...');
+        
+        // Update connection status to connecting
+        whatsAppStore.update((state) => ({
+            ...state,
+            connectionStatus: 'connecting',
+        }));
+
+        // Wait for SSE to be connected
+        const checkConnection = () => {
+            return new Promise<void>((resolve, reject) => {
+                const unsubscribe = sseStore.subscribe((state) => {
+                    if (state.status === 'OPEN') {
+                        unsubscribe();
+                        resolve();
+                    } else if (state.status === 'CLOSED' && state.error) {
+                        unsubscribe();
+                        reject(new Error('SSE connection failed'));
+                    }
+                });
+                
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    unsubscribe();
+                    reject(new Error('SSE connection timeout'));
+                }, 10000);
+            });
+        };
+
+        try {
+            // Ensure SSE is connected
+            let currentStatus: string | null = null;
+            const unsubscribe = sseStore.subscribe((state) => {
+                currentStatus = state.status;
+            });
+            unsubscribe();
+
+            if (currentStatus !== 'OPEN') {
+                console.log('[WHATSAPP_FORM] SSE not open, connecting...');
+                sseStore.connect('/api/sse', { withCredentials: true });
+                await checkConnection();
+            }
+
+            console.log('[WHATSAPP_FORM] SSE connected, sending QR request...');
+            
+            // Use sendRequest to get a response
+            const response = await sseStore.sendRequest(
+                {
+                    type: 'whatsapp',
+                    scope: 'user:self',
+                    payload: { action: 'request_qr' }
+                },
+                15000, // 15 second timeout
+                'whatsapp_qr'
+            );
+
+            console.log('[WHATSAPP_FORM] QR code request sent successfully:', response);
+        } catch (error) {
+            console.error('[WHATSAPP_FORM] Failed to request QR code:', error);
+            toast.error('Failed to request QR code. Please try again.');
+            whatsAppStore.update((state) => ({
+                ...state,
+                connectionStatus: 'disconnected',
+            }));
+        }
     }
 
-    // Request QR code on mount
-    onMount(requestNewQRCode);
+    // Request QR code on mount, but wait a bit for SSE to connect
+    onMount(() => {
+        // Ensure SSE is connected
+        sseStore.connect('/api/sse', { withCredentials: true });
+        
+        // Wait a bit for SSE to connect, then request QR code
+        setTimeout(() => {
+            requestNewQRCode();
+        }, 500);
+    });
   </script>
   
   <PageContainer crumbs={pageCrumbs}>
@@ -266,13 +337,13 @@
           </div>
   
           <div class="mt-4 flex flex-col gap-2">
-            <!-- Uncomment below button to allow manual QR code request -->
-            <!--
-            <Button variant="outline" size="sm" on:click={requestNewQRCode}>
-              <RefreshCw class="h-4 w-4 mr-2" />
-              Request New QR Code
-            </Button>
-            -->
+            <!-- Button to manually request QR code -->
+            {#if !$whatsAppStore.qrCode && $whatsAppStore.connectionStatus !== 'connecting'}
+              <Button variant="outline" size="sm" on:click={requestNewQRCode}>
+                <RefreshCw class="h-4 w-4 mr-2" />
+                Request QR Code
+              </Button>
+            {/if}
             {#if $whatsAppStore.connectionStatus === 'connected' || $whatsAppStore.connectionStatus === 'authenticated'}
               <Button variant="default" on:click={() => {
                 updateFormFromStore($whatsAppStore);

@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { socketStore } from './websocket-store';
+import { sseStore } from './sse-store';
 
 export interface WhatsAppMessage {
     id: string;
@@ -22,6 +22,7 @@ export interface WhatsAppState {
     accountId: string | null;
     phoneNumber: string | null;
     displayName: string | null; // Standardized name field
+    error: string | null; // Error message from connection failures
 }
 
 const initialState: WhatsAppState = {
@@ -31,17 +32,21 @@ const initialState: WhatsAppState = {
     qrCode: null,
     accountId: null,
     phoneNumber: null,
-    displayName: null
+    displayName: null,
+    error: null
 };
 
 function createWhatsAppStore() {
     const { subscribe, update, set } = writable<WhatsAppState>(initialState);
 
     if (browser) {
-        socketStore.on('whatsapp', (message: any) => {
-            console.log('[WHATSAPP_STORE] Received message:', message);
+        // Listen to SSE whatsapp events
+        sseStore.on('whatsapp', (message: any) => {
+            console.log('[WHATSAPP_STORE] Received SSE message:', message);
 
-            const {action, content} = message.payload || {};
+            // Extract payload from SSE message format
+            const payload = message.data?.payload || message.payload || message.data;
+            const { action, content } = payload || {};
             
             if (!content) {
                 console.error('[WHATSAPP_STORE] Message content is missing:', message);
@@ -62,6 +67,7 @@ function createWhatsAppStore() {
                     break;
 
                 case 'connected':
+                case 'authenticated':
                     // Extract fields with clear naming
                     const { 
                         clientId: connectedClientId, 
@@ -85,7 +91,7 @@ function createWhatsAppStore() {
                     update(state => ({
                         ...state,
                         clientId: connectedClientId,
-                        connectionStatus: 'connected',
+                        connectionStatus: action === 'authenticated' ? 'authenticated' : 'connected',
                         displayName: pushName, // Store as displayName
                         phoneNumber: phoneNumber,
                         accountId: connectedAccountId,
@@ -104,6 +110,22 @@ function createWhatsAppStore() {
                         clientId: disconnectedClientId,
                         connectionStatus: 'disconnected',
                         accountId: disconnectedAccountId,
+                        qrCode: null
+                    }));
+                    break;
+
+                case 'error':
+                    const { clientId: errorClientId, type: errorType, message: errorMessage } = content;
+                    console.error('[WHATSAPP_STORE] Error received:', {
+                        clientId: errorClientId,
+                        type: errorType,
+                        message: errorMessage
+                    });
+                    update(state => ({
+                        ...state,
+                        clientId: errorClientId,
+                        connectionStatus: 'disconnected',
+                        error: errorMessage || 'Unknown error',
                         qrCode: null
                     }));
                     break;

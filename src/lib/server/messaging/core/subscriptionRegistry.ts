@@ -11,8 +11,16 @@ export const subscriptionRegistry: SubscriptionRegistry = {
     },
 
     async addSubscription(key, scope) {
-
         logger.debug(`[SubscriptionRegistry] Adding subscription: ${key} for scope: ${scope}`);
+
+        // Check if subscription already exists to prevent duplicates
+        const existing = await subscriptionSharedStore.getMembers(key);
+        const duplicate = existing.find(sub => sub.scope === scope);
+        
+        if (duplicate) {
+            logger.debug(`[SubscriptionRegistry] Subscription already exists: ${key} for scope: ${scope} (id: ${duplicate.id}). Skipping duplicate.`);
+            return; // Already subscribed, no need to add again
+        }
 
         const subscription: SubscriptionMeta = {
             id: uuidv4(),
@@ -22,7 +30,7 @@ export const subscriptionRegistry: SubscriptionRegistry = {
         
         try {
             await subscriptionSharedStore.addMember(key, subscription);
-            logger.info(`[SubscriptionRegistry] Successfully added subscription: ${key} for scope: ${scope} (id: ${subscription.id})`);
+            logger.debug(`[SubscriptionRegistry] Successfully added subscription: ${key} for scope: ${scope} (id: ${subscription.id})`);
         } catch (error) {
             logger.error(`[SubscriptionRegistry] Failed to add subscription: ${key} for scope: ${scope}: ${error}`);
             throw error;

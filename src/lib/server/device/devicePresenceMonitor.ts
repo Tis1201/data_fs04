@@ -22,20 +22,38 @@ export class DevicePresenceMonitor {
 
     try {
       // Create a separate Redis connection for pub/sub
+      // Note: duplicate() doesn't accept options - we'll handle errors separately
       this.subscriber = this.redis.duplicate();
+
+      // Suppress errors from ready check attempts in subscriber mode
+      // This error is expected when a connection enters subscriber mode
+      this.subscriber.on('error', (err) => {
+        // Ignore "Connection in subscriber mode" errors - this is expected behavior
+        // ioredis tries to run ready checks (like INFO) which fail in subscriber mode
+        if (err.message && (
+          err.message.includes('subscriber mode') ||
+          err.message.includes('only (P)SUBSCRIBE') ||
+          err.message.includes('only subscriber commands')
+        )) {
+          // Silently ignore - this is expected when connection is in subscriber mode
+          return;
+        }
+        // Log other errors
+        logger.error('[PresenceMonitor] Subscriber connection error', {
+          error: err.message,
+          stack: err.stack
+        });
+      });
 
       // Enable keyspace notifications for expired AND deleted events
       // E = Keyevent, x = expired events, K = Keyspace, g = generic commands (includes DEL)
       // This allows us to listen for when presence keys expire OR are deleted
+      // IMPORTANT: Use the main redis connection, not the subscriber (subscriber can't run config)
       await this.redis.config('SET', 'notify-keyspace-events', 'ExKg');
       
       logger.info('[PresenceMonitor] Enabled Redis keyspace notifications for expirations and deletions');
 
-      // Subscribe to both expiration and deletion events for presence:device:* keys
-      // __keyevent@0__:expired - fires when key expires naturally (TTL reaches 0)
-      // __keyevent@0__:del - fires when key is deleted via DEL command
-      await this.subscriber.psubscribe('__keyevent@0__:expired', '__keyevent@0__:del');
-
+      // Set up message handler BEFORE subscribing (to catch messages immediately)
       this.subscriber.on('pmessage', async (pattern, channel, key) => {
         // Only handle presence:device:* keys
         if (key.startsWith('presence:device:')) {
@@ -47,13 +65,38 @@ export class DevicePresenceMonitor {
         }
       });
 
+      // Subscribe to both expiration and deletion events for presence:device:* keys
+      // __keyevent@0__:expired - fires when key expires naturally (TTL reaches 0)
+      // __keyevent@0__:del - fires when key is deleted via DEL command
+      // After this, the subscriber connection will be in subscriber mode
+      await this.subscriber.psubscribe('__keyevent@0__:expired', '__keyevent@0__:del');
+
       this.isRunning = true;
       logger.info('[PresenceMonitor] Started monitoring device presence');
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
       logger.error('[PresenceMonitor] Failed to start', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
+        error: errorMessage,
+        stack: errorStack,
+        errorDetails: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          code: (error as any).code
+        } : null
       });
+      
+      // Clean up subscriber if it was created
+      if (this.subscriber) {
+        try {
+          await this.subscriber.quit();
+        } catch (cleanupError) {
+          logger.warn('[PresenceMonitor] Error cleaning up subscriber during failed start', cleanupError);
+        }
+        this.subscriber = null;
+      }
+      
       throw error;
     }
   }

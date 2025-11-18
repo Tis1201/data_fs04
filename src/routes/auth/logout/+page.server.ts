@@ -4,7 +4,7 @@ import { lucia } from '$lib/server/auth/lucia';
 import { PrismaClient } from '@prisma/client';
 import { logSessionActivity } from '$lib/server/session-logger';
 import { logger } from '$lib/server/logger';
-import { terminateBySessionId } from '$lib/server/websocket/WSManager';
+import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
@@ -33,14 +33,33 @@ async function handleAsyncOperations(sessionId: string, userId: string, request:
             logger.error('Error logging session activity', { error, userId });
         });
 
-        // 3) Terminate WebSocket connections
-        terminateBySessionId(sessionId).then(count => {
-            if (count > 0) {
-                logger.info(`Terminated ${count} WebSocket connections for session ${sessionId}`);
+        // 3) Terminate SSE connections for this user
+        try {
+            const userConnections = await ConnectionManager.getConnectionsByUser(userId);
+            let terminatedCount = 0;
+            for (const connMeta of userConnections) {
+                if (connMeta.id) {
+                    const connection = ConnectionManager.getConnection(connMeta.id);
+                    if (connection) {
+                        try {
+                            // Close the connection gracefully
+                            if (typeof (connection as any).close === 'function') {
+                                await (connection as any).close();
+                            }
+                            ConnectionManager.unregisterConnection(connMeta.id);
+                            terminatedCount++;
+                        } catch (err) {
+                            logger.warn(`Error closing connection ${connMeta.id}:`, err);
+                        }
+                    }
+                }
             }
-        }).catch(error => {
-            logger.error('Error terminating WebSocket connections', { error, sessionId });
-        });
+            if (terminatedCount > 0) {
+                logger.info(`Terminated ${terminatedCount} SSE connections for user ${userId}`);
+            }
+        } catch (error) {
+            logger.error('Error terminating SSE connections', { error, userId });
+        }
 
         // 4) Invalidate the session (this should be last as it might affect other operations)
         lucia.invalidateSession(sessionId).catch(error => {

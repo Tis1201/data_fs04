@@ -54,6 +54,9 @@
     
     // Form locking state
     let formLocked = false;
+    
+    // Track if file is APK/CPK to disable fields
+    let isApkOrCpk = false;
 
     let nativeFileInput: HTMLInputElement | null = null;
     let containerRef: HTMLDivElement;
@@ -105,6 +108,11 @@
         // Parse file if it's a supported format
         const fileName = file.name.toLowerCase();
         const isSupportedFile = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk');
+        const isApk = fileName.endsWith('.apk');
+        const isCpk = fileName.endsWith('.cpk');
+        
+        // Set flag for APK/CPK files
+        isApkOrCpk = isApk || isCpk;
         
         if (isSupportedFile) {
             zipParsing = true;
@@ -161,16 +169,23 @@
                     zipParseError = result.error || 'Failed to parse file';
                     uploadError = `File parsing failed: ${zipParseError}`;
                     console.log('[File Upload] Parse failed:', { zipParseError, uploadError });
+                    // If parsing failed, allow manual entry
+                    isApkOrCpk = false;
                 }
             } catch (error) {
                 zipParseError = 'Failed to parse file';
                 uploadError = `File parsing failed: ${zipParseError}`;
                 console.error('[File Upload] Parse exception:', error);
+                // If parsing failed, allow manual entry
+                isApkOrCpk = false;
             } finally {
                 zipParsing = false;
                 formLocked = false; // Unlock the form after file parsing
                 console.log('[File Upload] Parsing complete - formLocked:', formLocked);
             }
+        } else {
+            // Not an APK/CPK, allow manual entry
+            isApkOrCpk = false;
         }
     }
 
@@ -243,6 +258,7 @@
         zipParseError = '';
         zipParsing = false;
         formLocked = false; // Unlock form when file is removed
+        isApkOrCpk = false; // Reset flag when file is removed
         
         if (['image', 'video', 'document', 'file'].includes($form.type)) {
             $form.path = '';
@@ -482,9 +498,16 @@
                                     bind:value={$form.name}
                                     placeholder="Enter resource name"
                                     aria-invalid={(nameError || $errors.name) ? 'true' : undefined}
-                                    disabled={formLocked}
+                                    disabled={formLocked || isApkOrCpk}
+                                    readonly={isApkOrCpk}
+                                    class={isApkOrCpk ? 'bg-muted cursor-not-allowed' : ''}
                                     {...$constraints.name}
                             />
+                            {#if isApkOrCpk}
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Resource name is automatically extracted from the APK/CPK file
+                                </p>
+                            {/if}
                         </FormField>
 
                         <!-- Target selection remains -->
@@ -513,12 +536,20 @@
                                     bind:value={$form.version}
                                     placeholder="1.0.0"
                                     aria-invalid={$errors.version ? 'true' : undefined}
-                                    disabled={formLocked}
+                                    disabled={formLocked || isApkOrCpk}
+                                    readonly={isApkOrCpk}
+                                    class={isApkOrCpk ? 'bg-muted cursor-not-allowed' : ''}
                                     {...$constraints.version}
                             />
-                            <p class="text-xs text-muted-foreground mt-1">
-                                Version number for binary resources
-                            </p>
+                            {#if isApkOrCpk}
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Version is automatically extracted from the APK/CPK file
+                                </p>
+                            {:else}
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Version number for binary resources
+                                </p>
+                            {/if}
                         </FormField>
 
                         <FormField id="packageName" label="Package Name" error={$errors.packageName}>
@@ -528,12 +559,20 @@
                                     bind:value={$form.packageName}
                                     placeholder="com.example.app"
                                     aria-invalid={$errors.packageName ? 'true' : undefined}
-                                    disabled={formLocked}
+                                    disabled={formLocked || isApkOrCpk}
+                                    readonly={isApkOrCpk}
+                                    class={isApkOrCpk ? 'bg-muted cursor-not-allowed' : ''}
                                     {...$constraints.packageName}
                             />
-                            <p class="text-xs text-muted-foreground mt-1">
-                                Package name for binary resources
-                            </p>
+                            {#if isApkOrCpk}
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Package name is automatically extracted from the APK/CPK file
+                                </p>
+                            {:else}
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Package name for binary resources
+                                </p>
+                            {/if}
                         </FormField>
                     </FormRow>
 

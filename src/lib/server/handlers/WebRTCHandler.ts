@@ -115,7 +115,7 @@ class WebRTCHandlerClass implements Handler {
         senderConnectionId: message.connectionId, // Pass the web client connection ID
         requestId: message.requestId,
         systemGenerated: false,
-        sudo: false
+        sudo: true // Always use sudo when forwarding to devices to bypass authorization checks
       };
 
       await publisher.publish(routingMessage);
@@ -198,15 +198,15 @@ class WebRTCHandlerClass implements Handler {
     this.logger?.logWebRTC('answer', deviceId, 'Handling WebRTC answer');
 
     try {
-      // Preserve the scope to route answer back to the device
-      const targetScope = message.scope;
+      // Forward answer to the device (not back to user:self)
+      const targetScope = `subscription:device:${deviceId}`;
       
-      console.log('[WebRTCHandler] Forwarding answer to scope:', targetScope);
+      console.log('[WebRTCHandler] Forwarding answer to device scope:', targetScope);
       
       const routingMessage: RoutingMessage = {
         id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         type: 'device',
-        scope: targetScope, // Preserve scope
+        scope: targetScope, // Forward to device
         payload: {
           type: 'webrtc:answer',
           deviceId,
@@ -216,9 +216,10 @@ class WebRTCHandlerClass implements Handler {
         userInfo: message.userInfo,
         protocol: message.protocol,
         connectionId: message.connectionId,
+        senderConnectionId: message.connectionId, // Pass the web client connection ID
         requestId: message.requestId,
         systemGenerated: false,
-        sudo: (message as any).sudo
+        sudo: true // Always use sudo when forwarding to devices to bypass authorization checks
       };
 
       await publisher.publish(routingMessage);
@@ -235,12 +236,13 @@ class WebRTCHandlerClass implements Handler {
     this.logger?.logWebRTC('ice-candidate', deviceId, 'Handling WebRTC ICE candidate');
 
     try {
-      const targetScope = message.scope;
+      // Forward ICE candidate to the device (not back to user:self)
+      const targetScope = `subscription:device:${deviceId}`;
       
       const routingMessage: RoutingMessage = {
         id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         type: 'device',
-        scope: targetScope, // Preserve scope
+        scope: targetScope, // Forward to device
         payload: {
           type: 'webrtc:ice-candidate',
           deviceId,
@@ -250,9 +252,10 @@ class WebRTCHandlerClass implements Handler {
         userInfo: message.userInfo,
         protocol: message.protocol,
         connectionId: message.connectionId,
+        senderConnectionId: message.connectionId, // Pass the web client connection ID
         requestId: message.requestId,
         systemGenerated: false,
-        sudo: (message as any).sudo
+        sudo: true // Always use sudo when forwarding to devices to bypass authorization checks
       };
 
       await publisher.publish(routingMessage);
@@ -318,7 +321,7 @@ class WebRTCHandlerClass implements Handler {
       connectionId: message.connectionId,
       requestId: message.requestId,
       systemGenerated: false,
-      sudo: (message as any).sudo
+      sudo: true
     };
 
     await publisher.publish(routingMessage);

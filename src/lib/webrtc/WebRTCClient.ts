@@ -1,7 +1,7 @@
 // Centralized WebRTCClient used by both admin and user routes
 // Moved from route-specific implementations to avoid duplication.
 
-import { socketStore } from "$lib/stores/websocket-store";
+import { sseStore } from "$lib/stores/sse-store";
 import { webRTCStore } from "$lib/stores/webrtc-store";
 import type { WebRTCMessage } from "$lib/stores/webrtc-store";
 
@@ -50,7 +50,7 @@ export class WebRTCClient {
   connect() {
     console.log('[WebRTCClient] ===== INITIATING CONNECTION =====');
     console.log('[WebRTCClient] Device ID:', this.deviceId);
-    console.log('[WebRTCClient] Socket store available:', !!socketStore);
+    console.log('[WebRTCClient] SSE store available:', !!sseStore);
     
     // Clean up any existing connection before connecting
     if (this.peerConnection || this.dataChannel) {
@@ -58,22 +58,29 @@ export class WebRTCClient {
       this.cleanup();
     }
     
-    const message = {
-      type: 'device',
-      payload: { action: 'message', type: 'webrtc:connect', deviceId: this.deviceId },
-      scope: `subscription:device:${this.deviceId}`
-    };
-    console.log('[WebRTCClient] ===== PREPARING TO SEND CONNECT MESSAGE =====');
-    console.log('[WebRTCClient] Message object:', JSON.stringify(message, null, 2));
-    console.log('[WebRTCClient] Calling socketStore.send()...');
-    
-    try {
-      socketStore.send(message);
-      console.log('[WebRTCClient] ✅ socketStore.send() called successfully');
-    } catch (error) {
-      console.error('[WebRTCClient] ❌ Error calling socketStore.send():', error);
-      console.error('[WebRTCClient] Error stack:', error instanceof Error ? error.stack : 'No stack');
+    // Ensure SSE connection is established
+    if (!sseStore.isConnected) {
+      console.log('[WebRTCClient] SSE not connected, connecting...');
+      sseStore.connect('/api/sse', { withCredentials: true });
     }
+    
+    console.log('[WebRTCClient] ===== PREPARING TO SEND CONNECT MESSAGE VIA SSE =====');
+    
+    // Send webrtc:connect via SSE (fire-and-forget, no response needed)
+    sseStore.sendMessageWithoutResponse({
+      type: 'device',
+      scope: 'user:self',
+      payload: {
+        action: 'message',
+        type: 'webrtc:connect',
+        deviceId: this.deviceId
+      }
+    }).then(() => {
+      console.log('[WebRTCClient] ✅ webrtc:connect sent via SSE successfully');
+    }).catch(error => {
+      console.error('[WebRTCClient] ❌ Error sending webrtc:connect via SSE:', error);
+      console.error('[WebRTCClient] Error stack:', error instanceof Error ? error.stack : 'No stack');
+    });
   }
 
   setTerminalCallback(cb: TerminalOutputCallback) {
@@ -355,18 +362,20 @@ export class WebRTCClient {
         this.peerConnection.onicecandidate = (event) => {
           console.log('[WebRTCClient] ICE candidate generated:', event.candidate);
           if (event.candidate) {
-            const iceMessage = {
+            // Send ICE candidate via SSE (fire-and-forget, no response needed)
+            sseStore.sendMessageWithoutResponse({
               type: 'device',
-              payload: { 
-                action: 'message', 
-                type: 'webrtc:ice-candidate', 
-                deviceId: this.deviceId, 
+              scope: 'user:self',
+              payload: {
+                action: 'message',
+                type: 'webrtc:ice-candidate',
+                deviceId: this.deviceId,
                 candidate: event.candidate.toJSON()
-              },
-              scope: "subscription:device:" + this.deviceId
-            };
-            console.log('[WebRTCClient] Sending ICE candidate:', iceMessage);
-            socketStore.send(iceMessage);
+              }
+            }).catch(error => {
+              // Silently fail for ICE candidates to avoid console spam
+              console.debug('[WebRTCClient] Failed to send ICE candidate via SSE:', error);
+            });
           } else {
             console.log('[WebRTCClient] ICE candidate gathering complete');
           }
@@ -490,21 +499,23 @@ export class WebRTCClient {
       await this.peerConnection.setLocalDescription(answer);
       console.log('[WebRTCClient] Step 10: Local description set successfully, signalingState:', this.peerConnection.signalingState);
       
-      const answerMessage = {
-        type: 'device',
-        payload: { 
-          action: 'message', 
-          type: 'webrtc:answer', 
-          deviceId: this.deviceId, 
-          sdp: this.peerConnection.localDescription?.sdp 
-        },
-        scope: "subscription:device:" + this.deviceId
-      };
+      console.log('[WebRTCClient] Step 11: Sending answer message via SSE');
       
-      console.log('[WebRTCClient] Step 11: Sending answer message');
-      console.log('[WebRTCClient] Answer message:', answerMessage);
-      socketStore.send(answerMessage);
-      console.log('[WebRTCClient] Step 12: Answer sent successfully!');
+      // Send webrtc:answer via SSE (fire-and-forget, no response needed)
+      sseStore.sendMessageWithoutResponse({
+        type: 'device',
+        scope: 'user:self',
+        payload: {
+          action: 'message',
+          type: 'webrtc:answer',
+          deviceId: this.deviceId,
+          sdp: this.peerConnection.localDescription?.sdp
+        }
+      }).then(() => {
+        console.log('[WebRTCClient] Step 12: Answer sent successfully via SSE!');
+      }).catch(error => {
+        console.error('[WebRTCClient] Failed to send answer via SSE:', error);
+      });
     } catch (error: any) {
       console.error('[WebRTCClient] CRITICAL ERROR in handleOffer:', error);
       console.error('[WebRTCClient] Error stack:', error.stack);

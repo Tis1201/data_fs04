@@ -1,5 +1,6 @@
 <script lang="ts">
     import DeviceTable from "./table.svelte";
+    import DeviceStatistics from "./DeviceStatistics.svelte";
     import { Plus } from "lucide-svelte";
     import type { PageData } from "./$types";
     import { goto } from "$app/navigation";
@@ -13,7 +14,7 @@
 
     export let data: PageData;
 
-    $: ({ devices: records, meta, availableTags } = data);
+    $: ({ devices: records, meta, availableTags, deviceStats } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
     $: props = { records: records as any, availableTags, pagination, sort, loading };
@@ -93,6 +94,10 @@
             />
         </svelte:fragment>
     </PageHeader>
+
+    {#if deviceStats}
+        <DeviceStatistics stats={deviceStats} />
+    {/if}
 
     <DeviceTable {props} />
 </PageContainer>

@@ -27,6 +27,9 @@ export async function startBundleStatusScheduler() {
   isStarting = true;
   
   try {
+    // Always stop file-based poller first to ensure only one polling mechanism is active
+    stopFileBasedPoller();
+    
     if (USE_CLICKHOUSE) {
       logger.info(`[BundleStatusScheduler] Starting with ClickHouse (interval=${POLL_MS}ms)`);
       
@@ -62,12 +65,15 @@ export async function startBundleStatusScheduler() {
       const connected = await testClickHouseConnection();
       if (!connected) {
         logger.error('[BundleStatusScheduler] ClickHouse connection failed, falling back to file-based polling');
+        // Ensure file-based poller is stopped before starting it (in case it was already running)
+        stopFileBasedPoller();
         timer = startFileBasedPoller();
         
         // Start timeout manager even for file-based polling
         try {
+          logger.info(`[BundleStatusScheduler] Syncing timeout cache with database...`);
           await syncCacheWithDatabase();
-          logger.info(`[BundleStatusScheduler] Timeout cache synced with database`);
+          logger.info(`[BundleStatusScheduler] Timeout cache sync completed`);
         } catch (e: any) {
           logger.error(`[BundleStatusScheduler] Failed to sync timeout cache: ${String(e?.message || e)}`);
         }
@@ -94,8 +100,14 @@ export async function startBundleStatusScheduler() {
         }
       }, POLL_MS);
 
-      // Sync timeout cache with database on startup
-      await syncCacheWithDatabase();
+      // Sync timeout cache with database on startup (after Redis is ready)
+      try {
+        logger.info(`[BundleStatusScheduler] Syncing timeout cache with database...`);
+        await syncCacheWithDatabase();
+        logger.info(`[BundleStatusScheduler] Timeout cache sync completed`);
+      } catch (e: any) {
+        logger.error(`[BundleStatusScheduler] Failed to sync timeout cache: ${String(e?.message || e)}`);
+      }
 
       // Start a separate timeout checker that runs every 30 seconds
       timeoutTimer = setInterval(async () => {
@@ -109,12 +121,15 @@ export async function startBundleStatusScheduler() {
 
       logger.info(`[BundleStatusScheduler] Started successfully with ClickHouse (interval=${POLL_MS}ms) and standalone timeout checker (30s)`);
     } else {
+      // Ensure file-based poller is stopped before starting it (in case it was already running)
+      stopFileBasedPoller();
       timer = startFileBasedPoller();
       
       // Start timeout manager even for file-based polling
       try {
+        logger.info(`[BundleStatusScheduler] Syncing timeout cache with database...`);
         await syncCacheWithDatabase();
-        logger.info(`[BundleStatusScheduler] Timeout cache synced with database`);
+        logger.info(`[BundleStatusScheduler] Timeout cache sync completed`);
       } catch (e: any) {
         logger.error(`[BundleStatusScheduler] Failed to sync timeout cache: ${String(e?.message || e)}`);
       }

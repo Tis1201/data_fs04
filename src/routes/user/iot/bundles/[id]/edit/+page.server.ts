@@ -127,6 +127,7 @@ export const actions: Actions = {
                         version: form.data.version || null,
                         waveSize: form.data.waveSize || null,
                         scheduledAt: combineDateTime(form.data.scheduledAt, (form.data as any).scheduledTime) || null,
+                        activePeriodDays: Math.min(Math.max(form.data.activePeriodDays || 1, 1), 30), // Clamp between 1 and 30
                         reboot: form.data.reboot,
                         forceUpdate: form.data.forceUpdate,
                         autoOpen: (form.data as any).autoOpen ?? false,
