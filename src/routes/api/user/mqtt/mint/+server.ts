@@ -31,16 +31,16 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
 
   try {
     const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
-    const mqttUsername = `web:${user.id}`;
+    const mqttUsername = `user:${user.id}`;
 
     const token = jwt.sign(
       {
-        userId: user.id,
+        // userId: user.id,
         accountId: user.primaryAccountId ?? null,
         username: user.email,
-        name: user.name ?? null,
+        // name: user.name ?? null,
         scope: 'web:mqtt',
-        mqttUsername
+        // mqttUsername
       },
       signingKey.privateKey,
       {
@@ -68,7 +68,7 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
     return json(createSuccessResponse({
       jwt: token,
       brokerUrl,
-      mqttUsername
+      // mqttUsername
     }));
   } catch (err) {
     logger.error(`[UserMqttMintAPI] Error: ${String(err)}`);
