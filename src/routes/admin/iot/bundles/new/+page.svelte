@@ -108,7 +108,9 @@
     // OS options for the dropdown
     const osOptions = [
         { value: 'ANDROID', label: 'Android' },
-        { value: 'IOS', label: 'iOS' }
+        { value: 'WINDOWS', label: 'Windows' },
+        { value: 'LINUX', label: 'Linux' },
+        { value: 'MACOS', label: 'macOS' }
     ];
 
     // Set default account ID from server data
@@ -287,11 +289,8 @@
                                 bind:value={$form.os}
                                 aria-invalid={$errors.os ? 'true' : undefined}
                                 {...$constraints.os}
-                            >
-                                {#each osOptions as option}
-                                    <option value={option.value}>{option.label}</option>
-                                {/each}
-                            </EnhancedSelect>
+                                options={osOptions}
+                            />
                         </FormField>
                         <FormField id="version" label="Version" error={$errors.version}>
                             <Input

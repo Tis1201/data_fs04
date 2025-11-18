@@ -32,7 +32,7 @@
     // Define breadcrumbs for this page
     const pageCrumbs: [string, string][] = [
         ["HOME", "/user"],
-        ["IOT", "/user/iot"],
+        ["IOT", ""],
         ["Bundles", "/user/iot/bundles"]
     ];
 

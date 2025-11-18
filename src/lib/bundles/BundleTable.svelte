@@ -58,11 +58,21 @@
     { id: 'createdAt', label: 'Created', sortable: true, render: (b: Bundle) => ({ component: RelativeDate, props: { date: b.createdAt } }) },
     { id: 'actions', label: '', sortable: false, render: (b: Bundle) => {
       const actions = [
-        { label: 'Edit', icon: Pencil, onClick: () => goto(`${baseUrl}/${b.id}/edit`) },
         { label: 'Delete', icon: Trash, onClick: () => confirmDelete(b), variant: 'destructive' }
       ];
-      if (b.status === 'DRAFT') {
-        actions.splice(1, 0, { label: 'Deploy', icon: Play, onClick: () => goto(`${baseUrl}/${b.id}/deploy`), variant: 'default' });
+      if ((b.status ?? '').toUpperCase() === 'DRAFT') {
+        actions.unshift({
+          label: "Edit",
+          icon: Pencil,
+          onClick: () => goto(`${baseUrl}/${b.id}/edit`),
+            variant: 'default'
+        });
+        actions.splice(1, 0, {
+          label: 'Deploy',
+          icon: Play,
+          onClick: () => goto(`${baseUrl}/${b.id}/deploy`),
+          variant: 'default'
+        });
       }
       return { component: RecordActions, props: { items: actions } };
     } }

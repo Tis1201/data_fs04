@@ -15,8 +15,21 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         const statuses = statusesParam ? statusesParam.split(',').filter(Boolean) : [];
         const page = parseInt(url.searchParams.get('page') || '1');
         const per_page = parseInt(url.searchParams.get('per_page') || '10');
-        const sort_field = url.searchParams.get('sort_field') || 'createdAt';
-        const sort_order = url.searchParams.get('sort_order') || 'desc';
+        const requestedSortField = url.searchParams.get('sort') || url.searchParams.get('sort_field') || 'createdAt';
+        const requestedSortOrder = url.searchParams.get('order') || url.searchParams.get('sort_order') || 'desc';
+        const allowedSortFields = new Set(['name', 'createdAt', 'isActive']);
+        const sort_field = allowedSortFields.has(requestedSortField ?? '') ? requestedSortField! : 'createdAt';
+        const sort_order = requestedSortOrder === 'asc' ? 'asc' : 'desc';
+        const orderBy = (() => {
+            switch (sort_field) {
+                case 'name':
+                    return { name: sort_order };
+                case 'isActive':
+                    return { isActive: sort_order };
+                default:
+                    return { createdAt: sort_order };
+            }
+        })();
 
         // Build where clause - use direct account membership check
         const userAccountMemberships = await locals.prisma.accountMembership.findMany({
@@ -77,7 +90,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
                     }
                 }
             },
-            orderBy: { createdAt: 'desc' },
+            orderBy,
             take: per_page,
             skip: (page - 1) * per_page
         });
@@ -92,7 +105,11 @@ export const load: PageServerLoad = async ({ url, locals }) => {
                 per_page,
                 total_pages: Math.ceil(total / per_page),
                 sort_field,
-                sort_order
+                sort_order,
+                sort: {
+                    field: sort_field,
+                    order: sort_order
+                }
             }
         };
 

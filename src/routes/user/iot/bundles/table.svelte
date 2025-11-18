@@ -186,29 +186,34 @@
             label: "",
             sortable: false,
             render: (bundle: Bundle) => {
-                const actions = [
-                    {
+                const actions = [];
+
+                // Only allow Edit/Deploy for DRAFT status bundles
+                const bundleStatus = bundle.status?.toString().trim().toUpperCase() || '';
+                const isDraft = bundleStatus === 'DRAFT';
+
+                if (isDraft) {
+                    actions.push({
                         label: "Edit",
                         icon: Pencil,
                         onClick: () => goto(`/user/iot/bundles/${bundle.id}/edit`)
-                    },
-                    {
-                        label: "Delete",
-                        icon: Trash,
-                        onClick: () => confirmDelete(bundle),
-                        variant: "destructive"
-                    }
-                ];
+                    });
 
-                // Add deploy action if it's a draft bundle
-                if (bundle.status === 'DRAFT') {
-                    actions.splice(1, 0, {
+                    actions.push({
                         label: "Deploy",
                         icon: Play,
                         onClick: () => goto(`/user/iot/bundles/${bundle.id}/deploy`),
                         variant: "default"
                     });
                 }
+
+                // Delete is always available
+                actions.push({
+                    label: "Delete",
+                    icon: Trash,
+                    onClick: () => confirmDelete(bundle),
+                    variant: "destructive"
+                });
 
                 return {
                     component: RecordActions,

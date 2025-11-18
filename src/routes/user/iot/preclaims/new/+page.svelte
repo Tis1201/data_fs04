@@ -21,7 +21,7 @@
   const pageDescription = "Create a preclaim set and upload device MAC addresses from CSV/XLSX";
   const pageCrumbs = [
     ["Dashboard", "/user/dashboard"],
-    ["IoT", "/user/iot"],
+      ["IOT", ""],
     ["Preclaims", "/user/iot/preclaims"],
     ["New", ""]
   ] as [string, string][];

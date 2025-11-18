@@ -27,7 +27,7 @@
     // Define breadcrumbs for this page
     const pageCrumbs: [string, string][] = [
         ["Home", "/user"],
-        ["IoT", "/user/iot"],
+        ["IoT", ""],
         ["Bundles", "/user/iot/bundles"],
         [bundle.name || "Bundle", `/user/iot/bundles/${bundle.id}`],
         ["Edit", ""]
@@ -170,13 +170,10 @@
                                     id="os"
                                     name="os"
                                     placeholder="Select OS"
+                                    options={osOptions}
                                     bind:value={$form.os}
                                     disabled={$submitting}
-                                >
-                                    {#each osOptions as option}
-                                        <option value={option.value}>{option.label}</option>
-                                    {/each}
-                                </EnhancedSelect>
+                                />
                             </FormField>
                             
                             <FormField 

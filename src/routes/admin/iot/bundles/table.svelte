@@ -151,21 +151,6 @@
             sortable: true,
             render: (bundle: Bundle) => bundle.version || '-'
         },
-        // {
-        //     id: "os",
-        //     label: "OS",
-        //     sortable: true,
-        //     render: (bundle: Bundle) => {
-        //         return {
-        //             component: Badge,
-        //             props: {
-        //                 variant: 'outline',
-        //                 class: "whitespace-nowrap"
-        //             },
-        //             children: bundle.os
-        //         };
-        //     }
-        // },
         {
             id: "status",
             label: "Status",
@@ -210,11 +195,6 @@
             render: (bundle: Bundle) => {
                 const actions = [
                     {
-                        label: "Edit",
-                        icon: Pencil,
-                        onClick: () => goto(`/admin/iot/bundles/${bundle.id}/edit`)
-                    },
-                    {
                         label: "Delete",
                         icon: Trash,
                         onClick: () => confirmDelete(bundle),
@@ -224,6 +204,12 @@
 
                 // Add deploy action if it's a draft bundle
                 if (bundle.status === 'DRAFT') {
+                    actions.unshift({
+                        label: "Edit",
+                        icon: Pencil,
+                        onClick: () => goto(`/admin/iot/bundles/${bundle.id}/edit`)
+                    });
+
                     actions.splice(1, 0, {
                         label: "Deploy",
                         icon: Play,
@@ -338,23 +324,6 @@
                     goto(url.toString(), { replaceState: true, noScroll: true });
                 }}
             />
-            
-            <!-- OS filter -->
-            <!-- <PopoverFilter
-                label="OS"
-                options={osOptions.filter(opt => opt.value !== '')}
-                selectedValues={$page.url.searchParams.get('os') ? [$page.url.searchParams.get('os')] : []}
-                onChange={(values) => {
-                    const url = new URL(window.location.href);
-                    if (values.length && values[0]) {
-                        url.searchParams.set('os', values[0]);
-                    } else {
-                        url.searchParams.delete('os');
-                    }
-                    url.searchParams.set('page', '1');
-                    goto(url.toString(), { replaceState: true, noScroll: true });
-                }}
-            /> -->
         </div>
         
         <DataTable

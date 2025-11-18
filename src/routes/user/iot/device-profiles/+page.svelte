@@ -7,8 +7,8 @@
     // Define breadcrumbs for this page
     const pageCrumbs: [string, string | null][] = [
         ["User", "/user"],
-        ["IOT", "/user/iot"],
-        ["Device Profiles", null]
+        ["IOT", ""],
+        ["Device Profiles", "/user/iot/device-profiles"],
     ];
 </script>
 

@@ -29,7 +29,7 @@
     // Define breadcrumbs - using the correct format for crumbs
     const pageCrumbs = [
         ["Dashboard", "/user/dashboard"],
-        ["IoT", "/user/iot"],
+        ["IOT", ""],
         ["Devices", ""]
     ] as [string, string][];
 
