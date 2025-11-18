@@ -1,4 +1,4 @@
-import { parseEnvelope } from './envelope';
+import { parseEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 
@@ -33,6 +33,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // Find matching handler
     let matchedEntry: RegisteredHandler | undefined;
     for (const [prefix, entry] of handlers) {
+        logger.debug(`[MQTT Messaging] Checking handler for prefix ${prefix}`);
         if (topic.startsWith(prefix)) {
             matchedEntry = entry;
             break;

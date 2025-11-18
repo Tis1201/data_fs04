@@ -1,4 +1,4 @@
-import { getMqttTransport } from './transport.js';
+import { getMqttTransport } from '../core/transport.js';
 
 export interface PublishEnvelope<TPayload extends Record<string, unknown> = Record<string, unknown>> {
     eventId: string;

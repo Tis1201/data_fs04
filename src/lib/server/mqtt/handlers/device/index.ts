@@ -1,9 +1,10 @@
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
+import { getMqttTransport } from '../../core/transport';
 
-import { registerHandler } from './handlers';
+import { registerHandler } from '../index';
 
-const DEVICE_TOPIC_PREFIX = 'mqtt/device/';
+const DEVICE_TOPIC_PREFIX = 'device/';
 
 type DeviceTopicDetails = {
     deviceId: string | null;
@@ -45,10 +46,8 @@ export function registerDeviceHandlers(prisma: PrismaClient): void {
             }
 
             if (channel === 'requests') {
-                // Placeholder for request processing pipeline
-                logger.debug(
-                    `[MQTT Device Handler] Processing device request ${JSON.stringify({ deviceId, eventId: envelope.eventId })}`
-                );
+                // Handle RPC requests
+                await handleDeviceRequest(deviceId, envelope);
             } else if (channel === 'events') {
                 // Placeholder for device event stream handling
                 logger.debug(
@@ -62,4 +61,53 @@ export function registerDeviceHandlers(prisma: PrismaClient): void {
         },
         prisma
     );
+}
+
+async function handleDeviceRequest(deviceId: string, envelope: any): Promise<void> {
+    const { requestId, op, params } = envelope.payload || {};
+
+    if (!requestId || !op) {
+        logger.warn(`[MQTT Device Handler] Invalid RPC request: ${JSON.stringify(envelope.payload)}`);
+        return;
+    }
+
+    let result: any = null;
+    let error: string | undefined;
+
+    try {
+        switch (op) {
+            case 'ping':
+                result = { message: `pong: ${params?.message || ''}` };
+                break;
+            case 'echo':
+                result = params || {};
+                break;
+            case 'add':
+                const a = Number(params?.a) || 0;
+                const b = Number(params?.b) || 0;
+                result = { sum: a + b };
+                break;
+            default:
+                error = `Unknown operation: ${op}`;
+        }
+    } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+    }
+
+    const response = {
+        requestId,
+        op,
+        result,
+        error
+    };
+
+    const responseTopic = `mqtt/device/${deviceId}/response`;
+    const transport = getMqttTransport();
+
+    try {
+        await transport.publish(responseTopic, JSON.stringify(response), { qos: 1 });
+        logger.info(`[MQTT Device Handler] Published RPC response to ${responseTopic}: ${JSON.stringify(response)}`);
+    } catch (err) {
+        logger.error(`[MQTT Device Handler] Failed to publish RPC response: ${err}`);
+    }
 }
