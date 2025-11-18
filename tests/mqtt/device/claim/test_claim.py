@@ -6,6 +6,7 @@ import threading
 import json
 from pathlib import Path
 from typing import Any, Dict
+import jwt
 
 import pytest
 import requests
@@ -21,24 +22,35 @@ from _utils.jwt_tools import pretty_print_jwt
 load_dotenv()
 
 FACTORY_TOKEN = os.getenv('SAMPLE_DEVICE_FACTORY_TOKEN')
-DEVICE_ID = "test-device-claim"  # Placeholder device ID for subscription
+# DEVICE_ID = "test-device-claim"  # Placeholder device ID for subscription
 
 class Device:
-    def __init__(self, brokerUrl, jwt):
+    def __init__(self, brokerUrl, jwt, sub):
         self.brokerUrl = brokerUrl
         self.jwt = jwt
+        self.sub = sub
         self.client = None
         self.pending_requests = {}  # request_id -> future-like dict
 
+    def start_register(self):
+        response = self.request('get.pin', {}, timeout=5)
 
-        
+        logger.debug(f"RPC response: {response}")
+
+        assert response.get("result")
+        assert response.get("result").get("pin")
+
+        pin = response.get("result").get("pin")
+
+        logger.debug(f'Pin: {pin}')
+
 
     def on_connect(self, client, userdata, flags, reason_code, properties=None):
         logger.debug("Connected to broker")
         # client.subscribe(f'{DEVICE_ID}/#')
         # Subscribe to response topic for RPC
-        client.subscribe(f'device/{DEVICE_ID}/response')
-        client.subscribe(f'device/{DEVICE_ID}/notifications')
+        client.subscribe(f'device/{self.sub}/response')
+        client.subscribe(f'device/{self.sub}/notifications')
 
     def on_message(self, client, userdata, message):
         topic = message.topic.decode() if isinstance(message.topic, bytes) else message.topic
@@ -98,7 +110,7 @@ class Device:
             'error': error
         }
 
-        response_topic = f'device/{DEVICE_ID}/response'
+        response_topic = f'device/{self.sub}/response'
         client.publish(response_topic, json.dumps(response), qos=1)
         logger.debug(f"Published response to {response_topic}: {response}")
 
@@ -121,7 +133,7 @@ class Device:
         self.pending_requests[request_id] = {'event': threading.Event(), 'response': None}
 
         # Publish request
-        request_topic = f'device/{DEVICE_ID}/requests'
+        request_topic = f'device/{self.sub}/requests'
         self.client.publish(request_topic, json.dumps(request_payload), qos=1)
         logger.debug(f"Published request to {request_topic}: {request_payload}")
 
@@ -142,8 +154,8 @@ class Device:
         port = parsed.port or 443
         ws_path = parsed.path or "/mqtt"
         
-        self.client = mqtt.Client(client_id="claim", protocol=mqtt.MQTTv5, transport='websockets')
-        self.client.username_pw_set(username="claim", password=FACTORY_TOKEN)
+        self.client = mqtt.Client(client_id=self.sub, protocol=mqtt.MQTTv5, transport='websockets')
+        self.client.username_pw_set(username=self.sub, password=FACTORY_TOKEN)
         self.client.user_data_set({'username': "claim"})
         self.client.ws_set_options(path=ws_path)
         self.client.tls_set()  # Enable TLS for wss on port 443
@@ -160,14 +172,28 @@ def mint_factory_credentials():
     response = _mint_factory_credentials()
     assert response.status_code == 200, f"Unexpected status code: {response.status_code} - Body: {response.text}"
     payload = response.json()
-    return payload['data']['brokerUrl'], payload['data']['jwt']
+
+    broker_url = payload['data']['brokerUrl']
+    jwt_token = payload['data']['jwt']
+
+    # Decode JWT to extract sub claim
+    try:
+        decoded = jwt.decode(jwt_token, options={"verify_signature": False})
+        sub = decoded.get('sub')
+        logger.debug(f"Device JWT sub: {sub}")
+    except Exception as e:
+        logger.warning(f"Failed to decode device JWT: {e}")
+        sub = None
+
+    return broker_url, jwt_token, sub
 
 
 def test_claim():
-    brokerUrl, jwt = mint_factory_credentials()
+    brokerUrl, jwt, sub = mint_factory_credentials()
     logger.debug(brokerUrl)
     logger.debug(f"{jwt[:10]}...")
-    device = Device("wss://mq.datarealities.com:443/mqtt", jwt)
+    logger.debug(f"Device sub: {sub}")
+    device = Device(brokerUrl, jwt, sub)
     device.connect()
     
     # Wait a moment for connection to establish
@@ -178,8 +204,9 @@ def test_claim():
         # response = device.request('ping', {'message': 'hello'}, timeout=5)
         # logger.info(f"RPC response: {response}")
 
-        response = device.request('get.pin', {}, timeout=5)
-        logger.info(f"RPC response: {response}")
+        # response = device.request('get.pin', {}, timeout=5)
+        # logger.info(f"RPC response: {response}")
+        device.start_register()
         
 
     except TimeoutError as e:

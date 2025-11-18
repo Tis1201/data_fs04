@@ -553,6 +553,7 @@ model FactoryDevice {
   lastSeenAt         DateTime?
   lastSeenIp         String?
   lastSeenUserAgent  String?
+  registrationPin    String?   @unique
 
   accountId          String?
   account            Account?  @relation("AccountFactoryDevices", fields: [accountId], references: [id], onDelete: SetNull)

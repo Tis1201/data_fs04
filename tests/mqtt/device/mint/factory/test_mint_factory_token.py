@@ -1,5 +1,6 @@
 import os
 import sys
+import jwt
 from pathlib import Path
 from typing import Any, Dict
 
@@ -33,6 +34,9 @@ def _mint_factory_credentials() -> requests.Response:
     }
 
     response = requests.post(FACTORY_MINT_URL, headers=headers, timeout=15)
+
+    
+
     return response
 
 

@@ -17,6 +17,7 @@ export type RpcHandlerArgs<P extends PrismaClient = PrismaClient> = {
     op: string;
     params: Record<string, any>;
     prisma: P;
+    sub: string | null;
 };
 
 export type RpcHandler<P extends PrismaClient = PrismaClient> = (args: RpcHandlerArgs<P>) => Promise<any>;
@@ -34,19 +35,33 @@ type RegisteredRpcHandler = {
 const handlers = new Map<string, RegisteredHandler>();
 const rpcHandlers = new Map<string, RegisteredRpcHandler>();
 
-// Generic RPC operation registry
-const rpcOperations = new Map<string, (params: Record<string, any>) => Promise<any>>();
+function extractTopicSub(prefix: string, topic: string): string | null {
+    if (!topic.startsWith(prefix)) {
+        return null;
+    }
 
-export function registerRpcOperation(op: string, fn: (params: Record<string, any>) => Promise<any>): void {
+    let remainder = topic.slice(prefix.length);
+    if (remainder.startsWith('/')) {
+        remainder = remainder.slice(1);
+    }
+
+    const [sub] = remainder.split('/');
+    return sub || null;
+}
+
+// Generic RPC operation registry
+const rpcOperations = new Map<string, (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>>();
+
+export function registerRpcOperation(op: string, fn: (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>): void {
     rpcOperations.set(op, fn);
 }
 
-export async function executeRpcOperation(op: string, params: Record<string, any>): Promise<any> {
+export async function executeRpcOperation(op: string, params: Record<string, any>, args: RpcHandlerArgs): Promise<any> {
     const fn = rpcOperations.get(op);
     if (!fn) {
         throw new Error(`Unknown RPC operation: ${op}`);
     }
-    return await fn(params);
+    return await fn(params, args);
 }
 
 export function registerHandler<P extends PrismaClient>(
@@ -67,9 +82,9 @@ export function registerRpcHandler<P extends PrismaClient>(
 
 // Generic RPC handler that can be reused by any client type
 export function createGenericRpcHandler(clientType: string): RpcHandler {
-    return async ({ topic, requestId, op, params }) => {
+    return async ({ topic, requestId, op, params, prisma, sub }) => {
         logger.info(`[MQTT ${clientType} RPC] Received RPC request ${JSON.stringify({ topic, requestId, op })}`);
-        return await executeRpcOperation(op, params);
+        return await executeRpcOperation(op, params, { topic, requestId, op, params, prisma, sub });
     };
 }
 
@@ -77,7 +92,7 @@ export function createGenericRpcHandler(clientType: string): RpcHandler {
 export function registerRpcClient<P extends PrismaClient>(
     clientType: string,
     topicPrefix: string,
-    operations: Record<string, (params: Record<string, any>) => Promise<any>>,
+    operations: Record<string, (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>>,
     prisma: P
 ): void {
     // Register operations
@@ -106,12 +121,14 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             if (topic.startsWith(prefix)) {
                 logger.debug(`[MQTT Messaging] Handling raw RPC with prefix ${prefix}`);
                 try {
+                    const sub = extractTopicSub(prefix, topic);
                     const result = await entry.handler({
                         topic,
                         requestId: rpcData.requestId,
                         op: rpcData.op,
                         params: rpcData.params,
-                        prisma
+                        prisma,
+                        sub
                     });
                     // Publish response if result is returned
                     if (result !== undefined) {

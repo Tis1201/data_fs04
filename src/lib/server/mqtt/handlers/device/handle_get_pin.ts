@@ -1,8 +1,69 @@
 import { customAlphabet } from 'nanoid';
+import { logger } from '$lib/server/logger';
+import type { PrismaClient } from '@prisma/client';
 
-const pinGenerator = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 6);
+const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
 
-export async function handleGetPin(): Promise<{ pin: string }> {
-    const pin = pinGenerator();
+export async function handleGetPin(args: { topic: string; prisma: PrismaClient }): Promise<{ pin: string }> {
+    const { topic, prisma } = args;
+
+    // Extract sub from topic: device/{sub}/requests
+    const topicParts = topic.split('/');
+    if (topicParts.length < 3) {
+        throw new Error('Invalid topic format');
+    }
+    const sub = topicParts[1];
+
+    // Check that sub starts with 'factory:'
+    if (!sub.startsWith('factory:')) {
+        throw new Error('Only factory devices can generate PINs');
+    }
+
+    // Extract factory device ID from sub
+    const factoryDeviceId = sub.replace('factory:', '');
+    if (!factoryDeviceId) {
+        throw new Error('Invalid factory device ID');
+    }
+
+    // Get the factory device record
+    const factoryDevice = await prisma.factoryDevice.findUnique({
+        where: { id: factoryDeviceId }
+    });
+
+    if (!factoryDevice) {
+        throw new Error('Factory device not found');
+    }
+
+    // Generate unique PIN with collision check
+    let pin: string;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    do {
+        pin = pinGenerator();
+        attempts++;
+
+        // Check if PIN already exists in any factory device
+        const existingPin = await prisma.factoryDevice.findFirst({
+            where: { registrationPin: pin }
+        });
+
+        if (!existingPin) {
+            break; // Found unique PIN
+        }
+
+        if (attempts >= maxAttempts) {
+            throw new Error('Failed to generate unique PIN after maximum attempts');
+        }
+    } while (true);
+
+    // Save the PIN to the factory device record
+    await prisma.factoryDevice.update({
+        where: { id: factoryDeviceId },
+        data: { registrationPin: pin }
+    });
+
+    logger.info(`Generated registration PIN ${pin} for factory device ${factoryDeviceId}`);
+
     return { pin };
 }
