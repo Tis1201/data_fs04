@@ -30,6 +30,9 @@ class Device:
         self.client = None
         self.pending_requests = {}  # request_id -> future-like dict
 
+
+        
+
     def on_connect(self, client, userdata, flags, reason_code, properties=None):
         logger.debug("Connected to broker")
         # client.subscribe(f'{DEVICE_ID}/#')
@@ -168,12 +171,17 @@ def test_claim():
     device.connect()
     
     # Wait a moment for connection to establish
-    time.sleep(2)
+    time.sleep(1)
     
     try:
         # Example RPC call
-        response = device.request('ping', {'message': 'hello'}, timeout=5)
+        # response = device.request('ping', {'message': 'hello'}, timeout=5)
+        # logger.info(f"RPC response: {response}")
+
+        response = device.request('get.pin', {}, timeout=5)
         logger.info(f"RPC response: {response}")
+        
+
     except TimeoutError as e:
         logger.warning(e)
     finally:
