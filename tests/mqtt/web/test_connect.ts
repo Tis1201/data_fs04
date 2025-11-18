@@ -1,5 +1,7 @@
-import mqtt, { type IClientOptions } from 'mqtt';
+import 'dotenv/config';
+import mqtt, { type IClientOptions, type MqttClient } from 'mqtt';
 import { mint } from './test_mint';
+import { randomUUID } from 'crypto';
 
 function deriveUsernameFromJwt(jwt: string): string {
   try {
@@ -34,6 +36,38 @@ function deriveUsernameFromJwt(jwt: string): string {
   }
 }
 
+type PendingRequest = {
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+  timeout: NodeJS.Timeout;
+};
+
+const pendingRequests = new Map<string, PendingRequest>();
+
+function sendRpcRequest(
+  client: MqttClient,
+  clientId: string,
+  op: string,
+  params: Record<string, any>,
+  timeoutMs = 5000
+): Promise<any> {
+  const requestId = randomUUID();
+  const requestPayload = { requestId, op, params };
+  const requestTopic = `user/${clientId}/requests`;
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingRequests.delete(requestId);
+      reject(new Error(`RPC timeout for ${op} (${requestId})`));
+    }, timeoutMs);
+
+    pendingRequests.set(requestId, { resolve, reject, timeout });
+
+    console.log(`Publishing RPC to ${requestTopic}:`, requestPayload);
+    client.publish(requestTopic, JSON.stringify(requestPayload), { qos: 1 });
+  });
+}
+
 async function testConnect() {
   const { jwt, brokerUrl } = await mint();
   console.log('JWT:', jwt);
@@ -64,13 +98,47 @@ async function testConnect() {
 
   client.on('connect', () => {
     console.log('Connected to broker');
-    client.subscribe(`${clientId}/requests`);
-    client.subscribe(`${clientId}/response`);
-    client.subscribe(`${clientId}/notifications`);
+    client.subscribe(`user/${clientId}/requests`);
+    client.subscribe(`user/${clientId}/response`);
+    client.subscribe(`user/${clientId}/notifications`);
+
+    const pin = process.env.CLAIM_PIN;
+    if (pin) {
+      sendRpcRequest(client, clientId, 'web.claim.device', { pin })
+        .then((result) => {
+          console.log('Claim result:', result);
+        })
+        .catch((err) => {
+          console.error('Claim error:', err);
+        });
+    }
   });
 
   client.on('message', (topic, payload) => {
-    console.log(`Received on ${topic}:`, payload.toString());
+    const text = payload.toString();
+    console.log(`Received on ${topic}:`, text);
+
+    try {
+      const data = JSON.parse(text) as {
+        requestId?: string;
+        result?: any;
+        error?: any;
+      };
+
+      if (topic.endsWith('/response') && data.requestId && pendingRequests.has(data.requestId)) {
+        const entry = pendingRequests.get(data.requestId)!;
+        clearTimeout(entry.timeout);
+        pendingRequests.delete(data.requestId);
+
+        if (data.error) {
+          entry.reject(new Error(String(data.error)));
+        } else {
+          entry.resolve(data.result);
+        }
+      }
+    } catch {
+      // Non-JSON message; already logged above.
+    }
   });
 
   client.on('error', (err) => {
