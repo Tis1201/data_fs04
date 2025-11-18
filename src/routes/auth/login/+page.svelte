@@ -29,27 +29,10 @@
     const { form, errors, enhance, submitting } = superForm(data.form, {
         validators: zodClient(loginSchema),
         taintedMessage: null,
-        onResult: async ({ result }) => {
-            if (result.type === 'success') {
-                // Use the server's redirectTo path or default to /user
-                const redirectPath = result.data?.redirectTo || '/user';
-                toast.success('Welcome back! Redirecting to dashboard...');
-                console.log("Redirecting to:", redirectPath);
-                try {
-                    await goto(redirectPath);
-                } catch (error) {
-                    console.error('Navigation error:', error);
-                    toast.error('Failed to redirect. Please try again.');
-                }
-            } else if (result.type === 'failure') {
-                toast.error($errors._errors?.[0] || 'Login failed');
-            }
-        },
         onError: ({ result }) => {
             serverError = typeof result.error === 'string' ? result.error : 'An unexpected error occurred';
             console.error('Login error:', serverError);
-        },
-        dataType: 'json'
+        }
     });
 
     // Forgot password form - handle undefined gracefully
@@ -117,6 +100,9 @@
                 {/if}
 
                 <form method="POST" action="?/login" use:enhance class="grid gap-4">
+                    {#if data.redirectTo}
+                        <input type="hidden" name="redirectTo" value={data.redirectTo} />
+                    {/if}
                     <div class="grid gap-2">
                         <Label for="email" class="text-sm font-medium text-[#44218d]">Email</Label>
                         <Input

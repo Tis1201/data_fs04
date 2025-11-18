@@ -15,8 +15,9 @@ import prisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
 
-export const load = (async ({ locals }) => {
+export const load = (async ({ locals, url }) => {
     let allowRegistration = false;
+    const redirectTo = url.searchParams.get('redirectTo');
     
     try {
         // Load settings to check if registration is allowed
@@ -50,11 +51,14 @@ export const load = (async ({ locals }) => {
                     role: user.systemRole 
                 });
 
+                // Use redirectTo from URL if provided, otherwise use role-based default
+                const finalRedirectTo = redirectTo || (user.systemRole === 'ADMIN' ? '/admin' : '/user');
+                
                 // Return success with redirect path
                 return {
                     form: {},
                     success: true,
-                    redirectTo: user.systemRole === 'ADMIN' ? '/admin' : '/user',
+                    redirectTo: finalRedirectTo,
                     allowRegistration
                 };
             }
@@ -70,17 +74,28 @@ export const load = (async ({ locals }) => {
     return { 
         form,
         forgotPasswordForm,
-        allowRegistration
+        allowRegistration,
+        redirectTo: redirectTo || null
     };
 }) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    login: async ({ request, cookies, getClientAddress }) => {
-        const form = await superValidate(request, zod(loginSchema));
-        logger.debug('Login attempt', { email: form.data.email });
+    login: async ({ request, cookies, getClientAddress, url }) => {
+        // Read form data first (request body can only be consumed once)
+        const formData = await request.formData();
+        const redirectTo = formData.get('redirectTo')?.toString() || url.searchParams.get('redirectTo');
+
+        // Validate form using the captured FormData
+        const form = await superValidate(formData, zod(loginSchema));
 
         if (!form.valid) {
-            logger.debug('Invalid form data', { errors: form.errors });
+            logger.error('Form validation failed', { 
+                errors: form.errors,
+                formData: {
+                    email: form.data.email,
+                    hasPassword: !!form.data.password
+                }
+            });
             return fail(400, { form });
         }
 
@@ -201,14 +216,27 @@ export const actions: Actions = {
                 throw sessionError;
             }
 
-            // Return success with redirect path based on user's role
-            return {
-                form,
-                success: true,
-                redirectTo: user.systemRole === 'ADMIN' ? '/admin' : '/user'
-            };
+            // Use redirectTo from URL if provided, otherwise use role-based default
+            const finalRedirectTo = redirectTo || (user.systemRole === 'ADMIN' ? '/admin' : '/user');
+            
+            logger.info('Login successful, redirecting', { redirectTo: finalRedirectTo });
+            
+            // Simple server-side redirect - much simpler!
+            throw redirect(302, finalRedirectTo);
 
         } catch (e) {
+            // If this is our redirect response, rethrow so SvelteKit handles it
+            if (
+                e &&
+                typeof e === 'object' &&
+                'status' in e &&
+                typeof (e as any).status === 'number' &&
+                (e as any).status >= 300 &&
+                (e as any).status < 400
+            ) {
+                throw e;
+            }
+            
             // Enhanced error logging
             logger.error('Login error', { 
                 error: e,

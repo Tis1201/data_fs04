@@ -62,10 +62,10 @@
     let containerRef: HTMLDivElement;
     let fileUploadRef: any;
 
-    const targetOptions = [
-        { value: 'user', label: 'User' },
-        { value: 'device', label: 'Device' },
-        { value: 'account', label: 'Account' }
+    const releaseTypeOptions = [
+        { value: 'Alpha', label: 'Alpha' },
+        { value: 'Beta', label: 'Beta' },
+        { value: 'Production', label: 'Production' }
     ];
 
     // Reactive clear of errors
@@ -206,8 +206,8 @@
                     name: $form.name || file.name.split('.')[0],
                     description: $form.description || '',
                     type: $form.type || '',
-                    target: $form.target || 'user',
                     version: $form.version || '',
+                    releaseType: $form.releaseType || 'Production',
                     format: $form.format || '',
                     packageName: $form.packageName || '',
                     path: url,
@@ -498,32 +498,29 @@
                                     bind:value={$form.name}
                                     placeholder="Enter resource name"
                                     aria-invalid={(nameError || $errors.name) ? 'true' : undefined}
-                                    disabled={formLocked || isApkOrCpk}
-                                    readonly={isApkOrCpk}
-                                    class={isApkOrCpk ? 'bg-muted cursor-not-allowed' : ''}
+                                    disabled={formLocked}
                                     {...$constraints.name}
                             />
                             {#if isApkOrCpk}
                                 <p class="text-xs text-muted-foreground mt-1">
-                                    Resource name is automatically extracted from the APK/CPK file
+                                    Resource name is automatically extracted from the APK/CPK file, but you can edit it
                                 </p>
                             {/if}
                         </FormField>
 
-                        <!-- Target selection remains -->
-                        <FormField id="target" label="Target" error={$errors.target}>
+                        <FormField id="releaseType" label="Release Type" required={true} error={$errors.releaseType}>
                             <EnhancedSelect
-                                    id="target"
-                                    name="target"
-                                    bind:value={$form.target}
-                                    placeholder="Select target"
-                                    aria-invalid={$errors.target ? 'true' : undefined}
+                                    id="releaseType"
+                                    name="releaseType"
+                                    bind:value={$form.releaseType}
+                                    placeholder="Select release type"
+                                    aria-invalid={$errors.releaseType ? 'true' : undefined}
                                     disabled={formLocked}
-                                    {...$constraints.target}
-                                    options={targetOptions}
+                                    {...$constraints.releaseType}
+                                    options={releaseTypeOptions}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
-                                Select the target type for this resource
+                                Select the release type for this resource
                             </p>
                         </FormField>
                     </FormRow>
@@ -576,25 +573,6 @@
                         </FormField>
                     </FormRow>
 
-                    <FormRow columns={2}>
-                        <FormField id="accountId" label="Account" error={$errors.accountId}>
-                            <EnhancedSelect
-                                    id="accountId"
-                                    name="accountId"
-                                    bind:value={$form.accountId}
-                                    placeholder="Select account (optional - defaults to system account)"
-                                    aria-invalid={$errors.accountId ? 'true' : undefined}
-                                    disabled={formLocked}
-                                    options={[
-                  { value: '', label: 'System Account (Default)' },
-                  ...data.accountOptions
-                ]}
-                            />
-                            <p class="text-xs text-muted-foreground mt-1">
-                                Select the account to assign this resource to. Leave empty to use the system account.
-                            </p>
-                        </FormField>
-                    </FormRow>
 
                     <FormRow columns={1}>
                         <FormField id="size" label="Size (bytes)" required={true} error={$errors.size}>

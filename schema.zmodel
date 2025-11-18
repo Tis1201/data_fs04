@@ -690,6 +690,7 @@ model Resource {
   type        String   // "file", "image", "video", "document", "binary"
   target      String   @default("user") // "device", "account", "user"
   version     String? @default("1.0.0") // Release version number for binary
+  releaseType String? @default("Production") // "Alpha", "Beta", "Production"
   format      String? // File format for binary, "apk", "bin", "exe", "sh"
   packageName String? // Package name for binary
   path        String   // File path or URL

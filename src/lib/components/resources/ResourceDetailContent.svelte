@@ -99,8 +99,8 @@
                 <Badge variant="outline">{getResourceTypeDisplay(resource.type)}</Badge>
             </div>
             <div class="space-y-2">
-                <p class="text-sm font-medium text-muted-foreground">Target</p>
-                <Badge variant="secondary">{getResourceTargetDisplay(resource.target)}</Badge>
+                <p class="text-sm font-medium text-muted-foreground">Release Type</p>
+                <Badge variant="secondary">{resource.releaseType || 'Production'}</Badge>
             </div>
             <div class="space-y-2">
                 <p class="text-sm font-medium text-muted-foreground">Size</p>
@@ -151,22 +151,20 @@
                         />
                     </FormField>
 
-                    <FormField id="target" label="Target" error={$errors.target}>
-                        <div class="flex flex-col">
-                            <EnhancedSelect
-                                    id="target"
-                                    name="target"
-                                    bind:value={$formStore.target}
-                                    placeholder="Select target"
-                                    aria-invalid={$errors.target ? 'true' : undefined}
-                                    {...$constraints.target}
-                                    options={[
-                { value: 'user', label: 'User' },
-                { value: 'device', label: 'Device' },
-                { value: 'account', label: 'Account' }
-              ]}
-                            />
-                        </div>
+                    <FormField id="releaseType" label="Release Type" required={true} error={$errors.releaseType}>
+                        <EnhancedSelect
+                                id="releaseType"
+                                name="releaseType"
+                                bind:value={$formStore.releaseType}
+                                placeholder="Select release type"
+                                aria-invalid={$errors.releaseType ? 'true' : undefined}
+                                {...$constraints.releaseType}
+                                options={[
+                    { value: 'Alpha', label: 'Alpha' },
+                    { value: 'Beta', label: 'Beta' },
+                    { value: 'Production', label: 'Production' }
+                  ]}
+                        />
                     </FormField>
                 </FormRow>
 
@@ -177,9 +175,13 @@
                                 name="version"
                                 bind:value={$formStore.version}
                                 placeholder="1.0.0"
+                                readonly
+                                disabled
+                                class="bg-muted cursor-not-allowed"
                                 aria-invalid={$errors.version ? 'true' : undefined}
                                 {...$constraints.version}
                         />
+                        <input type="hidden" name="version" value={$formStore.version} />
                     </FormField>
 
                     <FormField id="packageName" label="Package Name" error={$errors.packageName}>
@@ -188,34 +190,20 @@
                                 name="packageName"
                                 bind:value={$formStore.packageName}
                                 placeholder="com.example.app"
+                                readonly
+                                disabled
+                                class="bg-muted cursor-not-allowed"
                                 aria-invalid={$errors.packageName ? 'true' : undefined}
                                 {...$constraints.packageName}
                         />
+                        <input type="hidden" name="packageName" value={$formStore.packageName} />
                     </FormField>
                 </FormRow>
 
-                <!-- Conditional Account Field (only for admin) -->
-                {#if showAccountField}
-                    <FormRow columns={1}>
-                        <FormField id="accountId" label="Account" error={$errors.accountId}>
-                            <EnhancedSelect
-                                    id="accountId"
-                                    name="accountId"
-                                    bind:value={$formStore.accountId}
-                                    placeholder={resource.account?.name || 'System Account'}
-                                    aria-invalid={$errors.accountId ? 'true' : undefined}
-                                    options={[
-              { value: '', label: 'System Account (Default)' },
-              ...accountOptions
-            ]}
-                            />
-                        </FormField>
-                    </FormRow>
-                {/if}
-
-                <!-- Hidden preserved fields: type & format -->
+                <!-- Hidden preserved fields: type, format, and accountId -->
                 <input type="hidden" name="type" value={resource.type} />
                 <input type="hidden" name="format" value={resource.format} />
+                <input type="hidden" name="accountId" value={$formStore.accountId || resource.accountId || ''} />
 
                 <FormRow columns={2}>
                     <FormField id="size" label="Size (bytes)" error={$errors.size}>

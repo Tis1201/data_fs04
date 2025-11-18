@@ -481,6 +481,7 @@ model Resource {
   type        String
   target      String      @default("user")
   version     String?     @default("1.0.0")
+  releaseType String?     @default("Production")
   format      String?
   packageName String?
   path        String

@@ -25,27 +25,22 @@ export const load = restrict(
                 id: 'resource-form'
             });
 
-            if (!form.data.accountId || form.data.accountId === 'undefined') {
+            // For admin, set accountId to system account
+            const systemAccount = await locals.prisma.account.findFirst({
+                where: { isSystem: true }
+            });
+            
+            if (systemAccount) {
+                form.data.accountId = systemAccount.id;
+            } else {
                 form.data.accountId = '';
             }
-
-            const accounts = await locals.prisma.account.findMany({
-                where: { isSystem: false },
-                select: { id: true, name: true },
-                orderBy: { name: 'asc' }
-            });
-
-            const accountOptions = accounts.map((account: any) => ({
-                value: account.id,
-                label: account.name
-            }));
 
             // Get storage configuration
             const storageConfig = getStorageConfig();
 
             return {
                 form,
-                accountOptions,
                 storageConfig
             };
         } catch (err) {
@@ -224,8 +219,8 @@ export const actions: Actions = {
                     `Form submission summary: ${JSON.stringify({
                         name: form.data.name,
                         type: form.data.type,
-                        target: form.data.target,
                         version: form.data.version,
+                        releaseType: form.data.releaseType,
                         format: form.data.format,
                         packageName: form.data.packageName,
                         path: form.data.path,
@@ -305,12 +300,12 @@ export const actions: Actions = {
                             name: form.data.name,
                             description: form.data.description,
                             type: form.data.type,
-                            target: form.data.target,
                             version: form.data.version,
                             format: form.data.format,
                             packageName: form.data.packageName,
                             path: form.data.path,
                             size: form.data.size,
+                            releaseType: form.data.releaseType,
                             accountId: accountId || undefined,
                             createdBy: auth.user.id,
                             updatedBy: auth.user.id

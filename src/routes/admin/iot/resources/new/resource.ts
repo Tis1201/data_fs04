@@ -12,14 +12,14 @@ export const resourceSchema = z.object({
         .refine(value => ['file', 'application', 'archive', 'package'].includes(value), { 
             message: 'Type must be one of: file, application, archive, package' 
         }),
-    target: z.string()
-        .default('user')
-        .refine(value => ['user', 'device', 'account'].includes(value), {
-            message: 'Target must be one of: user, device, account'
-        }),
     version: z.string()
         .optional()
         .default('1.0.0'),
+    releaseType: z.string()
+        .refine(value => ['Alpha', 'Beta', 'Production'].includes(value), {
+            message: 'Release type must be one of: Alpha, Beta, Production'
+        })
+        .default('Production'),
     format: z.string()
         .min(1, { message: 'Format is required' }),
     packageName: z.string()
