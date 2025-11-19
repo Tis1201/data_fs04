@@ -38,17 +38,36 @@ function deriveUsernameFromJwt(jwt: string): string {
   }
 }
 
-async function promptForClaimPin(): Promise<string | null> {
+type UserAction =
+  | { kind: 'skip' }
+  | { kind: 'claim'; pin: string }
+  | { kind: 'screenshot'; deviceId: string };
+
+async function promptForAction(): Promise<UserAction> {
   const rl = readline.createInterface({ input, output });
   try {
-    const action = await rl.question('Select action: [1] Claim device, [Enter] to skip: ');
-    if (action.trim() !== '1') {
-      return null;
+    const action = await rl.question('Select action: [1] Claim device, [2] Screenshot, [Enter] to skip: ');
+    const trimmedAction = action.trim();
+
+    if (trimmedAction === '1') {
+      const pin = await rl.question('Enter PIN to claim device: ');
+      const trimmed = pin.trim();
+      if (!trimmed) {
+        return { kind: 'skip' };
+      }
+      return { kind: 'claim', pin: trimmed };
     }
 
-    const pin = await rl.question('Enter PIN to claim device: ');
-    const trimmed = pin.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    if (trimmedAction === '2') {
+      const deviceId = await rl.question('Enter deviceId for screenshot: ');
+      const trimmedId = deviceId.trim();
+      if (!trimmedId) {
+        return { kind: 'skip' };
+      }
+      return { kind: 'screenshot', deviceId: trimmedId };
+    }
+
+    return { kind: 'skip' };
   } finally {
     rl.close();
   }
@@ -140,18 +159,46 @@ async function testConnect() {
     client.subscribe(`user/${clientId}/notifications`);
 
     (async () => {
-      // Determine PIN: prefer environment variable, otherwise ask user.
+      // Determine action: prefer CLAIM_PIN env for direct claim, otherwise ask user.
       const envPin = process.env.CLAIM_PIN?.trim();
-      const pinToUse = envPin && envPin.length > 0 ? envPin : await promptForClaimPin();
+      let action: UserAction;
 
-      if (!pinToUse) {
-        console.log('No PIN provided, skipping claim');
+      if (envPin && envPin.length > 0) {
+        action = { kind: 'claim', pin: envPin };
+      } else {
+        action = await promptForAction();
+      }
+
+      if (action.kind === 'skip') {
+        console.log('No action selected, skipping');
         return;
       }
 
+      if (action.kind === 'screenshot') {
+        console.log('Screenshot mode selected. Device ID:', action.deviceId);
+        console.log('User topics for this session:', {
+          requests: `user/${clientId}/requests`,
+          response: `user/${clientId}/response`,
+          notifications: `user/${clientId}/notifications`,
+        });
+        console.log('Invoking device.screenshot via RPC...');
+        try {
+          const screenshotRequestId = randomUUID();
+          const result = await sendRpcRequest(client, clientId, 'device.screenshot', {
+            deviceId: action.deviceId,
+            requestId: screenshotRequestId,
+          });
+          console.log('device.screenshot result:', result, 'requestId:', screenshotRequestId);
+        } catch (err) {
+          console.error('device.screenshot error:', err);
+        }
+        return;
+      }
+
+      const pinToUse = action.pin;
       console.log('Using PIN for claim:', pinToUse);
       try {
-        const result = await sendRpcRequest(client, clientId, 'user.claim.device', { pin: pinToUse });
+        const result = await sendRpcRequest(client, clientId, 'device.claim', { pin: pinToUse });
         console.log('Claim result:', result);
 
         // If the server returned a requestId, wait for a matching

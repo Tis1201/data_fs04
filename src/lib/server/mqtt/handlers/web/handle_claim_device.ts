@@ -1,5 +1,5 @@
 import { logger } from '$lib/server/logger';
-import { sendDeviceNotificationWithTicket, DeviceNotificationType } from '../../core/publish';
+import { sendFactoryDeviceNotificationWithTicket, DeviceNotificationType } from '../../core/publish';
 import type { RpcHandlerArgs } from '../index';
 
 interface ClaimDeviceParams {
@@ -63,7 +63,7 @@ export async function handleClaimDevice(
     
 
     //Send a claim notification to device here
-    const requestId = await sendDeviceNotificationWithTicket({
+    const requestId = await sendFactoryDeviceNotificationWithTicket({
         prisma,
         factoryDeviceId: factoryDevice.id,
         sub,

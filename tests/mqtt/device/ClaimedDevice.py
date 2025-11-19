@@ -3,6 +3,8 @@ import time
 from typing import Any, Dict
 
 import os
+import base64
+import json
 import urllib.parse
 import requests
 import paho.mqtt.client as mqtt  # noqa: F401
@@ -29,6 +31,7 @@ class ClaimedDevice:
         # invoked.
         if not getattr(self._device, "claim_state", None):
             raise RuntimeError("No claimed state found; run FactoryDevice claim flow first.")
+        self._device.on_notification = self._handle_notification
 
     @property
     def client(self) -> mqtt.Client | None:  # type: ignore[name-defined]
@@ -105,6 +108,37 @@ class ClaimedDevice:
         client.loop_start()
 
         self._device.client = client
+
+    def _decode_jwt_payload(self, token: str) -> Dict[str, Any]:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return {}
+        try:
+            payload_segment = parts[1]
+            padded = payload_segment + "=" * (-len(payload_segment) % 4)
+            decoded = base64.urlsafe_b64decode(padded.encode("utf-8"))
+            return json.loads(decoded.decode("utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to decode notification ticket payload: {e}")
+            return {}
+
+    def _handle_notification(self, data: Dict[str, Any]) -> None:
+        ticket = data.get("ticket")
+        if not ticket:
+            logger.debug("Notification without ticket; ignoring in ClaimedDevice")
+            return
+
+        payload = self._decode_jwt_payload(ticket)
+        notif_type = payload.get("type")
+        device_id = payload.get("deviceId")
+        request_id = payload.get("requestId")
+
+        logger.info(
+            f"Device notification received: type={notif_type}, deviceId={device_id}, requestId={request_id}"
+        )
+
+        if notif_type != "device.screenshot":
+            return
 
     def stop(self) -> None:
         if self._device.client:

@@ -3,7 +3,6 @@ import { logger } from '$lib/server/logger';
 import type { RpcHandlerArgs } from '../index';
 import { resolveDeviceClaimContextFromTicket } from '../../core/claims';
 import { NotificationEventType, sendUserNotificationWithTicket } from '../../core/publish';
-import { sendDeviceNotificationWithTicket } from '../../core/publish';
 
 interface DeviceClaimConfirmParams {
     ticket?: string;
