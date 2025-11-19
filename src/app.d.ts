@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { ExtendedWebSocketServer } from '$lib/server/websocket/WebSocketUtils';
 import type { DefaultDeviceManager } from '$lib/server/device/deviceManager';
 import type Redis from 'ioredis';
+import type { RequestContext } from '$lib/server/context/requestContext';
 
 declare global {
 	namespace App {
@@ -84,6 +85,8 @@ declare global {
 			wss?: ExtendedWebSocketServer;
 			deviceManager: DefaultDeviceManager;
 			redis: Redis;
+			requestId: string;
+			requestContext: RequestContext;
 		}
 	}
 	namespace Lucia {

@@ -21,6 +21,6 @@
     {title}
     {breadcrumbs}
     basePath="/admin"
-    apiPrefix="/api/admin"
+    apiPrefix="/api/v2"
     isAdmin={true}
 />

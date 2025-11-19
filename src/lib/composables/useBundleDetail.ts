@@ -12,6 +12,7 @@ import { sseStore } from '$lib/stores/sse-store';
 import { subscribeBundleWave } from '$lib/bundles/realtime';
 import { subscribeToDeviceUpdates } from '$lib/stores/device-subscription';
 import { api_post, api_delete } from '$lib/utils/ApiUtils';
+import { postV2, deleteV2 } from '$lib/utils/v2ApiHandler';
 import { onMount, onDestroy } from 'svelte';
 import { browser } from '$app/environment';
 
@@ -171,9 +172,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
                 ? Math.max(...b.apps.map((a: any) => a.order)) + 1 
                 : 1;
                 
-            const apiPath = context === 'admin' 
-                ? `/api/admin/iot/bundles/${bundleId}/apps`
-                : `/api/user/iot/bundles/${bundleId}/apps`;
+            const apiPath = `/api/v2/bundles/${bundleId}/apps`;
                 
             await api_post(apiPath, {
                 resourceId: app.id,
@@ -194,9 +193,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
 
     async function handleDeleteApp(appId: string) {
         try {
-            const apiPath = context === 'admin'
-                ? `/api/admin/iot/bundles/${bundleId}/apps/${appId}`
-                : `/api/user/iot/bundles/${bundleId}/apps/${appId}`;
+            const apiPath = `/api/v2/bundles/${bundleId}/apps/${appId}`;
                 
             await api_delete(apiPath, appId);
             toast.success("App removed from bundle successfully");
@@ -209,9 +206,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
 
     async function handleDeleteBundle() {
         try {
-            const apiPath = context === 'admin'
-                ? `/api/admin/iot/bundles/${bundleId}`
-                : `/api/user/iot/bundles/${bundleId}`;
+            const apiPath = `/api/v2/bundles/${bundleId}`;
                 
             await api_delete(apiPath, bundleId);
             toast.success("Bundle deleted successfully");
@@ -230,9 +225,9 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
         }
         
         try {
-            const apiPath = `/api/admin/iot/bundles/${bundleId}/stopAllWaves`;
-            await api_post(apiPath, {});
-            toast.success("All waves stopped successfully");
+            const apiPath = `/api/v2/bundles/${bundleId}/stop-all-waves`;
+            const response = await postV2(apiPath, {});
+            toast.success(response.message || "All waves stopped successfully");
             await invalidate('app:bundle');
         } catch (error) {
             toast.error("Failed to stop waves");

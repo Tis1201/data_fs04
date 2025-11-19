@@ -1,6 +1,9 @@
 import Redis from 'ioredis';
-import { dev } from '$app/environment';
 import { logger } from '$lib/server/logger';
+
+// Use Node.js environment check instead of SvelteKit's $app/environment
+// This allows the module to work in both SvelteKit and standalone contexts
+const dev = process.env.NODE_ENV !== 'production';
 
 // Check if Pushpin is enabled
 const isPushpinEnabled = process.env.USE_PUSHPIN === 'true';

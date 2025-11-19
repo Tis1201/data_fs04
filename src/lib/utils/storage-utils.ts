@@ -20,8 +20,9 @@ export function requiresPresignedUrl(mode: StorageMode): boolean {
 
 /**
  * Get the appropriate API endpoint for presigned URL generation
+ * Migrated to v2 unified endpoint
  */
 export function getPresignedUrlEndpoint(isAdmin: boolean = false): string {
-    const basePath = isAdmin ? '/api/admin/upload/presigned-url' : '/api/user/upload/presigned-url';
-    return basePath;
+    // V2 unified endpoint - no longer role-based
+    return '/api/v2/upload/presigned-url';
 }

@@ -19,7 +19,7 @@
     {title}
     {breadcrumbs}
     basePath="/admin"
-    apiPrefix="/api/admin"
+    apiPrefix="/api/v2"
     context="admin"
     showDelete={false}
 />

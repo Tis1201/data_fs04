@@ -39,7 +39,7 @@
             isCreating = true;
             toast.loading('Creating token key...');
             
-            const response = await fetch('/api/admin/jwt/signing_keys/create', {
+            const response = await fetch('/api/v2/admin/jwt/signing-keys', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -71,7 +71,7 @@
             isRotating = true;
             toast.loading('Rotating token key...');
             
-            const response = await fetch('/api/admin/jwt/signing_keys/rotate', {
+            const response = await fetch('/api/v2/admin/jwt/signing-keys/rotate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

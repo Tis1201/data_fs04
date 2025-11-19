@@ -59,13 +59,12 @@
             }
 
             // Import profiles via API
-            const apiPath = context === 'admin' ? '/api/admin/iot' : '/api/user/iot';
             let successCount = 0;
             let errorCount = 0;
 
             for (const profile of profiles) {
                 try {
-                    const response = await fetch(`${apiPath}/device-profiles`, {
+                    const response = await fetch(`/api/v2/device-profiles`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -117,12 +116,11 @@
 
         exportLoading = true;
         try {
-            const apiPath = context === 'admin' ? '/api/admin/iot' : '/api/user/iot';
             const profilesData = [];
 
             // Get detailed data for selected profiles
             for (const profile of selectedProfiles) {
-                const response = await fetch(`${apiPath}/device-profiles/${profile.id}`);
+                const response = await fetch(`/api/v2/device-profiles/${profile.id}`);
                 if (response.ok) {
                     const result = await response.json();
                     profilesData.push(result.profile);

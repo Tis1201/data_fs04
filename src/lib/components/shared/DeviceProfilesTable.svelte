@@ -107,8 +107,7 @@
         if (!state.selectedRecord) return;
 
         try {
-            const apiPath = context === 'admin' ? '/api/admin/iot' : '/api/user/iot';
-            const response = await fetch(`${apiPath}/device-profiles/${state.selectedRecord.id}`, {
+            const response = await fetch(`/api/v2/device-profiles/${state.selectedRecord.id}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json'

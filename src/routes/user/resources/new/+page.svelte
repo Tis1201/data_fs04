@@ -275,8 +275,7 @@
         try {
             console.log('[NewResource] Creating resource record...');
             
-            // Create resource record using cloud endpoint
-            const createResponse = await fetch('/api/user/resources/create-cloud', {
+            const createResponse = await fetch('/api/v2/resources/create-cloud', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

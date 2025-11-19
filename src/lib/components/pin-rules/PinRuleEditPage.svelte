@@ -14,6 +14,7 @@
     import { toast } from "svelte-sonner";
     import { onMount } from "svelte";
     import { browser } from "$app/environment";
+    import * as Select from "$lib/components/ui/select";
 
     /**
      * Props for PinRuleEditPage component
@@ -30,13 +31,29 @@
     $: rule = rule;
 
     let formData = {
-        name: rule?.name || '',
-        description: rule?.description || '',
-        apps: (rule?.apps || []).join(', '),
-        targetType: rule?.targetType || 'all',
-        targetValue: (rule?.targetValue || []).join(', '),
-        isActive: rule?.isActive ?? true
+        name: '',
+        description: '',
+        apps: '',
+        targetType: 'all',
+        isActive: true
     };
+
+    // Update formData reactively when rule changes
+    $: if (rule) {
+        formData = {
+            name: rule.name || '',
+            description: rule.description || '',
+            apps: (rule.apps || []).join(', '),
+            targetType: rule.targetType || 'all',
+            isActive: rule.isActive ?? true
+        };
+        console.log('[PinRuleEdit] Rule loaded/updated:', {
+            id: rule.id,
+            name: rule.name,
+            targetType: rule.targetType,
+            targetValueCount: rule.targetValue?.length || 0
+        });
+    }
 
     let isSubmitting = false;
     let deleting = false;
@@ -44,41 +61,53 @@
     let appPickerOpen = false;
     let devicePickerOpen = false;
     let deleteOpen = false;
-    let selectedApps = new Set<string>(rule?.apps || []);
-    let selectedDevices = new Map<string, string>(); // id -> name
+    
+    // Reactive selectedApps
+    let selectedApps = new Set<string>();
+    $: if (rule?.apps) {
+        selectedApps = new Set<string>(rule.apps);
+    }
+    
+    let selectedDevices: { id: string; name: string }[] = [];
 
-    onMount(async () => {
-        if (!browser) return;
-        
-        // Initialize selected apps from existing rule
-        if (rule?.apps) {
-            selectedApps = new Set<string>(rule.apps);
+    // Load selected devices reactively when rule changes
+    $: if (browser && rule?.targetType === 'specific' && rule?.targetValue && Array.isArray(rule.targetValue) && rule.targetValue.length > 0) {
+        loadSelectedDevices();
+    } else if (browser && rule?.targetType === 'all') {
+        // Clear selected devices when switching to 'all'
+        selectedDevices = [];
+    }
+
+    async function loadSelectedDevices() {
+        if (!rule?.targetValue || !Array.isArray(rule.targetValue) || rule.targetValue.length === 0) {
+            return;
         }
 
-        // Initialize selected devices from existing rule
-        if (rule?.targetType === 'specific' && rule?.targetValue) {
-            const ids = rule.targetValue;
-            if (ids.length > 0) {
-                try {
-                    const params = new URLSearchParams();
-                    params.append('includeDeviceIds', ids.join(','));
-                    const res = await fetch(`${apiPrefix}/devices/select?${params.toString()}`);
-                    const data = await res.json();
-                    const map = new Map<string, string>();
-                    for (const d of data.devices || []) {
-                        map.set(d.id, d.name);
-                    }
-                    // Fill missing names with ids
-                    for (const id of ids) { 
-                        if (!map.has(id)) map.set(id, id); 
-                    }
-                    selectedDevices = map;
-                } catch (e) {
-                    selectedDevices = new Map(ids.map((id: string) => [id, id]));
+        try {
+            console.log('[PinRuleEdit] Loading selected devices:', rule.targetValue);
+            const response = await fetch(`/api/v2/devices/select?includeDeviceIds=${rule.targetValue.join(',')}`);
+            console.log('[PinRuleEdit] Device load response status:', response.status);
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('[PinRuleEdit] Device load result:', result);
+                
+                if (result.success && result.data?.devices) {
+                    selectedDevices = result.data.devices.map((d: any) => ({ id: d.id, name: d.name }));
+                    console.log('[PinRuleEdit] Selected devices loaded:', selectedDevices.length, 'devices');
+                } else {
+                    console.warn('[PinRuleEdit] Unexpected response structure:', result);
                 }
+            } else {
+                const errorText = await response.text();
+                console.error('[PinRuleEdit] Failed to load devices:', response.status, errorText);
+                toast.error(`Failed to load devices: ${response.status}`);
             }
+        } catch (error) {
+            console.error('[PinRuleEdit] Error loading selected devices:', error);
+            toast.error('Failed to load selected devices');
         }
-    });
+    }
 
     function syncAppsToForm() {
         formData.apps = Array.from(selectedApps).join(', ');
@@ -91,8 +120,13 @@
         appPickerOpen = false;
     }
 
-    function syncDevicesToForm() {
-        formData.targetValue = Array.from(selectedDevices.keys()).join(', ');
+    function handleDevicesSelected(e: CustomEvent<{ id: string; name: string }[]>) {
+        selectedDevices = [...selectedDevices, ...e.detail];
+        devicePickerOpen = false;
+    }
+
+    function removeDevice(deviceId: string) {
+        selectedDevices = selectedDevices.filter(d => d.id !== deviceId);
     }
 
     async function handleSubmit() {
@@ -103,6 +137,11 @@
 
         if (!formData.apps.trim()) {
             toast.error('At least one app is required');
+            return;
+        }
+
+        if (formData.targetType === 'specific' && selectedDevices.length === 0) {
+            toast.error('Please select at least one device for specific targeting');
             return;
         }
 
@@ -119,7 +158,7 @@
                     description: formData.description.trim() || null,
                     apps: Array.from(selectedApps),
                     targetType: formData.targetType,
-                    targetValue: formData.targetType === 'all' ? [] : Array.from(selectedDevices.keys()),
+                    targetValue: formData.targetType === 'specific' ? selectedDevices.map(d => d.id) : [],
                     isActive: formData.isActive
                 })
             });
@@ -192,7 +231,7 @@
                 <form on:submit|preventDefault={handleSubmit} class="space-y-4">
                     <!-- Name -->
                     <div class="space-y-2">
-                        <Label for="name">Name *</Label>
+                        <Label for="name">Name <span class="text-red-500">*</span></Label>
                         <Input
                             id="name"
                             bind:value={formData.name}
@@ -214,7 +253,7 @@
 
                     <!-- Apps (multi-select picker with search) -->
                     <div class="space-y-2">
-                        <Label>Apps *</Label>
+                        <Label>Apps <span class="text-red-500">*</span></Label>
                         {#if selectedApps.size > 0}
                             <div class="border rounded-md bg-muted/30 p-3">
                                 <div class="flex items-center justify-between mb-2">
@@ -235,77 +274,78 @@
                             <Button type="button" variant="outline" class="flex items-center gap-2" on:click={() => appPickerOpen = true}>
                                 <Plus class="w-4 h-4" /> Select Apps
                             </Button>
-                            {#if appPickerOpen}
-                                <AppSelector 
-                                    open={true}
-                                    bundleId={''}
-                                    {apiPrefix}
-                                    resourceMode={true}
-                                    resourcesEndpoint={'/api/resources/apps'}
-                                    resourceRuleId={rule?.id}
-                                    resourceExcludePackages={Array.from(selectedApps)}
-                                    on:select={handleAppsSelected}
-                                    on:close={() => (appPickerOpen = false)}
-                                />
-                            {/if}
+                            <AppSelector 
+                                bind:open={appPickerOpen}
+                                bundleId={''}
+                                {apiPrefix}
+                                resourceMode={true}
+                                resourcesEndpoint={'/api/v2/resources/apps'}
+                                resourceRuleId={rule?.id}
+                                resourceExcludePackages={Array.from(selectedApps)}
+                                on:select={handleAppsSelected}
+                                on:close={() => (appPickerOpen = false)}
+                            />
                         </div>
                         <input type="hidden" name="apps" value={formData.apps} />
                         <p class="text-sm text-gray-500">Choose one or more apps. You can also start typing to filter.</p>
                     </div>
 
-                    <!-- Target Type -->
+                    <!-- Target Devices -->
                     <div class="space-y-2">
-                        <Label for="targetType">Target Type</Label>
-                        <select
-                            id="targetType"
-                            bind:value={formData.targetType}
-                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        <Label for="targetType">Target Devices <span class="text-red-500">*</span></Label>
+                        <Select.Root 
+                            onSelectedChange={(selected) => {
+                                formData.targetType = selected?.value ?? 'all';
+                            }}
+                            selected={{ 
+                                value: formData.targetType, 
+                                label: formData.targetType === 'all' ? 'All Devices' : 'Specific Devices' 
+                            }}
                         >
-                            <option value="all">All Devices</option>
-                            <option value="specific">Specific Devices</option>
-                        </select>
+                            <Select.Trigger class="w-full">
+                                <Select.Value placeholder="Select target type" />
+                            </Select.Trigger>
+                            <Select.Content>
+                                <Select.Item value="all">All Devices</Select.Item>
+                                <Select.Item value="specific">Specific Devices</Select.Item>
+                            </Select.Content>
+                        </Select.Root>
                     </div>
 
-                    <!-- Target Value (if specific) -->
+                    <!-- Specific Devices Selection (shown when targetType is 'specific') -->
                     {#if formData.targetType === 'specific'}
                         <div class="space-y-2">
-                            <Label>Specific Devices</Label>
-                            {#if selectedDevices.size > 0}
+                            <Label>Selected Devices</Label>
+                            {#if selectedDevices.length > 0}
                                 <div class="border rounded-md bg-muted/30 p-3">
                                     <div class="flex items-center justify-between mb-2">
-                                        <h4 class="font-medium text-sm">Selected Devices <span class="text-muted-foreground">({selectedDevices.size})</span></h4>
-                                        <Button type="button" variant="ghost" size="sm" on:click={() => { selectedDevices = new Map(); syncDevicesToForm(); }}>Clear</Button>
+                                        <h4 class="font-medium text-sm">Selected Devices <span class="text-muted-foreground">({selectedDevices.length})</span></h4>
+                                        <Button type="button" variant="ghost" size="sm" on:click={() => { selectedDevices = []; }}>Clear</Button>
                                     </div>
                                     <div class="flex flex-wrap gap-2">
-                                        {#each Array.from(selectedDevices.entries()) as [devId, devName]}
+                                        {#each selectedDevices as device}
                                             <div class="flex items-center gap-2 bg-background border rounded-md px-3 py-1 text-sm">
-                                                <span>{devName || devId}</span>
-                                                <button type="button" class="text-muted-foreground hover:text-destructive" on:click={() => { selectedDevices.delete(devId); selectedDevices = new Map(selectedDevices); syncDevicesToForm(); }}>✕</button>
+                                                <span>{device.name || device.id}</span>
+                                                <button type="button" class="text-muted-foreground hover:text-destructive" on:click={() => removeDevice(device.id)}>✕</button>
                                             </div>
                                         {/each}
                                     </div>
                                 </div>
                             {/if}
-                            <div class="flex items-center gap-2">
-                                <Button type="button" variant="outline" on:click={() => devicePickerOpen = true}>Select Devices</Button>
+                            <div>
+                                <Button type="button" variant="outline" class="flex items-center gap-2" on:click={() => devicePickerOpen = true}>
+                                    <Plus class="w-4 h-4" /> Select Devices
+                                </Button>
+                            <DeviceSelector 
+                                bind:open={devicePickerOpen}
+                                bundleId=""
+                                {apiPrefix}
+                                devicesEndpoint="/api/v2/devices/select"
+                                excludeDeviceIds={selectedDevices.map(d => d.id)}
+                                on:select={handleDevicesSelected}
+                                on:close={() => (devicePickerOpen = false)}
+                            />
                             </div>
-                            {#if devicePickerOpen}
-                                <DeviceSelector 
-                                    open={true}
-                                    bundleId={''}
-                                    {apiPrefix}
-                                    devicesEndpoint={`${apiPrefix}/devices/select`}
-                                    excludeDeviceIds={Array.from(selectedDevices.keys())}
-                                    on:select={(e) => {
-                                        for (const d of e.detail) {
-                                            selectedDevices.set(d.id, d.name);
-                                        }
-                                        syncDevicesToForm();
-                                        devicePickerOpen = false;
-                                    }}
-                                    on:close={() => (devicePickerOpen = false)}
-                                />
-                            {/if}
                         </div>
                     {/if}
 

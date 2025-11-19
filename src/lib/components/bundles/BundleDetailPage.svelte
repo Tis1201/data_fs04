@@ -13,7 +13,7 @@
         Play,
         Copy
     } from 'lucide-svelte';
-    import { api_post } from '$lib/utils/ApiUtils';
+    import { postV2 } from '$lib/utils/v2ApiHandler';
 
     // Layout Components
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -154,10 +154,8 @@
 
     async function handlePublish() {
         try {
-            const apiPath = context === 'admin'
-                ? `/api/admin/iot/bundles/${bundle.id}/publish`
-                : `/api/user/iot/bundles/${bundle.id}/publish`;
-            await api_post(apiPath);
+            const apiPath = `/api/v2/bundles/${bundle.id}/publish`;
+            const response = await postV2(apiPath); // Using postV2 helper
             toast.success('Bundle published');
             await invalidate('app:bundle');
         } catch (e) {
@@ -167,13 +165,13 @@
 
     async function handleDuplicate() {
         try {
-            const apiPath = context === 'admin'
-                ? `/api/admin/iot/bundles/${bundle.id}/duplicate`
-                : `/api/user/iot/bundles/${bundle.id}/duplicate`;
-            const response = await api_post(apiPath);
+            const apiPath = `/api/v2/bundles/${bundle.id}/duplicate`;
+            const response = await postV2(apiPath); // Using postV2 helper
             toast.success('Bundle duplicated successfully');
             // Navigate to the new bundle
-            goto(`${basePath}/${response.data.id}`);
+            if (response.id) {
+                goto(`${basePath}/${response.id}`);
+            }
             // Auto-refresh to load complete data and ensure SSE subscription works
             setTimeout(() => window.location.reload(), 100);
         } catch (e) {

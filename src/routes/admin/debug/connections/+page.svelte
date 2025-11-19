@@ -13,7 +13,7 @@
     async function loadStats() {
         loading = true;
         try {
-            const response = await fetch('/api/admin/debug/connections');
+            const response = await fetch('/api/v2/admin/debug/connections');
             if (response.ok) {
                 stats = await response.json();
             } else {
@@ -30,7 +30,7 @@
     async function cleanupConnections() {
         cleanupLoading = true;
         try {
-            const response = await fetch('/api/admin/debug/connections/cleanup', {
+            const response = await fetch('/api/v2/admin/debug/connections/cleanup', {
                 method: 'POST'
             });
             if (response.ok) {

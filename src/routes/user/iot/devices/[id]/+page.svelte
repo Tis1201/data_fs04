@@ -24,5 +24,5 @@
     title={data.meta?.title || `Device: ${device?.name || device?.id || 'Unknown'}`}
     pageCrumbs={breadcrumbs}
     basePath="/user"
-    resourceApiPath="/api/user/resources"
+    resourceApiPath="/api/v2/resources"
 />

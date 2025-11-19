@@ -1,7 +1,10 @@
 import { enhance } from '@zenstackhq/runtime';
 import { PrismaClient } from '@prisma/client';
-import { dev } from '$app/environment';
 import { logger } from './logger';
+
+// Use Node.js environment check instead of SvelteKit's $app/environment
+// This allows the module to work in both SvelteKit and standalone contexts
+const dev = process.env.NODE_ENV !== 'production';
 
 declare global {
     var prisma: PrismaClient | undefined;

@@ -8,7 +8,7 @@ import { logger } from "$lib/server/logger";
 import prisma from "$lib/server/prisma";
 import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
 import { startBundleStatusScheduler } from "$lib/server/scheduler/bundleStatusScheduler";
-import { _publishBundleDirect } from "../../routes/api/admin/iot/bundles/[id]/publish/+server";
+import { publishBundleCore } from "$lib/server/bundles/bundlePublisher";
 
 export async function initializeBundleProcess() {
     logger.info('📦 Starting bundle processing background job...');
@@ -18,7 +18,9 @@ export async function initializeBundleProcess() {
         try {
             startBundleAutoPublishScheduler(
                 prisma as any, 
-                async (bundleId: string) => _publishBundleDirect(prisma as any, bundleId)
+                async (bundleId: string) => {
+                    await publishBundleCore(prisma as any, bundleId);
+                }
             );
             logger.info('✅ Bundle auto-publish scheduler started');
         } catch (e: any) {

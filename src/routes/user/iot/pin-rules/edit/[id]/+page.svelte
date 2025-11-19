@@ -20,7 +20,7 @@
     {title}
     {breadcrumbs}
     basePath="/user"
-    apiPrefix="/api/user"
+    apiPrefix="/api/v2"
     context="user"
     {showDelete}
 />

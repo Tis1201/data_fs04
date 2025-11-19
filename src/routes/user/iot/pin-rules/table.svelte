@@ -137,24 +137,17 @@
             label: "Name",
             sortable: true,
             width: "20%",
-            render: (record: PinRuleWithCount) => {
-                const isEditable = (record.ruleType === 'user_custom' && record.createdBy === currentUserId) ||
-                    (record.ruleType === 'user_default' && (accountRole === 'OWNER' || accountRole === 'ADMIN'));
-                if (!isEditable) {
-                    return `${record.name || 'Unnamed Rule'}`;
+            render: (record: PinRuleWithCount) => ({
+                component: NameWithIdLink,
+                props: {
+                    record: {
+                        id: record.id,
+                        name: record.name || 'Unnamed Rule'
+                    },
+                    baseUrl: '/user/iot/pin-rules/edit',
+                    showId: true
                 }
-                return ({
-                    component: NameWithIdLink,
-                    props: {
-                        record: {
-                            id: record.id,
-                            name: record.name || 'Unnamed Rule'
-                        },
-                        baseUrl: '/user/iot/pin-rules/edit',
-                        showId: true
-                    }
-                });
-            }
+            })
         },
         {
             id: "ruleType",
@@ -204,18 +197,20 @@
             label: "Actions",
             width: "10%",
             render: (record: PinRuleWithCount) => {
-                // Define action items here instead of in the RecordActions component
-                const canEdit = (record.ruleType === 'user_custom' && record.createdBy === currentUserId) ||
-                    (record.ruleType === 'user_default' && (accountRole === 'OWNER' || accountRole === 'ADMIN'));
+                // Similar to admin: all rules are editable, but default rules cannot be deleted
                 const isDefault = record.ruleType === 'user_default';
-
-                if (!canEdit) {
-                    return 'Read Only';
-                }
-
                 const actionItems: ActionItem[] = [
-                    { label: "Edit Rule", icon: Pencil, onClick: () => goto(`/user/iot/pin-rules/edit/${record.id}`) },
-                    ...(isDefault ? [] : [{ label: "Delete", icon: Trash, onClick: () => confirmDelete(record) } as ActionItem])
+                    {
+                        label: "Edit Rule",
+                        icon: Pencil,
+                        onClick: () => goto(`/user/iot/pin-rules/edit/${record.id}`)
+                    },
+                    // Only show delete for non-default rules (user_custom)
+                    ...(isDefault ? [] : [{
+                        label: "Delete",
+                        icon: Trash,
+                        onClick: () => confirmDelete(record)
+                    } as ActionItem])
                 ];
                 
                 return {
