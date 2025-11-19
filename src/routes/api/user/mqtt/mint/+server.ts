@@ -3,7 +3,7 @@ import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { env as privateEnv } from '$env/dynamic/private';
 import jwt, { type Algorithm } from 'jsonwebtoken';
-
+import { getAdminPrisma } from '$lib/server/prisma';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
@@ -11,7 +11,9 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
   const user = auth.user;
   logger.info(`[UserMqttMintAPI] Received request for user: ${String(user.id)}`);
 
-  const signingKey = await locals.prisma.jwtSigningKey.findFirst({
+  const adminPrisma = getAdminPrisma();
+
+  const signingKey = await adminPrisma.jwtSigningKey.findFirst({
     where: {
       keyType: 'LINK',
       isPrimary: true,
@@ -31,12 +33,15 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
 
   try {
     const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
-    const mqttUsername = `user:${user.id}`;
+    
+    const accountId = auth.currentAccount?.account.id ?? user.primaryAccountId ?? null;
+
+    const mqttUsername = `user:${user.id}:${accountId}`;
 
     const token = jwt.sign(
       {
         // userId: user.id,
-        accountId: user.primaryAccountId ?? null,
+        accountId,
         username: user.email,
         // name: user.name ?? null,
         scope: 'web:mqtt',
@@ -74,4 +79,4 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
     logger.error(`[UserMqttMintAPI] Error: ${String(err)}`);
     return json(createErrorResponse('Internal server error'), { status: 500 });
   }
-});
+}, ['ADMIN', 'USER']);

@@ -23,9 +23,10 @@ let client: MqttClient | null = null;
 let started = false;
 
 const brokerUrl = process.env.MQTT_BROKER_URL;
-const sharedGroup = process.env.MQTT_WORKER_SHARED_GROUP ?? 'server';
 
-const topics = getWorkerSubscriptions(sharedGroup);
+// Use shared group from MQTT_SHARED_GROUP (see core/subscriptions.ts),
+// falling back to its internal default when not set.
+const topics = getWorkerSubscriptions();
 
 const defaultClientId = `fs04-worker-${os.hostname()}-${Date.now()}`;
 

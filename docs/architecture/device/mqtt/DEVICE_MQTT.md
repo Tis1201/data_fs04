@@ -74,3 +74,32 @@ notification flows can remain stateless across web pods and workers. For
 long-lived or auditable workflows (e.g. ownership claims), this pattern can be
 combined with a DB-backed record.
 
+---
+
+## 4. User MQTT Identity and Subject Schema
+
+For user MQTT clients, identity and account context are encoded directly in the
+JWT that is minted by `/api/user/mqtt/mint`:
+
+- `sub`: `user:<user_id>:<account_id>`
+- Claim `accountId`: the same `<account_id>` value
+- Claim `username`: the user’s email
+- Claim `scope`: typically `web:mqtt`
+
+Examples:
+
+- `sub = user:cmi5g818l0008hfkgjiraqq6k:cmi5g7ksw0004hfkgvud85rbp`
+- `accountId = cmi5g7ksw0004hfkgvud85rbp`
+
+This allows a single user to operate in different **account contexts** by
+minting separate tokens (and MQTT connections) for each account. The worker and
+ACLs can:
+
+- Parse `sub` to obtain both `userId` and `accountId`.
+- Enforce per-account permissions when handling topics under `user/<userId>/...`
+  or any account-scoped resources.
+
+Account selection in the web UI is reflected in the minted token via
+`auth.currentAccount` so that each MQTT credential is explicitly bound to a
+specific account.
+

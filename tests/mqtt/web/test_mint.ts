@@ -1,11 +1,13 @@
 import 'dotenv/config';
 
 const BASE_URL = process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
-const USERNAME = process.env.SAMPLE_ADMIN_USERNAME ?? 'admin@admin.com';
-const PASSWORD = process.env.SAMPLE_ADMIN_PASSWORD ?? 'admin0823';
+const USERNAME = process.env.SAMPLE_USER_USERNAME ?? 'admin@admin.com';
+const PASSWORD = process.env.SAMPLE_USER_PASSWORD ?? 'admin0823';
 
 const LOGIN_URL = `${BASE_URL}/auth/login?/login`;
 const MINT_URL = `${BASE_URL}/api/user/mqtt/mint`;
+
+console.info(`Minting MQTT credentials for user ${USERNAME}:${PASSWORD}`);
 
 export interface MintResult {
   jwt: string;
@@ -87,4 +89,19 @@ export async function mint(): Promise<MintResult> {
 
 const result = await mint();
 
-console.log(result)
+console.log(result);
+
+// Pretty-print JWT claims for inspection
+try {
+  const parts = result.jwt.split('.');
+  if (parts.length === 3) {
+    const payload = parts[1];
+    const json = Buffer.from(payload, 'base64').toString('utf8');
+    const claims = JSON.parse(json);
+    console.log('JWT claims:', claims);
+  } else {
+    console.warn('Unexpected JWT format');
+  }
+} catch (err) {
+  console.error('Failed to decode JWT claims:', err);
+}

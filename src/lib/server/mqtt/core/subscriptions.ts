@@ -1,5 +1,8 @@
 const SHARED_GROUP = process.env.MQTT_SHARED_GROUP ?? 'server';
 
+console.log('group', SHARED_GROUP, process.env.MQTT_SHARED_GROUP);
+    
+
 const WORKER_TOPIC_PATTERNS = [
     'device/+/requests',
     'device/+/events',

@@ -1,4 +1,5 @@
 import { logger } from '$lib/server/logger';
+import { sendDeviceNotificationWithTicket } from '../../core/publish';
 import type { RpcHandlerArgs } from '../index';
 
 interface ClaimDeviceParams {
@@ -45,6 +46,32 @@ export async function handleClaimDevice(
     // to a user account, clearing the PIN, etc.) can be added later.
     logger.info(
         `[WebClaim] PIN ${pin} matched factory device ${factoryDevice.id} for user ${sub}`
+    );
+
+    //We need the user information to generate the ticket
+    const user_id = sub.split(':')[1];
+    const user = await prisma.user.findUnique({
+        where: { id: user_id }
+    });
+
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    //We should convert the factory:device to a actual device and save the update to the device record
+    //There would be a device api key created, we are supposed to send that to the device
+    
+
+    //Send a claim notification to device here
+    await sendDeviceNotificationWithTicket({
+        prisma,
+        factoryDeviceId: factoryDevice.id,
+        sub: sub,
+        type: 'claim'
+    });
+
+    logger.info(
+        `[WebClaim] Sent claim notification to device/factory:${factoryDevice.id}/notifications for user ${sub}`
     );
 
     //We need to send a notification message over device:<id> to get device to reply
