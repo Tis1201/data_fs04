@@ -24,10 +24,12 @@ def handle_response(device: Any, payload: str) -> None:
         device.pending_requests[req_id]["response"] = data
         device.pending_requests[req_id]["event"].set()
 
-    # Persist claim result when we see a device.claim.confirm
-    if data.get("op") == "device.claim.confirm" and data.get("result"):
-        # Delegate to the device so the persistence logic stays encapsulated
-        device._handle_claim_confirm_result(data["result"])  # type: ignore[attr-defined]
+    # Delegate full RPC envelope to an optional device-level callback so
+    # business logic (e.g. claim handling) lives with the concrete
+    # device client, not in this generic handler.
+    callback = getattr(device, "on_rpc_response", None)
+    if callable(callback):
+        callback(data)
 
 
 def handle_request(device: Any, client: Any, payload: str) -> None:
@@ -50,8 +52,8 @@ def handle_request(device: Any, client: Any, payload: str) -> None:
 def handle_notification(device: Any, payload: str) -> None:
     """Handle messages on .../notifications for a Device instance.
 
-    For claim notifications, this publishes a device.claim.confirm RPC
-    back to the server, including the deviceInfo built by the Device.
+    Business-specific behavior (e.g. claim notification handling) is
+    delegated to an optional callback on the device.
     """
     try:
         data = json.loads(payload)
@@ -59,33 +61,15 @@ def handle_notification(device: Any, payload: str) -> None:
         logger.error(f"Failed to parse notification payload: {e}")
         return
 
-    ticket = data.get("ticket")
-    if not ticket:
-        logger.warning("Claim notification missing ticket")
-        return
-
-    logger.info("Received claim notification, sending device.claim.confirm")
-
-    confirm_params: Dict[str, Any] = {
-        "ticket": ticket,
-        "deviceInfo": device._build_device_info(),  # type: ignore[attr-defined]
-    }
-
-    import uuid
-
-    request_id = str(uuid.uuid4())
-    request_payload = {
-        "requestId": request_id,
-        "op": "device.claim.confirm",
-        "params": confirm_params,
-    }
-
-    request_topic = f"device/{device.sub}/requests"  # type: ignore[attr-defined]
-    device.client.publish(request_topic, json.dumps(request_payload), qos=1)  # type: ignore[attr-defined]
-    logger.debug(f"Published device.claim.confirm to {request_topic}: {request_payload}")
+    callback = getattr(device, "on_notification", None)
+    if callable(callback):
+        callback(data)
+    else:
+        logger.debug("Notification received but no on_claim_notification callback set")
 
 
 class DeviceHandlers:
+
     """OO wrapper around the functional handlers for a Device instance."""
 
     def __init__(self, device: Any) -> None:

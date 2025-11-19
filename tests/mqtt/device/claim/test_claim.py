@@ -11,7 +11,7 @@ import time
 
 sys.path.append("tests")
 
-from mqtt.device.device import Device, mint_factory_credentials
+from mqtt.device.FactoryDevice import FactoryDevice
 from _utils.jwt_tools import pretty_print_jwt
 
 load_dotenv()
@@ -25,32 +25,28 @@ FACTORY_TOKEN = os.getenv('SAMPLE_DEVICE_FACTORY_TOKEN')
 
 
 def test_claim():
-    brokerUrl, jwt, sub = mint_factory_credentials()
-    logger.debug(brokerUrl)
-    logger.debug(f"{jwt[:10]}...")
-    logger.debug(f"Device sub: {sub}")
-    device = Device(brokerUrl, jwt, sub)
+    device = FactoryDevice()
     device.connect()
     
     # Wait a moment for connection to establish
     time.sleep(1)
 
     try:
-        # Perform registration (get PIN) once from the main thread
-        device.start_register()
+        try:
+            # Perform registration (get PIN) once from the main thread
+            device.start_register()
 
-        # Keep the device connected until explicitly stopped (Ctrl+C)
-        logger.info("Device registered; press Ctrl+C to stop the device client")
-        while True:
-            time.sleep(1)
+            # Keep the device connected until explicitly stopped (Ctrl+C)
+            logger.info("Device registered; press Ctrl+C to stop the device client")
+            while True:
+                time.sleep(1)
 
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt received, stopping device client")
-    except TimeoutError as e:
-        logger.warning(e)
-    finally:
-        device.client.loop_stop()
-        device.client.disconnect()
+        except KeyboardInterrupt:
+            logger.info("KeyboardInterrupt received, stopping device client")
+        except TimeoutError as e:
+            logger.warning(e)
+        finally:
+            device.stop()
 
 if __name__ == "__main__":
     test_claim()

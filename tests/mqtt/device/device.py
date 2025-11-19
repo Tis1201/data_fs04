@@ -1,5 +1,4 @@
 #Device Class
-import os
 import sys
 import uuid
 import time
@@ -10,24 +9,12 @@ import platform
 from pathlib import Path
 from typing import Any, Dict
 
-import jwt
-import requests
-from dotenv import load_dotenv
 import paho.mqtt.client as mqtt
 from loguru import logger
 
 sys.path.append("tests")
 
-from mqtt.device.mint.factory.test_mint_factory_token import _mint_factory_credentials
-from _utils.jwt_tools import pretty_print_jwt  # noqa: F401
-from mqtt.device.handlers import DeviceHandlers
-from mqtt.device.connection_factory import FactoryDeviceConnection
-from mqtt.device.connection_device import DeviceConnection
-
-load_dotenv()
-
-FACTORY_TOKEN = os.getenv('SAMPLE_DEVICE_FACTORY_TOKEN')
-MQTT_MINT_URL = os.getenv('MQTT_MINT_URL', 'http://localhost:5173/api/device/mqtt/mint')
+from mqtt.device.DeviceHandlers import DeviceHandlers
 
 
 class Device:
@@ -38,29 +25,16 @@ class Device:
 		self.client: mqtt.Client | None = None
 		self.pending_requests: Dict[str, Dict[str, Any]] = {}
 		self.claim_file = Path(__file__).with_name('claimed.json')
-		self.claim_state = self._load_claim_state()
+		# Optional persisted claim state has been disabled; use in-memory
+		# claim_result instead.
+		self.claim_result: Dict[str, Any] | None = None
+		# Optional callbacks that higher-level clients (FactoryDevice,
+		# ClaimedDevice) can use to handle business logic.
+		self.on_rpc_response = None
+		self.on_notification = None
 		self.handlers = DeviceHandlers(self)
-		if self.claim_state:
-			logger.info(f"Loaded existing claimed state from {self.claim_file}: {self.claim_state}")
-
-	def start_register(self) -> None:
-		"""Perform initial registration to obtain a PIN, unless already claimed."""
-		if self.claim_state:
-			logger.info("Device already claimed; skipping registration step")
-			return
-
-		response = self.request('get.pin', {}, timeout=5)
-
-		logger.debug(f"RPC response: {response}")
-
-		assert response.get("result")
-		assert response.get("result").get("pin")
-
-		pin = response.get("result").get("pin")
-
-		logger.debug(f'Pin: {pin}')
-
-		self.pin = pin
+		# if self.claim_state:
+		# 	logger.info(f"Loaded existing claimed state from {self.claim_file}: {self.claim_state}")
 
 	def on_connect(self, client, userdata, flags, reason_code, properties=None):  # type: ignore[override]
 		logger.debug("Connected to broker")
@@ -93,24 +67,24 @@ class Device:
 			'senderId': self.sub,
 		}
 
-	def _load_claim_state(self) -> Dict[str, Any] | None:
-		if not self.claim_file.exists():
-			return None
-		try:
-			with self.claim_file.open('r', encoding='utf-8') as f:
-				return json.load(f)
-		except Exception as e:
-			logger.warning(f"Failed to load claimed state from {self.claim_file}: {e}")
-			return None
+	# def _load_claim_state(self) -> Dict[str, Any] | None:
+	# 	if not self.claim_file.exists():
+	# 		return None
+	# 	try:
+	# 		with self.claim_file.open('r', encoding='utf-8') as f:
+	# 			return json.load(f)
+	# 	except Exception as e:
+	# 		logger.warning(f"Failed to load claimed state from {self.claim_file}: {e}")
+	# 		return None
 
-	def _save_claim_state(self, state: Dict[str, Any]) -> None:
-		try:
-			with self.claim_file.open('w', encoding='utf-8') as f:
-				json.dump(state, f, indent=2)
-			self.claim_state = state
-			logger.info(f"Saved claimed state to {self.claim_file}: {state}")
-		except Exception as e:
-			logger.error(f"Failed to save claimed state to {self.claim_file}: {e}")
+	# def _save_claim_state(self, state: Dict[str, Any]) -> None:
+	# 	try:
+	# 		with self.claim_file.open('w', encoding='utf-8') as f:
+	# 			json.dump(state, f, indent=2)
+	# 		self.claim_state = state
+	# 		logger.info(f"Saved claimed state to {self.claim_file}: {state}")
+	# 	except Exception as e:
+	# 		logger.error(f"Failed to save claimed state to {self.claim_file}: {e}")
 
 	def _handle_claim_confirm_result(self, result: Dict[str, Any]) -> None:
 		factory_device_id = None
@@ -125,7 +99,9 @@ class Device:
 			'claimedAt': time.time(),
 		}
 
-		self._save_claim_state(state)
+		# Persist claim result in-memory for the current process. The
+		# filesystem-based claim_state has been disabled.
+		self.claim_result = state
 
 	def on_disconnect(self, client, userdata, reason_code, properties=None):  # type: ignore[override]
 		logger.debug("Disconnected from broker")
@@ -154,83 +130,3 @@ class Device:
 		else:
 			del self.pending_requests[request_id]
 			raise TimeoutError(f"No response for request {request_id} within {timeout}s")
-
-	def connect(self) -> None:
-		# If the device has already been claimed, use the device MQTT mint endpoint
-		# and connect as a real device using its API key.
-		if self.claim_state:
-			api_key = self.claim_state.get('apiKey')
-			if not api_key:
-				raise RuntimeError("Claim state is missing apiKey; cannot mint device MQTT credentials.")
-
-			if not MQTT_MINT_URL:
-				raise RuntimeError("MQTT_MINT_URL is not configured")
-
-			response = requests.post(
-				MQTT_MINT_URL,
-				headers={
-					'Content-Type': 'application/json',
-					'X-API-Key': api_key,
-				},
-				json={},
-				timeout=10,
-			)
-
-			if response.status_code != 200:
-				raise RuntimeError(f"Failed to mint device MQTT credentials: {response.status_code} - {response.text}")
-
-			payload = response.json()
-			if not payload.get('success'):
-				raise RuntimeError(f"Device MQTT mint did not succeed: {payload}")
-
-			data = payload.get('data') or {}
-			broker_url = data.get('brokerUrl')
-			jwt_token = data.get('jwt')
-			mqtt_username = data.get('mqttUsername')
-
-			if not broker_url or not jwt_token or not mqtt_username:
-				raise RuntimeError(f"Device MQTT mint response missing fields: {payload}")
-
-			# Update connection parameters to use the device identity
-			self.brokerUrl = broker_url
-			self.jwt = jwt_token
-			self.sub = mqtt_username
-
-			connection = DeviceConnection(
-				broker_url=self.brokerUrl,
-				sub=self.sub,
-				password=self.jwt,
-				on_connect=self.on_connect,
-				on_message=self.on_message,
-				on_disconnect=self.on_disconnect,
-			)
-		else:
-			connection = FactoryDeviceConnection(
-				broker_url=self.brokerUrl,
-				sub=self.sub,
-				password=FACTORY_TOKEN or "",
-				on_connect=self.on_connect,
-				on_message=self.on_message,
-				on_disconnect=self.on_disconnect,
-			)
-
-		self.client = connection.connect()
-
-
-def mint_factory_credentials():
-	response = _mint_factory_credentials()
-	assert response.status_code == 200, f"Unexpected status code: {response.status_code} - Body: {response.text}"
-	payload = response.json()
-
-	broker_url = payload['data']['brokerUrl']
-	jwt_token = payload['data']['jwt']
-
-	try:
-		decoded = jwt.decode(jwt_token, options={"verify_signature": False})
-		sub = decoded.get('sub')
-		logger.debug(f"Device JWT sub: {sub}")
-	except Exception as e:
-		logger.warning(f"Failed to decode device JWT: {e}")
-		sub = None
-
-	return broker_url, jwt_token, sub
