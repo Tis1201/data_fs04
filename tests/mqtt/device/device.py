@@ -25,8 +25,12 @@ class Device:
 		self.client: mqtt.Client | None = None
 		self.pending_requests: Dict[str, Dict[str, Any]] = {}
 		self.claim_file = Path(__file__).with_name('claimed.json')
-		# Optional persisted claim state has been disabled; use in-memory
-		# claim_result instead.
+		# Load any previously persisted claim state from disk so that
+		# post-claim clients can reuse it (e.g. ClaimedDevice).
+		self.claim_state = self._load_claim_state()
+		# In addition, keep an in-memory claim_result for the current
+		# process so flows like FactoryDevice.wait_for_claim_confirm don't
+		# depend on filesystem timing.
 		self.claim_result: Dict[str, Any] | None = None
 		# Optional callbacks that higher-level clients (FactoryDevice,
 		# ClaimedDevice) can use to handle business logic.
@@ -38,8 +42,11 @@ class Device:
 
 	def on_connect(self, client, userdata, flags, reason_code, properties=None):  # type: ignore[override]
 		logger.debug("Connected to broker")
-		client.subscribe(f'device/{self.sub}/response')
-		client.subscribe(f'device/{self.sub}/notifications')
+		response_topic = f'device/{self.sub}/response'
+		notifications_topic = f'device/{self.sub}/notifications'
+		client.subscribe(response_topic)
+		client.subscribe(notifications_topic)
+		logger.debug(f"Subscribed to topics: {response_topic}, {notifications_topic}")
 
 	def on_message(self, client, userdata, message):  # type: ignore[override]
 		topic = message.topic.decode() if isinstance(message.topic, bytes) else message.topic
@@ -67,24 +74,24 @@ class Device:
 			'senderId': self.sub,
 		}
 
-	# def _load_claim_state(self) -> Dict[str, Any] | None:
-	# 	if not self.claim_file.exists():
-	# 		return None
-	# 	try:
-	# 		with self.claim_file.open('r', encoding='utf-8') as f:
-	# 			return json.load(f)
-	# 	except Exception as e:
-	# 		logger.warning(f"Failed to load claimed state from {self.claim_file}: {e}")
-	# 		return None
+	def _load_claim_state(self) -> Dict[str, Any] | None:
+		if not self.claim_file.exists():
+			return None
+		try:
+			with self.claim_file.open('r', encoding='utf-8') as f:
+				return json.load(f)
+		except Exception as e:
+			logger.warning(f"Failed to load claimed state from {self.claim_file}: {e}")
+			return None
 
-	# def _save_claim_state(self, state: Dict[str, Any]) -> None:
-	# 	try:
-	# 		with self.claim_file.open('w', encoding='utf-8') as f:
-	# 			json.dump(state, f, indent=2)
-	# 		self.claim_state = state
-	# 		logger.info(f"Saved claimed state to {self.claim_file}: {state}")
-	# 	except Exception as e:
-	# 		logger.error(f"Failed to save claimed state to {self.claim_file}: {e}")
+	def _save_claim_state(self, state: Dict[str, Any]) -> None:
+		try:
+			with self.claim_file.open('w', encoding='utf-8') as f:
+				json.dump(state, f, indent=2)
+			self.claim_state = state
+			logger.info(f"Saved claimed state to {self.claim_file}: {state}")
+		except Exception as e:
+			logger.error(f"Failed to save claimed state to {self.claim_file}: {e}")
 
 	def _handle_claim_confirm_result(self, result: Dict[str, Any]) -> None:
 		factory_device_id = None
@@ -99,8 +106,8 @@ class Device:
 			'claimedAt': time.time(),
 		}
 
-		# Persist claim result in-memory for the current process. The
-		# filesystem-based claim_state has been disabled.
+		# Persist claim result to both disk and memory.
+		self._save_claim_state(state)
 		self.claim_result = state
 
 	def on_disconnect(self, client, userdata, reason_code, properties=None):  # type: ignore[override]
