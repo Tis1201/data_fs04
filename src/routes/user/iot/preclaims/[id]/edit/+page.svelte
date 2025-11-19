@@ -23,7 +23,7 @@
 
   const pageCrumbs: [string, string][] = [
     ["Home", "/user"],
-    ["IoT", "/user/iot"],
+      ["IOT", ""],
     ["Pre-claims", "/user/iot/preclaims"],
     [preclaimSet.name || "Pre-claim Set", `/user/iot/preclaims/${preclaimSet.id}`],
     ["Edit", ""]

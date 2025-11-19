@@ -49,7 +49,7 @@
     let apiKeys: Array<{
         id: string;
         name: string;
-        displayKey: string;
+        key: string;
         createdAt: string;
         lastUsedAt?: string;
         expiresAt?: string;
@@ -542,8 +542,7 @@
                                         </Badge>
                                     </div>
                                     <p class="text-sm text-muted-foreground">
-                                        Created {formatDistanceToNow(new Date(key.createdAt), { addSuffix: true })}
-                                        {key.lastUsedAt && ` • Last used ${formatDistanceToNow(new Date(key.lastUsedAt), { addSuffix: true })}`}
+                                        Created {formatDistanceToNow(new Date(key.createdAt), { addSuffix: true })}{#if key.lastUsedAt} • Last used {formatDistanceToNow(new Date(key.lastUsedAt), { addSuffix: true })}{/if}{#if key.expiresAt} • Expires {formatDistanceToNow(new Date(key.expiresAt), { addSuffix: true })}{/if}
                                     </p>
                                     {#if key.description}
                                         <p class="text-sm text-muted-foreground">{key.description}</p>

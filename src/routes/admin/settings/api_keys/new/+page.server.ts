@@ -51,6 +51,25 @@ export const actions = {
                     throw new Error('User not found');
                 }
 
+                // Check if user already has 10 or more API keys
+                const existingKeysCount = await prisma.apiKey.count({
+                    where: { userId: auth.user.id }
+                });
+
+                if (existingKeysCount >= 10) {
+                    return fail(400, {
+                        form,
+                        message: {
+                            type: 'error' as const,
+                            text: 'API key limit reached',
+                            details: 'You have reached the maximum limit of 10 API keys. Please delete some keys before creating new ones.',
+                            code: 'API_KEY_LIMIT_REACHED',
+                            requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
+                            timestamp: new Date().toISOString()
+                        }
+                    });
+                }
+
                 const newApiKey = await prisma.apiKey.create({
                     data: {
                         name: form.data.name,

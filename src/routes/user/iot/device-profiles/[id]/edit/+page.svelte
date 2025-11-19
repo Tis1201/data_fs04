@@ -29,7 +29,7 @@
     // Breadcrumbs for navigation
     const pageCrumbs: [string, string][] = [
         ["User", "/user"],
-        ["IOT", "/user/iot"],
+        ["IOT", ""],
         ["Device Profiles", "/user/iot/device-profiles"],
         ["Edit", `/user/iot/device-profiles/${data.profile.id}/edit`]
     ];

@@ -30,7 +30,7 @@
   const title = "Create Device Tag";
   const pageCrumbs = [
     ["User", "/user"],
-    ["IoT", "/user/iot"],
+    ["IOT", ""],
     ["Device Tags", "/user/iot/device_tags"],
     "Create Device Tag",
   ];

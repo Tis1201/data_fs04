@@ -22,7 +22,7 @@
   const pageDescription = "Connect a new device to your account";
   const pageCrumbs = [
     ["Dashboard", "/user/dashboard"],
-    ["IoT", "/user/iot"],
+      ["IOT", ""],
     ["Devices", "/user/iot/devices"],
     ["Claim Device", ""]
   ] as [string, string][];

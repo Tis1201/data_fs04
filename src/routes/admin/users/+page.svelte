@@ -25,67 +25,9 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        ["Users", "/admin/users"]
+        ["Accounts", ""],
+        ["Users", ""],
     ];
-
-    // Define menu items for the top bar
-    const menuItems = [
-        {
-            label: 'Users',
-            icon: UserPlus,
-            items: [
-                { 
-                    label: 'All Users', 
-                    icon: UserPlus, 
-                    action: () => true
-                },
-                { separator: true },
-                { 
-                    label: 'New User', 
-                    icon: Plus, 
-                    action: () => {
-                        goto('/admin/users/new');
-                        return true;
-                    }
-                },
-                { separator: true },
-                { 
-                    label: 'Export Users', 
-                    icon: Download
-                },
-                { 
-                    label: 'Import Users', 
-                    icon: Upload
-                }
-            ]
-        },
-        {
-            label: 'Management',
-            icon: Settings,
-            items: [
-                { 
-                    label: 'User Groups', 
-                    icon: FileText
-                },
-                { 
-                    label: 'Permissions', 
-                    icon: Settings
-                }
-            ]
-        }
-    ];
-
-    // Set menu items on mount
-    onMount(() => {
-        topMenuItems.set({
-            items: menuItems,
-            activeItem: 'Users'
-        });
-        
-        return () => {
-            topMenuItems.set(null);
-        };
-    });
 </script>
 
 <AdminPageLayout

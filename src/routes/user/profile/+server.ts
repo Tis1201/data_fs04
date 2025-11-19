@@ -34,17 +34,27 @@ export const GET = restrict(
                 select: {
                     id: true,
                     name: true,
-                    // displayKey: true,
+                    description: true,
+                    key: true,
                     createdAt: true,
                     lastUsedAt: true,
-                    expiresAt: true
+                    expiresAt: true,
+                    active: true
                 },
                 orderBy: { createdAt: 'desc' }
             });
 
             console.log(`Found ${apiKeys.length} API keys for user ${userId}`);
 
-            return json(createSuccessResponse(apiKeys, {
+            // Mask the API keys for security (show first 4 and last 4 characters)
+            const maskedApiKeys = apiKeys.map((key: any) => ({
+                ...key,
+                key: key.key.length > 8 
+                    ? `${key.key.substring(0, 4)}${'•'.repeat(key.key.length - 8)}${key.key.substring(key.key.length - 4)}`
+                    : key.key
+            }));
+
+            return json(createSuccessResponse(maskedApiKeys, {
                 message: 'API keys retrieved successfully'
             }));
         } catch (error) {
@@ -74,6 +84,17 @@ export const POST = restrict(
 
             const userId = auth.user.id;
             const { name, description = '' } = data;
+
+            // Check if user already has 10 or more API keys
+            const existingKeysCount = await locals.prisma.apiKey.count({
+                where: { userId }
+            });
+
+            if (existingKeysCount >= 10) {
+                return json(createErrorResponse(new Error('You have reached the maximum limit of 10 API keys'), {
+                    code: 'API_KEY_LIMIT_REACHED'
+                }), { status: 400 });
+            }
 
             // Generate a new API key
             const apiKey = generateId(32);

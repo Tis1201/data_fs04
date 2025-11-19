@@ -189,13 +189,10 @@
                                     id="os"
                                     name="os"
                                     placeholder="Select OS"
+                                    options={osOptions}
                                     bind:value={$form.os}
                                     disabled={$submitting}
-                                >
-                                    {#each osOptions as option}
-                                        <option value={option.value}>{option.label}</option>
-                                    {/each}
-                                </EnhancedSelect>
+                                />
                             </FormField>
                             
                             <FormField 
