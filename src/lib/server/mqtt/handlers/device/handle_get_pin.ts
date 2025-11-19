@@ -7,6 +7,8 @@ const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
 export async function handleGetPin(args: { topic: string; prisma: PrismaClient }): Promise<{ pin: string }> {
     const { topic, prisma } = args;
 
+    logger.info(`[DeviceGetPin] Handling get.pin RPC for topic ${topic}`);
+
     // Extract sub from topic: device/{sub}/requests
     const topicParts = topic.split('/');
     if (topicParts.length < 3) {

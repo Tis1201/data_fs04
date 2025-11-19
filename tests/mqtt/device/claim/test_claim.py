@@ -76,44 +76,6 @@ class Device:
             except Exception as e:
                 logger.error(f"Failed to handle request: {e}")
 
-    def _handle_request(self, client, request_data):
-        """Process incoming RPC request and publish response."""
-        req_id = request_data.get('requestId')
-        op = request_data.get('op')
-        params = request_data.get('params', {})
-
-        if not req_id or not op:
-            logger.warning(f"Invalid request: {request_data}")
-            return
-
-        # Simple operation handlers
-        result = None
-        error = None
-        try:
-            if op == 'ping':
-                result = {'message': f"pong: {params.get('message', '')}"}
-            elif op == 'echo':
-                result = params
-            elif op == 'add':
-                a = params.get('a', 0)
-                b = params.get('b', 0)
-                result = {'sum': a + b}
-            else:
-                error = f"Unknown operation: {op}"
-        except Exception as e:
-            error = str(e)
-
-        response = {
-            'requestId': req_id,
-            'op': op,
-            'result': result,
-            'error': error
-        }
-
-        response_topic = f'device/{self.sub}/response'
-        client.publish(response_topic, json.dumps(response), qos=1)
-        logger.debug(f"Published response to {response_topic}: {response}")
-
     def on_disconnect(self, client, userdata, reason_code, properties=None):
         logger.debug("Disconnected from broker")
 
@@ -198,17 +160,18 @@ def test_claim():
     
     # Wait a moment for connection to establish
     time.sleep(1)
-    
+
     try:
-        # Example RPC call
-        # response = device.request('ping', {'message': 'hello'}, timeout=5)
-        # logger.info(f"RPC response: {response}")
-
-        # response = device.request('get.pin', {}, timeout=5)
-        # logger.info(f"RPC response: {response}")
+        # Perform registration (get PIN) once from the main thread
         device.start_register()
-        
 
+        # Keep the device connected until explicitly stopped (Ctrl+C)
+        logger.info("Device registered; press Ctrl+C to stop the device client")
+        while True:
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received, stopping device client")
     except TimeoutError as e:
         logger.warning(e)
     finally:

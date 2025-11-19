@@ -53,14 +53,17 @@ function extractTopicSub(prefix: string, topic: string): string | null {
 const rpcOperations = new Map<string, (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>>();
 
 export function registerRpcOperation(op: string, fn: (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>): void {
+    logger.debug(`[MQTT RPC] Registering operation ${op}`);
     rpcOperations.set(op, fn);
 }
 
 export async function executeRpcOperation(op: string, params: Record<string, any>, args: RpcHandlerArgs): Promise<any> {
     const fn = rpcOperations.get(op);
     if (!fn) {
+        logger.error(`[MQTT RPC] Unknown operation ${op} with params ${JSON.stringify(params)}`);
         throw new Error(`Unknown RPC operation: ${op}`);
     }
+    logger.debug(`[MQTT RPC] Executing operation ${op} with params ${JSON.stringify(params)}`);
     return await fn(params, args);
 }
 
@@ -117,6 +120,9 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     }
 
     if (rpcData?.requestId && rpcData?.op && typeof rpcData?.params === 'object') {
+        logger.debug(
+            `[MQTT Messaging] Detected raw RPC payload ${JSON.stringify({ topic, rpcData })}`
+        );
         for (const [prefix, entry] of rpcHandlers) {
             if (topic.startsWith(prefix)) {
                 logger.debug(`[MQTT Messaging] Handling raw RPC with prefix ${prefix}`);
@@ -145,7 +151,9 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         logger.info(`[MQTT Messaging] Published RPC response to ${responseTopic}`);
                     }
                 } catch (err) {
-                    logger.error(`[MQTT Messaging] RPC handler error: ${err}`);
+                    logger.error(
+                        `[MQTT Messaging] RPC handler error: ${err instanceof Error ? err.message : String(err)}`
+                    );
                     // Publish error response
                     const { getMqttTransport } = await import('../core/transport');
                     const transport = getMqttTransport();
@@ -161,6 +169,9 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 return;
             }
         }
+        logger.warn(
+            `[MQTT Messaging] No RPC handler matched for topic ${topic} and op ${rpcData.op}`
+        );
     }
 
     // Fall back to envelope-based handlers

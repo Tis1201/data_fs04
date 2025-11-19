@@ -2,6 +2,8 @@ import 'dotenv/config';
 import mqtt, { type IClientOptions, type MqttClient } from 'mqtt';
 import { mint } from './test_mint';
 import { randomUUID } from 'crypto';
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 
 function deriveUsernameFromJwt(jwt: string): string {
   try {
@@ -33,6 +35,22 @@ function deriveUsernameFromJwt(jwt: string): string {
   } catch (err) {
     console.warn('Failed to decode JWT payload, falling back to default username', err);
     return 'web-client';
+  }
+}
+
+async function promptForClaimPin(): Promise<string | null> {
+  const rl = readline.createInterface({ input, output });
+  try {
+    const action = await rl.question('Select action: [1] Claim device, [Enter] to skip: ');
+    if (action.trim() !== '1') {
+      return null;
+    }
+
+    const pin = await rl.question('Enter PIN to claim device: ');
+    const trimmed = pin.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } finally {
+    rl.close();
   }
 }
 
@@ -102,16 +120,26 @@ async function testConnect() {
     client.subscribe(`user/${clientId}/response`);
     client.subscribe(`user/${clientId}/notifications`);
 
-    const pin = process.env.CLAIM_PIN;
-    if (pin) {
-      sendRpcRequest(client, clientId, 'web.claim.device', { pin })
-        .then((result) => {
-          console.log('Claim result:', result);
-        })
-        .catch((err) => {
-          console.error('Claim error:', err);
-        });
-    }
+    (async () => {
+      // Determine PIN: prefer environment variable, otherwise ask user.
+      const envPin = process.env.CLAIM_PIN?.trim();
+      const pinToUse = envPin && envPin.length > 0 ? envPin : await promptForClaimPin();
+
+      if (!pinToUse) {
+        console.log('No PIN provided, skipping claim');
+        return;
+      }
+
+      console.log('Using PIN for claim:', pinToUse);
+      try {
+        const result = await sendRpcRequest(client, clientId, 'user.claim.device', { pin: pinToUse });
+        console.log('Claim result:', result);
+      } catch (err) {
+        console.error('Claim error:', err);
+      }
+    })().catch((err) => {
+      console.error('Error during claim flow:', err);
+    });
   });
 
   client.on('message', (topic, payload) => {

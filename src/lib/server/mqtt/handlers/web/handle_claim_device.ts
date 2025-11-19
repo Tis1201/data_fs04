@@ -47,6 +47,10 @@ export async function handleClaimDevice(
         `[WebClaim] PIN ${pin} matched factory device ${factoryDevice.id} for user ${sub}`
     );
 
+    //We need to send a notification message over device:<id> to get device to reply
+    //Or we rcp call to device over mqtt
+
+
     return { deviceId: factoryDevice.id };
 }
 

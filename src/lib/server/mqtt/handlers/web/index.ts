@@ -14,10 +14,10 @@ import { handleClaimDevice } from './handle_claim_device';
  */
 export function registerWebHandlers(prisma: PrismaClient): void {
     registerRpcClient(
-        'Web',
-        '',
+        'User',
+        'user/',
         {
-            'web.claim.device': handleClaimDevice
+            'user.claim.device': handleClaimDevice
         },
         prisma
     );

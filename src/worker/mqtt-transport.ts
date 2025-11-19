@@ -9,6 +9,7 @@ import { handleIncoming, registerHandler } from '../lib/server/mqtt/handlers';
 import { registerMqttTransport } from '../lib/server/mqtt/core/transport';
 import { getWorkerSubscriptions } from '../lib/server/mqtt/core/subscriptions';
 import { registerDeviceHandlers } from '../lib/server/mqtt/handlers/device';
+import { registerWebHandlers } from '../lib/server/mqtt/handlers/web';
 import { PrismaClient } from '@prisma/client';
 
 // Use raw Prisma client for the worker (no Zenstack enhancement)
@@ -16,6 +17,7 @@ import { PrismaClient } from '@prisma/client';
 const adminPrisma = new PrismaClient();
 
 registerDeviceHandlers(adminPrisma);
+registerWebHandlers(adminPrisma);
 
 let client: MqttClient | null = null;
 let started = false;
