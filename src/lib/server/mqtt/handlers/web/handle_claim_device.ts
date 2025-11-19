@@ -1,5 +1,5 @@
 import { logger } from '$lib/server/logger';
-import { sendDeviceNotificationWithTicket } from '../../core/publish';
+import { sendDeviceNotificationWithTicket, DeviceNotificationType } from '../../core/publish';
 import type { RpcHandlerArgs } from '../index';
 
 interface ClaimDeviceParams {
@@ -20,7 +20,7 @@ interface ClaimDeviceParams {
 export async function handleClaimDevice(
     params: ClaimDeviceParams,
     { prisma, sub }: RpcHandlerArgs
-): Promise<{ deviceId: string } | never> {
+): Promise<{ deviceId: string; requestId: string } | never> {
     const pin = params.pin?.trim();
 
     if (!pin) {
@@ -63,11 +63,11 @@ export async function handleClaimDevice(
     
 
     //Send a claim notification to device here
-    await sendDeviceNotificationWithTicket({
+    const requestId = await sendDeviceNotificationWithTicket({
         prisma,
         factoryDeviceId: factoryDevice.id,
-        sub: sub,
-        type: 'claim'
+        sub,
+        type: DeviceNotificationType.Claim
     });
 
     logger.info(
@@ -77,7 +77,6 @@ export async function handleClaimDevice(
     //We need to send a notification message over device:<id> to get device to reply
     //Or we rcp call to device over mqtt
 
-
-    return { deviceId: factoryDevice.id };
+    return { deviceId: factoryDevice.id, requestId };
 }
 

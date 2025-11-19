@@ -2,6 +2,7 @@ import { getMqttTransport } from '../core/transport.js';
 import jwt, { type Algorithm, type JwtPayload } from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import type { PrismaClient, JwtSigningKey } from '@prisma/client';
+import { logger } from '$lib/server/logger';
 
 const SIGNING_KEY_CACHE_TTL_MS = 60_000;
 
@@ -38,19 +39,34 @@ export interface PublishEnvelope<TPayload extends Record<string, unknown> = Reco
     payload: TPayload;
     correlationId?: string;
     source?: string;
+    type?: string;
 }
+
+export const NotificationEventType = {
+    ClaimConfirmed: 'claim.confirmed',
+} as const;
+
+export type NotificationEventType = (typeof NotificationEventType)[keyof typeof NotificationEventType];
 
 export async function publishEnvelope(topic: string, envelope: PublishEnvelope): Promise<void> {
     const transport = getMqttTransport();
     await transport.publish(topic, JSON.stringify(envelope));
 }
 
+export const DeviceNotificationType = {
+    Claim: 'claim',
+} as const;
+
+export type DeviceNotificationType = (typeof DeviceNotificationType)[keyof typeof DeviceNotificationType];
+
 export interface DeviceNotificationTicketParams {
     prisma: PrismaClient;
     factoryDeviceId: string;
     sub: string;
-    type: string;
+    type: DeviceNotificationType | string;
     expiresIn?: string;
+    requestId?: string;
+    payload?: Record<string, unknown>;
 }
 
 export async function sendDeviceNotificationWithTicket({
@@ -58,16 +74,19 @@ export async function sendDeviceNotificationWithTicket({
     factoryDeviceId,
     sub,
     type,
-    expiresIn = '5m'
-}: DeviceNotificationTicketParams): Promise<void> {
+    expiresIn = '5m',
+    requestId,
+    payload
+}: DeviceNotificationTicketParams): Promise<string> {
     const signingKey = await getNotificationSigningKey(prisma);
 
     const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+    const effectiveRequestId = requestId ?? crypto.randomUUID();
     const ticketPayload = {
         type,
         factoryDeviceId,
         sub,
-        requestId: crypto.randomUUID()
+        requestId: effectiveRequestId
     };
 
     const ticket = jwt.sign(ticketPayload, signingKey.privateKey, {
@@ -80,7 +99,21 @@ export async function sendDeviceNotificationWithTicket({
 
     const topic = `device/factory:${factoryDeviceId}/notifications`;
     const transport = getMqttTransport();
-    await transport.publish(topic, JSON.stringify({ ticket }), { qos: 1 });
+    const message: Record<string, unknown> = { ticket };
+    if (payload && Object.keys(payload).length > 0) {
+        message.payload = payload;
+    }
+    try {
+        await transport.publish(topic, JSON.stringify(message), { qos: 1 });
+    } catch (err) {
+        logger.error('[MQTT Notification] Failed to publish device notification', {
+            topic,
+            error: err instanceof Error ? err.message : String(err)
+        });
+        throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    return effectiveRequestId;
 }
 
 export interface VerifiedDeviceNotificationTicket extends JwtPayload {
@@ -121,4 +154,32 @@ export async function verifyDeviceNotificationTicket(params: {
     }
 
     return decoded as VerifiedDeviceNotificationTicket;
+}
+
+export interface UserNotificationTicketParams {
+    sub: string;
+    type: NotificationEventType | string;
+    requestId?: string;
+    payload?: Record<string, unknown>;
+}
+
+export async function sendUserNotificationWithTicket({
+    sub,
+    type,
+    requestId,
+    payload
+}: UserNotificationTicketParams): Promise<string> {
+    const effectiveRequestId = requestId ?? crypto.randomUUID();
+
+    await publishEnvelope(`user/${sub}/notifications`, {
+        eventId: effectiveRequestId,
+        type,
+        payload: {
+            requestId: effectiveRequestId,
+            ...(payload ?? {})
+        },
+        source: typeof type === 'string' ? type : 'user.notification'
+    });
+
+    return effectiveRequestId;
 }

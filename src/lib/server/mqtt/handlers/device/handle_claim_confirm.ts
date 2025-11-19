@@ -2,6 +2,8 @@ import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
 import type { RpcHandlerArgs } from '../index';
 import { resolveDeviceClaimContextFromTicket } from '../../core/claims';
+import { NotificationEventType, sendUserNotificationWithTicket } from '../../core/publish';
+import { sendDeviceNotificationWithTicket } from '../../core/publish';
 
 interface DeviceClaimConfirmParams {
     ticket?: string;
@@ -88,6 +90,19 @@ export async function handleClaimConfirm(
     logger.info(
         `[DeviceClaimConfirm] Created device ${device.id} for user ${ctx.user.id} account ${ctx.account?.id ?? 'n/a'} from factoryDevice ${ctx.factoryDevice.id}`
     );
+
+    //TODO: Send a notification to the user
+    await sendUserNotificationWithTicket({
+        sub: ctx.ticket.sub,
+        type: NotificationEventType.ClaimConfirmed,
+        requestId: ctx.ticket.requestId ?? undefined,
+        payload: {
+            deviceId: device.id,
+            factoryDeviceId: ctx.factoryDevice.id,
+            accountId: ctx.account?.id ?? null
+        }
+    });
+    // });
 
     // Return device credentials and account context to the device; a separate flow can notify the user.
     return { status: 'ok', deviceId: device.id, apiKey, accountId: ctx.account?.id ?? null };
