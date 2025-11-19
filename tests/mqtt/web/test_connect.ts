@@ -62,6 +62,25 @@ type PendingRequest = {
 
 const pendingRequests = new Map<string, PendingRequest>();
 
+type PendingNotification = {
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+  timeout: NodeJS.Timeout;
+};
+
+const pendingNotifications = new Map<string, PendingNotification>();
+
+function waitForClaimNotification(requestId: string, timeoutMs = 10_000): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingNotifications.delete(requestId);
+      reject(new Error(`No claim.confirmed notification for requestId ${requestId} within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    pendingNotifications.set(requestId, { resolve, reject, timeout });
+  });
+}
+
 function sendRpcRequest(
   client: MqttClient,
   clientId: string,
@@ -134,6 +153,33 @@ async function testConnect() {
       try {
         const result = await sendRpcRequest(client, clientId, 'user.claim.device', { pin: pinToUse });
         console.log('Claim result:', result);
+
+        // If the server returned a requestId, wait for a matching
+        // claim-confirmed notification so we know the device side
+        // has completed the flow.
+        const { deviceId, requestId } = result as { deviceId: string; requestId?: string };
+        if (requestId) {
+          try {
+            const notification = await waitForClaimNotification(requestId, 10_000);
+
+            // notification.payload should contain the same requestId and
+            // factoryDeviceId that was returned as deviceId from the RPC
+            if (
+              notification.requestId === requestId &&
+              notification.factoryDeviceId === deviceId
+            ) {
+              console.log('Claim confirmation notification (matched):', notification);
+            } else {
+              console.warn('Claim confirmation mismatch:', {
+                expectedRequestId: requestId,
+                expectedFactoryDeviceId: deviceId,
+                notification
+              });
+            }
+          } catch (err) {
+            console.error('Claim confirmation timeout:', err);
+          }
+        }
       } catch (err) {
         console.error('Claim error:', err);
       }
@@ -147,11 +193,7 @@ async function testConnect() {
     console.log(`Received on ${topic}:`, text);
 
     try {
-      const data = JSON.parse(text) as {
-        requestId?: string;
-        result?: any;
-        error?: any;
-      };
+      const data = JSON.parse(text) as any;
 
       if (topic.endsWith('/response') && data.requestId && pendingRequests.has(data.requestId)) {
         const entry = pendingRequests.get(data.requestId)!;
@@ -162,6 +204,14 @@ async function testConnect() {
           entry.reject(new Error(String(data.error)));
         } else {
           entry.resolve(data.result);
+        }
+      } else if (topic.endsWith('/notifications') && data.type === 'claim.confirmed') {
+        const notifRequestId: string | undefined = data.payload?.requestId;
+        if (notifRequestId && pendingNotifications.has(notifRequestId)) {
+          const entry = pendingNotifications.get(notifRequestId)!;
+          clearTimeout(entry.timeout);
+          pendingNotifications.delete(notifRequestId);
+          entry.resolve(data.payload);
         }
       }
     } catch {
