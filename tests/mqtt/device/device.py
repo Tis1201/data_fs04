@@ -21,11 +21,13 @@ sys.path.append("tests")
 from mqtt.device.mint.factory.test_mint_factory_token import _mint_factory_credentials
 from _utils.jwt_tools import pretty_print_jwt  # noqa: F401
 from mqtt.device.handlers import DeviceHandlers
-from mqtt.device.connection import DeviceConnection
+from mqtt.device.connection_factory import FactoryDeviceConnection
+from mqtt.device.connection_device import DeviceConnection
 
 load_dotenv()
 
 FACTORY_TOKEN = os.getenv('SAMPLE_DEVICE_FACTORY_TOKEN')
+MQTT_MINT_URL = os.getenv('MQTT_MINT_URL', 'http://localhost:5173/api/device/mqtt/mint')
 
 
 class Device:
@@ -154,14 +156,64 @@ class Device:
 			raise TimeoutError(f"No response for request {request_id} within {timeout}s")
 
 	def connect(self) -> None:
-		connection = DeviceConnection(
-			broker_url=self.brokerUrl,
-			sub=self.sub,
-			password=FACTORY_TOKEN or "",
-			on_connect=self.on_connect,
-			on_message=self.on_message,
-			on_disconnect=self.on_disconnect,
-		)
+		# If the device has already been claimed, use the device MQTT mint endpoint
+		# and connect as a real device using its API key.
+		if self.claim_state:
+			api_key = self.claim_state.get('apiKey')
+			if not api_key:
+				raise RuntimeError("Claim state is missing apiKey; cannot mint device MQTT credentials.")
+
+			if not MQTT_MINT_URL:
+				raise RuntimeError("MQTT_MINT_URL is not configured")
+
+			response = requests.post(
+				MQTT_MINT_URL,
+				headers={
+					'Content-Type': 'application/json',
+					'X-API-Key': api_key,
+				},
+				json={},
+				timeout=10,
+			)
+
+			if response.status_code != 200:
+				raise RuntimeError(f"Failed to mint device MQTT credentials: {response.status_code} - {response.text}")
+
+			payload = response.json()
+			if not payload.get('success'):
+				raise RuntimeError(f"Device MQTT mint did not succeed: {payload}")
+
+			data = payload.get('data') or {}
+			broker_url = data.get('brokerUrl')
+			jwt_token = data.get('jwt')
+			mqtt_username = data.get('mqttUsername')
+
+			if not broker_url or not jwt_token or not mqtt_username:
+				raise RuntimeError(f"Device MQTT mint response missing fields: {payload}")
+
+			# Update connection parameters to use the device identity
+			self.brokerUrl = broker_url
+			self.jwt = jwt_token
+			self.sub = mqtt_username
+
+			connection = DeviceConnection(
+				broker_url=self.brokerUrl,
+				sub=self.sub,
+				password=self.jwt,
+				on_connect=self.on_connect,
+				on_message=self.on_message,
+				on_disconnect=self.on_disconnect,
+			)
+		else:
+			connection = FactoryDeviceConnection(
+				broker_url=self.brokerUrl,
+				sub=self.sub,
+				password=FACTORY_TOKEN or "",
+				on_connect=self.on_connect,
+				on_message=self.on_message,
+				on_disconnect=self.on_disconnect,
+			)
+
 		self.client = connection.connect()
 
 

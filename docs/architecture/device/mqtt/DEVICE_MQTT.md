@@ -17,7 +17,8 @@ Device topics are namespaced by a `factoryDeviceId` and follow these patterns:
 
 - Notification-style:
   - `device/factory:<factoryDeviceId>/notifications`
-  - `device/<factoryDeviceId>/replies`
+  - `device/<factoryDeviceId>/replies` *(reserved for future generic flows; the
+    claim flow replies via the RPC pair instead)*
 
 User MQTT topics follow the same pattern with `user/<userId>/...`.
 
@@ -59,12 +60,13 @@ information inside a signed **ticket** (typically a JWT):
 - `requestId`: correlation ID.
 - `exp`: short expiry window.
 
-The worker:
+The worker, for the **claim** flow:
 
 1. Sends a notification containing only the `ticket` on
-   `device/factory:<factoryDeviceId>/notifications` (or `user/<userId>/notifications`).
-2. The device/user performs the action and replies on `device/<factoryDeviceId>/replies`
-   (or `user/<userId>/replies`) with `{ ticket, result }`.
+   `device/factory:<factoryDeviceId>/notifications` (or `user/<sub>/notifications`).
+2. The device performs the action and replies via an RPC call
+   `device.claim.confirm` on `device/factory:<factoryDeviceId>/requests`, with
+   the response on the matching `/response` topic.
 3. The worker verifies the ticket signature and expiry, cross-checks IDs in the
    ticket against the MQTT identity derived from the topic, and then routes or
    applies the `result`.

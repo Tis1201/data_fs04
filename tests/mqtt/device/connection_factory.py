@@ -5,8 +5,10 @@ import paho.mqtt.client as mqtt
 from loguru import logger
 
 
-class DeviceConnection:
-    """Encapsulates MQTT client setup and connection for a device test client."""
+class FactoryDeviceConnection:
+    """Encapsulates MQTT client setup and connection for a factory (pre-claim)
+    device test client.
+    """
 
     def __init__(
         self,
@@ -33,7 +35,7 @@ class DeviceConnection:
 
         client = mqtt.Client(client_id=self.sub, protocol=mqtt.MQTTv5, transport="websockets")
         client.username_pw_set(username=self.sub, password=self.password)
-        client.user_data_set({"username": "claim"})
+        client.user_data_set({"username": "factory"})
         client.ws_set_options(path=ws_path)
         client.tls_set()  # Enable TLS for wss on port 443
 
@@ -41,7 +43,7 @@ class DeviceConnection:
         client.on_message = self.on_message_cb
         client.on_disconnect = self.on_disconnect_cb
 
-        logger.debug(f"[DeviceConnection] Connecting to broker: {host}:{port} (path: {ws_path})")
+        logger.debug(f"[FactoryDeviceConnection] Connecting to broker: {host}:{port} (path: {ws_path})")
         client.connect(host, port, 60)
         client.loop_start()
 

@@ -18,120 +18,55 @@ Key principles:
 6. Worker atomically validates the PIN (not expired, not already claimed), converts the factory device into a real device record, issues API credentials, and notifies both user and device scopes.
 7. Device disconnects the factory link and reconnects using its new API key / standard MQTT credentials.
 
-## Message Schemas
+## Implementation summary (current code)
 
-Devices and web clients publish bare payloads (KISS); the worker wraps/unwraps them with a `meta` block so we can enrich logs, retries, and downstream routing without complicating client code.
+To keep this document KISS and aligned with the code, here is how the
+device-claim flow is currently implemented. Treat this section as the
+single source of truth for the live behavior.
 
-All MQTT messages handled by the worker therefore use the following internal envelope (clients only care about the `payload.type` + `payload.values` contract):
+- **Device test client** – `tests/mqtt/device/device.py`
+  - Uses `mint_factory_credentials()` to get a broker URL + factory JWT; the
+    JWT `sub` has the form `factory:{factoryDeviceId}`.
+  - Connects to the broker over WebSockets using `DeviceConnection`.
+  - Sends a `get.pin` RPC on
+    `device/factory:{factoryDeviceId}/requests` and receives a PIN on
+    the corresponding `/response` topic.
+  - Saves claim results (`deviceId`, `apiKey`, `accountId`, `factoryDeviceId`)
+    into `tests/mqtt/device/claimed.json` when it receives
+    `device.claim.confirm` from the worker.
+  - On subsequent runs, if `claimed.json` exists, it skips `get.pin` and
+    behaves as an already-claimed device.
 
-```jsonc
-{
-  "meta": {
-    "id": "uuid",                 // unique per message for tracing / retries
-    "type": "device:register | device:pin-issued | device:claim | device:claim-success | device:claim-failed",
-    "source": "factory-device | web-client | worker",
-    "timestamp": "ISO-8601",
-    "correlationId": "optional uuid"
-  },
-  "payload": {
-    "type": "action string",
-    "values": { /* message-specific fields */ }
-  }
-}
-```
+- **User claim RPC** – `src/lib/server/mqtt/handlers/web/handle_claim_device.ts`
+  - Exposes the `user.claim.device` RPC used by `tests/mqtt/web/test_connect.ts`.
+  - Topic: `user/{sub}/requests` where `sub = user:{userId}:{accountId}`.
+  - Validates the PIN against `FactoryDevice.registrationPin`.
+  - Generates a signed claim ticket via
+    `sendDeviceNotificationWithTicket({ factoryDeviceId, sub, type: 'claim' })`
+    and publishes it to `device/factory:{factoryDeviceId}/notifications`.
+  - Returns `{ deviceId: factoryDevice.id, requestId }` where `requestId` is
+    the ticket's request id for correlation.
 
-Specific payloads (note: the worker derives `factoryDeviceId` from the authenticated link JWT, so the device only sends runtime data):
+- **Device claim confirm RPC** –
+  `src/lib/server/mqtt/handlers/device/handle_claim_confirm.ts`
+  - Handles `device.claim.confirm` RPCs on
+    `device/factory:{factoryDeviceId}/requests`.
+  - Verifies the ticket and resolves `user`, `account`, and `factoryDevice`
+    via `resolveDeviceClaimContextFromTicket`.
+  - Creates a real `Device` row (with API key, linked to the account) and
+    updates the `FactoryDevice` to mark it claimed.
+  - Responds to the device with `{ status: 'ok', deviceId, apiKey, accountId }`.
+  - Sends a `claim.confirmed` notification to the user on
+    `user/{sub}/notifications` with a payload containing
+    `{ requestId, deviceId, factoryDeviceId, accountId }`.
 
-1. **device:register** (device → worker on `mqtt/device/{factoryId}/requests`)
-   ```jsonc
-   {
-     "type": "device:register",
-     "values": {
-       "runtime": {
-         "model": "string",
-         "os": "string",
-         "version": "string"
-       }
-     }
-   }
-   ```
-
-2. **device:pin-issued** (worker → device on `mqtt/device/{factoryId}/events`)
-   ```jsonc
-   {
-     "type": "device:pin-issued",
-     "values": {
-       "pin": "string",
-       "expiresAt": "ISO-8601",
-       "factoryDeviceId": "string"
-     }
-   }
-   ```
-
-3. **device:claim** (user client → worker on `mqtt/web/{userId}/requests`)
-   ```jsonc
-   {
-     "type": "device:claim",
-     "values": {
-       "pin": "string"
-     }
-   }
-   ```
-
-4. **device:claim-success** (worker → device scope only)
-   ```jsonc
-   {
-     "type": "device:claim-success",
-     "values": {
-       "deviceId": "uuid",
-       "accountId": "uuid",
-       "apiKey": "string",
-       "claimedAt": "ISO-8601"
-     }
-   }
-   ```
-
-5. **device:details** (device → worker on `mqtt/device/{deviceId}/events`)
-   ```jsonc
-   {
-     "type": "device:details",
-     "values": {
-       "deviceId": "uuid",
-       "hardware": {
-         "model": "string",
-         "serial": "string"
-       },
-       "software": {
-         "os": "string",
-         "version": "string"
-       }
-     }
-   }
-   ```
-
-6. **device:details-updated** (worker → web scopes; worker joins stored metadata before broadcasting)
-   ```jsonc
-   {
-     "type": "device:details-updated",
-     "values": {
-       "deviceId": "uuid"
-     }
-   }
-   ```
-
-7. **device:claim-failed**
-   ```jsonc
-   {
-     "type": "device:claim-failed",
-     "values": {
-       "pin": "string",
-       "reason": "expired | invalid | already-claimed",
-       "retryAfter": "ISO-8601 | null"
-     }
-   }
-   ```
-
-## TODO
-
-- Implement storage (TTL) for PINs + factory device metadata in Prisma/Zenstack with row-based security.
-- Add end-to-end tests covering device register → user claim → device reconnect.
+- **Web MQTT test client** – `tests/mqtt/web/test_connect.ts`
+  - Connects to the broker using a web JWT; uses the JWT `sub` as the
+    MQTT username (`user:{userId}:{accountId}`).
+  - Sends `user.claim.device` over MQTT with the PIN entered by the user.
+  - Reads `{ deviceId, requestId }` from the RPC result and then waits up to
+    10 seconds for a matching `claim.confirmed` notification on
+    `user/{sub}/notifications`.
+  - If the notification arrives and the `requestId` + `factoryDeviceId` match
+    the RPC result, it prints a "claim confirmation" message; otherwise it
+    logs a timeout or mismatch.

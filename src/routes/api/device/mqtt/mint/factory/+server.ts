@@ -94,10 +94,9 @@ export const POST: RequestHandler = async (event) => {
         const mqttUsername = `factory:${factoryDevice.id}`;
         const token = jwt.sign(
             {
-                // factoryDeviceId: factoryDevice.id,
+                factoryDeviceId: factoryDevice.id,
                 hardwareFingerprint,
-                scope: 'factory:mqtt',
-                // mqttUsername
+                scope: 'factory:mqtt'
             },
             signingKey.privateKey,
             {

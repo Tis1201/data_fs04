@@ -19,7 +19,7 @@ from _utils.jwt_tools import pretty_print_jwt
 load_dotenv()
 
 
-FACTORY_MINT_URL = os.getenv('FACTORY_MINT_URL', 'http://localhost:5173/api/device/mqtt/mint/factory')
+FACTORY_MINT_URL = os.getenv('MQTT_MINT_URL_FACTORY', 'http://localhost:5173/api/device/mqtt/mint/factory')
 FACTORY_TOKEN = os.getenv('SAMPLE_DEVICE_FACTORY_TOKEN')
 
 

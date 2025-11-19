@@ -35,10 +35,7 @@ export const POST: RequestHandler = restrictDevice(async ({ locals, device, user
       {
         deviceId: device.id,
         accountId: device.accountId,
-        userId: userInfo.id,
-        deviceName: device.name,
-        scope: 'device:mqtt',
-        mqttUsername
+        scope: 'device:mqtt'
       },
       signingKey.privateKey,
       {
