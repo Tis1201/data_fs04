@@ -152,6 +152,37 @@ export const actions: Actions = {
                 hasRolesString: !!user.rolesString
             });
             
+            // Check if non-admin user belongs to an account
+            if (user.systemRole !== 'ADMIN') {
+                const userWithAccount = await authPrisma.user.findUnique({
+                    where: { id: user.id },
+                    select: { 
+                        primaryAccountId: true,
+                        accountMemberships: { take: 1 }
+                    }
+                });
+
+                const hasAccount = userWithAccount?.primaryAccountId || 
+                                  (userWithAccount?.accountMemberships && userWithAccount.accountMemberships.length > 0);
+
+                if (!hasAccount) {
+                    logger.warn('User without account attempted to login', { 
+                        userId: user.id,
+                        email: form.data.email,
+                        role: user.systemRole,
+                        hasPrimaryAccount: !!userWithAccount?.primaryAccountId,
+                        hasMemberships: userWithAccount?.accountMemberships?.length || 0
+                    });
+                    
+                    return fail(403, {
+                        form: {
+                            ...form,
+                            errors: { _errors: ['Your account needs to be associated with an organization. Please contact your administrator.'] }
+                        }
+                    });
+                }
+            }
+            
             try {
                 // Create session
                 const session = await lucia.createSession(user.id, {});

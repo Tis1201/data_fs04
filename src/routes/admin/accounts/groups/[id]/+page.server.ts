@@ -100,7 +100,8 @@ export const load = restrict(
                 {
                     name: group.name,
                     description: group.description || '',
-                    accountId: group.accountId
+                    accountId: group.accountId,
+                    permissions: {} // Initialize as empty object (will be serialized as JSON)
                 }, 
                 zod(groupSchema)
             );
@@ -141,6 +142,7 @@ export const actions: Actions = {
 
             // If validation fails, return the form with errors
             if (!form.valid) {
+                logger.warn('Form validation failed', { errors: form.errors });
                 return fail(400, { form });
             }
 
@@ -174,7 +176,7 @@ export const actions: Actions = {
                 }
 
                 // Update the group (permissions are managed separately as relations)
-                const group = await locals.prisma.group.update({
+                const updatedGroup = await locals.prisma.group.update({
                     where: { id },
                     data: {
                         name: form.data.name,
@@ -184,20 +186,20 @@ export const actions: Actions = {
                 });
 
                 // Log the group update
-                logger.info(`Group updated: ${group.id} (${group.name})`);
+                logger.info(`Group updated: ${updatedGroup.id} (${updatedGroup.name})`);
 
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Group',
-                    recordId: group.id,
+                    recordId: updatedGroup.id,
                     oldData: existingGroup,
-                    newData: group,
+                    newData: updatedGroup,
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
                     prisma: locals.prisma
                 })
 
-                // Return success with the updated group
+                // Return success - client onResult will handle the toast
                 return { form };
             } catch (err) {
                 logger.error(`Error updating group: , ${err}`);

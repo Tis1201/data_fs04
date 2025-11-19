@@ -11,19 +11,23 @@ export const groupSchema = z.object({
         .nullable(),
     accountId: z.string()
         .min(1, { message: 'Account is required' }),
-    permissions: z.string()
-        .optional()
-        .default('{}')
-        .transform((val) => {
-            // Handle empty string, null, undefined, or whitespace
-            if (!val || val.trim() === '') {
-                return {};
-            }
-            
+    // Accept permissions as an object (for JSON dataType) or string (for form dataType)
+    permissions: z.union([
+        z.string(),
+        z.record(z.any())
+    ])
+    .optional()
+    .default({})
+    .transform((val) => {
+        // Normalize to object
+        if (typeof val === 'string') {
+            if (!val || val.trim() === '') return {};
             try {
                 return JSON.parse(val);
-            } catch (error) {
-                throw new Error('Permissions must be valid JSON');
+            } catch {
+                return {};
             }
-        })
+        }
+        return val || {};
+    })
 });

@@ -24,7 +24,7 @@
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
-        ["Accounts", "/admin/accounts"],
+        ["Accounts", ""],
         "Companies"
     ];
 </script>

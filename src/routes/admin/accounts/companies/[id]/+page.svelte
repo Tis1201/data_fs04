@@ -29,7 +29,7 @@
   const title = `Edit Company: ${data.company.name}`;
   const pageCrumbs = [
     ["Admin", "/admin"],
-    ["Accounts", "/admin/accounts"],
+    ["Accounts", ""],
     ["Companies", "/admin/accounts/companies"],
     data.company.name,
   ];

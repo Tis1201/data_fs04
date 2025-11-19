@@ -125,13 +125,27 @@ export const actions = {
             try {
                 const { name, description, expiresAt } = form.data;
 
+                const userId = locals.auth.validate()?.user?.id || '';
+
+                // Check if user already has 10 or more API keys
+                const existingKeysCount = await locals.prisma.apiKey.count({
+                    where: { userId }
+                });
+
+                if (existingKeysCount >= 10) {
+                    return fail(400, {
+                        form,
+                        error: 'You have reached the maximum limit of 10 API keys. Please delete some keys before creating new ones.'
+                    });
+                }
+
                 // Generate a new API key
                 const apiKey = await locals.prisma.apiKey.create({
                     data: {
                         name,
                         description,
                         expiresAt,
-                        userId: locals.auth.validate()?.user?.id || '',
+                        userId,
                         active: true,
                         key: generateId(32) // Generate a new 32-character key
                     }

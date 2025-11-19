@@ -25,7 +25,7 @@
   const title = "Add Account";
   const pageCrumbs = [
     ["Admin", "/admin"],
-    ["Accounts", "/admin/accounts/accounts"],
+    ["Accounts", ""],
     "Add Account",
   ];
   

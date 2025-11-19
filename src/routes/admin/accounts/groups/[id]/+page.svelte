@@ -29,7 +29,7 @@
   const title = `Edit Group: ${data.group.name}`;
   const pageCrumbs = [
     ["Admin", "/admin"],
-    ["Accounts", "/admin/accounts"],
+    ["Accounts", ""],
     ["Groups", "/admin/accounts/groups"],
     data.group.name,
   ];
@@ -52,6 +52,9 @@
   
   // Create a form handler with standardized error handling
   const { form, errors, enhance, submitting, message } = superForm(data.form, {
+    dataType: 'json',
+    resetForm: false,
+    invalidateAll: false,
     onResult: ({ result }) => {
       if (result.type === 'success') {
         toast.success("Group updated successfully!");
@@ -59,6 +62,11 @@
       } else if (result.type === 'error') {
         toast.error("Failed to update group");
       }
+      // For 'failure' type, FormContainer will display validation errors
+    },
+    onError: ({ result }) => {
+      console.error('Form error:', result);
+      toast.error("An error occurred");
     }
   });
   
@@ -168,8 +176,10 @@
         label: "Save",
         icon: Save,
         onClick: () => {
-          const form = document.querySelector('form[action="?/updateGroup"]');
-          if (form) form.requestSubmit();
+          const formElement = document.querySelector('form[action="?/updateGroup"]');
+          if (formElement) {
+            formElement.requestSubmit();
+          }
         }
       }
     ]}
