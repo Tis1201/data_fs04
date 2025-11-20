@@ -24,8 +24,9 @@ interface DeviceClaimConfirmParams {
 export async function handleClaimConfirm(
     params: DeviceClaimConfirmParams,
     { topic, sub, prisma }: RpcHandlerArgs
-): Promise<RpcResponse> {
-    const { ticket, deviceInfo } = params;
+): Promise<RpcResponse<{ status: string }>> {
+
+    const { ticket, deviceInfo} = params;
 
     if (!ticket) {
         throw new Error('Missing ticket');
@@ -51,53 +52,84 @@ export async function handleClaimConfirm(
 
     
     // Convert factory device to actual device and generate an API key.
-    // const now = new Date();
-    // const apiKey = generateId(128);
-    // const nameFromHost =
-    //     deviceInfo && typeof deviceInfo.hostname === 'string' && deviceInfo.hostname
-    //         ? deviceInfo.hostname
-    //         : undefined;
-    // const deviceName = nameFromHost ?? `Device ${ctx.recipient.slice(0, 8)}`;
+    const factoryDeviceIdParam = ctx.params?.factoryDeviceId as string | undefined;
+    const factoryDeviceId = factoryDeviceIdParam ?? device_id;
 
-    // const device = await prisma.$transaction(async (tx) => {
-        
+    if (!factoryDeviceId) {
+        throw new Error('Missing factoryDeviceId in claim ticket');
+    }
 
-    //     const created = await tx.device.create({
-    //         data: {
-    //             name: deviceName,
-    //             createdBy: ctx.user.id,
-    //             accountId: ctx.account?.id ?? null,
-    //             deviceType:
-    //                 deviceInfo && typeof deviceInfo.deviceType === 'string'
-    //                     ? deviceInfo.deviceType
-    //                     : null,
-    //             model:
-    //                 deviceInfo && typeof deviceInfo.model === 'string' ? deviceInfo.model : null,
-    //             osVersion:
-    //                 deviceInfo && typeof deviceInfo.osVersion === 'string'
-    //                     ? deviceInfo.osVersion
-    //                     : null,
-    //             apiKey,
-    //             apiKeyCreatedAt: now,
-    //             claimedAt: now
-    //         }
-    //     });
+    if (owner_type !== 'user' || !owner_id) {
+        throw new Error('Invalid ticket subject for device claim confirmation');
+    }
 
-    //     await tx.factoryDevice.update({
-    //         where: { id: ctx.factoryDevice.id },
-    //         data: {
-    //             claimedAt: now,
-    //             claimedDeviceId: created.id,
-    //             accountId: ctx.account?.id ?? ctx.factoryDevice.accountId ?? null
-    //         }
-    //     });
+    const user = await prisma.user.findUnique({ where: { id: owner_id } });
+    if (!user) {
+        throw new Error('User for claim ticket not found');
+    }
 
-    //     return created;
-    // });
+    let account: { id: string } | null = null;
+    if (owner_account_id) {
+        account = await prisma.account.findUnique({ where: { id: owner_account_id }, select: { id: true } });
+        if (!account) {
+            throw new Error('Account for claim ticket not found');
+        }
+    }
 
-    // logger.info(
-    //     `[DeviceClaimConfirm] Created device ${device.id} for user ${ctx.user.id} account ${ctx.account?.id ?? 'n/a'} from factoryDevice ${ctx.factoryDevice.id}`
-    // );
+    const factoryDevice = await prisma.factoryDevice.findUnique({ where: { id: factoryDeviceId } });
+    if (!factoryDevice) {
+        throw new Error('Factory device for claim ticket not found');
+    }
+
+    if (account && factoryDevice.accountId && factoryDevice.accountId !== account.id) {
+        throw new Error('Ticket account does not match factory device account');
+    }
+
+    const now = new Date();
+    const apiKey = generateId(128);
+    const nameFromHost =
+        deviceInfo && typeof deviceInfo.hostname === 'string' && deviceInfo.hostname
+            ? deviceInfo.hostname
+            : undefined;
+    const deviceName = nameFromHost ?? `Device ${factoryDeviceId.slice(0, 8)}`;
+
+    const createdDevice = await prisma.$transaction(async (tx) => {
+        const created = await tx.device.create({
+            data: {
+                name: deviceName,
+                createdBy: user.id,
+                accountId: account?.id ?? null,
+                deviceType:
+                    deviceInfo && typeof deviceInfo.deviceType === 'string'
+                        ? deviceInfo.deviceType
+                        : null,
+                model:
+                    deviceInfo && typeof deviceInfo.model === 'string' ? deviceInfo.model : null,
+                osVersion:
+                    deviceInfo && typeof deviceInfo.osVersion === 'string'
+                        ? deviceInfo.osVersion
+                        : null,
+                apiKey,
+                apiKeyCreatedAt: now,
+                claimedAt: now
+            }
+        });
+
+        await tx.factoryDevice.update({
+            where: { id: factoryDevice.id },
+            data: {
+                claimedAt: now,
+                claimedDeviceId: created.id,
+                accountId: account?.id ?? factoryDevice.accountId ?? null
+            }
+        });
+
+        return created;
+    });
+
+    logger.info(
+        `[DeviceClaimConfirm] Created device ${createdDevice.id} for user ${user.id} account ${account?.id ?? 'n/a'} from factoryDevice ${factoryDevice.id}`
+    );
 
     // // TODO: Send a notification to the user
     // await sendUserNotificationWithTicket({
@@ -114,6 +146,6 @@ export async function handleClaimConfirm(
 
     // Return device credentials and account context to the device; a separate flow can notify the user.
     // return { status: 'ok', deviceId: device.id, apiKey, accountId: ctx.account?.id ?? null };
-
-    return {flowId, {}}
+    const flowId = crypto.randomUUID();
+    return {flowId, result: {status: 'ok'}}
 }
