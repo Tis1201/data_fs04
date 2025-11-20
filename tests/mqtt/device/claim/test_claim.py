@@ -32,21 +32,20 @@ def test_claim():
     time.sleep(1)
 
     try:
-        try:
-            # Perform registration (get PIN) once from the main thread
-            device.start_register()
+        # Perform registration (get PIN) once from the main thread
+        device.start_register()
 
-            # Keep the device connected until explicitly stopped (Ctrl+C)
-            logger.info("Device registered; press Ctrl+C to stop the device client")
-            while True:
-                time.sleep(1)
+        # Keep the device connected until explicitly stopped (Ctrl+C)
+        logger.info("Device registered; press Ctrl+C to stop the device client")
+        while True:
+            time.sleep(1)
 
-        except KeyboardInterrupt:
-            logger.info("KeyboardInterrupt received, stopping device client")
-        except TimeoutError as e:
-            logger.warning(e)
-        finally:
-            device.stop()
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received, stopping device client")
+    except TimeoutError as e:
+        logger.warning(e)
+    finally:
+        device.stop()
 
 if __name__ == "__main__":
     test_claim()

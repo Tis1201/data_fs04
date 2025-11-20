@@ -155,7 +155,7 @@ export async function handleClaimConfirm(
         prisma,
         sub: ctx.recipient,
         recipient: ctx.sub,
-        type: NotificationType.REPLY,
+        type: `reply:${ctx.type}`,
         flowId: ctx.flowId,
         params: {
             deviceId: createdDevice.id,

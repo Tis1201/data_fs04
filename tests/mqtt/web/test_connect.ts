@@ -271,30 +271,17 @@ async function testConnect() {
 
         console.log('Decoded notification claims:', claims);
 
-        switch (claims.type) {
-          case 'reply': {
-            const flowId = claims.flowId;
-            if (!flowId) {
-              console.warn('Reply notification missing flowId');
-              return;
+        if (claims.type?.startsWith('reply:')) {
+          handleReplyNotification(claims);
+        } else {
+          switch (claims.type) {
+            case 'claim': {
+              console.log('Received claim notification ticket (factory flow), ignoring in web test');
+              break;
             }
-            if (!pendingNotifications.has(flowId)) {
-              console.warn('No pending notification handler for flowId', flowId);
-              return;
+            default: {
+              console.log(`Unhandled notification type '${claims.type ?? 'unknown'}'`);
             }
-
-            const entry = pendingNotifications.get(flowId)!;
-            clearTimeout(entry.timeout);
-            pendingNotifications.delete(flowId);
-            entry.resolve({ requestId: flowId, ...(claims.params ?? {}) });
-            break;
-          }
-          case 'claim': {
-            console.log('Received claim notification ticket (factory flow), ignoring in web test');
-            break;
-          }
-          default: {
-            console.log(`Unhandled notification type '${claims.type ?? 'unknown'}'`);
           }
         }
       }
@@ -302,6 +289,25 @@ async function testConnect() {
       // Non-JSON message; already logged above.
     }
   });
+
+  function handleReplyNotification(claims: NotificationTicketClaims) {
+    const flowId = claims.flowId;
+    if (!flowId) {
+      console.warn('Reply notification missing flowId');
+      return;
+    }
+    if (!pendingNotifications.has(flowId)) {
+      console.warn('No pending notification handler for flowId', flowId);
+      return;
+    }
+
+    const entry = pendingNotifications.get(flowId)!;
+    console.log('Entry is: ', entry);
+
+    clearTimeout(entry.timeout);
+    pendingNotifications.delete(flowId);
+    entry.resolve({ requestId: flowId, ...(claims.params ?? {}) });
+  }
 
   client.on('error', (err) => {
     console.error('MQTT error:', err);
