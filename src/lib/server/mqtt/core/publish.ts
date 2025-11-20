@@ -176,10 +176,19 @@ export async function sendNotificationWithTicket({
         expiresIn
     );
 
-    const prefix = recipient.split(":")[0];
+    let prefix = recipient.split(":")[0];
+
+    if(prefix === 'factory'){
+        prefix = 'device';
+    }
+        
+    
+
     const topic = `${prefix}/${recipient}/notifications`;
     const transport = getMqttTransport();
     const message: Record<string, unknown> = { ticket };
+
+    logger.info(`[MQTT Notification] Publishing notification to ${topic}: ${JSON.stringify(message)}`);
 
     try {
         await transport.publish(topic, JSON.stringify(message), { qos: 1 });

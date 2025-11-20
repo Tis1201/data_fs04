@@ -1,6 +1,6 @@
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
-import { sendFactoryDeviceNotificationWithTicket, DeviceNotificationType, createTicket } from '../../core/publish';
+import { sendFactoryDeviceNotificationWithTicket, DeviceNotificationType, createTicket, sendNotificationWithTicket } from '../../core/publish';
 import type { RpcResponse, RpcHandlerArgs } from '../index';
 
 interface ClaimDeviceParams {
@@ -75,19 +75,32 @@ export async function handleClaimDevice(
 
     const flowId = crypto.randomUUID();
 
-    const ticket = await createTicket(
-        prisma, 
-        sub, 
-        `device:${factoryDevice.id}`, 
-        DeviceNotificationType.Claim, 
-        flowId, { 
+    // const ticket = await createTicket(
+    //     prisma, 
+    //     sub, 
+    //     `device:${factoryDevice.id}`, 
+    //     DeviceNotificationType.Claim, 
+    //     flowId, { 
+    //         factoryDeviceId: factoryDevice.id,
+    //         pin: pin
+    //     }, '5m');
+
+    // console.log("------------- Ticket -------------------")
+
+    // console.log(ticket);    
+
+    sendNotificationWithTicket({
+        prisma,
+        sub,
+        recipient: `factory:${factoryDevice.id}`,
+        type: DeviceNotificationType.Claim,
+        flowId,
+        params: {
             factoryDeviceId: factoryDevice.id,
             pin: pin
-        }, '5m');
-
-    console.log("------------- Ticket -------------------")
-    
-    console.log(ticket);    
+        },
+        expiresIn: '5m'
+    })
 
     //We need to send a notification message over device:<id> to get device to reply
     //Or we rcp call to device over mqtt
