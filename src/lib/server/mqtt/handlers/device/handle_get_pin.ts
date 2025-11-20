@@ -4,6 +4,9 @@ import type { PrismaClient } from '@prisma/client';
 
 const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
 
+/********************************************************************************************
+ * Device-side RPC handler: issues fresh factory registration PINs.
+ ********************************************************************************************/
 export async function handleGetPin(args: { topic: string; prisma: PrismaClient }): Promise<{ pin: string }> {
     const { topic, prisma } = args;
 

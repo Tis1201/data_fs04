@@ -3,7 +3,9 @@ import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 import { decodeNotificationTicket, sendNotificationWithTicket } from '../core/publish';
 
-// Raw RPC handler types
+/********************************************************************************************
+ * Raw RPC handler types shared across device/web clients.
+ ********************************************************************************************/
 export type RpcHandlerArgs<P extends PrismaClient = PrismaClient> = {
     topic: string;
     requestId: string;
@@ -22,6 +24,9 @@ export type RpcResponse<T> = {
     result: T;
 };
 
+/********************************************************************************************
+ * Registry state for mapping topic prefixes to RPC handlers.
+ ********************************************************************************************/
 type RegisteredRpcHandler = {
     handler: RpcHandler;
     prisma: PrismaClient;
@@ -43,7 +48,9 @@ function extractTopicSub(prefix: string, topic: string): string | null {
     return sub || null;
 }
 
-// Generic RPC operation registry
+/********************************************************************************************
+ * Generic RPC operation registry wiring for reuse across client types.
+ ********************************************************************************************/
 const rpcOperations = new Map<string, (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>>();
 
 export function registerRpcOperation(op: string, fn: (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>): void {
@@ -69,7 +76,9 @@ export function registerRpcHandler<P extends PrismaClient>(
     rpcHandlers.set(prefix, { handler, prisma });
 }
 
-// Generic RPC handler that can be reused by any client type
+/********************************************************************************************
+ * Generic RPC handler wrapper per client category (user/device).
+ ********************************************************************************************/
 export function createGenericRpcHandler(clientType: string): RpcHandler {
     return async ({ topic, requestId, op, params, prisma, sub }) => {
         logger.info(`[MQTT ${clientType} RPC] Received RPC request ${JSON.stringify({ topic, requestId, op })}`);
@@ -77,7 +86,9 @@ export function createGenericRpcHandler(clientType: string): RpcHandler {
     };
 }
 
-// Reusable helper to register RPC handlers and operations for any client type
+/********************************************************************************************
+ * Batch-register operations + handlers for a given MQTT client namespace.
+ ********************************************************************************************/
 export function registerRpcClient<P extends PrismaClient>(
     clientType: string,
     topicPrefix: string,
@@ -93,6 +104,9 @@ export function registerRpcClient<P extends PrismaClient>(
     registerRpcHandler(topicPrefix, createGenericRpcHandler(clientType), prisma);
 }
 
+/********************************************************************************************
+ * Central dispatcher for all MQTT messages consumed by the worker.
+ ********************************************************************************************/
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
     logger.debug(`[MQTT Messaging] Received message on ${topic}`);
 

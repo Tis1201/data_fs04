@@ -1,8 +1,7 @@
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
 import type { RpcHandlerArgs, RpcResponse } from '../index';
-import { decodeNotificationTicket, sendNotificationWithTicket } from '../../core/publish';
-import type { NotificationTicketEnvelope } from '../../core/envelope';
+import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../core/publish';
 
 interface DeviceClaimConfirmParams {
     ticket?: string;

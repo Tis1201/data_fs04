@@ -8,16 +8,9 @@ interface ScreenshotDeviceParams {
     requestId?: string;
 }
 
-/**
- * Web-side screenshot handler.
- *
- * Called via MQTT RPC with op: 'device.screenshot' on a topic like:
- *   user:{userId}:{accountId}/requests
- *
- * It validates the requesting user and device relationship, then forwards a
- * screenshot action into the existing device action pipeline using the
- * `device:actionRequest` SSE message type.
- */
+/********************************************************************************************
+ * Web-side screenshot handler: authorizes devices and dispatches SSE pipeline events.
+ ********************************************************************************************/
 export async function handleScreenshotDevice(
     params: ScreenshotDeviceParams,
     { prisma, sub }: RpcHandlerArgs

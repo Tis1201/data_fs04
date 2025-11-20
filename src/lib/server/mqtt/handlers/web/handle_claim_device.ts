@@ -6,17 +6,9 @@ interface ClaimDeviceParams {
     pin?: string;
 }
 
-/**
- * Web-side claim handler.
- *
- * Called via MQTT RPC with op: 'web.claim.device' on a topic like:
- *   user:<id>/requests
- *
- * For now this is intentionally minimal: it just checks that the
- * provided PIN matches an existing factoryDevice.registrationPin
- * and returns that device's id so you can wire up the rest of the
- * claim flow without impacting other code paths.
- */
+/********************************************************************************************
+ * Web-side claim handler: validates PINs and kicks off factory notification flow.
+ ********************************************************************************************/
 export async function handleClaimDevice(
     params: ClaimDeviceParams,
     { prisma, sub }: RpcHandlerArgs
