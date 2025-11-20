@@ -145,6 +145,13 @@ class FactoryDevice:
                 logger.error(f"device.claim.confirm RPC failed: {err}")
             else:
                 logger.debug(f"RPC response: {response}")
+                if response:
+                    # Server response shape: { requestId, op, result: { flowId?, result: { ... } } }
+                    payload = response.get("result") if isinstance(response.get("result"), dict) else response
+                    if isinstance(payload, dict):
+                        result = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+                        if isinstance(result, dict):
+                            self._device._handle_claim_confirm_result(result)  # type: ignore[attr-defined]
 
         # Use async helper so we don't block the MQTT network thread with a synchronous request
         self._device.request_async("device.claim.confirm", {"ticket": ticket}, _on_done)

@@ -24,7 +24,7 @@ interface DeviceClaimConfirmParams {
 export async function handleClaimConfirm(
     params: DeviceClaimConfirmParams,
     { topic, sub, prisma }: RpcHandlerArgs
-): Promise<RpcResponse<{ status: string }>> {
+): Promise<RpcResponse<{ status: string; deviceId: string; apiKey: string; accountId: string | null }>> {
 
     const { ticket, deviceInfo} = params;
 
@@ -145,7 +145,12 @@ export async function handleClaimConfirm(
     // });
 
     // Return device credentials and account context to the device; a separate flow can notify the user.
-    // return { status: 'ok', deviceId: device.id, apiKey, accountId: ctx.account?.id ?? null };
-    const flowId = crypto.randomUUID();
-    return {flowId, result: {status: 'ok'}}
+    return {
+        result: {
+            status: 'ok',
+            deviceId: createdDevice.id,
+            apiKey,
+            accountId: account?.id ?? null
+        }
+    };
 }

@@ -24,7 +24,9 @@ export type RpcHandlerArgs<P extends PrismaClient = PrismaClient> = {
 export type RpcHandler<P extends PrismaClient = PrismaClient> = (args: RpcHandlerArgs<P>) => Promise<any>;
 
 export type RpcResponse<T> = {
-    flowId: string;
+    status?: string;
+    error?: string;
+    flowId?: string;
     result: T;
 };
 
