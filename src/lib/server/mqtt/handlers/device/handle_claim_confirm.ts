@@ -3,6 +3,9 @@ import { logger } from '$lib/server/logger';
 import type { RpcHandlerArgs, RpcResponse } from '../index';
 import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../core/publish';
 
+/********************************************************************************************
+ * Device-side claim confirm handler: finalizes claim and provisions a real device.
+ ********************************************************************************************/
 interface DeviceClaimConfirmParams {
     ticket?: string;
     deviceInfo?: {
