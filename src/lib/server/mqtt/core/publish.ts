@@ -1,8 +1,9 @@
 import { getMqttTransport } from '../core/transport.js';
-import jwt, { type Algorithm, type JwtPayload } from 'jsonwebtoken';
+import jwt, { type Algorithm, type JwtPayload, type SignOptions, type Secret } from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import type { PrismaClient, JwtSigningKey } from '@prisma/client';
 import { logger } from '$lib/server/logger';
+import { MQTT_NOTIFICATION_ISSUER, MQTT_NOTIFICATION_AUDIENCE } from '../constants.js';
 
 const SIGNING_KEY_CACHE_TTL_MS = 60_000;
 
@@ -67,6 +68,130 @@ export interface FactoryDeviceNotificationTicketParams {
     expiresIn?: string;
     requestId?: string;
     payload?: Record<string, unknown>;
+}
+
+export interface NotificationTicketParams {
+    prisma: PrismaClient;
+    sub: string;
+    recipient: string;
+    type: DeviceNotificationType | string;
+    expiresIn?: string | number;
+    flowId: string;
+    params?: Record<string, unknown>;
+}
+
+/********************************************************************************************
+ * 
+ * Convenice Functions
+ * 
+ ********************************************************************************************/
+function convertExpiresIn(value: string | number): number {
+    if (typeof value === 'number') {
+        return value;
+    }
+
+    const match = value.match(/^(\d+(?:\.\d+)?)([smhd])?$/i);
+    if (!match) {
+        throw new Error(`Unable to parse expiresIn value: ${value}`);
+    }
+
+    const amount = Number(match[1]);
+    const unit = match[2]?.toLowerCase();
+    const multipliers: Record<string, number> = {
+        s: 1,
+        m: 60,
+        h: 3600,
+        d: 86400
+    };
+
+    return amount * (unit && multipliers[unit] ? multipliers[unit] : 1);
+}
+
+/********************************************************************************************
+ * 
+ * Standard Create ticket Function
+ * 
+ ********************************************************************************************/
+export async function createTicket(prisma: PrismaClient, sub: string, recipient: string, type: string, flowId: string, params: Record<string, unknown>, expiresIn: string | number){
+    const ticketPayload = {
+        type,
+        sub,
+        recipient,
+        flowId,
+        params
+    };
+    const ticket = signTicket(prisma,ticketPayload, expiresIn);
+    return ticket;
+}
+
+/********************************************************************************************
+ * 
+ * Sign Ticket
+ * 
+ ********************************************************************************************/
+async function signTicket(prisma: PrismaClient, payload: Record<string, unknown>, expiresIn: string | number){
+    const signingKey = await getNotificationSigningKey(prisma);
+    const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+ 
+    if (!signingKey.privateKey) {
+        throw new Error('Missing private key for signing notifications');
+    }
+    const signOptions: SignOptions = {
+        algorithm,
+        expiresIn: convertExpiresIn(expiresIn),
+        issuer: MQTT_NOTIFICATION_ISSUER,
+        audience: MQTT_NOTIFICATION_AUDIENCE,
+        keyid: signingKey.id
+    };
+
+    const ticket = jwt.sign(payload, signingKey.privateKey as Secret, signOptions);
+
+    return ticket;
+
+}
+
+export async function sendNotificationWithTicket({
+    prisma,
+    sub,
+    recipient,
+    type,
+    expiresIn = '5m',
+    flowId,
+    params
+}: NotificationTicketParams): Promise<void> {
+    
+    if (!flowId) {
+        throw new Error('flowId is required for notification tickets');
+    }
+
+    const effectiveParams = params ?? {};
+
+    const ticket = await createTicket(
+        prisma,
+        sub,
+        recipient,
+        type,
+        flowId,
+        effectiveParams,
+        expiresIn
+    );
+
+    const prefix = recipient.split(":")[0];
+    const topic = `${prefix}/${recipient}/notifications`;
+    const transport = getMqttTransport();
+    const message: Record<string, unknown> = { ticket };
+
+    try {
+        await transport.publish(topic, JSON.stringify(message), { qos: 1 });
+    } catch (err) {
+        logger.error('[MQTT Notification] Failed to publish notification', {
+            topic,
+            error: err instanceof Error ? err.message : String(err)
+        });
+        throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    
 }
 
 export async function sendFactoryDeviceNotificationWithTicket({

@@ -2,8 +2,6 @@ import { parseEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 import { verifyDeviceNotificationTicket } from '../core/publish';
-import { Receipt } from 'lucide-svelte';
-import { assert } from 'vitest';
 
 export type HandlerArgs<P extends PrismaClient = PrismaClient> = {
     topic: string;
@@ -24,6 +22,11 @@ export type RpcHandlerArgs<P extends PrismaClient = PrismaClient> = {
 };
 
 export type RpcHandler<P extends PrismaClient = PrismaClient> = (args: RpcHandlerArgs<P>) => Promise<any>;
+
+export type RpcResponse<T> = {
+    flowId: string;
+    result: T;
+};
 
 type RegisteredHandler = {
     handler: MessageHandler;
@@ -154,9 +157,8 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         logger.info(`[MQTT Messaging] Published RPC response to ${responseTopic}`);
                     }
                 } catch (err) {
-                    logger.error(
-                        `[MQTT Messaging] RPC handler error: ${err instanceof Error ? err.message : String(err)}`
-                    );
+                    const errorDetails = err instanceof Error ? err.stack ?? err.message : String(err);
+                    logger.error(`[MQTT Messaging] RPC handler error: ${errorDetails}`);
                     // Publish error response
                     const { getMqttTransport } = await import('../core/transport');
                     const transport = getMqttTransport();
@@ -181,76 +183,45 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // which carry a simple { ticket, result } envelope.
     if (topic.startsWith('device/') && topic.endsWith('/replies')) {
         try {
-            const raw = payload.toString('utf8');
-            const reply = JSON.parse(raw) as { ticket?: string; result?: Record<string, any> };
+            const rawReply = payload.toString('utf8');
+            const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
             const { ticket, result } = reply;
 
-            if (!ticket || typeof ticket !== 'string') {
-                logger.warn('[MQTT Reply] device reply missing ticket', { topic, reply });
+            if (typeof ticket !== 'string') {
+                logger.warn('[MQTT Reply] device reply missing or invalid ticket', { topic, reply });
                 return;
             }
 
-            // Verify ticket using same logic as other device notifications
             const verified = await verifyDeviceNotificationTicket({ prisma, ticket });
 
-            // const parts = topic.split('/');
-            // const devicePart = parts[1] ?? '';
-            // const deviceIdFromTopic = devicePart.startsWith('device:')
-            //     ? devicePart.replace('device:', '')
-            //     : devicePart;
+            const parts = topic.split('/');
+            const devicePart = parts[1] ?? '';
+            const deviceIdFromTopic = devicePart.startsWith('device:')
+                ? devicePart.replace('device:', '')
+                : devicePart;
 
-            // if (verified.deviceId && deviceIdFromTopic && verified.deviceId !== deviceIdFromTopic) {
-            //     logger.error('[MQTT Reply] deviceId mismatch between ticket and topic', {
-            //         topicDeviceId: deviceIdFromTopic,
-            //         ticketDeviceId: verified.deviceId
-            //     });
-            //     return;
-            // }
-            logger.info(`[MQTT Reply] Raw device reply: ${JSON.stringify(result)}`);
-
-            const receipt = verified.sub;
-
-            assert(receipt);
-
-            const receiptParts = receipt.split(':');
-            const subjectType = receiptParts[0];
-            const userId = receiptParts[1];
-            const accountId = receiptParts[2];
-
-            if (subjectType !== 'user') {
-                //Send Notification to User
-                await sendUserNotificationWithTicket({
-                        sub: sub,
-                        type: NotificationEventType.REPLY,
-                        requestId: ticket.requestId ?? undefined,
-                        payload: {
-                            result
-                        }
-                    });
+            if (verified.deviceId && deviceIdFromTopic && verified.deviceId !== deviceIdFromTopic) {
+                logger.error('[MQTT Reply] deviceId mismatch between ticket and topic', {
+                    topicDeviceId: deviceIdFromTopic,
+                    ticketDeviceId: verified.deviceId
+                });
+                return;
             }
 
-            if (subjectType !== 'device') {
-                //Send Notification to Device
-                 await sendDeviceNotificationWithTicket({
-                        prisma,
-                        sub: sub,
-                        type: NotificationEventType.REPLY,
-                        requestId: ticket.requestId ?? undefined,
-                        payload: {
-                            result
-                        }
-                    });
-            }
+            const subject = verified.sub ?? '';
+            const [subjectType, userId, accountId] = subject.split(':');
 
-            // logger.info(`[MQTT Reply] Received device reply: ${JSON.stringify(verified)}`);
+            const logPayload = {
+                type: verified.type,
+                deviceId: verified.deviceId ?? deviceIdFromTopic,
+                requestId: verified.requestId,
+                subjectType,
+                userId,
+                accountId,
+                result
+            };
 
-
-            //Relay using this method, 
-            const recipient = verified.sub!;
-            
-            //Create a notification 
-            
-
+            logger.info(`[MQTT Reply] Received device reply: ${JSON.stringify(logPayload)}`);
         } catch (error) {
             logger.error('[MQTT Reply] Failed to process device reply', {
                 topic,

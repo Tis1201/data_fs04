@@ -1,6 +1,7 @@
 import { logger } from '$lib/server/logger';
-import { sendFactoryDeviceNotificationWithTicket, DeviceNotificationType } from '../../core/publish';
-import type { RpcHandlerArgs } from '../index';
+import type { PrismaClient } from '@prisma/client';
+import { sendFactoryDeviceNotificationWithTicket, DeviceNotificationType, createTicket } from '../../core/publish';
+import type { RpcResponse, RpcHandlerArgs } from '../index';
 
 interface ClaimDeviceParams {
     pin?: string;
@@ -20,7 +21,8 @@ interface ClaimDeviceParams {
 export async function handleClaimDevice(
     params: ClaimDeviceParams,
     { prisma, sub }: RpcHandlerArgs
-): Promise<{ deviceId: string; requestId: string } | never> {
+): Promise<RpcResponse<{ factoryDeviceId: string }> | never> {
+
     const pin = params.pin?.trim();
 
     if (!pin) {
@@ -60,23 +62,36 @@ export async function handleClaimDevice(
 
     //We should convert the factory:device to a actual device and save the update to the device record
     //There would be a device api key created, we are supposed to send that to the device
+    // const requestId = await sendFactoryDeviceNotificationWithTicket({
+    //     prisma,
+    //     factoryDeviceId: factoryDevice.id,
+    //     sub,
+    //     type: DeviceNotificationType.Claim
+    // });
+
+    // logger.info(
+    //     `[WebClaim] Sent claim notification to device/factory:${factoryDevice.id}/notifications for user ${sub}`
+    // );
+
+    const flowId = crypto.randomUUID();
+
+    const ticket = await createTicket(
+        prisma, 
+        sub, 
+        `device:${factoryDevice.id}`, 
+        DeviceNotificationType.Claim, 
+        flowId, { 
+            factoryDeviceId: factoryDevice.id,
+            pin: pin
+        }, '5m');
+
+    console.log("------------- Ticket -------------------")
     
-
-    //Send a claim notification to device here
-    const requestId = await sendFactoryDeviceNotificationWithTicket({
-        prisma,
-        factoryDeviceId: factoryDevice.id,
-        sub,
-        type: DeviceNotificationType.Claim
-    });
-
-    logger.info(
-        `[WebClaim] Sent claim notification to device/factory:${factoryDevice.id}/notifications for user ${sub}`
-    );
+    console.log(ticket);    
 
     //We need to send a notification message over device:<id> to get device to reply
     //Or we rcp call to device over mqtt
 
-    return { deviceId: factoryDevice.id, requestId };
+    return { flowId, result: { factoryDeviceId: factoryDevice.id } };
 }
 
