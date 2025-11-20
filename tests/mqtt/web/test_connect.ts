@@ -42,12 +42,13 @@ function deriveUsernameFromJwt(jwt: string): string {
 type UserAction =
   | { kind: 'skip' }
   | { kind: 'claim'; pin: string }
-  | { kind: 'screenshot'; deviceId: string };
+  | { kind: 'screenshot'; deviceId: string }
+  | { kind: 'reset'; deviceId: string };
 
 async function promptForAction(): Promise<UserAction> {
   const rl = readline.createInterface({ input, output });
   try {
-    const action = await rl.question('Select action: [1] Claim device, [2] Screenshot, [Enter] to skip: ');
+    const action = await rl.question('Select action: [1] Claim device, [2] Screenshot, [3] Reset, [Enter] to skip: ');
     const trimmedAction = action.trim();
 
     if (trimmedAction === '1') {
@@ -66,6 +67,15 @@ async function promptForAction(): Promise<UserAction> {
         return { kind: 'skip' };
       }
       return { kind: 'screenshot', deviceId: trimmedId };
+    }
+
+    if (trimmedAction === '3') {
+      const deviceId = await rl.question('Enter deviceId to reset: ');
+      const trimmedId = deviceId.trim();
+      if (!trimmedId) {
+        return { kind: 'skip' };
+      }
+      return { kind: 'reset', deviceId: trimmedId };
     }
 
     return { kind: 'skip' };
@@ -234,6 +244,31 @@ async function testConnect() {
         return;
       }
 
+      if (action.kind === 'reset') {
+        console.log('Reset mode selected. Device ID:', action.deviceId);
+        try {
+          const result = await sendRpcRequest(client, clientId, 'device.reset', {
+            deviceId: action.deviceId
+          });
+          console.log('device.reset result:', result);
+
+          const resetFlowId = (result as { flowId?: string }).flowId;
+          if (resetFlowId) {
+            try {
+              const notification = await waitForFlowNotification(resetFlowId, 15_000);
+              console.log('Reset notification received:', notification);
+            } catch (err) {
+              console.error('Reset notification timeout:', err);
+            }
+          } else {
+            console.warn('No flowId returned for reset request; cannot await notification');
+          }
+        } catch (err) {
+          console.error('device.reset error:', err);
+        }
+        return;
+      }
+
       const pinToUse = action.pin;
       console.log('Using PIN for claim:', pinToUse);
       try {
@@ -295,11 +330,21 @@ async function testConnect() {
               console.log('Received claim notification ticket (factory flow), ignoring in web test');
               break;
             }
+            
             case 'device.screenshot': {
               console.log('Received device screenshot notification ticket, ignoring in web test');
               handleDeviceScreenshotNotification(claims);
               break;
             }
+
+            case 'device.reset': {
+              console.log('Received device reset notification ticket, ignoring in web test');
+              // handleDeviceResetNotification(claims);
+              break;
+            }
+
+
+
             default: {
               console.log(`Unhandled notification type '${claims.type ?? 'unknown'}'`);
             }

@@ -16,7 +16,8 @@ let cachedSigningKey: { key: JwtSigningKey; expiresAt: number } | null = null;
  ********************************************************************************************/
 export const DeviceNotificationType = {
     Claim: 'claim',
-    Screenshot: 'device.screenshot'
+    Screenshot: 'device.screenshot',
+    Reset: 'device.reset'   
 } as const;
 
 export const NotificationType = {

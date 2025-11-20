@@ -136,8 +136,11 @@ class ClaimedDevice:
 
         logger.info(f"Device notification received: type={notif_type}, hasTicket={bool(ticket)}")
 
-        if notif_type == "device.screenshot" and isinstance(ticket, str):
-            self._send_screenshot_response(notif_type, ticket)
+        match notif_type:
+            case "device.screenshot":
+                self._send_screenshot_response(notif_type, ticket)
+            case "device.reset":
+                self._send_reset_response(notif_type, ticket)
 
     def _send_screenshot_response(self, notif_type: str, ticket: str) -> Dict[str, Any]:
         reply_envelope: Dict[str, Any] = {
@@ -150,6 +153,19 @@ class ClaimedDevice:
                 "format": "png",
                 "width": 1920,
                 "height": 1080
+            }
+        }
+
+        self.publish_reply(reply_envelope)
+        return reply_envelope
+
+    def _send_reset_response(self, notif_type: str, ticket: str) -> Dict[str, Any]:
+        reply_envelope: Dict[str, Any] = {
+            "ticket": ticket,
+            "status": "OK",
+            "error": "",
+            "result": {
+                "type": f"{notif_type}.response",
             }
         }
 
