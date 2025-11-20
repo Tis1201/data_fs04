@@ -57,6 +57,7 @@ export async function publishEnvelope(topic: string, envelope: PublishEnvelope):
 
 export const DeviceNotificationType = {
     Claim: 'claim',
+    Screenshot: 'device.screenshot'
 } as const;
 
 export const NotificationType = {
@@ -265,52 +266,6 @@ export async function decodeNotificationTicket(
 }
 
 
-export async function sendFactoryDeviceNotificationWithTicket({
-    prisma,
-    factoryDeviceId,
-    sub,
-    type,
-    expiresIn = '5m',
-    requestId,
-    payload
-}: FactoryDeviceNotificationTicketParams): Promise<string> {
-    const signingKey = await getNotificationSigningKey(prisma);
-
-    const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
-    const effectiveRequestId = requestId ?? crypto.randomUUID();
-    const ticketPayload = {
-        type,
-        factoryDeviceId,
-        sub,
-        requestId: effectiveRequestId
-    };
-
-    const ticket = jwt.sign(ticketPayload, signingKey.privateKey, {
-        algorithm,
-        expiresIn,
-        issuer: 'fs04',
-        audience: 'fs04:device-notification',
-        keyid: signingKey.id
-    });
-
-    const topic = `device/factory:${factoryDeviceId}/notifications`;
-    const transport = getMqttTransport();
-    const message: Record<string, unknown> = { ticket };
-    if (payload && Object.keys(payload).length > 0) {
-        message.payload = payload;
-    }
-    try {
-        await transport.publish(topic, JSON.stringify(message), { qos: 1 });
-    } catch (err) {
-        logger.error('[MQTT Notification] Failed to publish device notification', {
-            topic,
-            error: err instanceof Error ? err.message : String(err)
-        });
-        throw err instanceof Error ? err : new Error(String(err));
-    }
-
-    return effectiveRequestId;
-}
 
 export interface DeviceNotificationTicketParams {
     prisma: PrismaClient;

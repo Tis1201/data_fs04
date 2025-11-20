@@ -1,6 +1,5 @@
 import { logger } from '$lib/server/logger';
-import type { PrismaClient } from '@prisma/client';
-import { sendFactoryDeviceNotificationWithTicket, DeviceNotificationType, createTicket, sendNotificationWithTicket } from '../../core/publish';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
 import type { RpcResponse, RpcHandlerArgs } from '../index';
 
 interface ClaimDeviceParams {

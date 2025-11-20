@@ -1,7 +1,7 @@
-import { parseEnvelope } from '../core/envelope';
+import { parseEnvelope, type NotificationTicketEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
-import { verifyDeviceNotificationTicket } from '../core/publish';
+import { decodeNotificationTicket, NotificationType, sendNotificationWithTicket, verifyDeviceNotificationTicket } from '../core/publish';
 
 export type HandlerArgs<P extends PrismaClient = PrismaClient> = {
     topic: string;
@@ -183,53 +183,45 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
 
     // After raw RPC handling, process reply-style topics like device/<id>/replies
     // which carry a simple { ticket, result } envelope.
-    if (topic.startsWith('device/') && topic.endsWith('/replies')) {
-        try {
-            const rawReply = payload.toString('utf8');
-            const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
-            const { ticket, result } = reply;
+    // if (topic.startsWith('device/') && topic.endsWith('/replies')) {
+    if (topic.endsWith('/replies')) {
+        const rawReply = payload.toString('utf8');
+        const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
+        const { ticket, result } = reply;
 
-            if (typeof ticket !== 'string') {
-                logger.warn('[MQTT Reply] device reply missing or invalid ticket', { topic, reply });
-                return;
-            }
-
-            const verified = await verifyDeviceNotificationTicket({ prisma, ticket });
-
-            const parts = topic.split('/');
-            const devicePart = parts[1] ?? '';
-            const deviceIdFromTopic = devicePart.startsWith('device:')
-                ? devicePart.replace('device:', '')
-                : devicePart;
-
-            if (verified.deviceId && deviceIdFromTopic && verified.deviceId !== deviceIdFromTopic) {
-                logger.error('[MQTT Reply] deviceId mismatch between ticket and topic', {
-                    topicDeviceId: deviceIdFromTopic,
-                    ticketDeviceId: verified.deviceId
-                });
-                return;
-            }
-
-            const subject = verified.sub ?? '';
-            const [subjectType, userId, accountId] = subject.split(':');
-
-            const logPayload = {
-                type: verified.type,
-                deviceId: verified.deviceId ?? deviceIdFromTopic,
-                requestId: verified.requestId,
-                subjectType,
-                userId,
-                accountId,
-                result
-            };
-
-            logger.info(`[MQTT Reply] Received device reply: ${JSON.stringify(logPayload)}`);
-        } catch (error) {
-            logger.error('[MQTT Reply] Failed to process device reply', {
-                topic,
-                error: error instanceof Error ? error.message : String(error)
-            });
+        if (!ticket) {
+            throw new Error('Missing ticket in reply');
         }
+
+        const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
+       
+        const type = ctx.type;
+
+        if(!ctx.sub){
+            throw new Error('Missing sub in notification ticket');
+        }
+
+        if(!ctx.recipient){
+            throw new Error('Missing recipient in notification ticket');
+        }
+
+        if(!ctx.flowId){
+            throw new Error('Missing flowId in notification ticket');
+        }
+
+        if (!result || typeof result !== 'object' || Array.isArray(result)) {
+            throw new Error('Reply result must be an object');
+        }
+
+        await sendNotificationWithTicket({
+                prisma,
+                sub: ctx.recipient,
+                recipient: ctx.sub,
+                type: ctx.type,
+                flowId: ctx.flowId,
+                params: result as Record<string, unknown>,
+                expiresIn: '5m'
+        })
 
         return;
     }

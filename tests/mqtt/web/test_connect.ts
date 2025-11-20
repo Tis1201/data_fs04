@@ -112,7 +112,7 @@ function decodeNotificationTicket(ticket: string): NotificationTicketClaims | nu
   }
 }
 
-function waitForClaimNotification(flowId: string, timeoutMs = 10_000): Promise<any> {
+function waitForFlowNotification(flowId: string, timeoutMs = 10_000): Promise<any> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       pendingNotifications.delete(flowId);
@@ -212,6 +212,22 @@ async function testConnect() {
             requestId: screenshotRequestId,
           });
           console.log('device.screenshot result:', result, 'requestId:', screenshotRequestId);
+
+          const screenshotFlowId = (result as { flowId?: string }).flowId;
+          if (screenshotFlowId) {
+            try {
+              const notification = await waitForFlowNotification(screenshotFlowId, 15_000);
+              console.log('Screenshot notification received:', notification);
+              const screenshotData = notification.result?.data as string | undefined;
+              if (screenshotData) {
+                console.log('Screenshot (base64 preview):', screenshotData.slice(0, 64), '...');
+              }
+            } catch (err) {
+              console.error('Screenshot notification timeout:', err);
+            }
+          } else {
+            console.warn('No flowId returned for screenshot request; cannot await notification');
+          }
         } catch (err) {
           console.error('device.screenshot error:', err);
         }
@@ -232,7 +248,7 @@ async function testConnect() {
 
         if (claimFlowId) {
           try {
-            const notification = await waitForClaimNotification(claimFlowId, 10_000);
+            const notification = await waitForFlowNotification(claimFlowId, 10_000);
             console.log('Claim confirmation notification:', notification);
           } catch (err) {
             console.error('Claim confirmation timeout:', err);
@@ -279,6 +295,11 @@ async function testConnect() {
               console.log('Received claim notification ticket (factory flow), ignoring in web test');
               break;
             }
+            case 'device.screenshot': {
+              console.log('Received device screenshot notification ticket, ignoring in web test');
+              handleDeviceScreenshotNotification(claims);
+              break;
+            }
             default: {
               console.log(`Unhandled notification type '${claims.type ?? 'unknown'}'`);
             }
@@ -294,6 +315,31 @@ async function testConnect() {
     const flowId = claims.flowId;
     if (!flowId) {
       console.warn('Reply notification missing flowId');
+      return;
+    }
+    if (!pendingNotifications.has(flowId)) {
+      console.warn('No pending notification handler for flowId', flowId);
+      return;
+    }
+
+    const entry = pendingNotifications.get(flowId)!;
+    console.log('Entry is: ', entry);
+
+    clearTimeout(entry.timeout);
+    pendingNotifications.delete(flowId);
+    entry.resolve({
+      requestId: flowId,
+      status: (claims.params as any)?.status ?? 'OK',
+      error: (claims.params as any)?.error ?? '',
+      result: (claims.params as any)?.result,
+      ...(claims.params ?? {})
+    });
+  }
+
+  function handleDeviceScreenshotNotification(claims: NotificationTicketClaims) {
+    const flowId = claims.flowId;
+    if (!flowId) {
+      console.warn('Device screenshot notification missing flowId');
       return;
     }
     if (!pendingNotifications.has(flowId)) {

@@ -37,6 +37,10 @@ class ClaimedDevice:
             raise RuntimeError("Claim state missing deviceId; cannot connect.")
         self.device_id = device_id
 
+        logger.info(f"------- Device ID -----------")
+        logger.info(f"{device_id}")
+        logger.info(f"-----------------------------")
+
         self._device.on_notification = self._handle_notification
         
     @property
@@ -115,14 +119,14 @@ class ClaimedDevice:
 
         self._device.client = client
 
-    def publish_reply(self, result: Dict[str, Any]) -> None:
+    def publish_reply(self, payload: Dict[str, Any]) -> None:
         """Publish a reply payload to the MQTT replies topic for this claimed device."""
         if not self._device.client:
             raise RuntimeError("MQTT client not connected. Cannot publish reply.")
 
         topic = f"device/{self.device_id}/replies"
-        self._device.client.publish(topic, json.dumps(result), qos=1)  # type: ignore[arg-type]
-        logger.debug(f"Published reply to {topic}: {result}")
+        self._device.client.publish(topic, json.dumps(payload), qos=1)  # type: ignore[arg-type]
+        logger.debug(f"Published reply to {topic}: {payload}")
 
 
     def _handle_notification(self, data: Dict[str, Any]) -> None:
@@ -136,20 +140,21 @@ class ClaimedDevice:
             self._send_screenshot_response(notif_type, ticket)
 
     def _send_screenshot_response(self, notif_type: str, ticket: str) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
+        reply_envelope: Dict[str, Any] = {
             "ticket": ticket,
+            "status": "OK",
+            "error": "",
             "result": {
                 "type": f"{notif_type}.response",
                 "data": "<base64-image>",
                 "format": "png",
                 "width": 1920,
-                "height": 1080,
-            },
+                "height": 1080
+            }
         }
 
-        # Publish reply for this claimed device
-        self.publish_reply(result)
-        return result
+        self.publish_reply(reply_envelope)
+        return reply_envelope
 
 
     def stop(self) -> None:

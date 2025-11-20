@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { logger } from '$lib/server/logger';
-import { sendDeviceNotificationWithTicket } from '../../core/publish';
-import type { RpcHandlerArgs } from '../index';
+import { DeviceNotificationType, sendDeviceNotificationWithTicket, sendNotificationWithTicket } from '../../core/publish';
+import type { RpcHandlerArgs, RpcResponse } from '../index';
 
 interface ScreenshotDeviceParams {
     deviceId?: string;
@@ -21,7 +21,7 @@ interface ScreenshotDeviceParams {
 export async function handleScreenshotDevice(
     params: ScreenshotDeviceParams,
     { prisma, sub }: RpcHandlerArgs
-): Promise<{ deviceId: string; requestId: string }> {
+): Promise<RpcResponse<{ deviceId: string; requestId: string }>> {
     const deviceId = params.deviceId?.trim();
 
     if (!deviceId) {
@@ -70,22 +70,23 @@ export async function handleScreenshotDevice(
 
     const requestId = params.requestId?.trim() ?? '';
 
-    await sendDeviceNotificationWithTicket({
-        prisma,
-        deviceId,
-        sub,
-        type: 'device.screenshot',
-        requestId,
-        payload: {
-            type: 'device.screenshot',
-            deviceId,
-            requestId
-        }
-    });
+
+    const flowId = crypto.randomUUID();
+
+    await sendNotificationWithTicket({
+            prisma,
+            sub,
+            recipient: `device:${deviceId}`,
+            type: DeviceNotificationType.Screenshot,
+            flowId,
+            params: {
+            },
+            expiresIn: '5m'
+        })
 
     logger.info(
         `[WebScreenshot] Dispatched screenshot action for device ${deviceId} with requestId ${requestId}`
     );
 
-    return { deviceId, requestId };
+    return { flowId, result: { deviceId, requestId } };
 }

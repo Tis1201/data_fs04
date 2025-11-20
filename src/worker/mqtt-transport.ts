@@ -152,12 +152,12 @@ export function startMqttListener(): void {
   client.on('message', async (topic, payload) => {
     logger.debug(`[MQTT Transport] Received message on ${topic}`);
 
-    try {
+    // try {
       await handleIncoming(topic, payload, adminPrisma);
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      logger.error(`[MQTT Transport] Error processing message on ${topic}: ${error}`);
-    }
+    // } catch (err) {
+    //   const error = err instanceof Error ? err.message : String(err);
+    //   logger.error(`[MQTT Transport] Error processing message on ${topic}: ${error}`);
+    // }
   });
 
   client.on('error', (err) => {
