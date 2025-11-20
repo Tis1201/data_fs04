@@ -110,6 +110,7 @@ class Device:
 		self._save_claim_state(state)
 		self.claim_result = state
 
+
 	def on_disconnect(self, client, userdata, reason_code, properties=None):  # type: ignore[override]
 		logger.debug("Disconnected from broker")
 

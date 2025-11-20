@@ -22,7 +22,7 @@ export async function handleDeviceMessage(message: InMessage): Promise<void> {
       await handleWebRTCMessage(message);
     } else if (type?.startsWith('terminal:')) {
       await handleTerminalMessage(message);
-    } else if (type?.startsWith('screenshot:')) {
+    } else if (type?.startsWith('screenshot:') || type === 'device.screenshot.response') {
       await handleScreenshotMessage(message);
     } else {
       // Default handling for other device messages
@@ -78,7 +78,7 @@ async function handleScreenshotMessage(message: InMessage): Promise<void> {
   logger.debug('[DeviceMessageHandler] Handling screenshot message', { type, deviceId, requestId });
 
   // For screenshot responses, send back to the specific connection that requested it
-  if (type === 'screenshot:response' && requestId) {
+  if ((type === 'screenshot:response' || type === 'device.screenshot.response') && requestId) {
     // Extract connection ID from the message scope (format: connection:{connectionId})
     const originalScope = message.scope || '';
     const connectionMatch = originalScope.match(/connection:(.+)/);

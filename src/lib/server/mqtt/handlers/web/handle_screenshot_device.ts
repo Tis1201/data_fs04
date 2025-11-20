@@ -76,12 +76,16 @@ export async function handleScreenshotDevice(
         sub,
         type: 'device.screenshot',
         requestId,
-        payload: {}
+        payload: {
+            type: 'device.screenshot',
+            deviceId,
+            requestId
+        }
     });
 
     logger.info(
         `[WebScreenshot] Dispatched screenshot action for device ${deviceId} with requestId ${requestId}`
     );
 
-    return { status: 'ok', deviceId, requestId };
+    return { deviceId, requestId };
 }

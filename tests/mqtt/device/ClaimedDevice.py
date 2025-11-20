@@ -3,9 +3,8 @@ import time
 from typing import Any, Dict
 
 import os
-import base64
-import json
 import urllib.parse
+import json
 import requests
 import paho.mqtt.client as mqtt  # noqa: F401
 from loguru import logger
@@ -31,8 +30,15 @@ class ClaimedDevice:
         # invoked.
         if not getattr(self._device, "claim_state", None):
             raise RuntimeError("No claimed state found; run FactoryDevice claim flow first.")
-        self._device.on_notification = self._handle_notification
 
+        claim_state: Dict[str, Any] = self._device.claim_state or {}
+        device_id = claim_state.get("deviceId")
+        if not device_id:
+            raise RuntimeError("Claim state missing deviceId; cannot connect.")
+        self.device_id = device_id
+
+        self._device.on_notification = self._handle_notification
+        
     @property
     def client(self) -> mqtt.Client | None:  # type: ignore[name-defined]
         return self._device.client
@@ -109,36 +115,42 @@ class ClaimedDevice:
 
         self._device.client = client
 
-    def _decode_jwt_payload(self, token: str) -> Dict[str, Any]:
-        parts = token.split(".")
-        if len(parts) != 3:
-            return {}
-        try:
-            payload_segment = parts[1]
-            padded = payload_segment + "=" * (-len(payload_segment) % 4)
-            decoded = base64.urlsafe_b64decode(padded.encode("utf-8"))
-            return json.loads(decoded.decode("utf-8"))
-        except Exception as e:
-            logger.warning(f"Failed to decode notification ticket payload: {e}")
-            return {}
+    def publish_reply(self, result: Dict[str, Any]) -> None:
+        """Publish a reply payload to the MQTT replies topic for this claimed device."""
+        if not self._device.client:
+            raise RuntimeError("MQTT client not connected. Cannot publish reply.")
+
+        topic = f"device/{self.device_id}/replies"
+        self._device.client.publish(topic, json.dumps(result), qos=1)  # type: ignore[arg-type]
+        logger.debug(f"Published reply to {topic}: {result}")
+
 
     def _handle_notification(self, data: Dict[str, Any]) -> None:
+
+        notif_type = data.get("claims")["type"]
         ticket = data.get("ticket")
-        if not ticket:
-            logger.debug("Notification without ticket; ignoring in ClaimedDevice")
-            return
 
-        payload = self._decode_jwt_payload(ticket)
-        notif_type = payload.get("type")
-        device_id = payload.get("deviceId")
-        request_id = payload.get("requestId")
+        logger.info(f"Device notification received: type={notif_type}, hasTicket={bool(ticket)}")
 
-        logger.info(
-            f"Device notification received: type={notif_type}, deviceId={device_id}, requestId={request_id}"
-        )
+        if notif_type == "device.screenshot" and isinstance(ticket, str):
+            self._send_screenshot_response(notif_type, ticket)
 
-        if notif_type != "device.screenshot":
-            return
+    def _send_screenshot_response(self, notif_type: str, ticket: str) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "ticket": ticket,
+            "result": {
+                "type": f"{notif_type}.response",
+                "data": "<base64-image>",
+                "format": "png",
+                "width": 1920,
+                "height": 1080,
+            },
+        }
+
+        # Publish reply for this claimed device
+        self.publish_reply(result)
+        return result
+
 
     def stop(self) -> None:
         if self._device.client:

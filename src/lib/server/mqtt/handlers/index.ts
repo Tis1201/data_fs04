@@ -1,6 +1,9 @@
 import { parseEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
+import { verifyDeviceNotificationTicket } from '../core/publish';
+import { Receipt } from 'lucide-svelte';
+import { assert } from 'vitest';
 
 export type HandlerArgs<P extends PrismaClient = PrismaClient> = {
     topic: string;
@@ -172,6 +175,90 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
         logger.warn(
             `[MQTT Messaging] No RPC handler matched for topic ${topic} and op ${rpcData.op}`
         );
+    }
+
+    // After raw RPC handling, process reply-style topics like device/<id>/replies
+    // which carry a simple { ticket, result } envelope.
+    if (topic.startsWith('device/') && topic.endsWith('/replies')) {
+        try {
+            const raw = payload.toString('utf8');
+            const reply = JSON.parse(raw) as { ticket?: string; result?: Record<string, any> };
+            const { ticket, result } = reply;
+
+            if (!ticket || typeof ticket !== 'string') {
+                logger.warn('[MQTT Reply] device reply missing ticket', { topic, reply });
+                return;
+            }
+
+            // Verify ticket using same logic as other device notifications
+            const verified = await verifyDeviceNotificationTicket({ prisma, ticket });
+
+            // const parts = topic.split('/');
+            // const devicePart = parts[1] ?? '';
+            // const deviceIdFromTopic = devicePart.startsWith('device:')
+            //     ? devicePart.replace('device:', '')
+            //     : devicePart;
+
+            // if (verified.deviceId && deviceIdFromTopic && verified.deviceId !== deviceIdFromTopic) {
+            //     logger.error('[MQTT Reply] deviceId mismatch between ticket and topic', {
+            //         topicDeviceId: deviceIdFromTopic,
+            //         ticketDeviceId: verified.deviceId
+            //     });
+            //     return;
+            // }
+            logger.info(`[MQTT Reply] Raw device reply: ${JSON.stringify(result)}`);
+
+            const receipt = verified.sub;
+
+            assert(receipt);
+
+            const receiptParts = receipt.split(':');
+            const subjectType = receiptParts[0];
+            const userId = receiptParts[1];
+            const accountId = receiptParts[2];
+
+            if (subjectType !== 'user') {
+                //Send Notification to User
+                await sendUserNotificationWithTicket({
+                        sub: sub,
+                        type: NotificationEventType.REPLY,
+                        requestId: ticket.requestId ?? undefined,
+                        payload: {
+                            result
+                        }
+                    });
+            }
+
+            if (subjectType !== 'device') {
+                //Send Notification to Device
+                 await sendDeviceNotificationWithTicket({
+                        prisma,
+                        sub: sub,
+                        type: NotificationEventType.REPLY,
+                        requestId: ticket.requestId ?? undefined,
+                        payload: {
+                            result
+                        }
+                    });
+            }
+
+            // logger.info(`[MQTT Reply] Received device reply: ${JSON.stringify(verified)}`);
+
+
+            //Relay using this method, 
+            const recipient = verified.sub!;
+            
+            //Create a notification 
+            
+
+        } catch (error) {
+            logger.error('[MQTT Reply] Failed to process device reply', {
+                topic,
+                error: error instanceof Error ? error.message : String(error)
+            });
+        }
+
+        return;
     }
 
     // Fall back to envelope-based handlers

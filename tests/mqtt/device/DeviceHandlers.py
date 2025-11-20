@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from loguru import logger
 
+import jwt
 
 def handle_response(device: Any, payload: str) -> None:
     """Handle messages on .../response for a Device instance.
@@ -57,6 +58,20 @@ def handle_notification(device: Any, payload: str) -> None:
     """
     try:
         data = json.loads(payload)
+        ticket = data.get("ticket")
+
+        if ticket:
+            # Decode ticket claims for debugging only; do not verify signature here.
+            # The server verifies this ticket using its own signing key.
+            claims = jwt.decode(
+                ticket,
+                options={"verify_signature": False, "verify_aud": False},
+                algorithms=["RS256"],
+            )
+            # Expose claims dict to downstream handlers
+            data["claims"] = claims
+            
+
     except Exception as e:  # pragma: no cover - defensive logging
         logger.error(f"Failed to parse notification payload: {e}")
         return
