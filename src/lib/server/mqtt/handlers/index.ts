@@ -1,7 +1,7 @@
 import { parseEnvelope, type NotificationTicketEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
-import { decodeNotificationTicket, NotificationType, sendNotificationWithTicket, verifyDeviceNotificationTicket } from '../core/publish';
+import { decodeNotificationTicket, sendNotificationWithTicket } from '../core/publish';
 
 export type HandlerArgs<P extends PrismaClient = PrismaClient> = {
     topic: string;

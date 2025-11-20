@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { logger } from '$lib/server/logger';
-import { DeviceNotificationType, sendDeviceNotificationWithTicket, sendNotificationWithTicket } from '../../core/publish';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
 import type { RpcHandlerArgs, RpcResponse } from '../index';
 
 interface ScreenshotDeviceParams {
