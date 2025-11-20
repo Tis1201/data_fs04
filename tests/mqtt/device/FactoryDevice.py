@@ -46,7 +46,7 @@ class FactoryDevice:
         self._device = Device(broker_url, jwt_token, sub)
         # Register callbacks so business logic stays here.
         self._device.on_notification = self._handle_notification
-        self._device.on_rpc_response = self._handle_rpc_response
+        # self._device.on_rpc_response = self._handle_rpc_response
 
     @property
     def client(self) -> mqtt.Client | None:  # type: ignore[name-defined]
@@ -111,39 +111,48 @@ class FactoryDevice:
     def _handle_notification(self, data: Dict[str, Any]) -> None:
         """Handle notifications; for claim notifications, send device.claim.confirm."""
         ticket = data.get("ticket")
+
         if not ticket:
             logger.debug("Notification received without ticket; ignoring in FactoryDevice")
             return
 
-        notification_type = data.get("type")
-        if notification_type is not None and notification_type != "claim":
-            logger.debug(f"Notification type '{notification_type}' not supported by FactoryDevice; ignoring")
+
+        claims = jwt.decode(ticket, options={"verify_signature": False})
+
+        notification_type = claims.get("type")
+
+        logger.debug(f"Notification type: {notification_type}")
+
+        match(notification_type):
+            case "claim":
+                self._handle_claim_notification(data)
+            case _:
+                logger.debug(f"Notification type '{notification_type}' not supported by FactoryDevice; ignoring")
+                return
+
+    def _handle_claim_notification(self, data: Dict[str, Any]) -> None:
+        """Handle claim notifications; for claim notifications, send device.claim.confirm."""
+        ticket = data.get("ticket")
+
+        if not ticket:
+            logger.debug("Notification received without ticket; ignoring in FactoryDevice")
             return
 
         logger.info("Received claim notification, sending device.claim.confirm")
 
-        confirm_params: Dict[str, Any] = {
-            "ticket": ticket,
-            "deviceInfo": self._device._build_device_info(),  # type: ignore[attr-defined]
-        }
+        def _on_done(err: Exception | None, response: Dict[str, Any] | None) -> None:
+            if err is not None:
+                logger.error(f"device.claim.confirm RPC failed: {err}")
+            else:
+                logger.debug(f"RPC response: {response}")
 
-        import uuid
+        # Use async helper so we don't block the MQTT network thread with a synchronous request
+        self._device.request_async("device.claim.confirm", {"ticket": ticket}, _on_done)
 
-        request_id = str(uuid.uuid4())
-        request_payload = {
-            "requestId": request_id,
-            "op": "device.claim.confirm",
-            "params": confirm_params,
-        }
-
-        request_topic = f"device/{self._device.sub}/requests"  # type: ignore[attr-defined]
-        self._device.client.publish(request_topic, json.dumps(request_payload), qos=1)  # type: ignore[attr-defined]
-        logger.debug(f"Published device.claim.confirm to {request_topic}: {request_payload}")
-
-    def _handle_rpc_response(self, data: Dict[str, Any]) -> None:
-        """Handle RPC responses, including device.claim.confirm."""
-        if data.get("op") == "device.claim.confirm" and data.get("result"):
-            self._device._handle_claim_confirm_result(data["result"])  # type: ignore[attr-defined]
+    # def _handle_rpc_response(self, data: Dict[str, Any]) -> None:
+    #     """Handle RPC responses, including device.claim.confirm."""
+    #     if data.get("op") == "device.claim.confirm" and data.get("result"):
+    #         self._device._handle_claim_confirm_result(data["result"])  # type: ignore[attr-defined]
 
     def wait_for_claim_confirm(self, timeout: float = 30.0, poll_interval: float = 0.5) -> Dict[str, Any]:
         """Block until the claim has been confirmed or timeout is reached.

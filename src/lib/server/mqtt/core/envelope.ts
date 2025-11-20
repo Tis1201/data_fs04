@@ -14,3 +14,11 @@ export type Envelope = z.infer<typeof EnvelopeSchema>;
 export function parseEnvelope(input: unknown): Envelope {
     return EnvelopeSchema.parse(input);
 }
+
+export interface NotificationTicketEnvelope {
+    sub?: string;
+    recipient: string;
+    type: string;                 // or a union if you want: 'device.claim' | 'device.screenshot' | 'response'
+    flowId: string;
+    params: Record<string, unknown>;
+}

@@ -7,7 +7,7 @@ import json
 import socket
 import platform
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Callable, Optional
 
 import paho.mqtt.client as mqtt
 from loguru import logger
@@ -138,3 +138,25 @@ class Device:
 		else:
 			del self.pending_requests[request_id]
 			raise TimeoutError(f"No response for request {request_id} within {timeout}s")
+
+	def request_async(
+		self,
+		op: str,
+		params: Dict[str, Any],
+		callback: Callable[[Optional[Exception], Optional[Dict[str, Any]]], None],
+		timeout: float = 10.0,
+	) -> None:
+		"""Fire-and-forget wrapper around request() that runs in a background thread.
+
+		Safe to call from MQTT callbacks; the actual blocking wait happens off-thread.
+		"""
+
+		def _run() -> None:
+			try:
+				response = self.request(op, params, timeout=timeout)
+				callback(None, response)
+			except Exception as e:  # pragma: no cover - defensive logging
+				callback(e, None)
+
+		thread = threading.Thread(target=_run, daemon=True)
+		thread.start()

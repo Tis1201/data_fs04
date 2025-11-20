@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import type { PrismaClient, JwtSigningKey } from '@prisma/client';
 import { logger } from '$lib/server/logger';
 import { MQTT_NOTIFICATION_ISSUER, MQTT_NOTIFICATION_AUDIENCE } from '../constants.js';
+import type { NotificationTicketEnvelope } from './envelope.js';
 
 const SIGNING_KEY_CACHE_TTL_MS = 60_000;
 
@@ -150,6 +151,11 @@ async function signTicket(prisma: PrismaClient, payload: Record<string, unknown>
 
 }
 
+/********************************************************************************************
+ * 
+ * Send Notification With Ticket
+ * 
+ ********************************************************************************************/
 export async function sendNotificationWithTicket({
     prisma,
     sub,
@@ -199,9 +205,60 @@ export async function sendNotificationWithTicket({
         });
         throw err instanceof Error ? err : new Error(String(err));
     }
-
-    
 }
+
+/********************************************************************************************
+ * 
+ * Validate and Extract Claims
+ * 
+ ********************************************************************************************/
+export async function validateAndExtractClaims(
+    prisma: PrismaClient,
+    ticket: string
+): Promise<JwtPayload> {
+    const signingKey = await getNotificationSigningKey(prisma);
+    const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+    const decoded = jwt.verify(ticket, signingKey.publicKey, {
+        algorithms: [algorithm],
+        issuer: MQTT_NOTIFICATION_ISSUER,
+        audience: MQTT_NOTIFICATION_AUDIENCE
+    });
+
+    if (typeof decoded === 'string') {
+        // We expect structured JWT payloads for notification tickets
+        throw new Error('Unexpected string JWT payload for notification ticket');
+    }
+
+    return decoded;
+}
+
+/********************************************************************************************
+ * 
+ * Decode Notification Ticket
+ * 
+ ********************************************************************************************/
+export async function decodeNotificationTicket(
+    prisma: PrismaClient,
+    ticket: string
+): Promise<NotificationTicketEnvelope> {
+    
+    if (!ticket) {
+        throw new Error('Missing ticket');
+    }
+
+    const claims = await validateAndExtractClaims(prisma, ticket);
+
+    const decoded: NotificationTicketEnvelope = {
+        sub: claims.sub,
+        recipient: claims.recipient,
+        type: claims.type,
+        flowId: claims.flowId,
+        params: claims.params
+    };
+
+    return decoded;
+}
+
 
 export async function sendFactoryDeviceNotificationWithTicket({
     prisma,
