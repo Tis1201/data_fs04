@@ -5,7 +5,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 import { logger } from '../lib/server/logger';
-import { handleIncoming, registerHandler } from '../lib/server/mqtt/handlers';
+import { handleIncoming } from '../lib/server/mqtt/handlers';
 import { registerMqttTransport } from '../lib/server/mqtt/core/transport';
 import { getWorkerSubscriptions } from '../lib/server/mqtt/core/subscriptions';
 import { registerDeviceHandlers } from '../lib/server/mqtt/handlers/device';

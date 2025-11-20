@@ -4,7 +4,6 @@ import crypto from 'node:crypto';
 import type { PrismaClient, JwtSigningKey } from '@prisma/client';
 import { logger } from '$lib/server/logger';
 import { MQTT_NOTIFICATION_ISSUER, MQTT_NOTIFICATION_AUDIENCE } from '../constants.js';
-import type { NotificationTicketEnvelope } from './envelope.js';
 
 const SIGNING_KEY_CACHE_TTL_MS = 60_000;
 
@@ -25,6 +24,14 @@ export const NotificationType = {
 } as const;
 
 export type DeviceNotificationType = (typeof DeviceNotificationType)[keyof typeof DeviceNotificationType];
+
+export interface NotificationTicketEnvelope {
+    sub?: string;
+    recipient: string;
+    type: string;
+    flowId: string;
+    params: Record<string, unknown>;
+}
 
 export interface NotificationTicketParams {
     prisma: PrismaClient;

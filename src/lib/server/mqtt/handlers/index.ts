@@ -1,15 +1,7 @@
-import { parseEnvelope, type NotificationTicketEnvelope } from '../core/envelope';
+import type { NotificationTicketEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 import { decodeNotificationTicket, sendNotificationWithTicket } from '../core/publish';
-
-export type HandlerArgs<P extends PrismaClient = PrismaClient> = {
-    topic: string;
-    envelope: ReturnType<typeof parseEnvelope>;
-    prisma: P;
-};
-
-export type MessageHandler<P extends PrismaClient = PrismaClient> = (args: HandlerArgs<P>) => Promise<void>;
 
 // Raw RPC handler types
 export type RpcHandlerArgs<P extends PrismaClient = PrismaClient> = {
@@ -30,17 +22,11 @@ export type RpcResponse<T> = {
     result: T;
 };
 
-type RegisteredHandler = {
-    handler: MessageHandler;
-    prisma: PrismaClient;
-};
-
 type RegisteredRpcHandler = {
     handler: RpcHandler;
     prisma: PrismaClient;
 };
 
-const handlers = new Map<string, RegisteredHandler>();
 const rpcHandlers = new Map<string, RegisteredRpcHandler>();
 
 function extractTopicSub(prefix: string, topic: string): string | null {
@@ -73,14 +59,6 @@ export async function executeRpcOperation(op: string, params: Record<string, any
     }
     logger.debug(`[MQTT RPC] Executing operation ${op} with params ${JSON.stringify(params)}`);
     return await fn(params, args);
-}
-
-export function registerHandler<P extends PrismaClient>(
-    prefix: string,
-    handler: MessageHandler<P>,
-    prisma: P
-): void {
-    handlers.set(prefix, { handler, prisma });
 }
 
 export function registerRpcHandler<P extends PrismaClient>(
@@ -226,35 +204,5 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
         return;
     }
 
-    // Fall back to envelope-based handlers
-    let envelope;
-    let matchedEntry: RegisteredHandler | undefined;
-    for (const [prefix, entry] of handlers) {
-        logger.debug(`[MQTT Messaging] Checking handler for prefix ${prefix}`);
-        if (topic.startsWith(prefix)) {
-            matchedEntry = entry;
-            break;
-        }
-    }
-
-    if (!matchedEntry) {
-        logger.warn('[MQTT Messaging] No handler registered for topic', { topic });
-        return;
-    }
-
-    try {
-        envelope = parseEnvelope(JSON.parse(raw));
-    } catch (error) {
-        logger.error('[MQTT Messaging] Failed to parse envelope', {
-            topic,
-            error: error instanceof Error ? error.message : String(error)
-        });
-        return;
-    }
-
-    await matchedEntry.handler({
-        topic,
-        envelope,
-        prisma: matchedEntry.prisma
-    });
+    logger.debug('[MQTT Messaging] No RPC handler matched and no reply handler applicable', { topic });
 }
