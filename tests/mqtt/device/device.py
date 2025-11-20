@@ -134,7 +134,7 @@ class Device:
 		if self.pending_requests[request_id]['event'].wait(timeout):
 			response = self.pending_requests[request_id]['response']
 			del self.pending_requests[request_id]
-			return response  # type: ignore[return-value]
+			return self._extract_rpc_result(response)  # type: ignore[return-value]
 		else:
 			del self.pending_requests[request_id]
 			raise TimeoutError(f"No response for request {request_id} within {timeout}s")
@@ -154,9 +154,23 @@ class Device:
 		def _run() -> None:
 			try:
 				response = self.request(op, params, timeout=timeout)
-				callback(None, response)
+				callback(None, self._extract_rpc_result(response))
 			except Exception as e:  # pragma: no cover - defensive logging
 				callback(e, None)
 
 		thread = threading.Thread(target=_run, daemon=True)
 		thread.start()
+
+	def _extract_rpc_result(self, response: Dict[str, Any]) -> Dict[str, Any]:
+		"""Normalize nested RPC envelopes so callers receive the actual payload."""
+		if not isinstance(response, dict):
+			return response  # type: ignore[return-value]
+
+		payload = response.get('result')
+		if isinstance(payload, dict):
+			nested = payload.get('result')
+			if isinstance(nested, dict):
+				return nested  # innermost payload
+			return payload  # single-level payload
+
+		return response

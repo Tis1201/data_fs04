@@ -4,6 +4,7 @@ import { mint } from './test_mint';
 import { randomUUID } from 'crypto';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import jwt from 'jsonwebtoken';
 
 function deriveUsernameFromJwt(jwt: string): string {
   try {
@@ -89,14 +90,36 @@ type PendingNotification = {
 
 const pendingNotifications = new Map<string, PendingNotification>();
 
-function waitForClaimNotification(requestId: string, timeoutMs = 10_000): Promise<any> {
+type NotificationTicketClaims = {
+  type?: string;
+  sub?: string;
+  recipient?: string;
+  flowId?: string;
+  params?: Record<string, unknown>;
+};
+
+function decodeNotificationTicket(ticket: string): NotificationTicketClaims | null {
+  try {
+    const decoded = jwt.decode(ticket);
+    if (!decoded || typeof decoded !== 'object') {
+      return null;
+    }
+
+    return decoded as NotificationTicketClaims;
+  } catch (err) {
+    console.warn('Failed to decode notification ticket', err);
+    return null;
+  }
+}
+
+function waitForClaimNotification(flowId: string, timeoutMs = 10_000): Promise<any> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      pendingNotifications.delete(requestId);
-      reject(new Error(`No claim.confirmed notification for requestId ${requestId} within ${timeoutMs}ms`));
+      pendingNotifications.delete(flowId);
+      reject(new Error(`No notification for flowId ${flowId} within ${timeoutMs}ms`));
     }, timeoutMs);
 
-    pendingNotifications.set(requestId, { resolve, reject, timeout });
+    pendingNotifications.set(flowId, { resolve, reject, timeout });
   });
 }
 
@@ -204,25 +227,13 @@ async function testConnect() {
         // If the server returned a requestId, wait for a matching
         // claim-confirmed notification so we know the device side
         // has completed the flow.
-        const { deviceId, requestId } = result as { deviceId: string; requestId?: string };
-        if (requestId) {
-          try {
-            const notification = await waitForClaimNotification(requestId, 10_000);
+        const claimFlowId = (result as { flowId?: string }).flowId;
+        const claimPayload = (result as { result?: { factoryDeviceId?: string } }).result;
 
-            // notification.payload should contain the same requestId and
-            // factoryDeviceId that was returned as deviceId from the RPC
-            if (
-              notification.requestId === requestId &&
-              notification.factoryDeviceId === deviceId
-            ) {
-              console.log('Claim confirmation notification (matched):', notification);
-            } else {
-              console.warn('Claim confirmation mismatch:', {
-                expectedRequestId: requestId,
-                expectedFactoryDeviceId: deviceId,
-                notification
-              });
-            }
+        if (claimFlowId) {
+          try {
+            const notification = await waitForClaimNotification(claimFlowId, 10_000);
+            console.log('Claim confirmation notification:', notification);
           } catch (err) {
             console.error('Claim confirmation timeout:', err);
           }
@@ -252,13 +263,39 @@ async function testConnect() {
         } else {
           entry.resolve(data.result);
         }
-      } else if (topic.endsWith('/notifications') && data.type === 'claim.confirmed') {
-        const notifRequestId: string | undefined = data.payload?.requestId;
-        if (notifRequestId && pendingNotifications.has(notifRequestId)) {
-          const entry = pendingNotifications.get(notifRequestId)!;
-          clearTimeout(entry.timeout);
-          pendingNotifications.delete(notifRequestId);
-          entry.resolve(data.payload);
+      } else if (topic.endsWith('/notifications') && data.ticket) {
+        const claims = decodeNotificationTicket(data.ticket);
+        if (!claims) {
+          return;
+        }
+
+        console.log('Decoded notification claims:', claims);
+
+        switch (claims.type) {
+          case 'reply': {
+            const flowId = claims.flowId;
+            if (!flowId) {
+              console.warn('Reply notification missing flowId');
+              return;
+            }
+            if (!pendingNotifications.has(flowId)) {
+              console.warn('No pending notification handler for flowId', flowId);
+              return;
+            }
+
+            const entry = pendingNotifications.get(flowId)!;
+            clearTimeout(entry.timeout);
+            pendingNotifications.delete(flowId);
+            entry.resolve({ requestId: flowId, ...(claims.params ?? {}) });
+            break;
+          }
+          case 'claim': {
+            console.log('Received claim notification ticket (factory flow), ignoring in web test');
+            break;
+          }
+          default: {
+            console.log(`Unhandled notification type '${claims.type ?? 'unknown'}'`);
+          }
         }
       }
     } catch {

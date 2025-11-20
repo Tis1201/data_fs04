@@ -98,10 +98,9 @@ class FactoryDevice:
 
         logger.debug(f"RPC response: {response}")
 
-        assert response.get("result")
-        assert response.get("result").get("pin")
-
-        pin = response.get("result").get("pin")
+        pin = response.get("pin")
+        if not isinstance(pin, str):
+            raise AssertionError('get.pin RPC response missing pin field')
 
         logger.debug(f'Pin: {pin}')
 
@@ -145,13 +144,11 @@ class FactoryDevice:
                 logger.error(f"device.claim.confirm RPC failed: {err}")
             else:
                 logger.debug(f"RPC response: {response}")
-                if response:
-                    # Server response shape: { requestId, op, result: { flowId?, result: { ... } } }
-                    payload = response.get("result") if isinstance(response.get("result"), dict) else response
-                    if isinstance(payload, dict):
-                        result = payload.get("result") if isinstance(payload.get("result"), dict) else payload
-                        if isinstance(result, dict):
-                            self._device._handle_claim_confirm_result(result)  # type: ignore[attr-defined]
+                if response is None:
+                    raise AssertionError('device.claim.confirm RPC returned no payload')
+
+                assert isinstance(response, dict), 'device.claim.confirm RPC must return an object'
+                self._device._handle_claim_confirm_result(response)  # type: ignore[attr-defined]
 
         # Use async helper so we don't block the MQTT network thread with a synchronous request
         self._device.request_async("device.claim.confirm", {"ticket": ticket}, _on_done)

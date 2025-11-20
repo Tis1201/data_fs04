@@ -59,6 +59,11 @@ export const DeviceNotificationType = {
     Claim: 'claim',
 } as const;
 
+export const NotificationType = {
+    REPLY: 'reply',
+} as const;
+
+
 export type DeviceNotificationType = (typeof DeviceNotificationType)[keyof typeof DeviceNotificationType];
 
 export interface FactoryDeviceNotificationTicketParams {

@@ -2,7 +2,7 @@ import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
 import type { RpcHandlerArgs, RpcResponse } from '../index';
 import { resolveDeviceClaimContextFromTicket } from '../../core/claims';
-import { decodeNotificationTicket, NotificationEventType, sendUserNotificationWithTicket } from '../../core/publish';
+import { decodeNotificationTicket, DeviceNotificationType, NotificationEventType, NotificationType, sendNotificationWithTicket, sendUserNotificationWithTicket } from '../../core/publish';
 import type { NotificationTicketEnvelope } from '../../core/envelope';
 
 interface DeviceClaimConfirmParams {
@@ -42,6 +42,9 @@ export async function handleClaimConfirm(
     logger.info(`Device Claim Confirm: ${device_type}:${device_id}`);
    
     const owner = ctx.sub;
+    if (!owner) {
+        throw new Error('Invalid claim ticket: missing subject');
+    }
     const owner_parts = owner?.split(":");
     const owner_type = owner_parts?.[0];
     const owner_id = owner_parts?.[1];
@@ -143,6 +146,24 @@ export async function handleClaimConfirm(
     //     }
     // });
     // });
+
+    //Flip the sub and reciepent for REPLY
+    if (!ctx.sub) {
+        throw new Error('Missing subject in claim ticket');
+    }
+    sendNotificationWithTicket({
+        prisma,
+        sub: ctx.recipient,
+        recipient: ctx.sub,
+        type: NotificationType.REPLY,
+        flowId: ctx.flowId,
+        params: {
+            deviceId: createdDevice.id,
+            factoryDeviceId: factoryDevice.id,
+            accountId: account?.id ?? null,
+        },
+        expiresIn: '5m'
+    })
 
     // Return device credentials and account context to the device; a separate flow can notify the user.
     return {
