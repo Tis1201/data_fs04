@@ -39,8 +39,8 @@ const connectionOptions: IClientOptions = {
   keepalive: Number(process.env.MQTT_WORKER_KEEPALIVE ?? '60'),
   reconnectPeriod: 0,
   clientId: process.env.MQTT_WORKER_CLIENT_ID ?? defaultClientId,
-  username: process.env.MQTT_WORKER_USERNAME,
-  password: process.env.MQTT_WORKER_PASSWORD,
+  username: process.env.MQTT_SERVER_USERNAME,
+  password: process.env.MQTT_SERVER_PASSWORD,
   path: process.env.MQTT_WORKER_PATH ?? '/mqtt'
 };
 

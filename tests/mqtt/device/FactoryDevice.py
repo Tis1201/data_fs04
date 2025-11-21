@@ -6,13 +6,50 @@ import os
 import json
 import urllib.parse
 import jwt
+import requests
 import paho.mqtt.client as mqtt  # noqa: F401  # kept for symmetry with device client
 from loguru import logger
+
+from dotenv import load_dotenv
+load_dotenv()
+
 
 sys.path.append("tests")
 
 from mqtt.device.Device import Device  # type: ignore
-from mqtt.device.mint.factory.test_mint_factory_token import _mint_factory_credentials  # type: ignore
+
+
+FACTORY_MINT_URL = os.getenv(
+    "MQTT_MINT_URL_FACTORY",
+)
+FACTORY_TOKEN = os.getenv("SAMPLE_DEVICE_FACTORY_TOKEN")
+
+
+def _mint_factory_credentials() -> requests.Response:
+    """Mint factory MQTT credentials using the configured factory token.
+
+    This mirrors the behavior from test_mint_factory_token.py but is self-contained
+    so FactoryDevice does not depend on the test module.
+    """
+    if not FACTORY_MINT_URL:
+        raise RuntimeError(
+            "MQTT_MINT_URL_FACTORY env var is required for FactoryDevice"
+        )
+
+    if not FACTORY_TOKEN:
+        raise RuntimeError(
+            "SAMPLE_DEVICE_FACTORY_TOKEN env var is required for FactoryDevice"
+        )
+
+    headers = {
+        "Authorization": f"Bearer {FACTORY_TOKEN}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+    response = requests.post(FACTORY_MINT_URL, headers=headers, timeout=15)
+
+    return response
 
 
 class FactoryDevice:
@@ -53,17 +90,18 @@ class FactoryDevice:
         return self._device.client
 
     def connect(self) -> None:
-        factory_token = os.getenv('SAMPLE_DEVICE_FACTORY_TOKEN', "")
         parsed = urllib.parse.urlparse(self._device.brokerUrl)
         host = parsed.hostname
         port = parsed.port or 443
         ws_path = parsed.path or "/mqtt"
 
         client = mqtt.Client(client_id=self._device.sub, protocol=mqtt.MQTTv5, transport="websockets")
-        client.username_pw_set(username=self._device.sub, password=factory_token)
+        # Use the minted MQTT JWT (connection credential) as the password
+        client.username_pw_set(username=self._device.sub, password=self._device.jwt)
         client.user_data_set({"username": "factory"})
         client.ws_set_options(path=ws_path)
-        client.tls_set()  # Enable TLS for wss on port 443
+        if parsed.scheme == "wss":
+            client.tls_set()  # Enable TLS for wss on port 443
 
         client.on_connect = self._device.on_connect
         client.on_message = self._device.on_message
@@ -185,8 +223,14 @@ class FactoryDevice:
 
 if __name__ == "__main__":
 
-    from dotenv import load_dotenv
-    load_dotenv()
+   
+    # MQTT_MINT_URL_FACTORY = os.getenv("MQTT_MINT_URL_FACTORY")
+    # MQTT_MINT_URL         = os.getenv("MQTT_MINT_URL")
+
+    # logger.info(f"MQTT_MINT_URL_FACTORY: {MQTT_MINT_URL_FACTORY}")
+    # logger.info(f"MQTT_MINT_URL: {MQTT_MINT_URL}")
+
+    
 
     factory_device = FactoryDevice()
     factory_device.connect()
