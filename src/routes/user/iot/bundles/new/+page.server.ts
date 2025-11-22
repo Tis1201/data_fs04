@@ -63,15 +63,92 @@ export const actions: Actions = {
                 console.log({currentAccount});
                 
                 
-                // Combine date and time if both are provided
+                // Process scheduled datetime - convert from user's timezone to UTC
                 let scheduledDateTime = null;
                 if (form.data.scheduledAt && form.data.scheduledTime) {
-                    const datePart = form.data.scheduledAt;
-                    const timePart = form.data.scheduledTime;
-                    scheduledDateTime = new Date(`${datePart}T${timePart}:00`);
+                    try {
+                        const datePart = form.data.scheduledAt;  // "2025-11-21"
+                        const timePart = form.data.scheduledTime; // "08:07"
+                        const timezone = form.data.scheduledAtTimezone || 'UTC';
+                        
+                        // Parse the components
+                        const [year, month, day] = datePart.split('-').map(Number);
+                        const [hours, minutes] = timePart.split(':').map(Number);
+                        
+                        // User wants: "2025-11-21 08:07" in their timezone (e.g., America/Los_Angeles)
+                        // We need to find the corresponding UTC time
+                        
+                        // Create a formatter for the target timezone
+                        const formatter = new Intl.DateTimeFormat('en-US', {
+                            timeZone: timezone,
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        });
+                        
+                        // Start with a probe: what if we assume it's UTC?
+                        const probeUTC = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
+                        
+                        // Format the probe in the target timezone
+                        const parts = formatter.formatToParts(probeUTC);
+                        const tzYear = parseInt(parts.find(p => p.type === 'year')?.value || '0');
+                        const tzMonth = parseInt(parts.find(p => p.type === 'month')?.value || '0');
+                        const tzDay = parseInt(parts.find(p => p.type === 'day')?.value || '0');
+                        const tzHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+                        const tzMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+                        
+                        // Calculate the offset: difference between what we got and what we wanted
+                        const gotTime = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, 0);
+                        const wantedTime = Date.UTC(year, month - 1, day, hours, minutes, 0);
+                        const offset = wantedTime - gotTime;
+                        
+                        // Apply the offset to get the correct UTC time
+                        scheduledDateTime = new Date(probeUTC.getTime() + offset);
+                        
+                        logger.info(`Scheduled datetime: User entered ${datePart} ${timePart} ${timezone}, storing as ${scheduledDateTime.toISOString()}`);
+                    } catch (error) {
+                        logger.error(`Error parsing scheduled datetime with timezone: ${error}`);
+                        scheduledDateTime = null;
+                    }
                 } else if (form.data.scheduledAt) {
-                    // If only date is provided, use midnight
-                    scheduledDateTime = new Date(`${form.data.scheduledAt}T00:00:00`);
+                    // Only date provided, use midnight in user's timezone
+                    try {
+                        const datePart = form.data.scheduledAt;
+                        const timezone = form.data.scheduledAtTimezone || 'UTC';
+                        const [year, month, day] = datePart.split('-').map(Number);
+                        
+                        const formatter = new Intl.DateTimeFormat('en-US', {
+                            timeZone: timezone,
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        });
+                        
+                        const probeUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+                        const parts = formatter.formatToParts(probeUTC);
+                        const tzYear = parseInt(parts.find(p => p.type === 'year')?.value || '0');
+                        const tzMonth = parseInt(parts.find(p => p.type === 'month')?.value || '0');
+                        const tzDay = parseInt(parts.find(p => p.type === 'day')?.value || '0');
+                        const tzHour = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
+                        const tzMinute = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+                        
+                        const gotTime = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, 0);
+                        const wantedTime = Date.UTC(year, month - 1, day, 0, 0, 0);
+                        const offset = wantedTime - gotTime;
+                        
+                        scheduledDateTime = new Date(probeUTC.getTime() + offset);
+                    } catch (error) {
+                        logger.error(`Error parsing scheduled date: ${error}`);
+                        scheduledDateTime = null;
+                    }
                 }
 
                 try {
