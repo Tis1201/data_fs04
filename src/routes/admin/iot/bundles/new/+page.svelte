@@ -118,8 +118,8 @@
         $form.accountId = data.defaultAccountId;
     }
     
-    // Default timezone is UTC
-    $form.scheduledAtTimezone = 'UTC';
+    // Auto-detect user's timezone
+    $form.scheduledAtTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 </script>
 
 <AdminPageLayout
@@ -292,6 +292,18 @@
                                 options={osOptions}
                             />
                         </FormField>
+                        <FormField id="version" label="Version" error={$errors.version}>
+                            <Input
+                                id="version"
+                                name="version"
+                                type="text"
+                                bind:value={$form.version}
+                                placeholder="1.0.0"
+                            />
+                        </FormField>
+                    </FormRow>
+
+                    <FormRow columns={3}>
                         <FormField id="waveSize" label="Wave Size" error={$errors.waveSize} required={true}>
                             <Input
                                 id="waveSize"
@@ -304,9 +316,6 @@
                                 {...$constraints.waveSize}
                             />
                         </FormField>
-                    </FormRow>
-
-                    <FormRow columns={3}>
                         <FormField id="scheduledAt" label="Schedule Date" error={$errors.scheduledAt}>
                             <EnhancedDatePicker
                                 id="scheduledAt"
@@ -328,34 +337,7 @@
                                 clearable={true}
                             />
                         </FormField>
-                        <FormField id="activePeriodDays" label="Active Period (Days)" error={$errors.activePeriodDays}>
-                            <div class="space-y-2">
-                                <Input
-                                    id="activePeriodDays"
-                                    name="activePeriodDays"
-                                    type="number"
-                                    bind:value={$form.activePeriodDays}
-                                    placeholder="1"
-                                    min="1"
-                                    max="30"
-                                    aria-invalid={$errors.activePeriodDays ? 'true' : undefined}
-                                    on:input={(e) => {
-                                        const val = Number(e.currentTarget.value);
-                                        if (val > 30) {
-                                            $form.activePeriodDays = 30;
-                                        } else if (val < 1 && val !== 0) {
-                                            $form.activePeriodDays = 1;
-                                        }
-                                    }}
-                                    {...$constraints.activePeriodDays}
-                                />
-                                <p class="text-xs text-muted-foreground">
-                                    How long devices can automatically receive this bundle after it starts (1-30 days). 
-                                    Default: 1 day. Late device responses will be accepted during this period.
-                                </p>
-                            </div>
-                        </FormField>
-                        <!-- Hidden timezone field with default UTC value -->
+                        <!-- Hidden timezone field with auto-detected user timezone -->
                         <input type="hidden" name="scheduledAtTimezone" bind:value={$form.scheduledAtTimezone} />
                     </FormRow>
 

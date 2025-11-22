@@ -118,8 +118,8 @@
         $form.accountId = data.accountId;
     }
     
-    // Default timezone is UTC
-    $form.scheduledAtTimezone = 'UTC';
+    // Auto-detect user's timezone
+    $form.scheduledAtTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 </script>
 
 <AdminPageLayout
@@ -337,7 +337,7 @@
                                 clearable={true}
                             />
                         </FormField>
-                        <!-- Hidden timezone field with default UTC value -->
+                        <!-- Hidden timezone field with auto-detected user timezone -->
                         <input type="hidden" name="scheduledAtTimezone" bind:value={$form.scheduledAtTimezone} />
                     </FormRow>
 

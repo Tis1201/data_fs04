@@ -73,9 +73,35 @@
     // Selected wave for device progress view
     let selectedWave: any = null;
     
-    // Format date for display
+    // Format date for display (in viewer's local timezone)
     function formatDate(date: any) {
-        return date ? new Date(date).toLocaleString() : 'Not scheduled';
+        if (!date) return 'Not scheduled';
+        return new Date(date).toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            timeZoneName: 'short'
+        });
+    }
+    
+    // Format to show original timezone
+    function formatOriginalTimezone(date: any, timezone: string | null) {
+        if (!date || !timezone) return '';
+        try {
+            return new Date(date).toLocaleString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: 'numeric',
+                timeZone: timezone,
+                timeZoneName: 'short'
+            });
+        } catch {
+            return '';
+        }
     }
     
     // Delete dialog state
@@ -630,10 +656,18 @@
 
             {#if bundle.scheduledAt}
                 <div class="mt-4 pt-4 border-t">
-                    <div class="flex items-center gap-2">
-                        <Calendar class="h-4 w-4 text-muted-foreground" />
-                        <span class="text-sm text-muted-foreground">Scheduled for:</span>
-                        <span class="text-sm font-medium">{formatDate(bundle.scheduledAt)}</span>
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-2">
+                            <Calendar class="h-4 w-4 text-muted-foreground" />
+                            <span class="text-sm text-muted-foreground">Scheduled for:</span>
+                            <span class="text-sm font-medium">{formatDate(bundle.scheduledAt)}</span>
+                        </div>
+                        {#if bundle.scheduledAtTimezone && formatOriginalTimezone(bundle.scheduledAt, bundle.scheduledAtTimezone)}
+                            <div class="flex items-center gap-2 pl-6">
+                                <span class="text-xs text-muted-foreground">Original timezone:</span>
+                                <span class="text-xs font-mono">{formatOriginalTimezone(bundle.scheduledAt, bundle.scheduledAtTimezone)}</span>
+                            </div>
+                        {/if}
                     </div>
                 </div>
             {/if}
