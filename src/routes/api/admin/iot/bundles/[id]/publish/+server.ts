@@ -117,7 +117,7 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
           } catch {}
 
           const [bundleMeta, bundleWithApps, progresses] = await Promise.all([
-            prisma.bundle.findUnique({ where: { id: bundleId }, select: { id: true, name: true, reboot: true, forceUpdate: true } }),
+            prisma.bundle.findUnique({ where: { id: bundleId }, select: { id: true, name: true, reboot: true, forceUpdate: true, autoOpen: true } }),
             prisma.bundle.findUnique({ where: { id: bundleId }, include: { apps: { include: { resource: true }, orderBy: { order: 'asc' } } } }),
             prisma.bundleDeviceProgress.findMany({ where: { bundleId, waveId: firstWaveId }, include: { bundleDevice: true } })
           ]);
@@ -194,7 +194,7 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
               }
             } catch {}
 
-            const apps = (bundleWithApps?.apps || []).map((a: any, idx: number) => ({ resourceId: a.resourceId, name: a.resource?.name, packageName: a.resource?.packageName, path: a.resource?.path, version: a.resource?.version, format: a.resource?.format, size: a.resource?.size, order: a.order ?? idx + 1, autoOpen: !!a.autoOpen }));
+            const apps = (bundleWithApps?.apps || []).map((a: any, idx: number) => ({ resourceId: a.resourceId, name: a.resource?.name, packageName: a.resource?.packageName, path: a.resource?.path, version: a.resource?.version, format: a.resource?.format, size: a.resource?.size, order: a.order ?? idx + 1 }));
 
             // Set bundle timeout using centralized configuration (only once)
             if (!bundleTimeoutSet) {
@@ -209,7 +209,6 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
               }
             }
 
-            const anyAutoOpen = apps.some((a: any) => !!a.autoOpen);
             const payload: Record<string, unknown> = {
               action: 'message',
               type: 'bundle_install',
@@ -219,7 +218,7 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
               bundles: [ { id: bundleMeta?.id ?? bundleId, name: bundleMeta?.name ?? 'Bundle', order: 1, apps } ],
               options: {
                 reboot: !!bundleMeta?.reboot,
-                autoOpen: anyAutoOpen,
+                autoOpen: !!bundleMeta?.autoOpen,
                 forceUpdate: !!bundleMeta?.forceUpdate
               }
             };
