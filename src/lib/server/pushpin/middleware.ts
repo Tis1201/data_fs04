@@ -270,9 +270,14 @@ async function registerDevice(
     const connection = new PushpinConnection(meta, publishFn);
     ConnectionManager.registerConnection(connection);
 
+    const now = new Date();
     await adminPrisma.device.update({
         where: { id: deviceId },
-        data: { connected: true, connectedAt: new Date() }
+        data: { 
+            connected: true, 
+            connectedAt: now,
+            lastUsedAt: now
+        }
     });
 
     await subscriptionRegistry.addSubscription(

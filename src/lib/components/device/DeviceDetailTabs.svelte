@@ -50,7 +50,7 @@
   onMount(() => {
     const urlParams = new URLSearchParams($page.url.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && ['overview', 'apps', 'activity', 'technical', 'security', 'tags'].includes(tabParam)) {
+    if (tabParam && ['overview', 'apps', 'activity', 'security', 'tags'].includes(tabParam)) {
       activeTab = tabParam;
     }
   });
@@ -133,7 +133,7 @@
 
   <!-- Tabs Navigation -->
   <Tabs bind:value={activeTab} class="w-full">
-    <TabsList class="grid w-full grid-cols-6 h-9">
+    <TabsList class="grid w-full grid-cols-5 h-9">
       <TabsTrigger value="overview" class="flex items-center space-x-1.5 text-xs py-1.5">
         <Info class="h-3.5 w-3.5" />
         <span>Overview</span>
@@ -145,10 +145,6 @@
       <TabsTrigger value="activity" class="flex items-center space-x-1.5 text-xs py-1.5">
         <Activity class="h-3.5 w-3.5" />
         <span>Activity</span>
-      </TabsTrigger>
-      <TabsTrigger value="technical" class="flex items-center space-x-1.5 text-xs py-1.5">
-        <Cpu class="h-3.5 w-3.5" />
-        <span>Technical</span>
       </TabsTrigger>
       <TabsTrigger value="security" class="flex items-center space-x-1.5 text-xs py-1.5">
         <Shield class="h-3.5 w-3.5" />
@@ -179,7 +175,7 @@
               <div class="border-l-0 md:border-l border-muted pl-0 md:pl-4">
                 {#if device}
                   <CompactInfoGrid columns={1} gap="gap-1">
-                    <CompactInfoItem label="Created" icon={Clock}>
+                    <CompactInfoItem label="Device Created" icon={Clock}>
                       <div class="text-xs">
                         <RelativeDate date={device.createdAt} />
                         {#if device.createdBy && device.user}
@@ -191,7 +187,7 @@
                     </CompactInfoItem>
 
                     {#if device.updatedAt && device.updatedAt.toString() !== device.createdAt.toString()}
-                      <CompactInfoItem label="Updated" icon={Clock}>
+                      <CompactInfoItem label="Last System Updated" icon={Clock}>
                         <div class="text-xs">
                           <RelativeDate date={device.updatedAt} />
                         </div>
@@ -199,7 +195,7 @@
                     {/if}
 
                     {#if device.lastUsedAt}
-                      <CompactInfoItem label="Last used" icon={Clock}>
+                      <CompactInfoItem label="Last System Connection" icon={Clock}>
                         <div class="text-xs">
                           <RelativeDate date={device.lastUsedAt} />
                         </div>
@@ -219,7 +215,7 @@
             <MetadataFooter
               items={[
                 {
-                  label: "Created",
+                  label: "Device Created",
                   date: device.createdAt,
                   icon: "calendar",
                 },
@@ -234,7 +230,7 @@
                   icon: "tag",
                 },
                 {
-                  label: "Last Updated",
+                  label: "Last System Updated",
                   date: device.updatedAt,
                   icon: "clock",
                 },
@@ -256,6 +252,17 @@
               <SecurityCard {device} {apiKeyEnhance} {apiKeySubmitting} />
             </div>
           </div>
+        </AdminCard>
+
+        <!-- Technical Details Card -->
+        <AdminCard
+          title="Technical Details"
+          description="Hardware and software information"
+          icon={Cpu}
+          compact={true}
+          class_name="md:col-span-2"
+        >
+          <TechnicalDetailsContent {device} {deviceInformation} />
         </AdminCard>
       </div>
     </TabsContent>
@@ -343,18 +350,6 @@
           <p class="text-gray-500">Device information not available</p>
         </div>
       {/if}
-    </TabsContent>
-
-    <!-- Technical Tab -->
-    <TabsContent value="technical" class="space-y-4">
-      <AdminCard
-        title="Technical Details"
-        description="Hardware and software information"
-        icon={Cpu}
-        compact={true}
-      >
-        <TechnicalDetailsContent {device} {deviceInformation} />
-      </AdminCard>
     </TabsContent>
 
     <!-- Security Tab -->

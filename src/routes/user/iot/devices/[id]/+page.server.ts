@@ -1,20 +1,20 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, json } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { superValidate } from 'sveltekit-superforms/server';
+import { superValidate, message } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 import { v4 as uuidv4 } from 'uuid';
 import { deviceEditSchema } from '../../../../admin/iot/devices/[id]/schema';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
-
+import crypto from 'crypto';
 
 const apiKeySchema = z.object({
     deviceId: z.string()
@@ -88,13 +88,6 @@ export const load = restrict(
                 throw error(404, "Device not found");
             }
 
-            // Update online status from Redis (real-time presence tracking)
-            const isOnline = await isDeviceOnline(device.id);
-            const deviceWithRealTimeStatus = {
-                ...device,
-                connected: isOnline  // Override DB value with real-time Redis status
-            };
-
             const form = await superValidate(
                 {
                     id: device.id,
@@ -141,7 +134,7 @@ export const load = restrict(
 
             return {
                 form,
-                device: deviceWithRealTimeStatus, // Use device with real-time status
+                device,
                 deviceActionLogs,
                 deviceInformation // 🆕 Add this
             };
@@ -264,40 +257,68 @@ export const actions: Actions = {
                     });
                 }
 
-                const apiKey = crypto.randomUUID();
+                // Check if device is online before allowing rotation
+                const deviceOnline = await isDeviceOnline(id);
+                if (!deviceOnline) {
+                    return fail(400, {
+                        error: 'Device must be online to rotate API key. Please ensure the device is connected.'
+                    });
+                }
 
-                logger.info(`User generating new API key for device ${id}: ${apiKey}`);
+                // Generate new API key
+                const apiKey = crypto.randomBytes(32).toString('hex');
 
-                const message = {
-                    id: uuidv4(),
-                    scope: `subscription:device:${id}`,
-                    senderId: 'system',
-                    timestamp: new Date().toISOString(),
-                    userInfo: senderInfo
-                };
+                logger.info(`User generating new API key for device ${id}`);
 
-                const updateMessage = MessageFactory.toRoutingMessage({
-                    ...message,
-                    type: 'device',
-                    payload: {
-                        action: 'rotateKey',
-                        success: true,
+                // Update device with new API key in database
+                const now = new Date();
+                const updatedDevice = await locals.prisma.device.update({
+                    where: { id },
+                    data: {
+                        apiKey,
+                        apiKeyCreatedAt: device.apiKeyCreatedAt || now,
+                        apiKeyRotatedAt: now,
+                        updatedAt: now
+                    }
+                });
+
+                // Log audit
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: { apiKey: device.apiKey, apiKeyRotatedAt: device.apiKeyRotatedAt },
+                    newData: { apiKey: updatedDevice.apiKey, apiKeyRotatedAt: updatedDevice.apiKeyRotatedAt },
+                    userId: senderInfo.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+
+                // Send new API key to device using SystemUser for proper authorization
+                const updateMessage = MessageFactory.createSystemMessage(
+                    'device',
+                    `subscription:device:${id}`,
+                    {
+                        action: 'updateApiKey',
                         apiKey: apiKey,
                         requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
                         timestamp: new Date().toISOString()
-                    }
-                } as any);
+                    },
+                    SystemUser,
+                    { echoToSender: false }
+                );
 
                 await publisher.publish(updateMessage);
+                logger.info(`Sent new API key to device ${id}`);
 
+                // Create a form for superForm response
                 const form = await superValidate({ deviceId: id }, zod(apiKeySchema));
-
-                return {
-                    form,
+                
+                return message(form, {
                     success: true,
-                    message: 'API key generated successfully',
+                    message: 'API key rotated successfully and sent to device',
                     apiKey
-                };
+                });
             } catch (e) {
                 logger.error(`Error generating API key: ${e}`);
                 return fail(500, {

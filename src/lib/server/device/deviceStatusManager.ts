@@ -19,11 +19,13 @@ export class DeviceStatusManager {
     ): Promise<void> {
         try {
             // Update database
+            const now = new Date();
             await locals.prisma.device.update({
                 where: { id: deviceId },
                 data: { 
                     connected: true, 
-                    connectedAt: new Date() 
+                    connectedAt: now,
+                    lastUsedAt: now
                 }
             });
             

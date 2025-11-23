@@ -172,13 +172,16 @@
         },
         onResult: ({ result }) => {
             if (result.type === "success") {
-                toast.success("API key generated successfully");
+                const data = result.data as any;
+                const message = data?.message || "API key generated successfully";
+                toast.success(message);
                 // Refresh the page to show the new API key
                 goto(`/user/iot/devices/${device.id}`, {
                     invalidateAll: true,
                 });
             } else if (result.type === "failure") {
-                toast.error(result.data?.error || "Failed to generate API key");
+                const error = result.data?.error || "Failed to generate API key";
+                toast.error(error);
             }
         },
         onError: () => {

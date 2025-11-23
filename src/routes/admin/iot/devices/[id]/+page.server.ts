@@ -1,18 +1,19 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, json } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { superValidate } from 'sveltekit-superforms/server';
+import { superValidate, message } from 'sveltekit-superforms/server';
 import { deviceEditSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 import { v4 as uuidv4 } from 'uuid';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
+import crypto from 'crypto';
 
 export const load = restrict(
     async ({ params, locals, depends }) => {
@@ -281,51 +282,83 @@ export const actions: Actions = {
             const id = params.id;
 
             try {
-                // Generate a new API key
-                const apiKey = crypto.randomUUID();
+                // Check if device exists
+                const device = await locals.prisma.device.findUnique({
+                    where: { id }
+                });
 
-                logger.info(`Generating new API key for device ${id}: ${apiKey}`);
+                if (!device) {
+                    return fail(404, {
+                        error: 'Device not found'
+                    });
+                }
 
-                // Update device with new API key
-                // const updatedDevice = await locals.prisma.device.update({
-                //     where: { id },
-                //     data: {
-                //         apiKey,
-                //         apiKeyCreatedAt: new Date(),
-                //         apiKeyRotatedAt: new Date()
-                //     }
-                // });
+                // Check if device is online before allowing rotation
+                const deviceOnline = await isDeviceOnline(id);
+                if (!deviceOnline) {
+                    return fail(400, {
+                        error: 'Device must be online to rotate API key. Please ensure the device is connected.'
+                    });
+                }
 
-                //
-                // Create success message
-                const message = {
-                    id: uuidv4(),
-                    scope: `subscription:device:${id}`,
-                    senderId: 'system',
-                    timestamp: new Date().toISOString(),
-                    userInfo: senderInfo
-                };
+                // Generate new API key
+                const apiKey = crypto.randomBytes(32).toString('hex');
 
-                const updateMessage = MessageFactory.toRoutingMessage({
-                    ...message,
-                    type: 'device',
-                    payload: {
-                        action: 'rotateKey',
-                        success: true,
+                logger.info(`Generating new API key for device ${id}`);
+
+                // Update device with new API key in database
+                const now = new Date();
+                const updatedDevice = await locals.prisma.device.update({
+                    where: { id },
+                    data: {
+                        apiKey,
+                        apiKeyCreatedAt: device.apiKeyCreatedAt || now,
+                        apiKeyRotatedAt: now,
+                        updatedAt: now
+                    }
+                });
+
+                // Log audit
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: { apiKey: device.apiKey, apiKeyRotatedAt: device.apiKeyRotatedAt },
+                    newData: { apiKey: updatedDevice.apiKey, apiKeyRotatedAt: updatedDevice.apiKeyRotatedAt },
+                    userId: senderInfo.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+
+                // Send new API key to device using SystemUser for proper authorization
+                const updateMessage = MessageFactory.createSystemMessage(
+                    'device',
+                    `subscription:device:${id}`,
+                    {
+                        action: 'updateApiKey',
+                        apiKey: apiKey,
                         requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
                         timestamp: new Date().toISOString()
-                    }
-                } as any);
+                    },
+                    SystemUser,
+                    { echoToSender: false }
+                );
 
                 await publisher.publish(updateMessage);
-                                
+                logger.info(`Sent new API key to device ${id}`);
 
-
-                return {
+                // Create a minimal form for superForm response with required fields
+                const form = await superValidate({ 
+                    id, 
+                    name: device.name || '', 
+                    status: device.status || 'ACTIVE' 
+                }, zod(deviceEditSchema));
+                
+                return message(form, {
                     success: true,
-                    message: 'API key generated successfully',
+                    message: 'API key rotated successfully and sent to device',
                     apiKey
-                };
+                });
             } catch (e) {
                 logger.error(`Error generating API key: ${e}`);
                 return fail(500, {
