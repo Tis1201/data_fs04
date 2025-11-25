@@ -51,6 +51,7 @@ export const POST: RequestHandler = restrict(
                 select: {
                     id: true,
                     name: true,
+                    description: true,
                     accountId: true,
                     settings: {
                         select: {
@@ -58,7 +59,9 @@ export const POST: RequestHandler = restrict(
                             key: true,
                             value: true,
                             dataType: true,
-                            category: true
+                            category: true,
+                            label: true,
+                            order: true
                         }
                     }
                 }
@@ -130,10 +133,113 @@ export const POST: RequestHandler = restrict(
                     // Continue with assignment even if log creation fails
                 }
 
+                // Create device-level copy of the profile
+                let deviceProfileId = profileId; // Default to global profile
+                try {
+                    // Check if device-level copy already exists
+                    // Note: deviceId field will be available after Prisma schema generation
+                    const existingDeviceProfile = await prisma.deviceProfile.findFirst({
+                        where: {
+                            // @ts-ignore - deviceId will be available after schema migration
+                            deviceId: deviceId,
+                            level: 'DEVICE',
+                            accountId: deviceProfile.accountId
+                        }
+                    });
+
+                    if (existingDeviceProfile) {
+                        // Update existing device-level copy
+                        await prisma.$transaction(async (tx) => {
+                            // Update profile
+                            await tx.deviceProfile.update({
+                                where: { id: existingDeviceProfile.id },
+                                data: {
+                                    name: deviceProfile.name,
+                                    description: deviceProfile.description,
+                                    updatedBy: auth?.user?.id || 'system',
+                                    updatedAt: new Date()
+                                }
+                            });
+
+                            // Delete existing settings
+                            await tx.deviceProfileSetting.deleteMany({
+                                where: { profileId: existingDeviceProfile.id }
+                            });
+
+                            // Create new settings from global profile
+                            if (deviceProfile.settings && deviceProfile.settings.length > 0) {
+                                await tx.deviceProfileSetting.createMany({
+                                    data: deviceProfile.settings.map((setting: any, index: number) => ({
+                                        profileId: existingDeviceProfile.id,
+                                        key: setting.key,
+                                        value: setting.value,
+                                        dataType: setting.dataType,
+                                        label: setting.label || setting.key,
+                                        category: setting.category || null,
+                                        order: setting.order || index
+                                    }))
+                                });
+                            }
+                        });
+
+                        deviceProfileId = existingDeviceProfile.id;
+                        logger.info(`Updated existing device-level profile for device ${deviceId}`, {
+                            deviceId,
+                            deviceProfileId: existingDeviceProfile.id
+                        });
+                    } else {
+                        // Create new device-level copy
+                        const deviceProfileCopy = await prisma.$transaction(async (tx) => {
+                            // Create device-level profile
+                            const newProfile = await tx.deviceProfile.create({
+                                data: {
+                                    name: deviceProfile.name,
+                                    description: deviceProfile.description || null,
+                                    accountId: deviceProfile.accountId,
+                                    // @ts-ignore - deviceId will be available after schema migration
+                                    deviceId: deviceId,
+                                    level: 'DEVICE',
+                                    createdBy: auth?.user?.id || 'system',
+                                    updatedBy: auth?.user?.id || 'system',
+                                    isActive: true
+                                }
+                            });
+
+                            // Copy settings from global profile
+                            if (deviceProfile.settings && deviceProfile.settings.length > 0) {
+                                await tx.deviceProfileSetting.createMany({
+                                    data: deviceProfile.settings.map((setting: any, index: number) => ({
+                                        profileId: newProfile.id,
+                                        key: setting.key,
+                                        value: setting.value,
+                                        dataType: setting.dataType,
+                                        label: setting.label || setting.key,
+                                        category: setting.category || null,
+                                        order: setting.order || index
+                                    }))
+                                });
+                            }
+
+                            return newProfile;
+                        });
+
+                        deviceProfileId = deviceProfileCopy.id;
+                        logger.info(`Created device-level profile copy for device ${deviceId}`, {
+                            deviceId,
+                            deviceProfileId: deviceProfileCopy.id,
+                            globalProfileId: profileId
+                        });
+                    }
+                } catch (copyError) {
+                    logger.error(`Error creating device-level profile copy: ${String(copyError)}`);
+                    // Continue with global profile if copy fails
+                }
+
                 // DEBUG: Log the message being sent
                 logger.info(`[DEBUG] Creating device profile assignment message`, {
                     deviceId,
                     profileId,
+                    deviceProfileId,
                     logId,
                     requestId,
                     scope: `subscription:device:${deviceId}`,
@@ -141,19 +247,20 @@ export const POST: RequestHandler = restrict(
                 });
 
                 // Create or update DeviceProfileAssignment record with APPLYING status
+                // Reference the device-level profile if it exists, otherwise global profile
                 try {
                     await prisma.deviceProfileAssignment.upsert({
                         where: {
                             deviceId: deviceId
                         },
                         update: {
-                            profileId: profileId,
+                            profileId: deviceProfileId, // Use device-level profile if created
                             assignedBy: auth?.user?.id || 'system',
                             status: 'APPLYING',
                             assignedAt: new Date()
                         },
                         create: {
-                            profileId: profileId,
+                            profileId: deviceProfileId, // Use device-level profile if created
                             deviceId: deviceId,
                             assignedBy: auth?.user?.id || 'system',
                             status: 'APPLYING'

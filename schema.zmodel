@@ -519,6 +519,9 @@ model Device {
   // Device profile assignment
   profileAssignment DeviceProfileAssignment?
   
+  // Device-level profiles (copies of global profiles)
+  deviceProfiles DeviceProfile[]
+  
   // Device app data summaries
   appSummaries DeviceAppSummary[]
   
@@ -1452,6 +1455,7 @@ model DeviceProfile {
   name        String   // e.g., "Retail Kiosk Profile"
   description String?  // e.g., "Standard configuration for retail kiosk devices"
   isActive    Boolean  @default(true)
+  level       String   @default("GLOBAL") // "GLOBAL" for account-level, "DEVICE" for device-level copy
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt()
   createdBy   String
@@ -1460,6 +1464,10 @@ model DeviceProfile {
   // Ownership
   accountId   String
   account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Device relationship (only for DEVICE level profiles)
+  deviceId    String?
+  device      Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   
   // Relationships
   settings    DeviceProfileSetting[]
@@ -1472,6 +1480,8 @@ model DeviceProfile {
   
   @@index([accountId])
   @@index([createdBy])
+  @@index([level])
+  @@index([deviceId])
 }
 
 model DeviceProfileSetting {

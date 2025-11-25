@@ -371,6 +371,7 @@ model Device {
   disconnectedAt       DateTime?
   licenses             License[]
   profileAssignment    DeviceProfileAssignment?
+  deviceProfiles       DeviceProfile[]
   appSummaries         DeviceAppSummary[]
   userActions          UserAppAction[]
 
@@ -994,17 +995,22 @@ model DeviceProfile {
   name        String
   description String?
   isActive    Boolean                   @default(true)
+  level       String                    @default("GLOBAL")
   createdAt   DateTime                  @default(now())
   updatedAt   DateTime                  @updatedAt()
   createdBy   String
   updatedBy   String?
   accountId   String
   account     Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deviceId    String?
+  device      Device?                   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   settings    DeviceProfileSetting[]
   assignments DeviceProfileAssignment[]
 
   @@index([accountId])
   @@index([createdBy])
+  @@index([level])
+  @@index([deviceId])
 }
 
 model DeviceProfileSetting {

@@ -12,12 +12,18 @@
     Tag,
     RefreshCw,
     Clock,
-    Activity
+    Activity,
+    Settings,
+    Save
   } from "lucide-svelte";
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import ProfileSettingsEditor from '$lib/components/ui_components_sveltekit/form/ProfileSettingsEditor.svelte';
+  import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
+  import { superForm } from 'sveltekit-superforms/client';
+  import { enhance } from '$app/forms';
 
   /* Reused lists */
   import DeviceAppList from './DeviceAppList.svelte';
@@ -41,18 +47,81 @@
   export let isLoading: any;
   export let actionStatus: any;
   export let deviceInformation: any = null;
+  export let deviceProfile: any = null;
+  export let deviceProfileForm: any = null;
   export let sseStore: any; // ✅ FIX: Receive sseStore as prop from parent
 
   let activeTab = "overview";
   let loading = false;
-
-  // Initialize activeTab from URL parameter
+  let profileSettingsEditor: any;
+  
+  // Initialize form for device profile editing (MUST be at top level, not in onMount)
+  let localProfileSettings: any[] = [];
+  let profileEnhance: any = undefined;
+  let profileSubmitting: any = undefined;
+  let profileForm: any = undefined;
+  
+  // Call superForm at top level (required by Svelte)
+  if (deviceProfileForm) {
+    const formResult = superForm(deviceProfileForm, {
+      taintedMessage: false,
+      invalidateAll: false,
+      resetForm: false,
+      onResult: async ({ result }) => {
+        if (result.type === "success") {
+          toast.success('Device profile updated successfully');
+          // Refresh the page to show updated profile
+          goto($page.url.pathname + $page.url.search, { invalidateAll: true });
+        } else if (result.type === "failure") {
+          toast.error('Failed to update device profile');
+        }
+      }
+    });
+    
+    profileForm = formResult.form;
+    profileEnhance = formResult.enhance;
+    profileSubmitting = formResult.submitting;
+    
+    // Initialize localProfileSettings from form data
+    try {
+      localProfileSettings = JSON.parse($profileForm.settings || '[]');
+    } catch (e) {
+      localProfileSettings = [];
+    }
+  } else if (deviceProfile?.settings) {
+    // Fallback: initialize from deviceProfile if form not available (read-only mode)
+    localProfileSettings = deviceProfile.settings.map((s: any) => ({
+      key: s.key,
+      value: s.value,
+      dataType: s.dataType,
+      label: s.label,
+      category: s.category,
+      order: s.order,
+      enabled: s.dataType === 'boolean' ? true : false
+    }));
+  }
+  
+  // Update form settings when localProfileSettings changes (user edits)
+  $: if (profileForm && localProfileSettings) {
+    $profileForm.settings = JSON.stringify(localProfileSettings);
+  }
+  
   onMount(() => {
+    // Initialize activeTab from URL parameter
     const urlParams = new URLSearchParams($page.url.search);
     const tabParam = urlParams.get('tab');
     if (tabParam && ['overview', 'apps', 'activity', 'security', 'tags'].includes(tabParam)) {
       activeTab = tabParam;
     }
+    
+    console.log('[DeviceDetailTabs] Form initialized:', {
+      hasDeviceProfileForm: !!deviceProfileForm,
+      hasDeviceProfile: !!deviceProfile,
+      deviceProfileLevel: deviceProfile?.level,
+      deviceProfileId: deviceProfile?.id,
+      hasProfileEnhance: !!profileEnhance,
+      settingsCount: localProfileSettings.length
+    });
   });
 
   // Track previous tab to avoid infinite loops
@@ -264,6 +333,128 @@
         >
           <TechnicalDetailsContent {device} {deviceInformation} />
         </AdminCard>
+
+        <!-- Device Profile Card -->
+        {#if deviceProfile}
+          <AdminCard
+            title="Device Profile"
+            description="Configuration profile assigned to this device"
+            icon={Settings}
+            compact={true}
+            class_name="md:col-span-2"
+          >
+            <div class="space-y-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h4 class="text-sm font-medium">{deviceProfile.name}</h4>
+                  {#if deviceProfile.description}
+                    <p class="text-xs text-muted-foreground mt-1">{deviceProfile.description}</p>
+                  {/if}
+                </div>
+                <Badge variant={deviceProfile.level === 'DEVICE' ? 'default' : 'secondary'} class="text-xs">
+                  {deviceProfile.level === 'DEVICE' ? 'Device Level' : 'Global'}
+                </Badge>
+              </div>
+
+              {#if deviceProfile.level === 'DEVICE'}
+                {#if !deviceProfileForm}
+                  <div class="rounded-md bg-yellow-50 border border-yellow-200 p-3 mt-3">
+                    <p class="text-sm text-yellow-800">
+                      Device-level profile detected, but form not initialized. 
+                      Please refresh the page.
+                    </p>
+                    <p class="text-xs text-yellow-700 mt-1">
+                      Profile ID: {deviceProfile.id}
+                    </p>
+                  </div>
+                {:else if !profileEnhance}
+                  <div class="rounded-md bg-yellow-50 border border-yellow-200 p-3 mt-3">
+                    <p class="text-sm text-yellow-800">
+                      Form initialized but editor not ready. Check browser console for errors.
+                    </p>
+                  </div>
+                {:else}
+                  <!-- Always show editable Profile Settings for device-level profiles -->
+                  <form method="POST" action="?/updateDeviceProfile" use:profileEnhance>
+                    <ProfileSettingsEditor 
+                      bind:this={profileSettingsEditor}
+                      bind:settings={localProfileSettings} 
+                      {availableSettings} 
+                    />
+                    <input type="hidden" name="name" bind:value={$profileForm.name} />
+                    <input type="hidden" name="description" bind:value={$profileForm.description} />
+                    <input type="hidden" name="settings" bind:value={$profileForm.settings} />
+                    <div class="flex justify-end gap-2 mt-4 pt-4 border-t">
+                      <Button 
+                        type="submit"
+                        size="sm"
+                        disabled={$profileSubmitting}
+                      >
+                        <Save class="h-3 w-3 mr-1" />
+                        {#if $profileSubmitting}
+                          Saving...
+                        {:else}
+                          Save Changes
+                        {/if}
+                      </Button>
+                    </div>
+                  </form>
+                {/if}
+              {:else if deviceProfile.level === 'GLOBAL'}
+                <!-- Global profile - read-only view -->
+                <div class="rounded-md bg-muted p-3 mt-3">
+                  <p class="text-sm text-muted-foreground mb-2">
+                    This is a global profile. To customize settings for this device, please re-assign the profile from the 
+                    <a href="/admin/iot/device-profiles/{deviceProfile.id}/edit?tab=devices" class="text-primary hover:underline">
+                      device profile page
+                    </a>.
+                  </p>
+                </div>
+                
+                {#if deviceProfile.settings && deviceProfile.settings.length > 0}
+                  <div class="border-t pt-3 mt-3">
+                    <h5 class="text-xs font-medium mb-2">Settings (Read-only)</h5>
+                    <div class="space-y-2">
+                      {#each deviceProfile.settings as setting}
+                        <div class="flex items-start justify-between text-xs py-1.5 border-b last:border-b-0">
+                          <div class="flex-1">
+                            <span class="font-medium">{setting.label || setting.key}</span>
+                            {#if setting.category}
+                              <span class="text-muted-foreground ml-2">({setting.category})</span>
+                            {/if}
+                          </div>
+                          <div class="text-right">
+                            <span class="text-muted-foreground">{setting.value}</span>
+                            <span class="text-muted-foreground ml-1 text-[10px]">({setting.dataType})</span>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {:else}
+                  <p class="text-xs text-muted-foreground">No settings configured</p>
+                {/if}
+              {:else}
+                <p class="text-sm text-muted-foreground">Profile loading...</p>
+              {/if}
+              
+              <div class="border-t pt-3 mt-3 flex items-center justify-between text-xs text-muted-foreground">
+                <div>
+                  <span>Last updated: </span>
+                  <RelativeDate date={deviceProfile.updatedAt} />
+                </div>
+                {#if deviceProfile.level !== 'DEVICE'}
+                  <a 
+                    href="/admin/iot/device-profiles/{deviceProfile.id}/edit?tab=devices" 
+                    class="text-primary hover:underline"
+                  >
+                    Manage Profile
+                  </a>
+                {/if}
+              </div>
+            </div>
+          </AdminCard>
+        {/if}
       </div>
     </TabsContent>
 

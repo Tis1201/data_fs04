@@ -18,14 +18,11 @@
     import StatusBanner from "$lib/components/ui_components_sveltekit/devices/StatusBanner.svelte";
     import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
     import type { PageData } from "./$types";
-    import { createComponentSSE } from "$lib/stores/sse-store";
+    import { sseStore } from "$lib/stores/sse-store";
     import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
     import { useDeviceRealtime } from "$lib/mixins/deviceRealtimeMixin";
-    
-    // Create a per-component SSE store (independent connection for this page)
-    const sseStore = createComponentSSE();
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
@@ -34,6 +31,8 @@
     let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
     let deviceInformation = (data as any).deviceInformation;
+    let deviceProfile = (data as any).deviceProfile;
+    let deviceProfileForm = (data as any).deviceProfileForm;
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
     // Track a temporary optimistic log row for firmware update initiation
@@ -185,30 +184,61 @@
             disconnectedAt: device.disconnectedAt
         });
         
-        try {
-            console.debug('[AdminDeviceDetail] Connecting SSE to /api/sse ...');
-            sseStore.connect(`/api/sse`, { withCredentials: true });
-        } catch (e) {
-            console.warn('[AdminDeviceDetail] SSE connect failed (may already be connected):', e);
-        }
+        // Use global SSE connection (managed by AuthStateHandler)
+        console.log('[AdminDeviceDetail] Using global SSE connection:', {
+            connectionId: sseStore.connectionId,
+            status: sseStore.connectionStatus
+        });
+        
         let lastSubscribedConnectionId: string | null = null;
-        sseStore.on('connected', (msg: any) => {
-            const connId = msg?.data?.connectionId;
-            if (!connId) return;
+        
+        // Function to subscribe to device channel
+        async function subscribeToDeviceChannel(connId: string) {
             if (connId === lastSubscribedConnectionId) {
-                console.debug('[DeviceDetail] SSE connected event but already subscribed for', connId);
+                console.debug('[AdminDeviceDetail] Already subscribed for', connId);
                 return;
             }
-            console.debug('[DeviceDetail] SSE (re)connected. Subscribing device channel', { deviceId: device.id, connId });
-            fetch(`/api/sse/subscribe/device/${device.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: connId })
-            }).then(() => {
-                lastSubscribedConnectionId = connId;
-                console.log('[DeviceDetail] Subscribed to device channel for', connId);
-            }).catch((err) => console.warn('Subscribe failed', err));
+            
+            console.log('[AdminDeviceDetail] Subscribing to device channel', { deviceId: device.id, connId });
+            try {
+                const response = await fetch(`/api/sse/subscribe/device/${device.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: connId })
+                });
+                
+                if (response.ok) {
+                    lastSubscribedConnectionId = connId;
+                    console.log('[AdminDeviceDetail] ✅ Successfully subscribed to device channel for', connId);
+                } else {
+                    console.error('[AdminDeviceDetail] Subscribe failed with status:', response.status);
+                    const text = await response.text();
+                    console.error('[AdminDeviceDetail] Subscribe error:', text);
+                }
+            } catch (err) {
+                console.warn('[AdminDeviceDetail] Subscribe failed:', err);
+            }
+        }
+        
+        // Check if SSE is already connected and subscribe immediately
+        if (sseStore.connectionId && sseStore.connectionStatus === 'OPEN') {
+            console.log('[AdminDeviceDetail] SSE already connected, subscribing immediately');
+            subscribeToDeviceChannel(sseStore.connectionId);
+        }
+        
+        // Listen for future connection events
+        sseStore.on('connected', (msg: any) => {
+            console.log('[AdminDeviceDetail] SSE connected event received:', msg);
+            const connId = msg?.data?.connectionId;
+            if (!connId) {
+                console.warn('[AdminDeviceDetail] No connectionId in connected event');
+                return;
+            }
+            
+            // Subscribe immediately - the event already indicates connection is ready
+            console.log('[AdminDeviceDetail] Connection ready, subscribing to device channel');
+            subscribeToDeviceChannel(connId);
         });
 
         // Use centralized realtime updater for action history
@@ -460,9 +490,8 @@
                 });
             }
             
-            // Disconnect this component's SSE connection (won't affect other tabs now!)
-            console.log('[AdminDeviceDetail] Disconnecting per-component SSE...');
-            sseStore.disconnect();
+            // Don't disconnect global SSE - other components/pages may still be using it
+            console.log('[AdminDeviceDetail] Keeping global SSE connection active for other components');
         } else {
             console.log('[AdminDeviceDetail] Still on device subpage, keeping SSE connection active');
         }
@@ -1479,6 +1508,8 @@
             {isLoading}
             {actionStatus}
             {deviceInformation}
+            {deviceProfile}
+            {deviceProfileForm}
             {sseStore}
         />
         {:else}

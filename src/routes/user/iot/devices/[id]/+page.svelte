@@ -47,14 +47,11 @@
     import TechnicalDetailsContent from "$lib/components/ui_components_sveltekit/devices/TechnicalDetailsContent.svelte";
     import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import type { PageData } from "./$types";
-    import { createComponentSSE } from "$lib/stores/sse-store";
+    import { sseStore } from "$lib/stores/sse-store";
     import { subscribeDeviceDetailEvents } from "$lib/client/actionHandlers";
     import { onMount, onDestroy } from 'svelte';
     import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
-    
-    // Create a per-component SSE store (independent connection for this page)
-    const sseStore = createComponentSSE();
     
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
@@ -63,6 +60,8 @@
     let licenses = device.licenses;
     let deviceActionLogs = (data as any).deviceActionLogs;
     let deviceInformation = (data as any).deviceInformation; // 🆕 NEW: Device information from ClickHouse
+    let deviceProfile = (data as any).deviceProfile;
+    let deviceProfileForm = (data as any).deviceProfileForm;
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
     // Track a temporary optimistic log row for firmware update initiation
@@ -211,36 +210,50 @@
             disconnectedAt: device.disconnectedAt
         });
         
-        try {
-            console.debug('[UserDeviceDetail] Connecting SSE to /api/sse ...');
-            sseStore.connect(`/api/sse`, { withCredentials: true });
-            console.log('[UserDeviceDetail] SSE connect initiated');
-        } catch (e) {
-            console.warn('[UserDeviceDetail] SSE connect failed (may already be connected):', e);
+        // Use global SSE connection (managed by AuthStateHandler)
+        console.log('[UserDeviceDetail] Using global SSE connection:', {
+            connectionId: sseStore.connectionId,
+            status: sseStore.connectionStatus
+        });
+        
+        let lastSubscribedConnectionId: string | null = null;
+        
+        // Function to subscribe to device channel
+        async function subscribeToDeviceChannel(connId: string) {
+            if (connId === lastSubscribedConnectionId) {
+                console.debug('[UserDeviceDetail] Already subscribed for', connId);
+                return;
+            }
+            
+            console.log('[UserDeviceDetail] Subscribing to device channel', { deviceId: device.id, connId });
+            try {
+                const response = await fetch(`/api/sse/subscribe/device/${device.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ connectionId: connId })
+                });
+                
+                if (response.ok) {
+                    lastSubscribedConnectionId = connId;
+                    console.log('[UserDeviceDetail] ✅ Successfully subscribed to device channel for', connId);
+                } else {
+                    console.error('[UserDeviceDetail] Subscribe failed with status:', response.status);
+                    const text = await response.text();
+                    console.error('[UserDeviceDetail] Subscribe error:', text);
+                }
+            } catch (err) {
+                console.warn('[UserDeviceDetail] Subscribe failed:', err);
+            }
         }
         
-        // Check SSE connection status
-        console.log('[UserDeviceDetail] SSE store state:', sseStore);
-        console.log('[UserDeviceDetail] SSE connection ID:', sseStore.connectionId);
+        // Check if SSE is already connected and subscribe immediately
+        if (sseStore.connectionId && sseStore.connectionStatus === 'OPEN') {
+            console.log('[UserDeviceDetail] SSE already connected, subscribing immediately');
+            subscribeToDeviceChannel(sseStore.connectionId);
+        }
         
-        // Add a test function to manually trigger connection status change for debugging
-        (window as any).testConnectionStatus = () => {
-            console.log('[UserDeviceDetail] Manual test: toggling connection status');
-            device = {
-                ...device,
-                connected: !device.connected,
-                connectedAt: device.connected ? null : new Date().toISOString(),
-                disconnectedAt: device.connected ? new Date().toISOString() : null
-            };
-            console.log('[UserDeviceDetail] Manual device state change:', {
-                connected: device.connected,
-                connectedAt: device.connectedAt,
-                disconnectedAt: device.disconnectedAt
-            });
-        };
-        // After connectionId is known, call subscribe endpoint to bind this connection to device channel
-        // Persistently re-subscribe on every SSE (re)connect because connectionId changes
-        let lastSubscribedConnectionId: string | null = null;
+        // Listen for future connection events
         sseStore.on('connected', (msg: any) => {
             console.log('[UserDeviceDetail] SSE connected event received:', msg);
             const connId = msg?.data?.connectionId;
@@ -248,26 +261,10 @@
                 console.warn('[UserDeviceDetail] No connectionId in connected event');
                 return;
             }
-            if (connId === lastSubscribedConnectionId) {
-                console.debug('[UserDeviceDetail] SSE connected event but already subscribed for', connId);
-                return;
-            }
-            console.log('[UserDeviceDetail] SSE (re)connected. Subscribing device channel', { deviceId: device.id, connId });
-            fetch(`/api/sse/subscribe/device/${device.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: connId })
-            }).then((response) => {
-                console.log('[UserDeviceDetail] Subscribe response:', response);
-                if (response.ok) {
-                    lastSubscribedConnectionId = connId;
-                    console.log('[UserDeviceDetail] Successfully subscribed to device channel for', connId);
-                } else {
-                    console.error('[UserDeviceDetail] Subscribe failed with status:', response.status);
-                    response.text().then(text => console.error('[UserDeviceDetail] Subscribe error:', text));
-                }
-            }).catch((err) => console.warn('[UserDeviceDetail] Subscribe failed:', err));
+            
+            // Subscribe immediately - the event already indicates connection is ready
+            console.log('[UserDeviceDetail] Connection ready, subscribing to device channel');
+            subscribeToDeviceChannel(connId);
         });
 
         // Use centralized realtime updater for action history
@@ -550,9 +547,8 @@
             }).catch(err => console.warn('Unsubscribe failed:', err));
         }
         
-        // Disconnect this component's SSE connection (won't affect other tabs now!)
-        console.log('[UserDeviceDetail] Disconnecting per-component SSE...');
-        sseStore.disconnect();
+        // Don't disconnect global SSE - other components/pages may still be using it
+        console.log('[UserDeviceDetail] Keeping global SSE connection active for other components');
         console.log('[UserDeviceDetail] Cleanup complete');
     });
 
@@ -1580,6 +1576,8 @@
         {isLoading}
         {actionStatus}
         {deviceInformation}
+        {deviceProfile}
+        {deviceProfileForm}
         {sseStore}
     />
 </AdminPageLayout>
