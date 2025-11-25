@@ -19,7 +19,7 @@
 
 <AdminPageLayout
     title="Pin Rules"
-    crumbs={[['User', '/user'], ['IoT', '/user/iot'], ['Pin Rules', '/user/iot/pin-rules']]}
+    crumbs={[['User', '/user'], ['IOT', ''], ['Pin Rules', '/user/iot/pin-rules']]}
     actionButtons={[{ label: 'Add Pin Rule', icon: Plus, onClick: () => goto('/user/iot/pin-rules/new') }]}
 >
     <PinRuleTable props={tableProps} currentUserId={data.user?.id} accountRole={data.accountRole} />

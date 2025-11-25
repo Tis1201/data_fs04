@@ -25,7 +25,7 @@
     // Define breadcrumbs
     const pageCrumbs = [
         ["Dashboard", "/user/dashboard"],
-        ["Settings", "/user/settings"],
+        ["Settings", ""],
         ["Team Members", ""]
     ] as [string, string][];
 

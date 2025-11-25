@@ -152,12 +152,13 @@
                 
             ]
         },
-        { 
-            href: "/user/support", 
-            label: "Help & Support", 
-            icon: HelpCircle,
-            subItems: [] 
-        },
+        //TODO use group to hide later
+        // {
+        //     href: "/user/support",
+        //     label: "Help & Support",
+        //     icon: HelpCircle,
+        //     subItems: []
+        // },
     ];
 
     $: currentPath = $page.url.pathname;

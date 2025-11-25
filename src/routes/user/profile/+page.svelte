@@ -37,6 +37,7 @@
     const title = "My Profile";
     const pageCrumbs = [
         ["Dashboard", "/user"],
+        ["Settings", ""],
         "Profile"
     ];
 
