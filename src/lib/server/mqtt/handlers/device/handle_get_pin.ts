@@ -39,6 +39,73 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient }
         throw new Error('Factory device not found');
     }
 
+    // Optional: check for pre-claim mappings based on hardware fingerprint.
+    // This is a side-effect only; it must not change the RPC response shape.
+    try {
+        const hardwareFingerprint = factoryDevice.hardwareFingerprint;
+        if (!hardwareFingerprint) {
+            logger.debug(
+                `[DeviceGetPin] No hardwareFingerprint on factory device ${factoryDeviceId}; skipping preclaim check`
+            );
+        } else {
+            const now = new Date();
+
+            // Sniff test: see if a claimed Device already exists for this MAC/hardware fingerprint.
+            const existingDevice = await prisma.device.findFirst({
+                where: {
+                    claimedAt: { not: null },
+                    OR: [
+                        { hardwareId: hardwareFingerprint },
+                        { macAddress: hardwareFingerprint },
+                        { wifiMac: hardwareFingerprint }
+                    ]
+                },
+                select: {
+                    id: true,
+                    accountId: true
+                }
+            });
+
+            if (existingDevice) {
+                logger.warn(
+                    `[DeviceGetPin] Existing claimed device found for hardwareFingerprint ${hardwareFingerprint}: deviceId=${existingDevice.id}, accountId=${existingDevice.accountId ?? 'n/a'}`
+                );
+            } else {
+                const preclaim = await prisma.preclaimDevice.findFirst({
+                    where: {
+                        macId: hardwareFingerprint,
+                        status: 'PENDING',
+                        claimedAt: null,
+                        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                        set: {
+                            status: 'ACTIVE',
+                            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+                        }
+                    },
+                    include: {
+                        set: true
+                    }
+                });
+
+                if (preclaim) {
+                    logger.info(
+                        `[DeviceGetPin] Preclaim branch candidate found for factoryDevice ${factoryDeviceId}: preclaimDeviceId=${preclaim.id}, setId=${preclaim.setId}, accountId=${preclaim.accountId}`
+                    );
+                } else {
+                    logger.debug(
+                        `[DeviceGetPin] No valid preclaim found for hardwareFingerprint ${hardwareFingerprint} (factoryDeviceId=${factoryDeviceId})`
+                    );
+                }
+            }
+        }
+    } catch (err) {
+        logger.error(
+            `[DeviceGetPin] Preclaim check failed for factoryDevice ${factoryDeviceId}: ${
+                err instanceof Error ? err.message : String(err)
+            }`
+        );
+    }
+
     // Generate unique PIN with collision check
     let pin: string;
     let attempts = 0;
