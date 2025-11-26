@@ -1,8 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { env as privateEnv } from '$env/dynamic/private';
 
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { logger } from '$lib/server/logger';
+import { getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
 import { createErrorResponse, createSuccessResponse } from '$lib/server/types/api';
 import { getClientIp } from '$lib/utils/request-utils';
 
@@ -15,10 +15,7 @@ import { getClientIp } from '$lib/utils/request-utils';
  *   username, and jwt (used as MQTT password).
  ********************************************************************************************/
 async function mintFactoryMqttCredentials(factoryDeviceId: string) {
-    const brokerUrl = privateEnv.MQTT_BROKER_URL;
-    const iotCoreBaseUrl = privateEnv.IOT_CORE_BASE_URL;
-    const iotCoreApiKey = privateEnv.IOT_CORE_API_KEY;
-
+    const brokerUrl = getMqttBrokerUrl();
     if (!brokerUrl) {
         logger.error('[FactoryMqttMintAPI] MQTT_BROKER_URL is not configured');
         return json(
@@ -29,62 +26,30 @@ async function mintFactoryMqttCredentials(factoryDeviceId: string) {
         );
     }
 
-    if (!iotCoreBaseUrl || !iotCoreApiKey) {
-        logger.error('[FactoryMqttMintAPI] IOT_CORE_BASE_URL or IOT_CORE_API_KEY is not configured');
-        return json(
-            createErrorResponse('IoT Core configuration is missing', {
-                details: 'Set IOT_CORE_BASE_URL and IOT_CORE_API_KEY in the server environment'
-            }),
-            { status: 500 }
-        );
-    }
-
     const username = `factory:${factoryDeviceId}`;
-    const mintUrl = `${iotCoreBaseUrl.replace(/\/+$/, '')}/api/mq/mint`;
-
-    const mintResponse = await fetch(mintUrl, {
-        method: 'POST',
-        headers: {
-            'x-api-key': iotCoreApiKey,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            username,
-            pub_topics: [
-                `device/${username}/replies`,
-                `device/${username}/requests`,
-                `device/${username}/loopback`,
-                
-            ],
-            sub_topics: [
-                `device/${username}/response`,
-                `device/${username}/notifications`,
-                `device/${username}/loopback`,
-            ]
-        })
+    const mintData = await mintIoTCoreCredentials({
+        username,
+        pubTopics: [
+            `device/${username}/replies`,
+            `device/${username}/requests`,
+            `device/${username}/loopback`
+        ],
+        subTopics: [
+            `device/${username}/response`,
+            `device/${username}/notifications`,
+            `device/${username}/loopback`
+        ]
     });
 
-    if (!mintResponse.ok) {
-        let errorText = '';
-        try {
-            errorText = await mintResponse.text();
-        } catch (err) {
-            logger.debug(`[FactoryMqttMintAPI] Failed to read IoT Core error body: ${String(err)}`);
-        }
-
-        logger.error(
-            `[FactoryMqttMintAPI] IoT Core /api/mq/mint failed with status ${mintResponse.status}: ${errorText}`
-        );
-
+    if (!mintData) {
         return json(
             createErrorResponse('Failed to mint MQTT credentials from IoT Core', {
-                details: `Status ${mintResponse.status}`
+                details: 'See server logs for IoT Core mint failure details'
             }),
             { status: 502 }
         );
     }
 
-    const mintData = (await mintResponse.json()) as { clientId: string; token: string; username?: string };
     const { clientId, token, username: mintedUsername } = mintData;
 
     logger.info(

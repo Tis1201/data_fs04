@@ -105,3 +105,55 @@ Account selection in the web UI is reflected in the minted token via
 `auth.currentAccount` so that each MQTT credential is explicitly bound to a
 specific account.
 
+---
+
+## 5. MQTT Credential Minting & Server Worker
+
+MQTT credentials for all actors (factory devices, users, server worker) are
+minted centrally by **fs04_iot_core** via `/api/mq/mint`, using an API key.
+The fs04_web app does not sign MQTT JWTs directly.
+
+- **Shared mint helper**
+  - `src/lib/server/mqtt/mint.ts` exposes:
+    - `mintIoTCoreCredentials({ username, pubTopics, subTopics })`
+      - Reads `IOT_CORE_BASE_URL` and `IOT_CORE_API_KEY` from the environment.
+      - Calls IoT Core `/api/mq/mint` and returns `{ clientId, token, username? }`.
+    - `getMqttBrokerUrl()`
+      - Reads `MQTT_BROKER_URL` from the environment.
+
+- **Factory device mint endpoint**
+  - Route: `POST /api/device/mqtt/mint/factory` in fs04_web.
+  - Flow:
+    - Verifies the incoming **factory JWT** (kid-based key lookup, scope checks).
+    - Upserts/creates a `factoryDevice` record with hardware metadata and
+      tracking fields (IP, user-agent, timestamps).
+    - Calls `mintIoTCoreCredentials` with:
+      - `username = factory:<factoryDeviceId>`
+      - `pubTopics = [`
+        - `device/factory:<id>/replies`
+        - `device/factory:<id>/requests`
+        - `device/factory:<id>/loopback` *(diagnostic channel)*
+        - `]`
+      - `subTopics = [`
+        - `device/factory:<id>/response`
+        - `device/factory:<id>/notifications`
+        - `device/factory:<id>/loopback`
+        - `]`
+    - Responds with a JSON payload containing:
+      - `brokerUrl` (from `MQTT_BROKER_URL`)
+      - `clientId` (unique per minted credential)
+      - `username` (typically `factory:<id>`)
+      - `jwt` (the minted MQTT password/token)
+
+- **Server MQTT worker identity**
+  - The `mqtt-transport` worker uses the same helper:
+    - `username = server:fs04-worker`
+    - `pubTopics = ['#']`, `subTopics = ['#']` (global ACL managed by IoT Core).
+  - IoT Core mints a JWT and clientId (e.g. `server:fs04-worker_<suffix>`),
+    which the worker uses to connect to the broker.
+  - After connecting, the worker subscribes only to the shared device/user
+    topics from `getWorkerSubscriptions()` such as:
+    - `$share/server_10/device/+/requests|replies|events`
+    - `$share/server_10/user/+/requests|replies|events`
+  - This keeps **authorization** centralized in IoT Core while the worker
+    still behaves as a scoped consumer of device/user traffic.

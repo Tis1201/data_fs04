@@ -1,9 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import { env as privateEnv } from '$env/dynamic/private';
-import jwt, { type Algorithm } from 'jsonwebtoken';
-import { getAdminPrisma } from '$lib/server/prisma';
+import { getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
@@ -11,55 +9,11 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
   const user = auth.user;
   logger.info(`[UserMqttMintAPI] Received request for user: ${String(user.id)}`);
 
-  const adminPrisma = getAdminPrisma();
-
-  const signingKey = await adminPrisma.jwtSigningKey.findFirst({
-    where: {
-      keyType: 'LINK',
-      isPrimary: true,
-      isActive: true
-    }
-  });
-
-  if (!signingKey) {
-    logger.error('[UserMqttMintAPI] No active signing key found');
-    return json(
-      createErrorResponse('No active signing key found', {
-        details: 'Missing signing key'
-      }),
-      { status: 500 }
-    );
-  }
-
   try {
-    const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
-    
     const accountId = auth.currentAccount?.account.id ?? user.primaryAccountId ?? null;
 
     const mqttUsername = `user:${user.id}:${accountId}`;
-
-    const token = jwt.sign(
-      {
-        // userId: user.id,
-        accountId,
-        username: user.email,
-        // name: user.name ?? null,
-        scope: 'web:mqtt',
-        // mqttUsername
-      },
-      signingKey.privateKey,
-      {
-        algorithm,
-        expiresIn: '1h',
-        issuer: 'fs04',
-        audience: 'https://fs04.datarealities.com',
-        subject: mqttUsername,
-        keyid: signingKey.id
-      }
-    );
-
-    const brokerUrl = privateEnv.MQTT_BROKER_URL;
-
+    const brokerUrl = getMqttBrokerUrl();
     if (!brokerUrl) {
       logger.error('[UserMqttMintAPI] MQTT_BROKER_URL is not configured');
       return json(
@@ -70,10 +24,31 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
       );
     }
 
+    const mintData = await mintIoTCoreCredentials({
+      username: mqttUsername,
+      pubTopics: [`user/${mqttUsername}/requests`],
+      subTopics: [
+        `user/${mqttUsername}/response`,
+        `user/${mqttUsername}/notifications`
+      ]
+    });
+
+    if (!mintData) {
+      return json(
+        createErrorResponse('Failed to mint MQTT credentials from IoT Core', {
+          details: 'See server logs for IoT Core mint failure details'
+        }),
+        { status: 502 }
+      );
+    }
+
+    const { token, clientId } = mintData;
+
     return json(createSuccessResponse({
       jwt: token,
       brokerUrl,
-      // mqttUsername
+      clientId,
+      username: mqttUsername
     }));
   } catch (err) {
     logger.error(`[UserMqttMintAPI] Error: ${String(err)}`);

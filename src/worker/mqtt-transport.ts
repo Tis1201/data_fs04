@@ -10,6 +10,7 @@ import { registerMqttTransport } from '../lib/server/mqtt/core/transport';
 import { getWorkerSubscriptions } from '../lib/server/mqtt/core/subscriptions';
 import { registerDeviceHandlers } from '../lib/server/mqtt/handlers/device';
 import { registerWebHandlers } from '../lib/server/mqtt/handlers/web';
+import { mintIoTCoreCredentials } from '../lib/server/mqtt/mint';
 import { PrismaClient } from '@prisma/client';
 
 // Use raw Prisma client for the worker (no Zenstack enhancement)
@@ -43,6 +44,33 @@ const connectionOptions: IClientOptions = {
   password: process.env.MQTT_SERVER_PASSWORD,
   path: process.env.MQTT_WORKER_PATH ?? '/mqtt'
 };
+
+async function mintWorkerCredentials(): Promise<
+  { clientId: string; username: string; password: string } | null
+> {
+  const workerUsername = process.env.MQTT_WORKER_USERNAME ?? 'server:fs04-worker';
+
+  const data = await mintIoTCoreCredentials({
+    username: workerUsername,
+    pubTopics: ['#'],
+    subTopics: ['#']
+  });
+
+  if (!data) {
+    logger.info('[MQTT Transport] IoT Core minting not configured or failed; using static MQTT_SERVER_USERNAME/PASSWORD');
+    return null;
+  }
+
+  logger.info(
+    `[MQTT Transport] Minted worker MQTT credentials via IoT Core (clientId=${data.clientId})`
+  );
+
+  return {
+    clientId: data.clientId,
+    username: data.username ?? workerUsername,
+    password: data.token
+  };
+}
 
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
@@ -89,15 +117,25 @@ export function startMqttListener(): void {
 
   started = true;
 
-  const clientId = connectionOptions.clientId ?? defaultClientId;
+  (async () => {
+    const minted = await mintWorkerCredentials();
 
-  logger.info(
-    `[MQTT Transport] Connecting to ${brokerUrl} with clientId ${clientId} (username=${connectionOptions.username ?? 'n/a'})`
-  );
+    const finalOptions: IClientOptions = {
+      ...connectionOptions,
+      clientId: minted?.clientId ?? connectionOptions.clientId ?? defaultClientId,
+      username: minted?.username ?? connectionOptions.username,
+      password: minted?.password ?? connectionOptions.password
+    };
 
-  client = mqtt.connect(brokerUrl, connectionOptions);
+    const clientId = finalOptions.clientId ?? defaultClientId;
 
-  registerMqttTransport({
+    logger.info(
+      `[MQTT Transport] Connecting to ${brokerUrl} with clientId ${clientId} (username=${finalOptions.username ?? 'n/a'})`
+    );
+
+    client = mqtt.connect(brokerUrl, finalOptions);
+
+    registerMqttTransport({
     publish: async (topic, payload, options = {}) => {
       if (!client) {
         throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
@@ -115,7 +153,7 @@ export function startMqttListener(): void {
     }
   });
 
-  client.on('connect', (connack: IConnackPacket) => {
+    client.on('connect', (connack: IConnackPacket) => {
     const reason = connack.reasonCode ?? connack.returnCode;
     logger.info(
       `[MQTT Transport] Connected as ${clientId} (sessionPresent=${connack.sessionPresent}, reason=${reason ?? 'n/a'})`
@@ -149,7 +187,7 @@ export function startMqttListener(): void {
     });
   });
 
-  client.on('message', async (topic, payload) => {
+    client.on('message', async (topic, payload) => {
     logger.debug(`[MQTT Transport] Received message on ${topic}`);
 
     // try {
@@ -160,25 +198,25 @@ export function startMqttListener(): void {
     // }
   });
 
-  client.on('error', (err) => {
+    client.on('error', (err) => {
     logger.error(`[MQTT Transport] Client error: ${err.message}`, {
       stack: err?.stack
     });
     scheduleReconnect();
   });
 
-  client.on('disconnect', (packet: any) => {
+    client.on('disconnect', (packet: any) => {
     logger.warn(
       `[MQTT Transport] Broker sent disconnect (reasonCode=${packet?.reasonCode ?? 'n/a'}, reasonString=${packet?.properties?.reasonString ?? 'n/a'})`
     );
     scheduleReconnect();
   });
 
-  client.on('reconnect', () => {
+    client.on('reconnect', () => {
     logger.warn('[MQTT Transport] Client attempting immediate reconnect');
   });
 
-  client.on('close', () => {
+    client.on('close', () => {
     const status = client
       ? `connected=${client.connected}, disconnecting=${client.disconnecting}, reconnecting=${client.reconnecting}`
       : 'client=null';
@@ -186,12 +224,12 @@ export function startMqttListener(): void {
     scheduleReconnect();
   });
 
-  client.on('offline', () => {
+    client.on('offline', () => {
     logger.warn('[MQTT Transport] Client offline');
     scheduleReconnect();
   });
 
-  const shutdown = (signal: NodeJS.Signals) => {
+    const shutdown = (signal: NodeJS.Signals) => {
     logger.info(`[MQTT Transport] Caught ${signal}, shutting down service`);
     client?.end(false, {}, () => {
       started = false;
@@ -204,8 +242,15 @@ export function startMqttListener(): void {
     });
   };
 
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
+  })().catch((err) => {
+    logger.error(
+      `[MQTT Transport] Failed to start worker MQTT listener: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  });
 }
 
 export function startMqttTransport(): void {
