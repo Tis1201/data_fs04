@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import { getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
+import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
@@ -44,12 +44,14 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
 
     const { token, clientId } = mintData;
 
-    return json(createSuccessResponse({
-      jwt: token,
+    const payload = buildMqttMintPayload({
       brokerUrl,
       clientId,
+      token,
       username: mqttUsername
-    }));
+    });
+
+    return json(createSuccessResponse(payload));
   } catch (err) {
     logger.error(`[UserMqttMintAPI] Error: ${String(err)}`);
     return json(createErrorResponse('Internal server error'), { status: 500 });

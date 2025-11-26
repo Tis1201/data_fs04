@@ -13,8 +13,47 @@ export interface IoTCoreMintResult {
     accountId?: string;
 }
 
+export interface MqttMintPayload {
+    brokerUrl: string;
+    clientId: string;
+    username: string;
+    jwt: string;
+    mqttUsername?: string;
+}
+
 export function getMqttBrokerUrl(): string | null {
     return process.env.MQTT_BROKER_URL ?? null;
+}
+
+/**
+ * Build a standardized MQTT mint payload used by all mint endpoints.
+ *
+ * - Ensures consistent shape across factory/user/device responses.
+ * - Optionally includes legacy `mqttUsername` for backward compatibility
+ *   (used by the Python ClaimedDevice client and older tests).
+ */
+export function buildMqttMintPayload(args: {
+    brokerUrl: string;
+    clientId: string;
+    token: string;
+    username: string;
+    includeLegacyMqttUsername?: boolean;
+}): MqttMintPayload {
+    const base: MqttMintPayload = {
+        brokerUrl: args.brokerUrl,
+        clientId: args.clientId,
+        username: args.username,
+        jwt: args.token
+    };
+
+    if (args.includeLegacyMqttUsername) {
+        return {
+            ...base,
+            mqttUsername: args.username
+        };
+    }
+
+    return base;
 }
 
 /**

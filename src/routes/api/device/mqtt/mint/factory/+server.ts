@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { logger } from '$lib/server/logger';
-import { getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
+import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
 import { createErrorResponse, createSuccessResponse } from '$lib/server/types/api';
 import { getClientIp } from '$lib/utils/request-utils';
 
@@ -56,14 +56,14 @@ async function mintFactoryMqttCredentials(factoryDeviceId: string) {
         `[FactoryMqttMintAPI] Minted MQTT credential via IoT Core for factory device ${factoryDeviceId} (clientId=${clientId})`
     );
 
-    return json(
-        createSuccessResponse({
-            brokerUrl,
-            clientId,
-            username: mintedUsername ?? username,
-            jwt: token
-        })
-    );
+    const payload = buildMqttMintPayload({
+        brokerUrl,
+        clientId,
+        token,
+        username: mintedUsername ?? username
+    });
+
+    return json(createSuccessResponse(payload));
 }
 
 /********************************************************************************************

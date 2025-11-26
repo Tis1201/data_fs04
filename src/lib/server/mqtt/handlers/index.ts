@@ -174,38 +174,43 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     }
 
     // After raw RPC handling, process reply-style topics like device/<id>/replies
-    // which carry a simple { ticket, result } envelope.
-    // if (topic.startsWith('device/') && topic.endsWith('/replies')) {
+    // which carry a simple { ticket, result } envelope. This must be defensive:
+    // malformed messages should be logged and ignored so the worker never crashes.
     if (topic.endsWith('/replies')) {
         const rawReply = payload.toString('utf8');
-        const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
-        const { ticket, result } = reply;
 
-        if (!ticket) {
-            throw new Error('Missing ticket in reply');
-        }
+        try {
+            const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
+            const { ticket, result } = reply;
 
-        const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
-       
-        const type = ctx.type;
+            if (!ticket) {
+                logger.error('[MQTT Reply] Missing ticket in reply payload', { topic, rawReply });
+                return;
+            }
 
-        if(!ctx.sub){
-            throw new Error('Missing sub in notification ticket');
-        }
+            const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
 
-        if(!ctx.recipient){
-            throw new Error('Missing recipient in notification ticket');
-        }
+            if (!ctx.sub) {
+                logger.error('[MQTT Reply] Missing sub in notification ticket', { topic });
+                return;
+            }
 
-        if(!ctx.flowId){
-            throw new Error('Missing flowId in notification ticket');
-        }
+            if (!ctx.recipient) {
+                logger.error('[MQTT Reply] Missing recipient in notification ticket', { topic });
+                return;
+            }
 
-        if (!result || typeof result !== 'object' || Array.isArray(result)) {
-            throw new Error('Reply result must be an object');
-        }
+            if (!ctx.flowId) {
+                logger.error('[MQTT Reply] Missing flowId in notification ticket', { topic });
+                return;
+            }
 
-        await sendNotificationWithTicket({
+            if (!result || typeof result !== 'object' || Array.isArray(result)) {
+                logger.error('[MQTT Reply] Reply result must be an object', { topic, rawReply });
+                return;
+            }
+
+            await sendNotificationWithTicket({
                 prisma,
                 sub: ctx.recipient,
                 recipient: ctx.sub,
@@ -213,7 +218,15 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 flowId: ctx.flowId,
                 params: result as Record<string, unknown>,
                 expiresIn: '5m'
-        })
+            });
+        } catch (err) {
+            logger.error(
+                `[MQTT Reply] Failed to process reply message: ${
+                    err instanceof Error ? err.message : String(err)
+                }`,
+                { topic, rawReply }
+            );
+        }
 
         return;
     }

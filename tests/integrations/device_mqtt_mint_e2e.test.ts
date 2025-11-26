@@ -4,18 +4,20 @@ import mqtt, { type IClientOptions } from 'mqtt';
 import { getAdminPrisma } from '$lib/server/prisma';
 
 /**
- * End-to-end test for the factory MQTT mint flow.
+ * End-to-end test for the device MQTT mint flow.
  *
  * Flow:
- * 1. Use a factory JWT (SAMPLE_DEVICE_FACTORY_TOKEN) to call
- *    /api/device/mqtt/mint/factory on fs04_web.
- * 2. Assert that the endpoint returns brokerUrl, clientId, username and jwt.
+ * 1. Use an existing claimed device's apiKey (via Prisma) to call
+ *    /api/device/mqtt/mint on fs04_web.
+ * 2. Assert that the endpoint returns brokerUrl, clientId, username, jwt and
+ *    legacy mqttUsername starting with `device:`.
  * 3. Use the minted credentials to connect to the MQTT broker over WebSocket.
+ * 4. Verify we can subscribe to the device topics and publish to the pub topics.
  */
 
-describe('Factory MQTT mint E2E', () => {
+describe('Device MQTT mint E2E', () => {
   const WEB_BASE_URL = process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
-  const FACTORY_MINT_URL = `${WEB_BASE_URL}/api/device/mqtt/mint/factory`;
+  const DEVICE_MINT_URL = `${WEB_BASE_URL}/api/device/mqtt/mint`;
 
   const MQTT_DEFAULT_WS_PATH = '/mqtt';
 
@@ -23,32 +25,34 @@ describe('Factory MQTT mint E2E', () => {
   let token: string;
   let clientId: string;
   let username: string;
+  let deviceId: string;
 
   beforeAll(async () => {
     const prisma = getAdminPrisma();
 
-    const factoryToken = await prisma.factoryToken.findFirst({
+    const device = await prisma.device.findFirst({
       where: {
-        isUsed: false,
-        expiresAt: {
-          gt: new Date()
+        apiKey: {
+          not: null
         }
       },
       orderBy: {
-        issuedAt: 'desc'
+        createdAt: 'desc'
       }
     });
 
-    if (!factoryToken) {
-      throw new Error('No active FactoryToken found. Create one via the admin UI before running this test.');
+    if (!device?.apiKey) {
+      throw new Error(
+        'No device with apiKey found. Run the device claim E2E or create a claimed device before running this test.'
+      );
     }
 
-    const factoryJwt = factoryToken.token;
+    deviceId = device.id;
 
-    const res = await fetch(FACTORY_MINT_URL, {
+    const res = await fetch(DEVICE_MINT_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${factoryJwt}`,
+        'X-API-Key': device.apiKey,
         Accept: 'application/json'
       }
     });
@@ -64,25 +68,31 @@ describe('Factory MQTT mint E2E', () => {
     clientId = data.clientId as string;
     username = (data.username as string) ?? '';
 
+    const mqttUsername = data.mqttUsername as string | undefined;
+
     expect(typeof brokerUrl).toBe('string');
     expect(brokerUrl.length).toBeGreaterThan(0);
     expect(typeof token).toBe('string');
     expect(token.length).toBeGreaterThan(0);
     expect(typeof clientId).toBe('string');
     expect(clientId.length).toBeGreaterThan(0);
+
+    // Device identity should be device:<deviceId>
+    if (mqttUsername) {
+      expect(mqttUsername.startsWith('device:')).toBe(true);
+    }
   }, 20000);
 
-  it('logs minted factory MQTT credentials', () => {
-    // Log the minted credentials for manual inspection during integration testing
+  it('logs minted device MQTT credentials', () => {
     // eslint-disable-next-line no-console
-    console.log('Factory MQTT mint E2E credentials', {
+    console.log('Device MQTT mint E2E credentials', {
       brokerUrl,
       clientId,
       username,
-      jwt: token
+      jwt: token,
+      deviceId
     });
 
-    // Basic assertions to ensure values were populated by the mint endpoint
     expect(typeof brokerUrl).toBe('string');
     expect(brokerUrl.length).toBeGreaterThan(0);
     expect(typeof token).toBe('string');
@@ -111,7 +121,7 @@ describe('Factory MQTT mint E2E', () => {
     return url.toString();
   }
 
-  it('subscribes to factory sub topics', async () => {
+  it('subscribes to device sub topics', async () => {
     const { responseTopic, notificationsTopic, loopbackTopic } = buildTopics();
     const connectUrl = buildConnectUrl();
 
@@ -129,7 +139,7 @@ describe('Factory MQTT mint E2E', () => {
 
       const timeout = setTimeout(() => {
         client.end(true, () => {
-          reject(new Error('Timed out subscribing to factory MQTT topics'));
+          reject(new Error('Timed out subscribing to device MQTT topics'));
         });
       }, 15000);
 
@@ -153,7 +163,7 @@ describe('Factory MQTT mint E2E', () => {
     });
   }, 20000);
 
-  it('publishes to factory pub topics', async () => {
+  it('publishes to device pub topics', async () => {
     const { requestsTopic, loopbackTopic } = buildTopics();
     const connectUrl = buildConnectUrl();
 
@@ -185,7 +195,7 @@ describe('Factory MQTT mint E2E', () => {
       };
 
       const timeout = setTimeout(() => {
-        fail(new Error('Timed out publishing to factory MQTT topics'));
+        fail(new Error('Timed out publishing to device MQTT topics'));
       }, 15000);
 
       client.on('connect', () => {
@@ -228,16 +238,16 @@ describe('Factory MQTT mint E2E', () => {
     await new Promise<void>((resolve, reject) => {
       const client = mqtt.connect(connectUrl, options);
 
-      let done = false;
+      let doneFlag = false;
 
       const fail = (err: unknown) => {
-        if (done) return;
-        done = true;
+        if (doneFlag) return;
+        doneFlag = true;
         client.end(true, () => reject(err instanceof Error ? err : new Error(String(err))));
       };
 
       const timeout = setTimeout(() => {
-        fail(new Error('Timed out waiting for loopback message'));
+        fail(new Error('Timed out waiting for device loopback message'));
       }, 20000);
 
       client.on('connect', () => {
@@ -257,14 +267,14 @@ describe('Factory MQTT mint E2E', () => {
       });
 
       client.on('message', (topic, payload) => {
-        if (done) return;
+        if (doneFlag) return;
 
         if (topic === loopbackTopic) {
           try {
             const text = payload.toString();
             const parsed = JSON.parse(text) as { test?: string };
             if (parsed.test === 'loopback') {
-              done = true;
+              doneFlag = true;
               clearTimeout(timeout);
               client.end(true, () => resolve());
             }
