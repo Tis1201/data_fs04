@@ -1,11 +1,7 @@
 ## Device Connection (post-claim)
 
-This document describes how a **claimed device** should connect to FS04 over
+This document describes how a **claimed device** connects to FS04 over
 MQTT using its `deviceId` and API key.
-
-> Note: this is the target behavior. The claim flow is implemented
-> (see `DEVICE_CLAIM.md`); the device-connect mint endpoint will follow this
-> contract.
 
 ---
 
@@ -17,27 +13,31 @@ record with:
 - `id` – the `deviceId` used for subsequent connections
 - `apiKey` – the secret used to authenticate the device
 
-To connect over MQTT, the device (or a provisioning script) **exchanges**
-`{ deviceId, apiKey }` for a short-lived **link JWT** and broker URL, via a
-mint endpoint (to be implemented), for example:
+To connect over MQTT, the device (or a provisioning script) **exchanges** its
+`apiKey` for a short-lived **link JWT** and broker URL via the mint endpoint:
 
 - `POST /api/device/mqtt/mint`
 
-Request:
+Request (HTTP-level contract):
+
+- Headers:
+  - `X-API-Key: <apiKey>`
+  - `Content-Type: application/json`
+- Body:
+
+```jsonc
+{}
+```
+
+Response (standard MQTT mint payload):
 
 ```jsonc
 {
-  "deviceId": "<deviceId>",
-  "apiKey": "<apiKey>"
-}
-``
-
-Response:
-
-```jsonc
-{
-  "brokerUrl": "wss://mq.datarealities.com/mqtt",
-  "jwt": "<link-jwt>"
+  "brokerUrl": "wss://mq.datarealities.com/mqtt", // from MQTT_BROKER_URL
+  "clientId": "device:<deviceId>_<suffix>",        // minted by IoT Core
+  "username": "device:<deviceId>",               // effective MQTT username
+  "jwt": "<link-jwt>",                           // MQTT password/token
+  "mqttUsername": "device:<deviceId>"            // legacy alias (optional)
 }
 ```
 
@@ -63,9 +63,11 @@ For a claimed device with id `<deviceId>`, topics are:
 - RPC-style:
   - `device/device:<deviceId>/requests`
   - `device/device:<deviceId>/response`
+  - `device/device:<deviceId>/loopback` (diagnostic channel)
 
 - Notification-style:
   - `device/device:<deviceId>/notifications`
+  - `device/device:<deviceId>/replies`
 
 In practice, most flows follow the same pattern used by the factory link:
 
@@ -74,8 +76,11 @@ In practice, most flows follow the same pattern used by the factory link:
    `device/device:<deviceId>/response`.
 2. Worker sends notifications on `device/device:<deviceId>/notifications`
    (e.g. configuration updates, commands). When a reply is needed, the device
-   responds with an RPC on the `.../requests` topic, using signed tickets as
-   described in `DEVICE_MQTT.md`.
+   either:
+   - responds with an RPC on the `.../requests` topic, or
+   - for ticket-based flows like screenshots, replies on the
+     `device/device:<deviceId>/replies` topic,
+   using signed tickets as described in `DEVICE_MQTT.md`.
 
 The exact set of RPC operations and notifications for post-claim device
 management will be documented as they are implemented.

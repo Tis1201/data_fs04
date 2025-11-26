@@ -157,3 +157,90 @@ The fs04_web app does not sign MQTT JWTs directly.
     - `$share/server_10/user/+/requests|replies|events`
   - This keeps **authorization** centralized in IoT Core while the worker
     still behaves as a scoped consumer of device/user traffic.
+
+---
+
+## 6. MQTT E2E tests (Vitest)
+
+The MQTT architecture above is exercised end-to-end using **Vitest** integration
+tests under `tests/integrations`. These tests are intended to be run against a
+locally running `fs04_web` + MQTT worker + IoT Core stack.
+
+### 6.1. Minting and connectivity
+
+- `tests/integrations/factory_mqtt_mint_e2e.test.ts`
+  - Mints factory MQTT credentials via
+    `POST /api/device/mqtt/mint/factory` using a DB-backed `FactoryToken`.
+  - Connects as `factory:<factoryDeviceId>` and verifies subscriptions and
+    publishability on:
+    - `device/factory:<id>/requests|replies|loopback`
+    - `device/factory:<id>/response|notifications|loopback`.
+
+- `tests/integrations/user_mqtt_mint_e2e.test.ts`
+  - Logs in as a sample admin user and calls `POST /api/user/mqtt/mint`.
+  - Connects as `user:<userId>:<accountId>` and verifies:
+    - Subscriptions on `user/<sub>/response|notifications`.
+    - Publish on `user/<sub>/requests`.
+
+- `tests/integrations/device_mqtt_mint_e2e.test.ts`
+  - Uses Prisma to find a claimed `Device` with non-null `apiKey`.
+  - Calls `POST /api/device/mqtt/mint` with `X-API-Key`.
+  - Connects as `device:<deviceId>` and verifies the same ACL pattern as
+    factory devices but on the claimed-device subject.
+
+### 6.2. Device claim flow over MQTT
+
+- `tests/integrations/device_claim_e2e.test.ts`
+  - Runs a full **factory device → claimed device** flow over MQTT:
+    1. Factory client mints credentials and connects as
+       `factory:<factoryDeviceId>`.
+    2. User client mints credentials and connects as
+       `user:<userId>:<accountId>`.
+    3. Factory sends `get.pin` RPC on
+       `device/factory:<id>/requests` and receives the PIN on `/response`.
+    4. User sends `device.claim` RPC on `user/<sub>/requests`.
+    5. Worker sends a signed `claim` ticket on
+       `device/factory:<id>/notifications`.
+    6. Factory responds with `device.claim.confirm` RPC.
+    7. Worker provisions a `Device` record (with `apiKey`) and emits a
+       `reply:claim` notification on `user/<sub>/notifications`.
+  - The test asserts that the device created by the worker matches the IDs
+    observed by both factory and user clients.
+
+### 6.3. User-initiated screenshot flow
+
+- `tests/integrations/user_screenshot_e2e.test.ts`
+  - Simulates the **user → device → user** screenshot loop entirely over MQTT:
+    1. User mints MQTT credentials (`/api/user/mqtt/mint`) and connects as
+       `user:<userId>:<accountId>`.
+    2. Prisma finds a claimed `Device` (with `apiKey`) in one of the user's
+       accounts; device mints MQTT credentials (`/api/device/mqtt/mint`) and
+       connects as `device:<deviceId>`.
+    3. User sends `device.screenshot` RPC on `user/<sub>/requests`.
+    4. Worker publishes a `device.screenshot` notification ticket to
+       `device/device:<deviceId>/notifications`.
+    5. The simulated device client replies on
+       `device/device:<deviceId>/replies` with `{ ticket, result: { data, ... }}`.
+    6. Worker processes the reply and emits a reply-style notification ticket to
+       `user/<sub>/notifications`, with `params` set to the screenshot payload.
+  - The test waits for the notification with the matching `flowId` and asserts
+    that `params.data` is a non-empty string (a base64 screenshot placeholder).
+
+### 6.4. Running the tests
+
+Prerequisites:
+
+- MQTT worker process running and connected to the broker via IoT Core.
+- `IOT_CORE_BASE_URL`, `IOT_CORE_API_KEY`, and `MQTT_BROKER_URL` configured.
+- Sample admin user credentials (`SAMPLE_ADMIN_USERNAME`, `SAMPLE_ADMIN_PASSWORD`).
+- At least one active `FactoryToken` and/or a claimed `Device` with `apiKey`
+  (the claim E2E can be used to provision one).
+
+Example commands from the `fs04_web` root:
+
+```bash
+npx vitest tests/integrations/factory_mqtt_mint_e2e.test.ts
+npx vitest tests/integrations/user_mqtt_mint_e2e.test.ts
+npx vitest tests/integrations/device_mqtt_mint_e2e.test.ts
+npx vitest tests/integrations/device_claim_e2e.test.ts
+npx vitest tests/integrations/user_screenshot_e2e.test.ts
