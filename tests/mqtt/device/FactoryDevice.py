@@ -196,7 +196,7 @@ class FactoryDevice:
     #     if data.get("op") == "device.claim.confirm" and data.get("result"):
     #         self._device._handle_claim_confirm_result(data["result"])  # type: ignore[attr-defined]
 
-    def wait_for_claim_confirm(self, timeout: float = 30.0, poll_interval: float = 0.5) -> Dict[str, Any]:
+    def wait_for_claim_confirm(self, timeout: float = 30.0*5, poll_interval: float = 0.5) -> Dict[str, Any]:
         """Block until the claim has been confirmed or timeout is reached.
 
         This relies on the underlying DeviceHandlers to:

@@ -48,7 +48,7 @@ class ClaimedDevice:
         return self._device.client
 
     def mint(self, api_key: str) -> Dict[str, Any]:
-        mint_url = os.getenv("MQTT_MINT_URL", "http://localhost:5173/api/device/mqtt/mint")
+        mint_url = os.getenv("MQTT_MINT_URL")
         if not mint_url:
             raise RuntimeError("MQTT_MINT_URL is not configured")
 
@@ -107,7 +107,9 @@ class ClaimedDevice:
         client.username_pw_set(username=self._device.sub, password=self._device.jwt)
         client.user_data_set({"username": "device"})
         client.ws_set_options(path=ws_path)
-        client.tls_set()  # Enable TLS for wss on port 443
+
+        if parsed.scheme == "wss":
+            client.tls_set()  # Enable TLS for wss on port 443
 
         client.on_connect = self._device.on_connect
         client.on_message = self._device.on_message

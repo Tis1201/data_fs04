@@ -37,16 +37,32 @@ class Device:
 		self.on_rpc_response = None
 		self.on_notification = None
 		self.handlers = DeviceHandlers(self)
+		# Internal heartbeat state for periodic app-level heartbeats
+		self._heartbeat_interval = 30.0
+		self._heartbeat_stop_event = threading.Event()
+		self._heartbeat_thread: Optional[threading.Thread] | None = None
 		# if self.claim_state:
 		# 	logger.info(f"Loaded existing claimed state from {self.claim_file}: {self.claim_state}")
 
 	def on_connect(self, client, userdata, flags, reason_code, properties=None):  # type: ignore[override]
 		logger.debug("Connected to broker")
+		# Ensure internal client reference is set
+		self.client = client
 		response_topic = f'device/{self.sub}/response'
 		notifications_topic = f'device/{self.sub}/notifications'
 		client.subscribe(response_topic)
 		client.subscribe(notifications_topic)
 		logger.debug(f"Subscribed to topics: {response_topic}, {notifications_topic}")
+		# Send an immediate heartbeat so the backend can see the device as online promptly
+		client.publish(f'device/{self.sub}/heartbeat', self.sub, qos=0)  # type: ignore[arg-type]
+		# Start heartbeat loop if not already running
+		if self._heartbeat_thread is None or not self._heartbeat_thread.is_alive():
+			self._heartbeat_stop_event.clear()
+			self._heartbeat_thread = threading.Thread(
+				target=self._heartbeat_loop,
+				daemon=True,
+			)
+			self._heartbeat_thread.start()
 
 	def on_message(self, client, userdata, message):  # type: ignore[override]
 		topic = message.topic.decode() if isinstance(message.topic, bytes) else message.topic
@@ -113,6 +129,15 @@ class Device:
 
 	def on_disconnect(self, client, userdata, reason_code, properties=None):  # type: ignore[override]
 		logger.debug("Disconnected from broker")
+		self._heartbeat_stop_event.set()
+
+	def _heartbeat_loop(self) -> None:
+		topic = f'device/{self.sub}/heartbeat'
+		while not self._heartbeat_stop_event.wait(self._heartbeat_interval):
+			if not self.client:
+				continue
+			# Only publish the username as heartbeat payload
+			self.client.publish(topic, self.sub, qos=0)  # type: ignore[arg-type]
 
 	def request(self, op: str, params: Dict[str, Any], timeout: float = 10.0) -> Dict[str, Any]:
 		if not self.client:
