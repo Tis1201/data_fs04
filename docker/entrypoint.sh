@@ -29,7 +29,7 @@ if [ -n "${DATABASE_URL:-}" ]; then
   echo "[entrypoint] Running Prisma migrations..."
   if ! npx prisma migrate deploy; then
     echo "[entrypoint] Prisma migrate failed. Falling back to prisma db push to sync schema."
-    if ! npx prisma db push; then
+    if ! npx prisma db push --accept-data-loss; then
       echo "[entrypoint] Prisma db push also failed due to foreign key constraints."
       echo "[entrypoint] Database has existing data that violates constraints."
       echo "[entrypoint] Options:"
