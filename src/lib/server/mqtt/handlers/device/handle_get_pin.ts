@@ -1,6 +1,9 @@
 import { customAlphabet } from 'nanoid';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
+import { ClaimStatus } from '@prisma/client';
+import { generateId } from 'lucia';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
 
 const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
 
@@ -91,6 +94,149 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient }
                     logger.info(
                         `[DeviceGetPin] Preclaim branch candidate found for factoryDevice ${factoryDeviceId}: preclaimDeviceId=${preclaim.id}, setId=${preclaim.setId}, accountId=${preclaim.accountId}`
                     );
+
+                    try {
+                        // Resolve claiming user from preclaim (claimedBy overrides set.createdBy)
+                        const resolvedUserId = preclaim.claimedBy ?? preclaim.set.createdBy;
+                        if (!resolvedUserId) {
+                            logger.error(
+                                `[DeviceGetPin] Cannot auto-claim preclaimed device ${preclaim.id}: no resolved userId (claimedBy/set.createdBy missing)`
+                            );
+                        } else {
+                            let createdDeviceId: string | null = null;
+                            let createdAccountId: string | null = null;
+
+                            await prisma.$transaction(async (tx) => {
+                                // Re-read preclaim row defensively inside the transaction
+                                const current = await tx.preclaimDevice.findUnique({
+                                    where: { id: preclaim.id },
+                                    include: { set: true }
+                                });
+
+                                if (!current) {
+                                    logger.warn(
+                                        `[DeviceGetPin] Preclaim ${preclaim.id} disappeared before auto-claim; skipping`
+                                    );
+                                    return;
+                                }
+
+                                if (current.status !== 'PENDING' || current.claimedAt) {
+                                    logger.warn(
+                                        `[DeviceGetPin] Preclaim ${preclaim.id} no longer pending (status=${current.status}); skipping auto-claim`
+                                    );
+                                    return;
+                                }
+
+                                const accountId = current.accountId;
+                                const userId = resolvedUserId;
+
+                                // Ensure account and user exist
+                                const [account, user] = await Promise.all([
+                                    tx.account.findUnique({ where: { id: accountId }, select: { id: true } }),
+                                    tx.user.findUnique({ where: { id: userId }, select: { id: true } })
+                                ]);
+
+                                if (!account || !user) {
+                                    logger.error(
+                                        `[DeviceGetPin] Cannot auto-claim preclaim ${preclaim.id}: missing account or user (accountId=${accountId}, userId=${userId})`
+                                    );
+                                    return;
+                                }
+
+                                const autoClaimNow = new Date();
+                                const apiKey = generateId(128);
+
+                                const deviceName =
+                                    current.name ??
+                                    (hardwareFingerprint
+                                        ? `Device-${hardwareFingerprint}`
+                                        : `Device-${factoryDeviceId.slice(0, 8)}`);
+
+                                const createdDevice = await tx.device.create({
+                                    data: {
+                                        name: deviceName,
+                                        createdBy: user.id,
+                                        accountId: account.id,
+                                        deviceType: null,
+                                        model: null,
+                                        manufacturer: null,
+                                        osVersion: null,
+                                        firmwareVersion: null,
+                                        hardwareId: hardwareFingerprint,
+                                        status: 'ACTIVE',
+                                        claimedAt: autoClaimNow,
+                                        claimedBy: user.id,
+                                        apiKey,
+                                        apiKeyCreatedAt: autoClaimNow,
+                                        apiKeyRotatedAt: autoClaimNow
+                                    }
+                                });
+
+                                createdDeviceId = createdDevice.id;
+                                createdAccountId = account.id;
+
+                                await tx.factoryDevice.update({
+                                    where: { id: factoryDeviceId },
+                                    data: {
+                                        claimedAt: autoClaimNow,
+                                        claimedDeviceId: createdDevice.id,
+                                        accountId: account.id
+                                    }
+                                });
+
+                                await tx.preclaimDevice.update({
+                                    where: { id: current.id },
+                                    data: {
+                                        status: ClaimStatus.FULFILLED,
+                                        claimedAt: autoClaimNow,
+                                        claimedBy: user.id,
+                                        deviceId: createdDevice.id
+                                    }
+                                });
+
+                                logger.info(
+                                    `[DeviceGetPin] Auto-claimed preclaimed device ${createdDevice.id} for account ${account.id} from preclaim ${current.id}`
+                                );
+                            });
+
+                            // After successful auto-claim, send a claimed notification to the user side
+                            // (without exposing the device apiKey).
+                            if (createdDeviceId && createdAccountId) {
+                                const flowId = createdDeviceId;
+                                try {
+                                    await sendNotificationWithTicket({
+                                        prisma,
+                                        sub: `device:${createdDeviceId}`,
+                                        recipient: `user:${resolvedUserId}:${createdAccountId}`,
+                                        type: DeviceNotificationType.Claim,
+                                        flowId,
+                                        params: {
+                                            deviceId: createdDeviceId,
+                                            factoryDeviceId,
+                                            accountId: createdAccountId
+                                        },
+                                        expiresIn: '5m'
+                                    });
+
+                                    logger.info(
+                                        `[DeviceGetPin] Sent preclaim claimed notification for device ${createdDeviceId} to user ${resolvedUserId} account ${createdAccountId}`
+                                    );
+                                } catch (notifyErr) {
+                                    logger.error(
+                                        `[DeviceGetPin] Failed to send preclaim claimed notification for device ${createdDeviceId}: ${
+                                            notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+                                        }`
+                                    );
+                                }
+                            }
+                        }
+                    } catch (autoClaimErr) {
+                        logger.error(
+                            `[DeviceGetPin] Auto-claim failed for preclaim ${preclaim.id}: ${
+                                autoClaimErr instanceof Error ? autoClaimErr.message : String(autoClaimErr)
+                            }`
+                        );
+                    }
                 } else {
                     logger.debug(
                         `[DeviceGetPin] No valid preclaim found for hardwareFingerprint ${hardwareFingerprint} (factoryDeviceId=${factoryDeviceId})`

@@ -24,6 +24,37 @@ To keep this document KISS and aligned with the code, here is how the
 device-claim flow is currently implemented. Treat this section as the
 single source of truth for the live behavior.
 
+### End-to-end claim sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as Device (factory)
+    participant B as MQTT broker
+    participant W as Worker
+    participant U as Web MQTT client
+
+    Note over D: First run (no claimed.json)
+
+    D->>B: CONNECT (JWT sub=factory:{factoryDeviceId})
+    B->>W: Auth / ACL checks
+
+    D->>W: RPC get.pin\n(topic: device/factory:{factoryDeviceId}/requests)
+    W-->>D: PIN via .../responses
+    Note over D: Display PIN to user
+
+    U->>W: RPC user.claim.device(PIN)\n(topic: user/{sub}/requests)
+    W-->>D: notification {ticket}\n(topic: device/factory:{factoryDeviceId}/notifications)
+    W-->>U: RPC result {deviceId, requestId}
+
+    D->>W: RPC device.claim.confirm(ticket, deviceInfo)\n(topic: device/factory:{factoryDeviceId}/requests)
+    W-->>D: {status: "ok", deviceId, apiKey, accountId}
+
+    W-->>U: claim.confirmed\n(topic: user/{sub}/notifications\npayload: {requestId, deviceId, factoryDeviceId, accountId})
+
+    Note over D: Save claimed.json {deviceId, apiKey, accountId, factoryDeviceId}\nOn next run: skip get.pin and connect as claimed device
+```
+
 - **Device test client** – `tests/mqtt/device/device.py`
   - Uses `mint_factory_credentials()` to get a broker URL + factory JWT; the
     JWT `sub` has the form `factory:{factoryDeviceId}`.

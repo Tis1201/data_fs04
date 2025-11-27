@@ -84,7 +84,7 @@ accounts via `PreclaimSet`. No `Device` rows or per-device API keys exist yet.
 
 When a device boots in the field for the first time, it only knows the factory
 credentials. It uses the **existing factory MQTT flow**; pre-claim simply
-changes how the worker handles `get.pin`.
+changes how the worker handles `get.pin` and how the claim is kicked off.
 
 1. **Mint factory MQTT credentials & connect**
    - Device calls the factory mint endpoint using its embedded factory key.
@@ -108,27 +108,71 @@ changes how the worker handles `get.pin`.
        { "pin": "XXXXXX" }
        ```
 
-     - User later performs the PIN-based claim flow as documented today.
+     - User later performs the PIN-based claim flow as documented in
+       `DEVICE_CLAIM.md` (user publishes `user.claim.device`, device receives
+       a claim notification, then calls `device.claim.confirm`).
 
-   - **Valid pre-claim found** → **auto-claim side effect**:
+   - **Valid pre-claim found** → **auto-start claim flow (device-confirmed)**:
      1. Worker still returns the same `{ pin: "XXXXXX" }` payload to the
         factory so the client behavior is unchanged.
-     2. In parallel, worker:
-        - creates (or reuses) a `Device` row with:
-          - `id = <deviceId>` (generated or from `PreclaimDevice`),
-          - `accountId` from `PreclaimSet`,
-          - random `apiKey`.
-        - marks the `PreclaimDevice` as consumed (and respects set expiry).
-        - emits the **normal claimed notification** to the user side on
-          `user/<sub>/notifications`, with the same ticket shape as the
-          dynamic claim flow (e.g. params containing `deviceId`,
-          `factoryDeviceId`, `accountId`).
+     2. In parallel, worker uses the preclaim context to resolve the
+        **intended owner** (`userId` + `accountId`) and immediately sends a
+        `claim` notification ticket to the *factory device*:
 
-From the device's perspective, `get.pin` behaves exactly the same; from the
-user's perspective, a pre-claimed device appears as "claimed" automatically as
-soon as `get.pin` runs on a matching hardware ID.
+        - `sub = user:{userId}:{accountId}` (from `PreclaimSet` / `claimedBy`).
+        - `recipient = factory:{factoryDeviceId}`.
+        - `type = 'claim'`.
+        - `params` include `factoryDeviceId`, `preclaimDeviceId`, `accountId`.
+        - Published on `device/factory:{factoryDeviceId}/notifications` using
+          the same ticket format as the normal claim flow.
 
----
+     3. The device receives `{ ticket }` on
+        `device/factory:{factoryDeviceId}/notifications` and, just like in the
+        normal flow, calls `device.claim.confirm` with the ticket (and optional
+        `deviceInfo`) on `device/factory:{factoryDeviceId}/requests`.
+
+     4. `handle_claim_confirm` verifies the ticket and, for the preclaim case,
+        creates the `Device` and fulfills the preclaim:
+
+        - Creates a `Device` row with `id`, `accountId`, and `apiKey` using the
+          account/user from the ticket and any hints from `PreclaimDevice`.
+        - Updates `PreclaimDevice` to `FULFILLED` and links it to the
+          created `Device`.
+        - Updates `FactoryDevice` (`claimedDeviceId`, `accountId`, `claimedAt`).
+        - Responds to the device with
+
+          ```jsonc
+          { "status": "ok", "deviceId": "...", "apiKey": "...", "accountId": "..." }
+          ```
+
+     5. The device stores the returned credentials (e.g. `claimed.json`) and on
+        the next run connects as a normal claimed device using `/api/device/mqtt/mint`.
+
+### End-to-end preclaim sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant D as Device (factory, preclaimed)
+    participant B as MQTT broker
+    participant W as Worker
+
+    Note over D: First run (no claimed.json, but preclaim exists)
+
+    D->>B: CONNECT (JWT sub=factory:{factoryDeviceId})
+    B->>W: Auth / ACL checks
+
+    D->>W: RPC get.pin\n(topic: device/factory:{factoryDeviceId}/requests)
+    W-->>D: { pin: "XXXXXX" }
+
+    Note over W: Preclaim branch
+    W-->>D: notification { ticket }\n(type: claim,\n topic: device/factory:{factoryDeviceId}/notifications)
+
+    D->>W: RPC device.claim.confirm(ticket, deviceInfo)\n(topic: device/factory:{factoryDeviceId}/requests)
+    W-->>D: { status: "ok", deviceId, apiKey, accountId }
+
+    Note over D: Save claimed.json { deviceId, apiKey, accountId, factoryDeviceId }\nOn next run: skip get.pin and connect as claimed device
+```
 
 ## 5. Interaction with dynamic claim & claimed devices
 
@@ -138,21 +182,22 @@ model once completed**:
 - Both end up with a `Device` row with `id`, `accountId`, and `apiKey`.
 - Both use `/api/device/mqtt/mint` and the `device:<deviceId>` MQTT subject
   for post-claim connections (see `DEVICE_CONNECT.md`).
-- Both emit a "claimed" notification to the user with the same ticket shape.
 
-The only difference is **how** the worker arrives at that state during
-`get.pin`:
+The only difference is **who starts the claim flow** and when `device.claim.confirm`
+is called:
 
 - Dynamic claim:
   - `get.pin` generates a PIN and returns `{ pin }`.
-  - User explicitly calls `device.claim` over MQTT using that PIN.
-  - Factory confirms via `device.claim.confirm`.
+  - User explicitly calls `user.claim.device` over MQTT using that PIN.
+  - Device receives a `claim` notification and calls `device.claim.confirm`.
 
 - Pre-claim:
   - `get.pin` still returns `{ pin }` to the factory.
-  - If a valid, non-expired pre-claim exists for the hardware ID, the worker
-    **also** auto-creates the `Device` and immediately sends the normal
-    claimed notification to the user, without requiring `device.claim`.
+  - When a valid, non-expired preclaim exists for the hardware ID, the worker
+    immediately sends a `claim` notification to the factory device with a
+    ticket bound to the intended user/account.
+  - The device then calls `device.claim.confirm` with that ticket; the worker
+    creates the `Device` and fulfills the preclaim.
 
 Once claimed (either way), ongoing MQTT behavior (topics, screenshots,
 resets, etc.) is identical, keeping the protocol surface **simple and

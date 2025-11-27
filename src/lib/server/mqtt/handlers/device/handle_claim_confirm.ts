@@ -148,10 +148,11 @@ export async function handleClaimConfirm(
     // });
     // });
 
-    //Flip the sub and reciepent for REPLY
+    // Flip the sub and recipient for REPLY and log notification send outcome
     if (!ctx.sub) {
         throw new Error('Missing subject in claim ticket');
     }
+
     sendNotificationWithTicket({
         prisma,
         sub: ctx.recipient,
@@ -161,10 +162,22 @@ export async function handleClaimConfirm(
         params: {
             deviceId: createdDevice.id,
             factoryDeviceId: factoryDevice.id,
-            accountId: account?.id ?? null,
+            accountId: account?.id ?? null
         },
         expiresIn: '5m'
     })
+        .then(() => {
+            logger.info(
+                `[DeviceClaimConfirm] Sent claim reply notification for device ${createdDevice.id} to ${ctx.sub}`
+            );
+        })
+        .catch((notifyErr) => {
+            logger.error(
+                `[DeviceClaimConfirm] Failed to send claim reply notification for device ${createdDevice.id}: ${
+                    notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+                }`
+            );
+        });
 
     // Return device credentials and account context to the device; a separate flow can notify the user.
     return {
