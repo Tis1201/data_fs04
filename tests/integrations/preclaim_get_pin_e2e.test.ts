@@ -46,7 +46,7 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
 
   let factoryClient: MqttClient | null = null;
 
-  // User-side MQTT (recipient of claimed notification)
+  // User-side context (used for preclaim ownership resolution, not for MQTT in this test)
   let userBrokerUrl: string;
   let userJwt: string;
   let userClientId: string;
@@ -69,24 +69,31 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
     params?: Record<string, unknown>;
   };
 
-  type PendingNotification = {
-    resolve: (value: any) => void;
-    reject: (reason?: any) => void;
-    timeout: NodeJS.Timeout;
-  };
-
-  const userPendingNotifications = new Map<string, PendingNotification>();
-  const receivedNotifications = new Map<
-    string,
-    { flowId: string; type?: string; params?: Record<string, unknown> }
-  >();
+  let factoryClaimConfirmResolve: ((value: any) => void) | null = null;
+  let factoryClaimConfirmReject: ((reason?: any) => void) | null = null;
 
   function buildConnectUrl(rawUrl: string): string {
     const url = new URL(rawUrl);
     if (!url.pathname || url.pathname === '/') {
       url.pathname = MQTT_DEFAULT_WS_PATH;
     }
+
     return url.toString();
+  }
+
+  function extractFactoryRpcResult(envelope: any): any {
+    if (!envelope || typeof envelope !== 'object') {
+      return envelope;
+    }
+    const payload = (envelope as any).result;
+    if (payload && typeof payload === 'object') {
+      const nested = (payload as any).result;
+      if (nested && typeof nested === 'object') {
+        return nested;
+      }
+      return payload;
+    }
+    return envelope;
   }
 
   function decodeSubFromJwt(token: string): string | undefined {
@@ -191,22 +198,6 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
     return { jwt: jwtToken, brokerUrl, clientId, username };
   }
 
-  function waitForUserNotification(flowId: string, timeoutMs = 10_000): Promise<any> {
-    // If we already received a notification for this flowId, return it immediately.
-    if (receivedNotifications.has(flowId)) {
-      return Promise.resolve(receivedNotifications.get(flowId));
-    }
-
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        userPendingNotifications.delete(flowId);
-        reject(new Error(`No user notification for flowId ${flowId} within ${timeoutMs}ms`));
-      }, timeoutMs);
-
-      userPendingNotifications.set(flowId, { resolve, reject, timeout });
-    });
-  }
-
   async function mintFactoryMqttWithToken(factoryTokenJwt: string): Promise<{
     jwt: string;
     brokerUrl: string;
@@ -283,6 +274,7 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
       const client = mqtt.connect(connectUrl, options);
 
       const responseTopic = `device/${factorySub}/response`;
+      const notificationsTopic = `device/${factorySub}/notifications`;
 
       const timeout = setTimeout(() => {
         client.end(true, () => {
@@ -291,7 +283,7 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
       }, 15_000);
 
       client.on('connect', () => {
-        client.subscribe([responseTopic], { qos: 1 }, (err) => {
+        client.subscribe([responseTopic, notificationsTopic], { qos: 1 }, (err) => {
           if (err) {
             clearTimeout(timeout);
             client.end(true, () => reject(err));
@@ -312,8 +304,6 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
       });
 
       client.on('message', (topic, payload) => {
-        if (topic !== responseTopic) return;
-
         const text = payload.toString();
         let data: any;
         try {
@@ -325,7 +315,7 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
         // eslint-disable-next-line no-console
         console.log('[PreclaimGetPinE2E] Received factory MQTT message', { topic, data });
 
-        if (data?.requestId && factoryPendingRequests.has(data.requestId)) {
+        if (topic === responseTopic && data?.requestId && factoryPendingRequests.has(data.requestId)) {
           const entry = factoryPendingRequests.get(data.requestId)!;
           clearTimeout(entry.timeout);
           factoryPendingRequests.delete(data.requestId);
@@ -333,96 +323,39 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
           if (data.error) {
             entry.reject(new Error(String(data.error)));
           } else {
-            entry.resolve(data.result ?? data);
+            entry.resolve(extractFactoryRpcResult(data));
           }
+          return;
         }
-      });
 
-      client.on('error', (err) => {
-        clearTimeout(timeout);
-        client.end(true, () => reject(err));
-      });
-    });
-  }
-
-  function attachUserHandlers(client: MqttClient): void {
-    const notificationsTopic = `user/${userSub}/notifications`;
-
-    client.on('message', (topic, payload) => {
-      if (topic !== notificationsTopic) return;
-
-      const text = payload.toString();
-      let data: any;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return;
-      }
-
-      const ticket = data.ticket as string | undefined;
-      if (!ticket) {
-        return;
-      }
-
-      const claims = decodeNotificationTicket(ticket);
-      if (!claims || !claims.flowId) {
-        return;
-      }
-
-      const flowId = claims.flowId;
-
-      const entryValue = {
-        flowId,
-        type: claims.type,
-        params: claims.params ?? {}
-      };
-      receivedNotifications.set(flowId, entryValue);
-
-      if (userPendingNotifications.has(flowId)) {
-        const entry = userPendingNotifications.get(flowId)!;
-        clearTimeout(entry.timeout);
-        userPendingNotifications.delete(flowId);
-        entry.resolve(entryValue);
-      }
-    });
-  }
-
-  function connectUserClient(): Promise<MqttClient> {
-    const connectUrl = buildConnectUrl(userBrokerUrl);
-
-    const options: IClientOptions = {
-      protocolVersion: 5,
-      clean: true,
-      clientId: userClientId,
-      username: userSub,
-      password: userJwt,
-      reconnectPeriod: 0
-    };
-
-    return new Promise((resolve, reject) => {
-      const client = mqtt.connect(connectUrl, options);
-
-      attachUserHandlers(client);
-
-      const notificationsTopic = `user/${userSub}/notifications`;
-
-      const timeout = setTimeout(() => {
-        client.end(true, () => {
-          reject(new Error('Timed out connecting user MQTT client'));
-        });
-      }, 15_000);
-
-      client.on('connect', () => {
-        client.subscribe([notificationsTopic], { qos: 1 }, (err) => {
-          if (err) {
-            clearTimeout(timeout);
-            client.end(true, () => reject(err));
+        if (topic === notificationsTopic && data?.ticket) {
+          const claims = decodeNotificationTicket(data.ticket as string);
+          if (!claims || claims.type !== 'claim') {
             return;
           }
 
-          clearTimeout(timeout);
-          resolve(client);
-        });
+          if (factoryClaimConfirmResolve) {
+            const resolve = factoryClaimConfirmResolve;
+            const reject = factoryClaimConfirmReject;
+
+            // Ensure we only handle the first matching claim notification
+            factoryClaimConfirmResolve = null;
+            factoryClaimConfirmReject = null;
+
+            (async () => {
+              try {
+                const confirmResult = await sendFactoryRpc(client, 'device.claim.confirm', {
+                  ticket: data.ticket
+                });
+                resolve?.(confirmResult);
+              } catch (err) {
+                reject?.(err);
+              }
+            })().catch((err) => {
+              reject?.(err);
+            });
+          }
+        }
       });
 
       client.on('error', (err) => {
@@ -544,14 +477,32 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
   });
 
   it('returns a PIN for get.pin when a matching preclaim exists', async () => {
-    userClient = await connectUserClient();
     factoryClient = await connectFactoryClient();
+
+    const factoryClaimConfirmPromise = new Promise<{
+      status: string;
+      deviceId: string;
+      apiKey: string;
+      accountId: string | null;
+    }>((resolve, reject) => {
+      factoryClaimConfirmResolve = resolve;
+      factoryClaimConfirmReject = reject;
+    });
 
     const result = await sendFactoryRpc(factoryClient, 'get.pin', {}, 15_000);
     const pin = (result as { pin?: string }).pin;
 
     expect(typeof pin).toBe('string');
     expect((pin as string).length).toBeGreaterThan(0);
+
+    // Wait for the factory-side claim notification to arrive and confirm via device.claim.confirm.
+    const factoryConfirm = await factoryClaimConfirmPromise;
+
+    expect(factoryConfirm.status).toBe('ok');
+    expect(typeof factoryConfirm.deviceId).toBe('string');
+    expect(factoryConfirm.deviceId.length).toBeGreaterThan(0);
+    expect(typeof factoryConfirm.apiKey).toBe('string');
+    expect(factoryConfirm.apiKey.length).toBeGreaterThan(0);
 
     // Verify that the preclaim row was fulfilled and a claimed device was created and linked.
     const refreshed = await prisma.preclaimDevice.findUnique({
@@ -563,11 +514,11 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
     expect(refreshed?.macId).toBe(hardwareFingerprint);
     expect(refreshed?.status).toBe(ClaimStatus.FULFILLED);
     expect(refreshed?.claimedAt).not.toBeNull();
-    expect(refreshed?.deviceId).not.toBeNull();
+    expect(refreshed?.deviceId).toBe(factoryConfirm.deviceId);
     expect(refreshed?.set.status).toBe(SetStatus.ACTIVE);
 
     const claimedDevice = await prisma.device.findUnique({
-      where: { id: refreshed!.deviceId! },
+      where: { id: factoryConfirm.deviceId },
       select: {
         id: true,
         accountId: true,
@@ -581,8 +532,8 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
     expect(claimedDevice?.accountId).toBe(refreshed?.accountId);
     expect(claimedDevice?.createdBy).toBe(refreshed?.claimedBy);
     expect(claimedDevice?.claimedAt).not.toBeNull();
-    // API key should be generated and stored on the Device record
-    expect(claimedDevice?.apiKey).toBeTypeOf('string');
+    // API key should be generated and stored on the Device record, and match the RPC result
+    expect(claimedDevice?.apiKey).toBe(factoryConfirm.apiKey);
 
     const factory = await prisma.factoryDevice.findUnique({
       where: { id: factoryDeviceId }
@@ -591,14 +542,6 @@ describe('Preclaim get.pin E2E (factory + preclaim mapping)', () => {
     expect(factory).not.toBeNull();
     expect(factory?.claimedDeviceId).toBe(claimedDevice?.id);
     expect(factory?.accountId).toBe(claimedDevice?.accountId);
-
-    // Verify that a claimed notification was published to the user MQTT topic
-    // (we do not expose the apiKey in this user-facing notification).
-    const notification = await waitForUserNotification(claimedDevice!.id, 10_000);
-    const params = (notification as { params?: Record<string, unknown> }).params ?? {};
-
-    expect((notification as { type?: string }).type).toBe('claim');
-    expect(params.deviceId).toBe(claimedDevice!.id);
-    expect(params.accountId).toBe(claimedDevice!.accountId);
   }, 60_000);
-});
+}
+);

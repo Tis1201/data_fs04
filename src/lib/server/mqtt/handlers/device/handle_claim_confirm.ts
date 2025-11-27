@@ -1,3 +1,4 @@
+import { ClaimStatus } from '@prisma/client';
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
 import type { RpcHandlerArgs, RpcResponse } from '../index';
@@ -90,6 +91,7 @@ export async function handleClaimConfirm(
     }
 
     const now = new Date();
+    const preclaimDeviceId = ctx.params?.preclaimDeviceId as string | undefined;
     const apiKey = generateId(128);
     const nameFromHost =
         deviceInfo && typeof deviceInfo.hostname === 'string' && deviceInfo.hostname
@@ -127,6 +129,33 @@ export async function handleClaimConfirm(
                 accountId: account?.id ?? factoryDevice.accountId ?? null
             }
         });
+
+        // If this claim originated from a preclaim ticket, fulfill the preclaim row as well.
+        if (preclaimDeviceId) {
+            const preclaim = await tx.preclaimDevice.findUnique({
+                where: { id: preclaimDeviceId }
+            });
+
+            if (!preclaim) {
+                logger.warn(
+                    `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} not found while confirming device ${created.id}; skipping preclaim update`
+                );
+            } else if (preclaim.status !== ClaimStatus.PENDING || preclaim.claimedAt) {
+                logger.warn(
+                    `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} no longer pending (status=${preclaim.status}); skipping preclaim update`
+                );
+            } else {
+                await tx.preclaimDevice.update({
+                    where: { id: preclaim.id },
+                    data: {
+                        status: ClaimStatus.FULFILLED,
+                        claimedAt: now,
+                        claimedBy: user.id,
+                        deviceId: created.id
+                    }
+                });
+            }
+        }
 
         return created;
     });
