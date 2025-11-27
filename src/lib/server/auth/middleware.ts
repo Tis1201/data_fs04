@@ -27,6 +27,12 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
                 return null;
             }
             
+            // Load user's primaryAccountId from database
+            const userWithPrimaryAccount = await event.locals.prisma.user.findUnique({
+                where: { id: user.id },
+                select: { primaryAccountId: true }
+            });
+            
             // Load account memberships
             const memberships = await event.locals.prisma.accountMembership.findMany({
                 where: { userId: user.id },
@@ -44,19 +50,34 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
             // First try from cookie
             if (currentAccountId) {
                 currentAccount = memberships.find(m => m.account.id === currentAccountId);
+                // If cookie account is not an owner, prioritize finding an owner account
+                if (currentAccount && currentAccount.role !== 'OWNER') {
+                    const ownerAccount = memberships.find(m => m.role === 'OWNER');
+                    if (ownerAccount) {
+                        currentAccount = ownerAccount;
+                    }
+                }
+            }
+            
+            // If no account selected yet, prioritize owner accounts
+            if (!currentAccount) {
+                currentAccount = memberships.find(m => m.role === 'OWNER');
             }
             
             // Then try primary account
-            if (!currentAccount && user.primaryAccountId) {
-                currentAccount = memberships.find(m => m.account.id === user.primaryAccountId);
+            if (!currentAccount && userWithPrimaryAccount?.primaryAccountId) {
+                currentAccount = memberships.find(m => m.account.id === userWithPrimaryAccount.primaryAccountId);
             }
             
             // Finally fallback to first membership
             if (!currentAccount && memberships.length > 0) {
                 currentAccount = memberships[0];
-                
+            }
+            
+            // Set cookie for the selected account if it's different from cookie or if no cookie exists
+            if (currentAccount && currentAccount.account.id !== currentAccountId) {
                 try {
-                    // Set cookie for the default account - wrapped in try/catch to handle cases where headers are already sent
+                    // Set cookie for the selected account - wrapped in try/catch to handle cases where headers are already sent
                     event.cookies.set('current_account_id', currentAccount.account.id, {
                         path: '/',
                         httpOnly: true,

@@ -71,8 +71,11 @@ export async function userInfoByUserId(userId: string): Promise<UserInfo | null>
     // Determine current account
     let currentAccount = null;
     
-    // Try primary account first
-    if (user.primaryAccountId) {
+    // Prioritize owner accounts first
+    currentAccount = memberships.find(m => m.role === 'OWNER');
+    
+    // Then try primary account
+    if (!currentAccount && user.primaryAccountId) {
       currentAccount = memberships.find(m => m.account.id === user.primaryAccountId);
     }
     
@@ -178,6 +181,18 @@ export async function extractUserInfoFromRequest(
     // First try from cookie
     if (currentAccountId) {
       currentAccount = memberships.find(m => m.account.id === currentAccountId);
+      // If cookie account is not an owner, prioritize finding an owner account
+      if (currentAccount && currentAccount.role !== 'OWNER') {
+        const ownerAccount = memberships.find(m => m.role === 'OWNER');
+        if (ownerAccount) {
+          currentAccount = ownerAccount;
+        }
+      }
+    }
+    
+    // If no account selected yet, prioritize owner accounts
+    if (!currentAccount) {
+      currentAccount = memberships.find(m => m.role === 'OWNER');
     }
     
     // Then try primary account
@@ -188,9 +203,12 @@ export async function extractUserInfoFromRequest(
     // Finally fallback to first membership
     if (!currentAccount && memberships.length > 0) {
       currentAccount = memberships[0];
-      
+    }
+    
+    // Set cookie for the selected account if it's different from cookie or if no cookie exists
+    if (currentAccount && currentAccount.account.id !== currentAccountId && event) {
       try {
-        // Set cookie for the default account
+        // Set cookie for the selected account
         event.cookies.set('current_account_id', currentAccount.account.id, {
           path: '/',
           httpOnly: true,
