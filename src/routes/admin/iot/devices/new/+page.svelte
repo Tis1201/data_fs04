@@ -11,6 +11,7 @@
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
   import { callUserRpc } from "$lib/client/mqtt/userRpc";
+  import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
 
@@ -40,7 +41,7 @@
   async function handleDeviceClaim() {
     if (!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming') return;
 
-    // Use MQTT RPC to claim device instead of form submission
+    // Use MQTT RPC to start claim flow instead of form submission
     deviceStore.setClaimStatus('claiming');
 
     try {
@@ -51,12 +52,18 @@
 
       console.log('[ADMIN_DEVICE_FORM] MQTT claim RPC completed:', response);
 
-      // For now, we treat a successful RPC as a successful claim initiation.
-      // The actual device creation/claim completion will be handled asynchronously
-      // via the existing backend flow.
+      const flowId = response?.flowId;
+      if (!flowId) {
+        throw new Error('Missing flowId in claim response');
+      }
+
+      toast.success('Device claim initiated, waiting for confirmation...');
+
+      const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
+
       deviceStore.setClaimStatus('claimed');
-      toast.success('Device claim initiated successfully!');
-      goto('/admin/iot/devices');
+      toast.success('Device claimed successfully!');
+      goto(`/admin/iot/devices/${confirmation.deviceId}`);
     } catch (error) {
       console.error('[DEVICE_FORM] Claim request failed:', error);
       deviceStore.setClaimStatus('failed', error instanceof Error ? error.message : 'Request failed');

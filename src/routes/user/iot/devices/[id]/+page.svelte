@@ -52,6 +52,8 @@
     import { onMount, onDestroy } from 'svelte';
     import DeviceDeviceTagComponent from "$lib/components/ui_components_sveltekit/devices/device_device_tag/DeviceDeviceTagComponent.svelte";
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
+    import { callUserRpc } from "$lib/client/mqtt/userRpc";
+    import { waitForScreenshotResult } from "$lib/client/mqtt/screenshotFlow";
     
     // Create a per-component SSE store (independent connection for this page)
     const sseStore = createComponentSSE();
@@ -584,6 +586,7 @@
     }
 
     async function retrieveSnapshot() {
+        console.log('[UserDeviceDetail] Snapshot clicked - starting MQTT screenshot flow');
         isLoading.set(true);
         actionStatus.set({
             action: "snapshot",
@@ -593,42 +596,26 @@
         const tempId = addActionLogRow('snapshot', 'Taking screenshot…', 'in_progress');
 
         try {
-            // Call the screenshot handler on the device
-            const responsePayload = await sseStore.sendRequest(
-                {
-                    type: 'device',
-                    scope: `subscription:device:${device.id}`,
-                    payload: {
-                        action: 'message',
-                        type: 'screenshot:request',
-                        deviceId: device.id,
-                        quality: 80 // JPEG quality (1-100)
-                    }
-                },
-                /* timeoutMs = */ 120000, // Screenshots might take longer; allow up to 2 minutes
-                /* requestIdPrefix = */ 'screenshot'
+            // Start screenshot flow over MQTT
+            const rpcResult = await callUserRpc<{
+                flowId?: string;
+                result: { deviceId: string };
+            }>(
+                'device.screenshot',
+                { deviceId: device.id },
+                { timeoutMs: 60000 }
             );
 
-            // Check for explicit error from device first
-            const payloadType = responsePayload?.payload?.type;
-            if (payloadType === 'screenshot:error') {
-                const errMsg = responsePayload?.payload?.error || 'Device reported screenshot error';
-                throw new Error(errMsg);
+            const flowId = rpcResult?.flowId;
+            if (!flowId) {
+                throw new Error('Missing flowId in screenshot response');
             }
 
-            // Check if we have an image in the response (support multiple shapes)
-            const imageData = responsePayload?.image
-                || responsePayload?.payload?.image
-                || responsePayload?.data?.image;
-            const format = responsePayload?.format
-                || responsePayload?.payload?.format
-                || responsePayload?.data?.format
-                || 'jpeg';
+            const screenshot = await waitForScreenshotResult(flowId, { timeoutMs: 60000 });
 
-            if (imageData) {
-                // Show in reusable modal
-                screenshotData = imageData;
-                screenshotFormat = format;
+            if (screenshot.data) {
+                screenshotData = screenshot.data;
+                screenshotFormat = screenshot.format || 'jpeg';
                 screenshotOpen = true;
 
                 actionStatus.set({ action: "snapshot", status: "success", message: "Screenshot captured" });
@@ -644,7 +631,7 @@
                 message: error instanceof Error ? error.message : "Failed to capture screenshot"
             });
             toast.error("Failed to capture device screenshot");
-            console.error("Error capturing screenshot:", error);
+            console.error("Error capturing screenshot via MQTT:", error);
             updateTempActionLog(tempId, 'failed', error instanceof Error ? error.message : 'Failed to capture screenshot');
         } finally {
             isLoading.set(false);
