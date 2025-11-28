@@ -79,6 +79,43 @@ Complete WebRTC implementation for terminal and remote desktop functionality:
 - **Event Deduplication**: Prevent redundant processing
 - **Resource Management**: Efficient memory and CPU usage
 
+## 🌐 User MQTT Connection (Overview)
+
+This section shows how a web user gets MQTT connection info via a **REST mint
+API**, then connects to the broker and uses user topics.
+
+- **Subject (sub)**: `user:{userId}:{accountId}`
+- **User topics**:
+  - `user/{sub}/requests` – user RPC requests (e.g. `user.claim.device`)
+  - `user/{sub}/response` – RPC results
+  - `user/{sub}/notifications` – async events (e.g. `claim.confirmed`)
+
+High-level flow:
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant WebApp
+    participant IoTCore
+    participant Broker
+
+    Browser->>WebApp: POST /api/user/mqtt/mint (session)
+    WebApp->>IoTCore: POST /api/mq/mint (username = sub, topics)
+    IoTCore-->>WebApp: { clientId, token }
+    WebApp-->>Browser: { brokerUrl, clientId, username = sub, jwt }
+
+    Browser->>Broker: CONNECT (clientId, username = sub, password = jwt)
+    Broker-->>Browser: CONNACK
+
+    Browser->>Broker: PUBLISH user/{sub}/requests
+    Broker-->>Browser: deliver user/{sub}/response
+    Broker-->>Browser: deliver user/{sub}/notifications
+```
+
+For the corresponding **device-side** MQTT flows, see the dedicated docs
+under `docs/architecture/device/mqtt/`, especially `DEVICE_CLAIM.md` and
+`DEVICE_CONNECT.md`.
+
 ### Scalability
 - **Horizontal Scaling**: Support for multiple server instances
 - **Load Distribution**: Efficient workload distribution

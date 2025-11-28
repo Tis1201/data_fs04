@@ -7,8 +7,8 @@ MQTT using its `deviceId` and API key.
 
 ## 1. Minting a device link JWT
 
-Once a factory device has been claimed, the backend issues a real `Device`
-record with:
+Once a factory device has been claimed (see `DEVICE_CLAIM.md` – step 7), the
+backend issues a real `Device` record with:
 
 - `id` – the `deviceId` used for subsequent connections
 - `apiKey` – the secret used to authenticate the device
@@ -22,6 +22,7 @@ Request (HTTP-level contract):
 
 - Headers:
   - `X-API-Key: <apiKey>`
+  - `X-Device-Id: <deviceId>`
   - `Content-Type: application/json`
 - Body:
 
@@ -53,6 +54,30 @@ The device uses:
 - MQTT **password** = the link JWT
 
 Broker ACLs then map `sub` to the allowed device topics.
+
+### 1.1 End-to-end mint + connect sequence
+
+This sequence continues from the claim flow in `DEVICE_CLAIM.md`, after the
+device has received its `deviceId` and `apiKey` via `device.claim.confirm`.
+
+```mermaid
+sequenceDiagram
+    participant Device
+    participant WebApp
+    participant IoTCore
+    participant Broker
+
+    Device->>WebApp: POST /api/device/mqtt/mint
+    WebApp->>IoTCore: POST /api/mq/mint
+
+    IoTCore-->>WebApp: { clientId, token }
+    WebApp-->>Device: { brokerUrl, clientId, username, jwt }
+
+    Device->>Broker: CONNECT (clientId, username, password = jwt)
+    Broker-->>Device: CONNACK
+
+    Device->>Broker: SUBSCRIBE notifications and response topics
+```
 
 ---
 
