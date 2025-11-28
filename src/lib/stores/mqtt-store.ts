@@ -710,6 +710,9 @@ export function createMQTTStore() {
             });
             unsubscribe();
             return current;
+        },
+        get subject() {
+            return lastUsername;
         }
     };
 
