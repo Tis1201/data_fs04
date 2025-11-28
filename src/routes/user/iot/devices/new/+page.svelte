@@ -10,7 +10,6 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { sseStore } from "$lib/stores/sse-store";
   import { callUserRpc } from "$lib/client/mqtt/userRpc";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
@@ -57,6 +56,7 @@
       // via the existing backend flow.
       deviceStore.setClaimStatus('claimed');
       toast.success('Device claim initiated successfully!');
+      goto('/user/iot/devices');
     } catch (error) {
       console.error('[DEVICE_FORM] Claim request failed:', error);
       deviceStore.setClaimStatus('failed', error instanceof Error ? error.message : 'Request failed');
@@ -66,15 +66,6 @@
 
   // If the device is claimed while we're on this page, update the claimedDevice variable
   onMount(() => {
-    // Establish SSE connection for device claim requests
-    try {
-      console.debug('[UserDeviceClaim] Connecting SSE to /api/sse ...');
-      sseStore.connect(`/api/sse`, { withCredentials: true });
-      console.log('[UserDeviceClaim] SSE connect initiated');
-    } catch (e) {
-      console.warn('[UserDeviceClaim] SSE connect failed (may already be connected):', e);
-    }
-
     const unsubscribe = deviceStore.subscribe(state => {
       if (state.claimStatus === 'claimed' && state.deviceId) {
         claimedDevice = {
