@@ -100,7 +100,7 @@ function resolveBrokerUrl(explicitUrl?: string, mintedUrl?: string | null): stri
     return null;
 }
 
-async function mintConnectionJwt(): Promise<{ token: string; brokerUrl: string | null; username: string | null }> {
+async function mintConnectionJwt(): Promise<{ token: string; brokerUrl: string | null; username: string | null; clientId: string | null }> {
     const response = await fetch(MINT_ENDPOINT, {
         method: 'POST',
         headers: {
@@ -117,38 +117,55 @@ async function mintConnectionJwt(): Promise<{ token: string; brokerUrl: string |
     const data = payload?.data ?? payload;
     const token = data?.jwt ?? payload?.jwt;
     const brokerUrl = data?.brokerUrl ?? payload?.brokerUrl ?? null;
-    let derivedUsername: string | null = null;
+    let clientId: string | null = data?.clientId ?? payload?.clientId ?? null;
 
     if (!token) {
         throw new Error('Minted MQTT credential response missing jwt');
     }
 
+    // Prefer explicit username from mint response (aligned with /api/user/mqtt/mint)
+    let derivedUsername: string | null = data?.username ?? payload?.username ?? null;
+
     console.log('[MQTT] Minted JWT:', token);
     if (brokerUrl) {
         console.log('[MQTT] Minted broker URL:', brokerUrl);
     }
-
-    try {
-        const [, payloadSegment] = token.split('.');
-        if (payloadSegment) {
-            const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-            const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-            const decodedPayload = JSON.parse(atob(padded));
-            console.log('[MQTT] JWT payload:', decodedPayload);
-            derivedUsername =
-                decodedPayload?.email ??
-                decodedPayload?.name ??
-                decodedPayload?.username ??
-                decodedPayload?.userId ??
-                null;
-        } else {
-            console.warn('[MQTT] Unable to decode JWT payload: missing segment');
-        }
-    } catch (err) {
-        console.warn('[MQTT] Failed to decode JWT payload', err);
+    if (derivedUsername) {
+        console.log('[MQTT] Minted username from response:', derivedUsername);
+    }
+    if (clientId) {
+        console.log('[MQTT] Minted clientId from response:', clientId);
     }
 
-    return { token: token as string, brokerUrl, username: derivedUsername };
+    // Backwards-compatible fallback: derive username/clientId from JWT payload if not provided
+    if (!derivedUsername || !clientId) {
+        try {
+            const [, payloadSegment] = token.split('.');
+            if (payloadSegment) {
+                const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+                const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+                const decodedPayload = JSON.parse(atob(padded));
+                console.log('[MQTT] JWT payload:', decodedPayload);
+                if (!derivedUsername) {
+                    derivedUsername =
+                        decodedPayload?.email ??
+                        decodedPayload?.name ??
+                        decodedPayload?.username ??
+                        decodedPayload?.userId ??
+                        null;
+                }
+                if (!clientId) {
+                    clientId = decodedPayload?.client_id ?? decodedPayload?.clientId ?? null;
+                }
+            } else {
+                console.warn('[MQTT] Unable to decode JWT payload: missing segment');
+            }
+        } catch (err) {
+            console.warn('[MQTT] Failed to decode JWT payload', err);
+        }
+    }
+
+    return { token: token as string, brokerUrl, username: derivedUsername, clientId };
 }
 
 export interface ConnectOptions {
@@ -199,6 +216,7 @@ export function createMQTTStore() {
     let lastJwtExpiry = 0;
     let lastBrokerUrl: string | null = null;
     let lastUsername: string | null = null;
+    let lastClientId: string | null = null;
     let detachStreamDiagnostics: (() => void) | null = null;
 
     const topicListeners = new Map<string, Set<TopicCallback>>();
@@ -375,20 +393,22 @@ export function createMQTTStore() {
         }, delay);
     };
 
-    const mintIfNeeded = async (): Promise<{ token: string; brokerUrl: string | null; username: string | null }> => {
+    const mintIfNeeded = async (): Promise<{ token: string; brokerUrl: string | null; username: string | null; clientId: string | null }> => {
         const now = Date.now();
         if (lastJwt && lastJwtExpiry && now < lastJwtExpiry - 30_000) {
             return {
                 token: lastJwt,
                 brokerUrl: lastBrokerUrl,
-                username: lastUsername
+                username: lastUsername,
+                clientId: lastClientId
             };
         }
 
-        const { token, brokerUrl, username } = await mintConnectionJwt();
+        const { token, brokerUrl, username, clientId } = await mintConnectionJwt();
         lastJwt = token;
         lastBrokerUrl = brokerUrl ?? lastBrokerUrl;
         lastUsername = username ?? lastUsername;
+        lastClientId = clientId ?? lastClientId;
 
         try {
             const [, payloadSegment] = token.split('.');
@@ -408,7 +428,8 @@ export function createMQTTStore() {
         return {
             token,
             brokerUrl: lastBrokerUrl,
-            username: lastUsername
+            username: lastUsername,
+            clientId: lastClientId
         };
     };
 
@@ -424,7 +445,7 @@ export function createMQTTStore() {
             }
 
             try {
-                const { token, brokerUrl: mintedBrokerUrl, username } = await mintIfNeeded();
+                const { token, brokerUrl: mintedBrokerUrl, username, clientId } = await mintIfNeeded();
                 const brokerUrl = resolveBrokerUrl(options.url, mintedBrokerUrl);
                 if (!brokerUrl) {
                     throw new Error('MQTT broker URL is not available from mint response');
@@ -458,7 +479,6 @@ export function createMQTTStore() {
                 const connectionOptions: Record<string, unknown> = {
                     clean: options.clean ?? true,
                     keepalive: options.keepAlive ?? DEFAULT_KEEP_ALIVE,
-                    clientId: options.clientId,
                     reconnectPeriod: 0,
                     resubscribe: true,
                     path: '/mqtt',
@@ -468,6 +488,11 @@ export function createMQTTStore() {
                 const resolvedUsername = username ?? lastUsername;
                 if (resolvedUsername) {
                     connectionOptions.username = resolvedUsername;
+                }
+
+                const resolvedClientId = clientId ?? lastClientId ?? options.clientId;
+                if (resolvedClientId) {
+                    connectionOptions.clientId = resolvedClientId;
                 }
 
                 if (token) {
