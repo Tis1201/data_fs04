@@ -75,88 +75,34 @@ async function mintWorkerCredentials(): Promise<
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
 
-function scheduleReconnect() {
-  if (reconnectTimer || !client) {
-    return;
-  }
+async function connectWorkerClient(): Promise<void> {
+  const minted = await mintWorkerCredentials();
 
-  reconnectAttempts += 1;
-  const exponentialDelay = Math.min(
-    BASE_RECONNECT_MS * Math.pow(2, reconnectAttempts - 1),
-    MAX_RECONNECT_MS
+  const finalOptions: IClientOptions = {
+    ...connectionOptions,
+    clientId: minted?.clientId ?? connectionOptions.clientId ?? defaultClientId,
+    username: minted?.username ?? connectionOptions.username,
+    password: minted?.password ?? connectionOptions.password
+  };
+
+  const clientId = finalOptions.clientId ?? defaultClientId;
+
+  logger.info(
+    `[MQTT Transport] Connecting to ${brokerUrl} with clientId ${clientId} (username=${
+      finalOptions.username ?? 'n/a'
+    })`
   );
-  const jitter = Math.floor(Math.random() * 1000);
-  const delay = exponentialDelay + jitter;
 
-  logger.warn(
-    `[MQTT Transport] Scheduling reconnect attempt ${reconnectAttempts} in ${delay}ms`
-  );
+  client = mqtt.connect(brokerUrl!, finalOptions);
 
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    if (!client) {
-      return;
-    }
-    logger.info(
-      `[MQTT Transport] Triggering reconnect to ${brokerUrl ?? 'undefined'} (attempt ${reconnectAttempts})`
-    );
-    client.reconnect();
-  }, delay);
-}
+  const activeClient = client;
 
-export function startMqttListener(): void {
-  if (started) {
-    logger.info('[MQTT Transport] Service already running');
-    return;
-  }
-
-  if (!brokerUrl) {
-    logger.warn('[MQTT Transport] Missing MQTT_WORKER_URL or MQTT_BROKER_URL, service not started');
-    return;
-  }
-
-  started = true;
-
-  (async () => {
-    const minted = await mintWorkerCredentials();
-
-    const finalOptions: IClientOptions = {
-      ...connectionOptions,
-      clientId: minted?.clientId ?? connectionOptions.clientId ?? defaultClientId,
-      username: minted?.username ?? connectionOptions.username,
-      password: minted?.password ?? connectionOptions.password
-    };
-
-    const clientId = finalOptions.clientId ?? defaultClientId;
-
-    logger.info(
-      `[MQTT Transport] Connecting to ${brokerUrl} with clientId ${clientId} (username=${finalOptions.username ?? 'n/a'})`
-    );
-
-    client = mqtt.connect(brokerUrl, finalOptions);
-
-    registerMqttTransport({
-    publish: async (topic, payload, options = {}) => {
-      if (!client) {
-        throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        client!.publish(topic, payload, options, (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      });
-    }
-  });
-
-    client.on('connect', (connack: IConnackPacket) => {
+  activeClient.on('connect', (connack: IConnackPacket) => {
     const reason = connack.reasonCode ?? connack.returnCode;
     logger.info(
-      `[MQTT Transport] Connected as ${clientId} (sessionPresent=${connack.sessionPresent}, reason=${reason ?? 'n/a'})`
+      `[MQTT Transport] Connected as ${clientId} (sessionPresent=${connack.sessionPresent}, reason=${
+        reason ?? 'n/a'
+      })`
     );
 
     if (connack.properties?.assignedClientIdentifier) {
@@ -176,71 +122,158 @@ export function startMqttListener(): void {
       return;
     }
 
-    client?.subscribe(topics, { qos: Number(process.env.MQTT_WORKER_QOS ?? '0') }, (err, granted) => {
-      if (err) {
-        logger.error(`[MQTT Transport] Failed to subscribe: ${err.message}`);
-        return;
+    activeClient.subscribe(
+      topics,
+      { qos: Number(process.env.MQTT_WORKER_QOS ?? '0') },
+      (err, granted) => {
+        if (err) {
+          logger.error(`[MQTT Transport] Failed to subscribe: ${err.message}`);
+          return;
+        }
+
+        const grantedTopics = granted?.map((g) => g.topic) ?? topics;
+        logger.info(`[MQTT Transport] Subscribed to topics: ${grantedTopics.join(', ')}`);
       }
-
-      const grantedTopics = granted?.map((g) => g.topic) ?? topics;
-      logger.info(`[MQTT Transport] Subscribed to topics: ${grantedTopics.join(', ')}`);
-    });
+    );
   });
 
-    client.on('message', async (topic, payload) => {
+  activeClient.on('message', async (topic, payload) => {
     logger.debug(`[MQTT Transport] Received message on ${topic}`);
-
-    // try {
-      await handleIncoming(topic, payload, adminPrisma);
-    // } catch (err) {
-    //   const error = err instanceof Error ? err.message : String(err);
-    //   logger.error(`[MQTT Transport] Error processing message on ${topic}: ${error}`);
-    // }
+    await handleIncoming(topic, payload, adminPrisma);
   });
 
-    client.on('error', (err) => {
+  activeClient.on('error', (err) => {
     logger.error(`[MQTT Transport] Client error: ${err.message}`, {
       stack: err?.stack
     });
     scheduleReconnect();
   });
 
-    client.on('disconnect', (packet: any) => {
+  activeClient.on('disconnect', (packet: any) => {
     logger.warn(
-      `[MQTT Transport] Broker sent disconnect (reasonCode=${packet?.reasonCode ?? 'n/a'}, reasonString=${packet?.properties?.reasonString ?? 'n/a'})`
+      `[MQTT Transport] Broker sent disconnect (reasonCode=${
+        packet?.reasonCode ?? 'n/a'
+      }, reasonString=${packet?.properties?.reasonString ?? 'n/a'})`
     );
     scheduleReconnect();
   });
 
-    client.on('reconnect', () => {
+  activeClient.on('reconnect', () => {
     logger.warn('[MQTT Transport] Client attempting immediate reconnect');
   });
 
-    client.on('close', () => {
-    const status = client
-      ? `connected=${client.connected}, disconnecting=${client.disconnecting}, reconnecting=${client.reconnecting}`
+  activeClient.on('close', () => {
+    const status = activeClient
+      ? `connected=${activeClient.connected}, disconnecting=${activeClient.disconnecting}, reconnecting=${activeClient.reconnecting}`
       : 'client=null';
     logger.warn(`[MQTT Transport] Connection closed (${status})`);
     scheduleReconnect();
   });
 
-    client.on('offline', () => {
+  activeClient.on('offline', () => {
     logger.warn('[MQTT Transport] Client offline');
     scheduleReconnect();
   });
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) {
+    return;
+  }
+
+  reconnectAttempts += 1;
+  const exponentialDelay = Math.min(
+    BASE_RECONNECT_MS * Math.pow(2, reconnectAttempts - 1),
+    MAX_RECONNECT_MS
+  );
+  const jitter = Math.floor(Math.random() * 1000);
+  const delay = exponentialDelay + jitter;
+
+  logger.warn(
+    `[MQTT Transport] Scheduling reconnect attempt ${reconnectAttempts} in ${delay}ms`
+  );
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+
+    if (!started || !brokerUrl) {
+      return;
+    }
+
+    logger.info(
+      `[MQTT Transport] Triggering reconnect to ${brokerUrl ?? 'undefined'} (attempt ${reconnectAttempts})`
+    );
+
+    const current = client;
+    if (current) {
+      current.end(true, () => {
+        client = null;
+        connectWorkerClient().catch((err) => {
+          logger.error(
+            `[MQTT Transport] Failed to reconnect MQTT worker: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        });
+      });
+    } else {
+      connectWorkerClient().catch((err) => {
+        logger.error(
+          `[MQTT Transport] Failed to reconnect MQTT worker: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      });
+    }
+  }, delay);
+}
+
+export function startMqttListener(): void {
+  if (started) {
+    logger.info('[MQTT Transport] Service already running');
+    return;
+  }
+
+  if (!brokerUrl) {
+    logger.warn('[MQTT Transport] Missing MQTT_WORKER_URL or MQTT_BROKER_URL, service not started');
+    return;
+  }
+
+  started = true;
+
+  registerMqttTransport({
+    publish: async (topic, payload, options = {}) => {
+      if (!client) {
+        throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        client!.publish(topic, payload, options, (err) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+  });
+
+  (async () => {
+    await connectWorkerClient();
 
     const shutdown = (signal: NodeJS.Signals) => {
-    logger.info(`[MQTT Transport] Caught ${signal}, shutting down service`);
-    client?.end(false, {}, () => {
-      started = false;
-      client = null;
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
-      reconnectAttempts = 0;
-    });
-  };
+      logger.info(`[MQTT Transport] Caught ${signal}, shutting down service`);
+      client?.end(false, {}, () => {
+        started = false;
+        client = null;
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        reconnectAttempts = 0;
+      });
+    };
 
     process.once('SIGINT', shutdown);
     process.once('SIGTERM', shutdown);
