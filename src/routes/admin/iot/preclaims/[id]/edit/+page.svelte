@@ -67,6 +67,21 @@
             <Textarea id="description" name="description" placeholder="Enter description" bind:value={$form.description} rows={3} />
           </FormField>
 
+          <FormField id="profileId" label="Device Profile (Optional)" error={$errors.profileId}>
+            <EnhancedSelect
+              id="profileId"
+              name="profileId"
+              bind:value={$form.profileId}
+              placeholder="Select a device profile (optional)"
+              aria-invalid={$errors.profileId ? 'true' : undefined}
+              options={data.profileOptions}
+              clearable={true}
+            />
+            <p class="text-xs text-muted-foreground mt-1">
+              When devices are claimed via this preclaim, the selected profile will be automatically applied to them.
+            </p>
+          </FormField>
+
           <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt}>
             <EnhancedDatePicker
               id="expiresAt"

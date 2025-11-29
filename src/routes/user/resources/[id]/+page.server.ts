@@ -268,6 +268,8 @@ export const load = restrict(
                 type: resource.type,
                 target: resource.target,
                 version: resource.version || '1.0.0',
+                versionCode: resource.versionCode ?? null,
+                signature: resource.signature ?? null,
                 format: resource.format || '',
                 packageName: resource.packageName || '',
                 path: resource.path,

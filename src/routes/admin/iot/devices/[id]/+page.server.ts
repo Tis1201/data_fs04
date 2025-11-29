@@ -15,6 +15,8 @@ import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
 import crypto from 'crypto';
 import { z } from 'zod';
+import { loadDeviceProfileWithForm } from '$lib/server/device/deviceProfileLoader';
+import { updateDeviceProfile as updateDeviceProfileUtil } from '$lib/server/device/deviceProfileUpdater';
 
 export const load = restrict(
     async ({ params, locals, depends }) => {
@@ -154,92 +156,11 @@ export const load = restrict(
             const isOnline = await isDeviceOnline(device.id);
             console.log('[DeviceDetail] Real-time online status:', { deviceId: device.id, isOnline });
 
-            // Load device-level profile (if exists) or fallback to global profile from assignment
-            let deviceProfile = null;
-            try {
-                // First, try to get device-level profile
-                // @ts-ignore - deviceId will be available after schema migration
-                const deviceLevelProfile = await locals.prisma.deviceProfile.findFirst({
-                    where: {
-                        // @ts-ignore - deviceId will be available after schema migration
-                        deviceId: params.id,
-                        level: 'DEVICE'
-                    },
-                    include: {
-                        settings: {
-                            orderBy: { order: 'asc' }
-                        },
-                        account: {
-                            select: {
-                                id: true,
-                                name: true
-                            }
-                        }
-                    }
-                });
-
-                if (deviceLevelProfile) {
-                    deviceProfile = deviceLevelProfile;
-                } else {
-                    // Fallback to global profile from assignment
-                    const assignment = await locals.prisma.deviceProfileAssignment.findUnique({
-                        where: { deviceId: params.id },
-                        include: {
-                            profile: {
-                                include: {
-                                    settings: {
-                                        orderBy: { order: 'asc' }
-                                    },
-                                    account: {
-                                        select: {
-                                            id: true,
-                                            name: true
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    });
-
-                    if (assignment?.profile) {
-                        deviceProfile = assignment.profile;
-                    }
-                }
-            } catch (profileError) {
-                console.error('[DeviceDetail] Error loading device profile:', profileError);
-                // Continue without profile if there's an error
-            }
-
-            // Initialize form for device profile editing (if device-level profile exists)
-            let deviceProfileForm = null;
-            console.log('[DeviceDetail] Device profile check:', {
-                hasProfile: !!deviceProfile,
-                level: deviceProfile?.level,
-                profileId: deviceProfile?.id,
-                settingsCount: deviceProfile?.settings?.length
-            });
-            
-            if (deviceProfile && deviceProfile.level === 'DEVICE') {
-                console.log('[DeviceDetail] Creating form for DEVICE-level profile');
-                const profileSchema = z.object({
-                    name: z.string().min(1).max(100),
-                    description: z.string().max(500).optional(),
-                    settings: z.string().optional().default('[]')
-                });
-                
-                try {
-                    deviceProfileForm = await superValidate({
-                        name: deviceProfile.name,
-                        description: deviceProfile.description || '',
-                        settings: JSON.stringify(deviceProfile.settings || [])
-                    }, zod(profileSchema));
-                    console.log('[DeviceDetail] Device profile form created successfully');
-                } catch (formError) {
-                    console.error('[DeviceDetail] Error creating device profile form:', formError);
-                }
-            } else {
-                console.log('[DeviceDetail] Not creating form - profile is GLOBAL or missing');
-            }
+            // Load device profile using shared utility
+            const { deviceProfile, deviceProfileForm } = await loadDeviceProfileWithForm(
+                locals.prisma,
+                params.id
+            );
 
             return {
                 form,
@@ -464,131 +385,19 @@ export const actions: Actions = {
      */
     updateDeviceProfile: restrict(
         async ({ params, request, locals }) => {
-            const { id: deviceId } = params;
             const auth = await locals.auth.validate();
             
             if (!auth?.user) {
                 return fail(401, { message: 'Unauthorized' });
             }
 
-            // Check if device-level profile exists
-            const deviceProfile = await locals.prisma.deviceProfile.findFirst({
-                where: {
-                    deviceId: deviceId,
-                    level: 'DEVICE'
-                },
-                include: {
-                    settings: true
-                }
-            });
-
-            if (!deviceProfile) {
-                return fail(404, { message: 'Device-level profile not found' });
-            }
-
-            // Validate form
-            const profileSchema = z.object({
-                name: z.string().min(1).max(100),
-                description: z.string().max(500).optional(),
-                settings: z.string().optional().default('[]')
-            });
-
-            const form = await superValidate(request, zod(profileSchema));
-            
-            if (!form.valid) {
-                return fail(400, { form });
-            }
-
-            try {
-                // Parse settings from JSON string
-                let settingsArray = [];
-                try {
-                    settingsArray = JSON.parse(form.data.settings || '[]');
-                } catch (e) {
-                    console.error('Error parsing settings JSON:', e);
-                    settingsArray = [];
-                }
-
-                // Update profile and settings in a transaction
-                await locals.prisma.$transaction(async (tx) => {
-                    // Update profile
-                    await tx.deviceProfile.update({
-                        where: { id: deviceProfile.id },
-                        data: {
-                            name: form.data.name,
-                            description: form.data.description || null,
-                            updatedBy: auth.user.id
-                        }
-                    });
-
-                    // Delete existing settings
-                    await tx.deviceProfileSetting.deleteMany({
-                        where: { profileId: deviceProfile.id }
-                    });
-
-                    // Create new settings
-                    if (settingsArray.length > 0) {
-                        await tx.deviceProfileSetting.createMany({
-                            data: settingsArray.map((setting: any, index: number) => ({
-                                profileId: deviceProfile.id,
-                                key: setting.key,
-                                value: String(setting.value || ''),
-                                dataType: setting.dataType,
-                                label: setting.label,
-                                category: setting.category || 'General',
-                                order: setting.order !== undefined ? setting.order : index
-                            }))
-                        });
-                    }
-                });
-
-                // Send updated profile to device
-                try {
-                    const updatedProfile = await locals.prisma.deviceProfile.findUnique({
-                        where: { id: deviceProfile.id },
-                        include: {
-                            settings: true
-                        }
-                    });
-
-                    if (updatedProfile) {
-                        const { mapToConfigPayload } = await import('$lib/utils/mappers/deviceProfileMapper');
-                        const config = mapToConfigPayload(updatedProfile as any);
-
-                        // Send config update to device
-                        const routingMessage = MessageFactory.createSystemMessage(
-                            'device:actionRequest',
-                            `subscription:device:${deviceId}`,
-                            {
-                                action: 'applyProfile',
-                                deviceId: deviceId,
-                                profileId: deviceProfile.id,
-                                config: config,
-                                sentAt: new Date().toISOString()
-                            },
-                            SystemUser,
-                            { echoToSender: false }
-                        );
-
-                        await publisher.publish(routingMessage);
-                    }
-                } catch (sendError) {
-                    logger.error(`Error sending profile update to device: ${String(sendError)}`);
-                    // Don't fail the update if sending fails
-                }
-
-                return message(form, { 
-                    success: true, 
-                    text: 'Device profile updated successfully' 
-                });
-
-            } catch (error) {
-                logger.error('Error updating device profile:', error);
-                return fail(500, { 
-                    form,
-                    message: 'Failed to update device profile' 
-                });
-            }
+            // Use shared utility to update profile
+            return await updateDeviceProfileUtil(
+                locals.prisma,
+                params.id,
+                await request.formData(),
+                auth.user.id
+            );
         },
         [SystemRole.ADMIN]
     )

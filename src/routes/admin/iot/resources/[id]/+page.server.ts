@@ -94,6 +94,8 @@ export const load = restrict(
                 description: resource.description || '',
                 type: resource.type,
                 version: resource.version || '1.0.0',
+                versionCode: resource.versionCode ?? null,
+                signature: resource.signature ?? null,
                 releaseType: resource.releaseType || 'Production',
                 format: resource.format || '',
                 packageName: resource.packageName || '',

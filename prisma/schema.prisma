@@ -372,6 +372,7 @@ model Device {
   licenses             License[]
   profileAssignment    DeviceProfileAssignment?
   deviceProfiles       DeviceProfile[]
+  profileOverrides     DeviceProfileOverride[]
   appSummaries         DeviceAppSummary[]
   userActions          UserAppAction[]
 
@@ -482,6 +483,8 @@ model Resource {
   type        String
   target      String      @default("user")
   version     String?     @default("1.0.0")
+  versionCode Int?
+  signature   String?
   releaseType String?     @default("Production")
   format      String?
   packageName String?
@@ -957,12 +960,15 @@ model PreclaimSet {
   createdBy   String
   accountId   String
   account     Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  profileId   String?
+  profile     DeviceProfile?   @relation(fields: [profileId], references: [id], onDelete: SetNull)
   claims      PreclaimDevice[]
 
   @@unique([accountId, name])
   @@index([accountId])
   @@index([status])
   @@index([expiresAt])
+  @@index([profileId])
 }
 
 model PreclaimDevice {
@@ -991,21 +997,23 @@ model PreclaimDevice {
 }
 
 model DeviceProfile {
-  id          String                    @id() @default(cuid())
-  name        String
-  description String?
-  isActive    Boolean                   @default(true)
-  level       String                    @default("GLOBAL")
-  createdAt   DateTime                  @default(now())
-  updatedAt   DateTime                  @updatedAt()
-  createdBy   String
-  updatedBy   String?
-  accountId   String
-  account     Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  deviceId    String?
-  device      Device?                   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  settings    DeviceProfileSetting[]
-  assignments DeviceProfileAssignment[]
+  id           String                    @id() @default(cuid())
+  name         String
+  description  String?
+  isActive     Boolean                   @default(true)
+  level        String                    @default("GLOBAL")
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt()
+  createdBy    String
+  updatedBy    String?
+  accountId    String
+  account      Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deviceId     String?
+  device       Device?                   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  settings     DeviceProfileSetting[]
+  assignments  DeviceProfileAssignment[]
+  preclaimSets PreclaimSet[]
+  overrides    DeviceProfileOverride[]   @relation("ProfileOverrides")
 
   @@index([accountId])
   @@index([createdBy])
@@ -1045,6 +1053,37 @@ model DeviceProfileAssignment {
   @@unique([deviceId])
   @@index([profileId])
   @@index([deviceId])
+}
+
+model DeviceProfileOverride {
+  id                 String                         @id() @default(cuid())
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt()
+  createdBy          String
+  updatedBy          String?
+  deviceId           String
+  device             Device                         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  globalProfileId    String
+  globalProfile      DeviceProfile                  @relation("ProfileOverrides", fields: [globalProfileId], references: [id], onDelete: Cascade)
+  overriddenSettings DeviceProfileOverrideSetting[]
+
+  @@unique([deviceId, globalProfileId])
+  @@index([deviceId])
+  @@index([globalProfileId])
+}
+
+model DeviceProfileOverrideSetting {
+  id         String                @id() @default(cuid())
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt()
+  overrideId String
+  override   DeviceProfileOverride @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+  key        String
+  value      String
+  dataType   String
+
+  @@unique([overrideId, key])
+  @@index([overrideId])
 }
 
 model DeviceAppSummary {

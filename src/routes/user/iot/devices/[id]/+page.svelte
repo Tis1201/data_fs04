@@ -213,7 +213,7 @@
         // Use global SSE connection (managed by AuthStateHandler)
         console.log('[UserDeviceDetail] Using global SSE connection:', {
             connectionId: sseStore.connectionId,
-            status: sseStore.connectionStatus
+            isConnected: sseStore.isConnected
         });
         
         let lastSubscribedConnectionId: string | null = null;
@@ -248,7 +248,7 @@
         }
         
         // Check if SSE is already connected and subscribe immediately
-        if (sseStore.connectionId && sseStore.connectionStatus === 'OPEN') {
+        if (sseStore.connectionId && sseStore.isConnected) {
             console.log('[UserDeviceDetail] SSE already connected, subscribing immediately');
             subscribeToDeviceChannel(sseStore.connectionId);
         }

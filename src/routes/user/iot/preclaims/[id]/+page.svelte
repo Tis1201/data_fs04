@@ -72,6 +72,7 @@
 
       <PreclaimBasicInfo
         preclaimSet={preclaimSet}
+        isAdmin={false}
       />
 
       <PreclaimMetrics

@@ -522,6 +522,9 @@ model Device {
   // Device-level profiles (copies of global profiles)
   deviceProfiles DeviceProfile[]
   
+  // Profile overrides (device-specific customizations)
+  profileOverrides DeviceProfileOverride[]
+  
   // Device app data summaries
   appSummaries DeviceAppSummary[]
   
@@ -693,6 +696,8 @@ model Resource {
   type        String   // "file", "image", "video", "document", "binary"
   target      String   @default("user") // "device", "account", "user"
   version     String? @default("1.0.0") // Release version number for binary
+  versionCode Int?     // Version code extracted from APK (read-only)
+  signature   String?  // APK signature extracted using apk-signature (read-only)
   releaseType String? @default("Production") // "Alpha", "Beta", "Production"
   format      String? // File format for binary, "apk", "bin", "exe", "sh"
   packageName String? // Package name for binary
@@ -1396,6 +1401,10 @@ model PreclaimSet {
   accountId   String
   account     Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
+  // Device Profile Assignment (optional)
+  profileId   String?
+  profile     DeviceProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
   // Relations
   claims      PreclaimDevice[]
 
@@ -1408,6 +1417,7 @@ model PreclaimSet {
   @@index([accountId])
   @@index([status])
   @@index([expiresAt])
+  @@index([profileId])
   @@unique([accountId, name])
 }
 
@@ -1472,6 +1482,8 @@ model DeviceProfile {
   // Relationships
   settings    DeviceProfileSetting[]
   assignments DeviceProfileAssignment[]
+  preclaimSets PreclaimSet[]
+  overrides   DeviceProfileOverride[] @relation("ProfileOverrides") // Device-specific customizations
   
   // Permissions
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -1533,6 +1545,61 @@ model DeviceProfileAssignment {
   // Permissions - any account member can read/write/delete
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('all', profile.account.members?[userId == auth().id])
+}
+
+// Device Profile Override Model
+// Stores device-specific customizations (delta from global profile)
+model DeviceProfileOverride {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt()
+  createdBy       String
+  updatedBy       String?
+  
+  // Device reference
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  // Global profile reference
+  globalProfileId String
+  globalProfile   DeviceProfile @relation("ProfileOverrides", fields: [globalProfileId], references: [id], onDelete: Cascade)
+  
+  // Overridden settings (only settings that differ from global)
+  overriddenSettings DeviceProfileOverrideSetting[]
+  
+  // Permissions
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', globalProfile.account.members?[userId == auth().id])
+  
+  // Constraints
+  @@unique([deviceId, globalProfileId]) // One override per device-profile pair
+  @@index([deviceId])
+  @@index([globalProfileId])
+}
+
+// Device Profile Override Setting Model
+// Individual setting overrides for a device
+model DeviceProfileOverrideSetting {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
+  
+  // Parent override
+  overrideId  String
+  override    DeviceProfileOverride @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+  
+  // Setting data (only key, value, dataType needed - label/category come from global)
+  key         String   // e.g., "brightness_level"
+  value       String   // e.g., "90" (overridden value)
+  dataType    String   // e.g., "range"
+  
+  // Permissions
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', override.globalProfile.account.members?[userId == auth().id])
+  
+  // Constraints
+  @@unique([overrideId, key]) // One override per setting per device
+  @@index([overrideId])
 }
 
 // Device App Data Summary Model

@@ -24,6 +24,7 @@ export interface ApkParseResult {
     packageName: string | null;
     versionName: string | null;
     versionCode: number | null;
+    signature: string | null;
     appName: string | null;
   };
   error?: string;

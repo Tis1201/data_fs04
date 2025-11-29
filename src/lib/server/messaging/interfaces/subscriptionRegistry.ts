@@ -46,6 +46,12 @@ export interface SubscriptionRegistry {
      * Get all subscriptions for a specific scope (subscriber).
      */
     getByScope(scope: string): Promise<SubscriptionMeta[]>;
+  
+    /**
+     * Remove all subscriptions for a specific scope (e.g., when a connection closes).
+     * Returns the number of subscriptions removed.
+     */
+    removeSubscriptionsByScope(scope: string): Promise<number>;
   }
 
 

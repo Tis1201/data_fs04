@@ -15,6 +15,14 @@ export const load = restrict(async ({ params, locals, depends }: any) => {
         claims: true,
         account: {
           select: { id: true, name: true }
+        },
+        profile: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            isActive: true
+          }
         }
       }
     });

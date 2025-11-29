@@ -229,13 +229,30 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 async function handleProfileApplication(deviceId: string, data: any) {
     try {
         if ((data.status === 'success' || data.status === 'complete') && data.profileId) {
+            // Find the assignment - it should match the profileId (GLOBAL profile)
+            // We use updateMany with deviceId only, then verify profileId matches
+            const assignment = await prisma.deviceProfileAssignment.findUnique({
+                where: { deviceId: deviceId },
+                select: { id: true, profileId: true, status: true }
+            });
+
+            if (!assignment) {
+                logger.warn(`[Device Status Update] No assignment found for device ${deviceId} when updating profile status`);
+                return;
+            }
+
+            // Verify the profileId matches (device should send the GLOBAL profile ID)
+            if (assignment.profileId !== data.profileId) {
+                logger.warn(`[Device Status Update] Profile ID mismatch for device ${deviceId}. Expected ${assignment.profileId}, got ${data.profileId}`);
+                // Still update if status is APPLYING or PENDING (device might have old profileId cached)
+                if (assignment.status !== 'APPLYING' && assignment.status !== 'PENDING') {
+                    return;
+                }
+            }
+
             // Update the DeviceProfileAssignment record to SUCCESS
-            await prisma.deviceProfileAssignment.updateMany({
-                where: {
-                    deviceId: deviceId,
-                    profileId: data.profileId,
-                    status: 'APPLYING' // Only update if still in APPLYING status
-                },
+            await prisma.deviceProfileAssignment.update({
+                where: { deviceId: deviceId },
                 data: {
                     status: 'SUCCESS',
                     appliedAt: new Date(),
@@ -245,20 +262,28 @@ async function handleProfileApplication(deviceId: string, data: any) {
 
             logger.info(`[Device Status Update] Profile assignment completed successfully for device ${deviceId}`, {
                 deviceId,
-                profileId: data.profileId,
+                profileId: assignment.profileId,
                 status: 'SUCCESS'
             });
 
             // Send SSE notification to web UI to update the device list
+            // Publish to multiple channels for better coverage (especially important for preclaim flow)
             try {
-                const routingMessage = MessageFactory.createSystemMessage(
+                // Get device account for account-level channel
+                const device = await prisma.device.findUnique({
+                    where: { id: deviceId },
+                    select: { accountId: true }
+                });
+
+                // 1. Publish to device channel (for device-specific subscribers)
+                const deviceMessage = MessageFactory.createSystemMessage(
                     'device:profileUpdate',
                     `subscription:device:${deviceId}`,
                     {
                         action: 'applyProfile',
                         deviceId: deviceId,
                         status: 'complete',
-                        profileId: data.profileId,
+                        profileId: assignment.profileId, // Use the assignment's profileId (GLOBAL)
                         message: 'Profile assignment completed successfully',
                         sentAt: new Date().toISOString()
                     },
@@ -266,32 +291,125 @@ async function handleProfileApplication(deviceId: string, data: any) {
                     { echoToSender: false }
                 );
 
-                await publisher.publish(routingMessage);
-                logger.info(`[Device Status Update] SSE notification sent for device ${deviceId} profile completion`);
+                await publisher.publish(deviceMessage);
+
+                // 2. Publish to profile channel (for profile page subscribers)
+                // This is critical for the profile's devices tab to receive updates
+                const profileMessage = MessageFactory.createSystemMessage(
+                    'device:profileUpdate',
+                    `subscription:device-profile:${assignment.profileId}`,
+                    {
+                        action: 'applyProfile',
+                        deviceId: deviceId,
+                        status: 'complete',
+                        profileId: assignment.profileId,
+                        message: 'Profile assignment completed successfully',
+                        sentAt: new Date().toISOString()
+                    },
+                    SystemUser,
+                    { echoToSender: false }
+                );
+
+                await publisher.publish(profileMessage);
+
+                // 3. Also publish to account devices channel (fallback for preclaim flow)
+                // This ensures updates are received even if profile channel isn't subscribed yet
+                if (device?.accountId) {
+                    const accountMessage = MessageFactory.createSystemMessage(
+                        'device:profileUpdate',
+                        `subscription:account:${device.accountId}:devices`,
+                        {
+                            action: 'applyProfile',
+                            deviceId: deviceId,
+                            status: 'complete',
+                            profileId: assignment.profileId,
+                            message: 'Profile assignment completed successfully',
+                            sentAt: new Date().toISOString()
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
+
+                    await publisher.publish(accountMessage);
+                }
+
+                logger.info(`[Device Status Update] SSE notification sent for device ${deviceId} profile completion (device + profile + account channels)`);
             } catch (sseError) {
                 logger.error(`[Device Status Update] Error sending SSE notification: ${String(sseError)}`);
             }
         } else if (data.status === 'failed') {
-            // Mark assignment as failed
-            await prisma.deviceProfileAssignment.updateMany({
-                where: {
-                    deviceId: deviceId,
-                    profileId: data.profileId
-                },
-                data: {
-                    status: 'FAILED',
-                    lastSyncAt: new Date()
+            // Find the assignment first
+            const assignment = await prisma.deviceProfileAssignment.findUnique({
+                where: { deviceId: deviceId },
+                select: { id: true, profileId: true }
+            });
+
+            if (assignment) {
+                // Mark assignment as failed
+                await prisma.deviceProfileAssignment.update({
+                    where: { deviceId: deviceId },
+                    data: {
+                        status: 'FAILED',
+                        lastSyncAt: new Date()
+                    }
+                });
+
+                logger.warn(`[Device Status Update] Profile assignment failed for device ${deviceId}`, {
+                    deviceId,
+                    profileId: assignment.profileId,
+                    message: data.message
+                });
+
+                // Send SSE notification for failure (important for preclaim flow)
+                try {
+                    const device = await prisma.device.findUnique({
+                        where: { id: deviceId },
+                        select: { accountId: true }
+                    });
+
+                    // Publish to profile channel
+                    const profileFailureMessage = MessageFactory.createSystemMessage(
+                        'device:profileUpdate',
+                        `subscription:device-profile:${assignment.profileId}`,
+                        {
+                            action: 'applyProfile',
+                            deviceId: deviceId,
+                            status: 'failed',
+                            profileId: assignment.profileId,
+                            message: data.message || 'Profile assignment failed',
+                            sentAt: new Date().toISOString()
+                        },
+                        SystemUser,
+                        { echoToSender: false }
+                    );
+                    await publisher.publish(profileFailureMessage);
+
+                    // Also publish to account channel (fallback for preclaim flow)
+                    if (device?.accountId) {
+                        const accountFailureMessage = MessageFactory.createSystemMessage(
+                            'device:profileUpdate',
+                            `subscription:account:${device.accountId}:devices`,
+                            {
+                                action: 'applyProfile',
+                                deviceId: deviceId,
+                                status: 'failed',
+                                profileId: assignment.profileId,
+                                message: data.message || 'Profile assignment failed',
+                                sentAt: new Date().toISOString()
+                            },
+                            SystemUser,
+                            { echoToSender: false }
+                        );
+                        await publisher.publish(accountFailureMessage);
+                    }
+
+                    logger.info(`[Device Status Update] SSE failure notification sent for device ${deviceId}`);
+                } catch (sseError) {
+                    logger.error(`[Device Status Update] Error sending SSE failure notification: ${String(sseError)}`);
                 }
-            });
-
-            logger.warn(`[Device Status Update] Profile assignment failed for device ${deviceId}`, {
-                deviceId,
-                profileId: data.profileId,
-                message: data.message
-            });
-
-            // Note: No SSE notification needed here as the device has already processed the failure
-            // The UI will be updated through the existing SSE subscription mechanism
+            } else {
+                logger.warn(`[Device Status Update] No assignment found for device ${deviceId} when marking as failed`);
+            }
         }
     } catch (error) {
         logger.error(`[Device Status Update] Error updating profile assignment: ${String(error)}`);

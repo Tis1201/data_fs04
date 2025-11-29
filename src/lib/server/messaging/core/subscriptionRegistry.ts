@@ -74,5 +74,19 @@ export const subscriptionRegistry: SubscriptionRegistry = {
         // Get all subscriptions for a specific scope (subscriber)
         const all = await subscriptionSharedStore.getAllMembers();
         return all.filter(sub => sub.scope === scope);
+    },
+
+    async removeSubscriptionsByScope(scope) {
+        // Remove all subscriptions for a specific scope (e.g., when a connection closes)
+        logger.debug(`[SubscriptionRegistry] Removing all subscriptions for scope: ${scope}`);
+        const subscriptions = await this.getByScope(scope);
+        logger.debug(`[SubscriptionRegistry] Found ${subscriptions.length} subscriptions to remove for scope: ${scope}`);
+        
+        for (const sub of subscriptions) {
+            await this.removeSubscription(sub.key, sub.scope);
+        }
+        
+        logger.info(`[SubscriptionRegistry] Removed ${subscriptions.length} subscriptions for scope: ${scope}`);
+        return subscriptions.length;
     }
 };

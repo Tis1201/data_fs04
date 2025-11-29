@@ -109,14 +109,15 @@ export const GET: RequestHandler = restrict(
                 };
             }
 
-            // Search filter
+            // Build search conditions
+            const searchConditions: any[] = [];
             if (search) {
-                where.OR = [
+                searchConditions.push(
                     { name: { contains: search, mode: 'insensitive' } },
                     { description: { contains: search, mode: 'insensitive' } },
                     { macAddress: { contains: search, mode: 'insensitive' } },
                     { deviceType: { contains: search, mode: 'insensitive' } }
-                ];
+                );
             }
 
             // Device type filter
@@ -134,15 +135,64 @@ export const GET: RequestHandler = restrict(
             }
 
             // Status filter (assigned/available)
-            if (status === 'assigned') {
-                where.profileAssignment = {
-                    isNot: null
-                };
+            // For 'assigned', filter by devices assigned to THIS specific profile
+            // IMPORTANT: Include ALL assignment statuses (PENDING, APPLYING, SUCCESS, FAILED)
+            // 
+            // Note: With the new override model, assignments point to GLOBAL profiles.
+            // For backward compatibility during migration, we also show devices assigned to
+            // DEVICE-level profiles in the same account (they'll be migrated later).
+            if (status === 'assigned' || !status) {
+                // Check if this is a GLOBAL profile
+                const profile = await prisma.deviceProfile.findUnique({
+                    where: { id: profileId }
+                });
+                const isGlobal = (profile as any)?.level === 'GLOBAL';
+
+                if (isGlobal && profile) {
+                    // For GLOBAL profiles: show devices assigned directly to this profile
+                    // OR devices assigned to DEVICE-level profiles in the same account
+                    // (for backward compatibility with old assignments)
+                    where.AND = [
+                        ...(where.AND || []),
+                        {
+                            OR: [
+                                {
+                                    profileAssignment: {
+                                        profileId: profileId // Direct assignment to GLOBAL profile
+                                    }
+                                },
+                                {
+                                    profileAssignment: {
+                                        profile: {
+                                            level: 'DEVICE',
+                                            accountId: profile.accountId // DEVICE-level profile in same account
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ];
+                } else {
+                    // For DEVICE-level profiles: just show devices assigned to this profile
+                    where.profileAssignment = {
+                        profileId: profileId
+                    };
+                }
             } else if (status === 'available') {
                 where.profileAssignment = null;
             }
 
+            // Combine search conditions with other filters
+            if (searchConditions.length > 0) {
+                where.AND = [
+                    ...(where.AND || []),
+                    { OR: searchConditions }
+                ];
+            }
+
             // Get devices with their current profile assignments
+            // IMPORTANT: This query includes devices with ALL assignment statuses:
+            // PENDING, APPLYING, SUCCESS, FAILED - we don't filter by status
             const devices = await prisma.device.findMany({
                 where,
                 select: {
@@ -164,7 +214,7 @@ export const GET: RequestHandler = restrict(
                     profileAssignment: {
                         select: {
                             id: true,
-                            status: true,
+                            status: true, // Include status so UI can display it (PENDING, APPLYING, SUCCESS, FAILED)
                             assignedAt: true,
                             profile: {
                                 select: {
@@ -180,39 +230,18 @@ export const GET: RequestHandler = restrict(
                 skip: offset
             });
 
-            // Filter devices by specific profile if status is 'assigned'
-            let filteredDevices = devices;
-            let totalCount = await prisma.device.count({ where });
-
-            if (status === 'assigned') {
-                filteredDevices = devices.filter(device => 
-                    device.profileAssignment?.profile?.id === profileId
-                );
-                
-                // Get the correct total count for assigned devices
-                const assignedWhere = { ...where };
-                assignedWhere.profileAssignment = {
-                    isNot: null
-                };
-                const allAssignedDevices = await prisma.device.findMany({
-                    where: assignedWhere,
-                    select: {
-                        id: true,
-                        profileAssignment: {
-                            select: {
-                                profile: {
-                                    select: {
-                                        id: true
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-                totalCount = allAssignedDevices.filter(device => 
-                    device.profileAssignment?.profile?.id === profileId
-                ).length;
+            // Debug logging to verify devices with APPLYING status are included
+            if (status === 'assigned' || !status) {
+                const applyingDevices = devices.filter(d => d.profileAssignment?.status === 'APPLYING');
+                if (applyingDevices.length > 0) {
+                    logger.debug(`[Devices List] Found ${applyingDevices.length} device(s) with APPLYING status for profile ${profileId}`);
+                }
             }
+
+            // Devices are already filtered by profileId in the where clause if status === 'assigned'
+            // No need for additional in-memory filtering
+            const filteredDevices = devices;
+            const totalCount = await prisma.device.count({ where });
 
             return json({
                 success: true,

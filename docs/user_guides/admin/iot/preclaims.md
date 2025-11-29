@@ -70,6 +70,7 @@ Preclaims allow you to pre-configure device claims before devices are registered
 #### Basic Preclaim Setup
 - **Preclaim Name** - Choose descriptive name (required)
 - **Description** - Add detailed description (optional)
+- **Device Profile** - Assign device profile to auto-configure claimed devices (optional)
 - **Expiration Date** - Set preclaim expiration date
 - **File Upload** - Upload CSV/XLSX file with device MAC addresses
 - **Form Validation** - Real-time validation with error messages
@@ -86,11 +87,45 @@ Preclaims allow you to pre-configure device claims before devices are registered
 - **Expiration Management** - Set and manage expiration dates
 - **Preclaim Actions** - View, edit, or delete preclaims
 
+### Device Profile Integration
+
+#### Automatic Profile Assignment
+When you assign a device profile to a preclaim set, all devices claimed through that preclaim will automatically receive the profile configuration. This enables:
+- **Zero-Touch Deployment**: Devices auto-configure when claimed
+- **Consistent Configuration**: All devices get identical settings
+- **Simplified Management**: Update profile instead of individual devices
+
+#### How It Works
+1. **Create/Select Profile** - Choose or create a device profile with desired settings
+2. **Assign to Preclaim** - Select the profile when creating/editing preclaim set
+3. **Claim Devices** - When devices are claimed via PIN:
+   - System creates device-level copy of the profile
+   - Profile is automatically assigned to the claimed device
+   - Settings are pushed to device when it connects
+4. **Device Configured** - Device receives and applies all profile settings
+
+#### Profile Requirements
+- **Profile Level**: Must be GLOBAL-level profile
+- **Profile Status**: Must be active
+- **Profile Scope**: Can be from any account (if admin)
+- **Optional Field**: Preclaims can be created without a profile
+
+#### Profile Lifecycle
+```
+GLOBAL Profile (Template)
+    ↓ Preclaim Created with Profile
+    ↓ Device Claimed via Preclaim
+DEVICE Profile (Copy)
+    ↓ Auto-assigned to Device
+    ↓ Device Connects
+Settings Applied to Device
+```
+
 ### Preclaim Management Features
 
 #### Quick Actions
 - **View Details** - Click preclaim name or view button
-- **Edit Preclaim** - Modify preclaim details
+- **Edit Preclaim** - Modify preclaim details (including profile)
 - **Delete Preclaim** - Remove preclaim with confirmation
 
 #### Bulk Operations
@@ -101,13 +136,14 @@ Preclaims allow you to pre-configure device claims before devices are registered
 
 ## Common Workflows
 
-### Workflow 1: Create New Preclaim Set
+### Workflow 1: Create New Preclaim Set with Device Profile
 1. **Navigate to Preclaims** - Go to Admin → IOT → Preclaims
 2. **Click "Add Preclaim Set"** - Start preclaim creation process
 3. **Enter Preclaim Details** - Fill in name, description, expiration date
-4. **Upload Device File** - Upload CSV/XLSX file with MAC addresses
-5. **Create Preclaim** - Create the preclaim set
-6. **Verify Creation** - Confirm preclaim is created successfully
+4. **Select Device Profile** - Choose profile to auto-configure claimed devices (optional)
+5. **Upload Device File** - Upload CSV/XLSX file with MAC addresses
+6. **Create Preclaim** - Create the preclaim set
+7. **Verify Creation** - Confirm preclaim is created successfully
 
 ### Workflow 2: View Preclaim Details
 1. **Find Preclaim** - Use search to locate preclaim
@@ -174,9 +210,19 @@ Preclaims allow you to pre-configure device claims before devices are registered
 ### Preclaim Design
 - **Descriptive Names** - Use clear, descriptive preclaim names
 - **Helpful Descriptions** - Add descriptions for preclaim purpose
+- **Device Profiles** - Assign profiles for automatic device configuration
+- **Profile Templates** - Create reusable profiles for common device types
 - **Appropriate Expiration** - Set reasonable expiration dates
 - **File Organization** - Organize device files logically
 - **Clear Documentation** - Document preclaim purpose and usage
+
+### Device Profile Best Practices
+- **Test Profiles** - Test profiles on sample devices before bulk deployment
+- **Profile Naming** - Use descriptive names that indicate purpose (e.g., "Retail Kiosk Standard")
+- **Profile Documentation** - Document what each profile configures
+- **Profile Versioning** - Consider creating new profiles instead of modifying existing ones for major changes
+- **Account Scope** - Keep profiles within appropriate account scope
+- **Active Status** - Ensure profiles are active before assigning to preclaims
 
 ### File Management
 - **Supported Formats** - Use CSV or XLSX files only

@@ -26,12 +26,45 @@ export const load = restrict(
           updatedAt: true,
           createdBy: true,
           accountId: true,
+          profileId: true,
+          profile: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          }
         }
       });
 
       if (!preclaimSet) {
         throw error(404, 'Pre-claim set not found');
       }
+
+      // Load available device profiles (GLOBAL level only)
+      const profiles = await locals.prisma.deviceProfile.findMany({
+        where: {
+          isActive: true,
+          level: 'GLOBAL'
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          accountId: true,
+          account: {
+            select: { name: true }
+          }
+        },
+        orderBy: { name: 'asc' }
+      });
+
+      const profileOptions = profiles.map(profile => ({
+        value: profile.id,
+        label: `${profile.name} (${profile.account.name})`,
+        description: profile.description,
+        accountId: profile.accountId
+      }));
 
       const form = await superValidate(
         {
@@ -40,11 +73,12 @@ export const load = restrict(
           description: preclaimSet.description ?? '',
           status: preclaimSet.status,
           expiresAt: preclaimSet.expiresAt ? new Date(preclaimSet.expiresAt).toISOString().slice(0, 16) : null,
+          profileId: preclaimSet.profileId ?? null,
         },
         zod(preclaimSetEditSchema)
       );
 
-      return { form, preclaimSet };
+      return { form, preclaimSet, profileOptions };
     } catch (e) {
       logger.error('Error loading pre-claim set for edit:', e);
       throw error(500, 'Failed to load pre-claim set');
@@ -82,7 +116,8 @@ export const actions: Actions = {
           description: form.data.description || null,
           status: form.data.status,
           expiresAt,
-        } as const;
+          profileId: form.data.profileId || null,
+        };
 
         const updated = await locals.prisma.preclaimSet.update({
           where: { id },

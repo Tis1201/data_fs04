@@ -11,7 +11,7 @@ import { logAudit } from '$lib/server/audit-logger';
 import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
-  async ({ params, locals }) => {
+  async ({ params, locals }: any) => {
     const id = params.id;
     try {
       const preclaimSet = await locals.prisma.preclaimSet.findUnique({
@@ -26,12 +26,41 @@ export const load = restrict(
           updatedAt: true,
           createdBy: true,
           accountId: true,
+          profileId: true,
+          profile: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          }
         }
       });
 
       if (!preclaimSet) {
         throw error(404, 'Pre-claim set not found');
       }
+
+      // Load available device profiles (GLOBAL level only, for user's account)
+      const profiles = await locals.prisma.deviceProfile.findMany({
+        where: {
+          isActive: true,
+          level: 'GLOBAL',
+          accountId: preclaimSet.accountId // User's current account
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true
+        },
+        orderBy: { name: 'asc' }
+      });
+
+      const profileOptions = profiles.map((profile: any) => ({
+        value: profile.id,
+        label: profile.name,
+        description: profile.description
+      }));
 
       const form = await superValidate(
         {
@@ -40,13 +69,14 @@ export const load = restrict(
           description: preclaimSet.description ?? '',
           status: preclaimSet.status,
           expiresAt: preclaimSet.expiresAt ? new Date(preclaimSet.expiresAt).toISOString().slice(0, 16) : null,
+          profileId: preclaimSet.profileId ?? null,
         },
         zod(preclaimSetEditSchema)
       );
 
-      return { form, preclaimSet };
+      return { form, preclaimSet, profileOptions };
     } catch (e) {
-      logger.error('Error loading pre-claim set for edit:', e);
+      logger.error('Error loading pre-claim set for edit:', e as Record<string, any>);
       throw error(500, 'Failed to load pre-claim set');
     }
   },
@@ -55,7 +85,7 @@ export const load = restrict(
 
 export const actions: Actions = {
   save: restrict(
-    async ({ request, params, locals }) => {
+    async ({ request, params, locals }: any) => {
       const id = params.id;
       const form = await superValidate(request, zod(preclaimSetEditSchema));
       logger.debug(`Preclaim set edit form data: ${JSON.stringify(form)}`);
@@ -82,7 +112,8 @@ export const actions: Actions = {
           description: form.data.description || null,
           status: form.data.status,
           expiresAt,
-        } as const;
+          profileId: form.data.profileId || null,
+        };
 
         const updated = await locals.prisma.preclaimSet.update({
           where: { id },
@@ -108,7 +139,7 @@ export const actions: Actions = {
           })
         );
       } catch (e) {
-        logger.error('Error updating pre-claim set:', e);
+        logger.error('Error updating pre-claim set:', e as Record<string, any>);
         return fail(500, { form, error: 'Failed to update pre-claim set' });
       }
     },
@@ -116,7 +147,7 @@ export const actions: Actions = {
   ),
 
   cancel: restrict(
-    async ({ params }) => {
+    async ({ params }: any) => {
       throw redirect(303, `/user/iot/preclaims/${params.id}`);
     },
     [SystemRole.USER]

@@ -86,7 +86,7 @@
         label: $form.isActive === 'true' ? 'Active' : 'Inactive'
     };
     
-    // Use global SSE store for device profile updates
+    // Use global SSE store (managed by AuthStateHandler)
     let lastSubscribedConnectionId: string | null = null;
     
     // Reference to ProfileSettingsEditor component for validation
@@ -108,7 +108,7 @@
         // Use global SSE connection (managed by AuthStateHandler)
         console.log('[DeviceProfileEdit] Using global SSE connection:', {
             connectionId: sseStore.connectionId,
-            status: sseStore.connectionStatus
+            isConnected: sseStore.isConnected
         });
 
         // Function to subscribe to device profile channel
@@ -118,7 +118,11 @@
                 return;
             }
             
-            console.log('[DeviceProfileEdit] Subscribing to device profile channel', { profileId: data.profile.id, connId });
+            console.log('[DeviceProfileEdit] Subscribing to device profile channel', { 
+                profileId: data.profile.id, 
+                connId 
+            });
+            
             try {
                 const response = await fetch(`/api/sse/subscribe/device-profile/${data.profile.id}`, {
                     method: 'POST',
@@ -141,7 +145,7 @@
         }
         
         // Check if SSE is already connected and subscribe immediately
-        if (sseStore.connectionId && sseStore.connectionStatus === 'OPEN') {
+        if (sseStore.connectionId && sseStore.isConnected) {
             console.log('[DeviceProfileEdit] SSE already connected, subscribing immediately');
             subscribeToDeviceProfileChannel(sseStore.connectionId);
         }

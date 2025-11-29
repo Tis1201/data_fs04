@@ -96,10 +96,10 @@ export const GET: RequestHandler = restrict(
                 ConnectionManager.unregisterConnection(connectionId);
 
                 // Remove any subscriptions for this connection
-                // const connectionScope = `subscriber:connection:${clientId}`;
-                // await subscriptionRegistry.removeSubscriptionsByScope(connectionScope);
+                const connectionScope = `subscriber:connection:${connectionId}`;
+                await subscriptionRegistry.removeSubscriptionsByScope(connectionScope);
 
-                logger.info(`[SSE] Web SSE connection closed for user ${auth.user?.id} with connectionId ${connectionId}`);
+                logger.info(`[SSE] Web SSE connection closed for user ${auth.user?.id} with connectionId ${connectionId}. Subscriptions cleaned up.`);
             }
         });
 

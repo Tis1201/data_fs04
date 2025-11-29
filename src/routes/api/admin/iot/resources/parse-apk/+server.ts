@@ -1,9 +1,40 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import AppInfoParser from 'app-info-parser';
+import pkg from 'node-apk';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import crypto from 'crypto';
+
+const { Apk } = pkg;
+
+/**
+ * Extract APK signature from certificate info
+ * Returns SHA-256 hash of the certificate
+ */
+async function extractApkSignature(apk: InstanceType<typeof Apk>): Promise<string | null> {
+    try {
+        const certs = await apk.getCertificateInfo();
+        if (!certs || certs.length === 0) {
+            console.warn('[APK Parser] No certificates found in APK');
+            return null;
+        }
+
+        // Get the first certificate (usually the signing certificate)
+        const cert = certs[0];
+        if (!cert || !cert.bytes) {
+            console.warn('[APK Parser] Certificate bytes not available');
+            return null;
+        }
+
+        // Calculate SHA-256 hash of the certificate
+        const hash = crypto.createHash('sha256').update(cert.bytes).digest('hex');
+        return hash.toLowerCase();
+    } catch (error) {
+        console.warn('[APK Parser] Error extracting signature:', error);
+        return null;
+    }
+}
 
 export const POST: RequestHandler = async ({ request }) => {
     let tempFilePath: string | null = null;
@@ -35,27 +66,53 @@ export const POST: RequestHandler = async ({ request }) => {
         const buffer = Buffer.from(await file.arrayBuffer());
         await writeFile(tempFilePath, buffer);
 
-        // Parse the APK
-        const parser = new AppInfoParser(tempFilePath);
-        const info = await parser.parse();
+        // Parse the APK using node-apk
+        const apk = new Apk(tempFilePath);
+        
+        try {
+            // Get manifest information
+            const manifest = await apk.getManifestInfo();
+            
+            // Extract the data we need
+            const packageName = manifest.package ?? null;
+            const versionName = manifest.versionName ?? null;
+            const versionCode = manifest.versionCode ?? null;
+            
+            // Get application label (can be a resource reference or string)
+            let appName: string | null = null;
+            if (manifest.applicationLabel) {
+                if (typeof manifest.applicationLabel === 'string') {
+                    appName = manifest.applicationLabel;
+                } else {
+                    // If it's a resource reference, try to resolve it
+                    try {
+                        const resources = await apk.getResources();
+                        const resolved = resources.resolve(manifest.applicationLabel);
+                        if (resolved && resolved.length > 0) {
+                            appName = resolved[0].value as string;
+                        }
+                    } catch (resourceError) {
+                        console.warn('[APK Parser] Could not resolve application label resource:', resourceError);
+                    }
+                }
+            }
 
-        // Extract the data we need
-        // Note: label can be an array or string, we need to handle both
-        let appName = info.application?.label ?? null;
-        if (Array.isArray(appName) && appName.length > 0) {
-            appName = appName[0];
+            // Extract signature from certificate
+            const signature = await extractApkSignature(apk);
+
+            const out = {
+                packageName: packageName,
+                versionName: versionName,
+                versionCode: versionCode,
+                signature: signature,
+                appName: appName
+            };
+
+            return json({ success: true, data: out });
+        } finally {
+            // Clean up Apk instance
+            apk.close();
         }
-
-        const out = {
-            packageName: info.package ?? null,
-            versionName: info.versionName ?? null,
-            versionCode: typeof info.versionCode === 'string' 
-                ? Number(info.versionCode) 
-                : (info.versionCode ?? null),
-            appName: appName
-        };
-
-        return json({ success: true, data: out });
     } catch (error) {
         console.error('[APK Parser] Error parsing APK:', error);
         return json({ 

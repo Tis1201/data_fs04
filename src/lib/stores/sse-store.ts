@@ -716,22 +716,52 @@ export const sseStore = createSSEStore();
 
 /**
  * Create a per-component SSE store
- * Use this when you need independent SSE connections per component/page
- * Each instance has its own connection and lifecycle
+ * 
+ * ⚠️ **WARNING: USE WITH CAUTION!** ⚠️
+ * 
+ * In 99% of cases, you should use the global `sseStore` instead!
+ * This function creates DUPLICATE SSE connections which can cause:
+ * - Memory leaks (subscriber count increasing on page reload)
+ * - Race conditions and stale connection IDs
+ * - Unnecessary server load (1 connection per component vs 1 per user)
+ * - Conflicts with AuthStateHandler's global connection
+ * 
+ * **When to use the GLOBAL store (recommended):**
+ * ```typescript
+ * import { sseStore } from "$lib/stores/sse-store";
+ * // AuthStateHandler manages the connection
+ * // Just subscribe to channels you need
+ * sseStore.on('connected', (msg) => {
+ *     // Subscribe to your channel
+ * });
+ * ```
+ * 
+ * **ONLY use createComponentSSE() for these rare cases:**
+ * 1. Standalone widgets/embeds in external sites (iframes)
+ * 2. Multi-tenant admin tools monitoring different tenants simultaneously
+ * 3. Isolated testing/development environments
+ * 4. Background workers that need separate connections
+ * 
+ * **DO NOT use for normal page components!**
  * 
  * @example
  * ```typescript
- * // In your component
+ * // ❌ WRONG - Creates duplicate connections
  * const mySSE = createComponentSSE();
- * onMount(() => {
- *     mySSE.connect('/api/sse');
- * });
- * onDestroy(() => {
- *     mySSE.disconnect();
- * });
+ * onMount(() => mySSE.connect('/api/sse'));
+ * 
+ * // ✅ CORRECT - Use global store
+ * import { sseStore } from "$lib/stores/sse-store";
+ * // Connection managed by AuthStateHandler
  * ```
+ * 
+ * @deprecated Consider using global `sseStore` instead
  */
 export function createComponentSSE() {
+    console.warn(
+        '[SSE] createComponentSSE() called - Consider using global sseStore instead to avoid duplicate connections. ' +
+        'See documentation for valid use cases.'
+    );
     return createSSEStore();
 }
 

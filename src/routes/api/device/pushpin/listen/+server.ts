@@ -14,6 +14,7 @@ import { publishDeviceStatusEvent } from '$lib/server/device/deviceEventPublishe
 import { logger } from '$lib/server/logger';
 import { json } from '@sveltejs/kit';
 import crypto from 'crypto';
+import { ProfileMessagingService } from '$lib/server/device/profile';
 
 /**
  * POST: Step 1 of two-step handshake (optional)
@@ -240,6 +241,10 @@ export const GET: RequestHandler = async ({ locals, request, url }) => {
             timestamp: new Date().toISOString()
           });
         }
+        
+        // Check for pending profile assignments and send them
+        const messagingService = new ProfileMessagingService(locals.prisma);
+        await messagingService.sendPendingAssignments(device.id);
         
         logger.info(`[Pushpin] Connection event and welcome message published for device ${device.id}`);
       } catch (e) {

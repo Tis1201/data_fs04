@@ -11,7 +11,9 @@ export const preclaimSetEditSchema = z.object({
   description: z.string().optional().nullable(),
   status: z.enum(['ACTIVE', 'INACTIVE'], { required_error: 'Status is required' }),
   // Accept string from form; server will convert to Date | null
-  expiresAt: z.string().optional().nullable()
+  expiresAt: z.string().optional().nullable(),
+  // Optional device profile assignment
+  profileId: z.string().optional().nullable()
 });
 
 export type PreclaimSetEditSchema = typeof preclaimSetEditSchema;

@@ -20,6 +20,8 @@ export const resourceSchema = z.object({
     version: z.string()
         .optional()
         .default('1.0.0'),
+    versionCode: z.number().int().optional().nullable(),
+    signature: z.string().optional().nullable(),
     format: z.string()
         .min(1, { message: 'Format is required' }),
     packageName: z.string()

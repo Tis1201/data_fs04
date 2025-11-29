@@ -35,6 +35,7 @@ The **User Preclaims** feature allows you to claim IoT devices using PIN codes. 
 #### PIN Generation
 - **PIN Code** - Unique PIN code for device claiming
 - **Device Assignment** - Assign PIN to specific device
+- **Device Profile** - Auto-configure devices with assigned profile (optional)
 - **Expiration Date** - Set PIN expiration date
 - **Usage Limit** - Set maximum number of uses
 - **User Assignment** - Assign PIN to specific user
@@ -95,6 +96,45 @@ The **User Preclaims** feature allows you to claim IoT devices using PIN codes. 
 - **Complete Set** - Mark preclaim set as complete
 
 ## Advanced Features
+
+### Device Profile Auto-Configuration
+
+When a preclaim set has an assigned device profile, all devices claimed through that set will automatically receive the profile configuration. This feature enables zero-touch device deployment.
+
+#### How It Works
+1. **Administrator assigns profile** to preclaim set during creation
+2. **User claims device** using PIN code from preclaim
+3. **System automatically**:
+   - Creates device-level copy of the profile
+   - Assigns profile to the claimed device
+   - Marks device as ready for configuration
+4. **Device connects** and receives profile settings
+5. **Settings applied** automatically to device
+
+#### Benefits
+- **Zero-Touch Setup**: Devices configure themselves when claimed
+- **Consistent Configuration**: All devices get identical settings
+- **Time Savings**: No manual device configuration needed
+- **Error Reduction**: Eliminates manual configuration mistakes
+- **Bulk Deployment**: Configure hundreds of devices automatically
+
+#### Example: Office Kiosk Deployment
+```
+Preclaim Set: "Office Kiosks Q4"
+Profile: "Standard Kiosk Profile"
+Settings:
+  - Kiosk Lock Mode: Enabled
+  - Display Resolution: 1920x1080
+  - Auto-Reboot: Daily at 2 AM
+  - Volume: 75%
+
+When claimed:
+  ✅ Device receives PIN
+  ✅ Device is claimed
+  ✅ Profile auto-assigned
+  ✅ Settings pushed to device
+  ✅ Kiosk ready for use
+```
 
 ### PIN-Based Claiming Logic & Timeouts
 
@@ -220,14 +260,16 @@ Device Claiming:
 
 ## Common Workflows
 
-### Workflow 1: Generate and Distribute PINs
+### Workflow 1: Generate and Distribute PINs with Auto-Configuration
 1. **Create Preclaim Set** - Create new preclaim set
-2. **Select Devices** - Choose devices for claiming
-3. **Generate PINs** - Generate PIN codes for devices
-4. **Assign Users** - Assign PINs to users
-5. **Distribute PINs** - Send PINs to users
-6. **Monitor Distribution** - Track PIN distribution
-7. **Confirm Receipt** - Confirm users received PINs
+2. **Select Device Profile** - Choose profile for automatic device configuration (optional)
+3. **Select Devices** - Choose devices for claiming
+4. **Generate PINs** - Generate PIN codes for devices
+5. **Assign Users** - Assign PINs to users
+6. **Distribute PINs** - Send PINs to users
+7. **Monitor Distribution** - Track PIN distribution
+8. **Confirm Receipt** - Confirm users received PINs
+9. **Devices Auto-Configure** - When claimed, devices receive profile settings automatically
 
 ### Workflow 2: Device Claiming Process
 1. **User Receives PIN** - User receives PIN code

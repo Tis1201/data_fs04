@@ -134,6 +134,8 @@ export const actions: Actions = {
                         type: form.data.type,
                         target: form.data.target,
                         version: form.data.version,
+                        versionCode: form.data.versionCode,
+                        signature: form.data.signature,
                         format: form.data.format,
                         packageName: form.data.packageName,
                         path: form.data.path,
@@ -196,10 +198,13 @@ export const actions: Actions = {
                     const resource = await enhancedPrisma.resource.create({
                         data: {
                             name: form.data.name,
-                            type: form.data.type,
                             description: form.data.description,
+                            type: form.data.type,
                             target: form.data.target,
                             version: form.data.version,
+                            versionCode: form.data.versionCode ?? null,
+                            signature: form.data.signature ?? null,
+                            releaseType: 'Production', // Default release type
                             format: form.data.format,
                             packageName: form.data.packageName,
                             path: form.data.path,
@@ -207,7 +212,7 @@ export const actions: Actions = {
                             accountId: accountId,
                             createdBy: auth.user.id,
                             updatedBy: auth.user.id
-                        }
+                        } as any // Type assertion needed due to enhanced Prisma client type limitations
                     });
                     
                     logger.info(`Resource created: ${resource.id}`);

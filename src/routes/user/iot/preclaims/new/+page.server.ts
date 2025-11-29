@@ -15,20 +15,43 @@ const preclaimSetSchema = z.object({
     name: z.string().min(1, { message: 'Name is required' }).max(255),
     description: z.string().optional().nullable(),
     expiresAt: z.string().optional().nullable(), // yyyy-MM-dd from date picker
+    profileId: z.string().optional().nullable(), // Optional device profile assignment
 });
 
 export const load = restrict(
     async ({ locals }: any) => {
         const form = await superValidate(zod(preclaimSetSchema), {
-            id: 'preclaim-set-form',
-            dataType: 'json'
+            id: 'preclaim-set-form'
         });
 
         const { currentAccount } = locals;
+        const accountId = currentAccount?.accountId ?? null;
+
+        // Load available device profiles for the current account (GLOBAL level only)
+        const profiles = await locals.prisma.deviceProfile.findMany({
+            where: {
+                isActive: true,
+                level: 'GLOBAL', // Only GLOBAL profiles can be assigned to preclaims
+                accountId: accountId // Only show profiles from user's current account
+            },
+            select: {
+                id: true,
+                name: true,
+                description: true
+            },
+            orderBy: { name: 'asc' }
+        });
+
+        const profileOptions = profiles.map((profile: any) => ({
+            value: profile.id,
+            label: profile.name,
+            description: profile.description
+        }));
 
         return {
             form,
-            accountId: currentAccount?.id ?? currentAccount?.accountId ?? null
+            accountId,
+            profileOptions
         };
     },
     [SystemRole.USER]
@@ -209,6 +232,7 @@ export const actions: Actions = {
                                 status: 'ACTIVE',
                                 expiresAt: expiresAt,
                                 accountId,
+                                profileId: form.data.profileId || null, // Optional profile assignment
                                 createdBy: auth.user.id
                             }
                         });
@@ -232,8 +256,7 @@ export const actions: Actions = {
                     logger.info(`PreclaimSet created ${result.id} with ${rows.length} devices`);
                     return message(
                         form,
-                        createSuccessResponse('Preclaim set created successfully', { id: result.id }),
-                        { status: 200 }
+                        createSuccessResponse('Preclaim set created successfully', { data: { id: result.id } })
                     );
                 } catch (err) {
                     return handleFormError({

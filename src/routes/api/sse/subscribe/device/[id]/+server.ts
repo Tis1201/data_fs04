@@ -4,6 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { logger } from '$lib/server/logger';
+import { cleanupStaleSubscriptions } from '$lib/server/messaging/utils/subscriptionCleanup';
 
 export const POST: RequestHandler = restrict(async ({ params, request, locals, auth }: any) => {
   const deviceId = params.id;
@@ -44,7 +45,13 @@ export const POST: RequestHandler = restrict(async ({ params, request, locals, a
   console.log('[SSE Subscribe] Adding subscription:', { subscriptionKey, subscriberScope });
   await subscriptionRegistry.addSubscription(subscriptionKey, subscriberScope);
   
-  // Verify subscription was added
+  // Clean up stale subscriptions (connections that no longer exist)
+  const cleanedCount = await cleanupStaleSubscriptions(subscriptionKey, connectionId);
+  if (cleanedCount > 0) {
+    console.log(`[SSE Subscribe] Cleaned up ${cleanedCount} stale subscription(s)`);
+  }
+  
+  // Verify subscription was added and get final count
   const subscribers = await subscriptionRegistry.getByKey(subscriptionKey);
   console.log('[SSE Subscribe] Subscription added successfully. Total subscribers for', subscriptionKey, ':', subscribers.length);
   console.log('[SSE Subscribe] Subscriber list:', subscribers);

@@ -43,6 +43,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         
         const accountIds = userAccountMemberships.map(m => m.accountId);
         where.accountId = { in: accountIds };
+        where.level = 'GLOBAL'; // Only show global profiles, not device-level copies
 
         // Search filter
         if (search) {

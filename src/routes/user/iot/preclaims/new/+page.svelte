@@ -5,6 +5,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import * as Select from "$lib/components/ui/select";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
@@ -191,6 +192,38 @@
           <FormRow columns={1}>
             <FormField id="description" label="Description" error={$errors.description}>
               <Textarea id="description" name="description" rows={3} bind:value={$form.description} />
+            </FormField>
+          </FormRow>
+
+          <FormRow columns={1}>
+            <FormField id="profileId" label="Device Profile (Optional)" error={$errors.profileId}>
+              <Select.Root 
+                onSelectedChange={(selected) => {
+                  $form.profileId = selected?.value ?? null;
+                }}
+                selected={data.profileOptions.find(p => p.value === $form.profileId) ? { value: $form.profileId, label: data.profileOptions.find(p => p.value === $form.profileId)?.label } : undefined}
+              >
+                <Select.Trigger class="w-full">
+                  <Select.Value placeholder="Select a device profile (optional)" />
+                </Select.Trigger>
+                <Select.Content>
+                  <Select.Item value={null}>No Profile</Select.Item>
+                  {#each data.profileOptions as option}
+                    <Select.Item value={option.value}>
+                      <div>
+                        <div class="font-medium">{option.label}</div>
+                        {#if option.description}
+                          <div class="text-xs text-muted-foreground">{option.description}</div>
+                        {/if}
+                      </div>
+                    </Select.Item>
+                  {/each}
+                </Select.Content>
+              </Select.Root>
+              <input type="hidden" name="profileId" bind:value={$form.profileId} />
+              <p class="text-xs text-muted-foreground mt-1">
+                When devices are claimed via this preclaim, the selected profile will be automatically applied to them.
+              </p>
             </FormField>
           </FormRow>
 

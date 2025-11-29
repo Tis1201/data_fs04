@@ -196,6 +196,23 @@
             </FormField>
           </FormRow>
 
+          <FormRow columns={1}>
+            <FormField id="profileId" label="Device Profile (Optional)" error={$errors.profileId}>
+              <EnhancedSelect
+                id="profileId"
+                name="profileId"
+                bind:value={$form.profileId}
+                placeholder="Select a device profile (optional)"
+                aria-invalid={$errors.profileId ? 'true' : undefined}
+                options={data.profileOptions}
+                clearable={true}
+              />
+              <p class="text-xs text-muted-foreground mt-1">
+                When devices are claimed via this preclaim, the selected profile will be automatically applied to them.
+              </p>
+            </FormField>
+          </FormRow>
+
           <FormRow columns={2}>
             <FormField id="expiresAt" label="Expiry Date" error={$errors.expiresAt}>
               <EnhancedDatePicker

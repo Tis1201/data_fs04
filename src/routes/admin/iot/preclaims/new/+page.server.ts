@@ -16,13 +16,13 @@ const preclaimSetSchema = z.object({
     accountId: z.string().min(25, { message: 'Account is required' }),
     description: z.string().optional().nullable(),
     expiresAt: z.string().optional().nullable(), // yyyy-MM-dd from date picker
+    profileId: z.string().optional().nullable(), // Optional device profile assignment
 });
 
 export const load = restrict(
     async ({ locals }: any) => {
         const form = await superValidate(zod(preclaimSetSchema), {
-            id: 'preclaim-set-form',
-            dataType: 'json'
+            id: 'preclaim-set-form'
         });
 
         const accounts = await locals.prisma.account.findMany({
@@ -31,14 +31,40 @@ export const load = restrict(
             orderBy: { name: 'asc' }
         });
 
-        const accountOptions = accounts.map(account => ({
+        const accountOptions = accounts.map((account: any) => ({
             value: account.id,
             label: account.name
         }));
 
+        // Load available device profiles (GLOBAL level only for preclaims)
+        const profiles = await locals.prisma.deviceProfile.findMany({
+            where: {
+                isActive: true,
+                level: 'GLOBAL' // Only GLOBAL profiles can be assigned to preclaims
+            },
+            select: {
+                id: true,
+                name: true,
+                description: true,
+                accountId: true,
+                account: {
+                    select: { name: true }
+                }
+            },
+            orderBy: { name: 'asc' }
+        });
+
+        const profileOptions = profiles.map((profile: any) => ({
+            value: profile.id,
+            label: `${profile.name} (${profile.account.name})`,
+            description: profile.description,
+            accountId: profile.accountId
+        }));
+
         return {
             form,
-            accountOptions
+            accountOptions,
+            profileOptions
         };
     },
     [SystemRole.ADMIN]
@@ -99,7 +125,7 @@ export const actions: Actions = {
                     return fail(400, { form });
                 }
 
-                const { name, description, expiresAt, accountId } = form.data;
+                const { name, description, expiresAt, accountId, profileId } = form.data;
 
                 if (!(rawFile instanceof File)) {
                     return message(form, createErrorResponse('Please upload a CSV file.'), { status: 400 });
@@ -203,6 +229,7 @@ export const actions: Actions = {
                                 status: 'ACTIVE',
                                 expiresAt: expiresAt ? new Date(`${expiresAt}T00:00:00`) : null,
                                 accountId,
+                                profileId: profileId || null, // Optional profile assignment
                                 createdBy: locals.user.id
                             }
                         });
@@ -226,8 +253,7 @@ export const actions: Actions = {
                     logger.info(`PreclaimSet created ${result.id} with ${rows.length} devices`);
                     return message(
                         form,
-                        createSuccessResponse('Preclaim set created successfully', { id: result.id }),
-                        { status: 200 }
+                        createSuccessResponse('Preclaim set created successfully', { data: { id: result.id } })
                     );
                 } catch (err) {
                     return handleFormError({

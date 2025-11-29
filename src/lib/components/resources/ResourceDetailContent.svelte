@@ -200,6 +200,50 @@
                     </FormField>
                 </FormRow>
 
+                {#if ($formStore.versionCode !== null && $formStore.versionCode !== undefined) || ($formStore.signature)}
+                    <FormRow columns={2}>
+                        {#if $formStore.versionCode !== null && $formStore.versionCode !== undefined}
+                            <FormField id="versionCode" label="Version Code" error={$errors.versionCode}>
+                                <Input
+                                        id="versionCode"
+                                        name="versionCode"
+                                        type="number"
+                                        bind:value={$formStore.versionCode}
+                                        placeholder="Auto-extracted from APK"
+                                        readonly
+                                        disabled
+                                        class="bg-muted cursor-not-allowed"
+                                        aria-invalid={$errors.versionCode ? 'true' : undefined}
+                                />
+                                <input type="hidden" name="versionCode" value={$formStore.versionCode} />
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Version code is automatically extracted from the APK file (read-only)
+                                </p>
+                            </FormField>
+                        {/if}
+
+                        {#if $formStore.signature}
+                            <FormField id="signature" label="Signature" error={$errors.signature}>
+                                <Input
+                                        id="signature"
+                                        name="signature"
+                                        type="text"
+                                        bind:value={$formStore.signature}
+                                        placeholder="Auto-extracted from APK"
+                                        readonly
+                                        disabled
+                                        class="bg-muted cursor-not-allowed font-mono text-xs"
+                                        aria-invalid={$errors.signature ? 'true' : undefined}
+                                />
+                                <input type="hidden" name="signature" value={$formStore.signature} />
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    Signature is automatically extracted from the APK file (read-only)
+                                </p>
+                            </FormField>
+                        {/if}
+                    </FormRow>
+                {/if}
+
                 <!-- Hidden preserved fields: type, format, and accountId -->
                 <input type="hidden" name="type" value={resource.type} />
                 <input type="hidden" name="format" value={resource.format} />

@@ -351,20 +351,27 @@
                     <p class="text-xs text-muted-foreground mt-1">{deviceProfile.description}</p>
                   {/if}
                 </div>
-                <Badge variant={deviceProfile.level === 'DEVICE' ? 'default' : 'secondary'} class="text-xs">
-                  {deviceProfile.level === 'DEVICE' ? 'Device Level' : 'Global'}
-                </Badge>
+                <div class="flex items-center gap-2">
+                  <Badge variant={deviceProfile.level === 'DEVICE' ? 'default' : 'secondary'} class="text-xs">
+                    {deviceProfile.level === 'DEVICE' ? 'Device Level' : 'Global'}
+                  </Badge>
+                  {#if deviceProfile.level === 'GLOBAL' && deviceProfile.hasOverrides}
+                    <Badge variant="outline" class="text-xs border-blue-300 text-blue-700">
+                      {deviceProfile.overrideCount} Customization{deviceProfile.overrideCount === 1 ? '' : 's'}
+                    </Badge>
+                  {/if}
+                </div>
               </div>
 
-              {#if deviceProfile.level === 'DEVICE'}
+              {#if deviceProfile.level === 'DEVICE' || deviceProfile.level === 'GLOBAL'}
                 {#if !deviceProfileForm}
                   <div class="rounded-md bg-yellow-50 border border-yellow-200 p-3 mt-3">
                     <p class="text-sm text-yellow-800">
-                      Device-level profile detected, but form not initialized. 
+                      Profile detected, but form not initialized. 
                       Please refresh the page.
                     </p>
                     <p class="text-xs text-yellow-700 mt-1">
-                      Profile ID: {deviceProfile.id}
+                      Profile ID: {deviceProfile.id} ({deviceProfile.level})
                     </p>
                   </div>
                 {:else if !profileEnhance}
@@ -374,7 +381,24 @@
                     </p>
                   </div>
                 {:else}
-                  <!-- Always show editable Profile Settings for device-level profiles -->
+                  <!-- Show editable Profile Settings for both DEVICE-level and GLOBAL profiles -->
+                  {#if deviceProfile.level === 'GLOBAL'}
+                    <div class="rounded-md bg-blue-50 border border-blue-200 p-3 mb-4">
+                      <p class="text-sm text-blue-800 mb-1">
+                        <strong>Global Profile with Customizations</strong>
+                      </p>
+                      <p class="text-xs text-blue-700">
+                        {#if deviceProfile.hasOverrides}
+                          This device has {deviceProfile.overrideCount} customized setting{deviceProfile.overrideCount === 1 ? '' : 's'}. 
+                          Changes will update your device-specific customizations.
+                        {:else}
+                          This is a global profile. Changes you make will create device-specific customizations (overrides) 
+                          that only apply to this device.
+                        {/if}
+                      </p>
+                    </div>
+                  {/if}
+                  
                   <form method="POST" action="?/updateDeviceProfile" use:profileEnhance>
                     <ProfileSettingsEditor 
                       bind:this={profileSettingsEditor}
@@ -384,7 +408,26 @@
                     <input type="hidden" name="name" bind:value={$profileForm.name} />
                     <input type="hidden" name="description" bind:value={$profileForm.description} />
                     <input type="hidden" name="settings" bind:value={$profileForm.settings} />
-                    <div class="flex justify-end gap-2 mt-4 pt-4 border-t">
+                    <div class="flex justify-between items-center mt-4 pt-4 border-t">
+                      {#if deviceProfile.level === 'GLOBAL' && deviceProfile.hasOverrides}
+                        <a 
+                          href="/admin/iot/device-profiles/{deviceProfile.id}/edit?tab=devices" 
+                          class="text-xs text-muted-foreground hover:text-primary hover:underline"
+                        >
+                          View Global Profile →
+                        </a>
+                      {:else if deviceProfile.level === 'GLOBAL'}
+                        <p class="text-xs text-muted-foreground">
+                          Based on: <a 
+                            href="/admin/iot/device-profiles/{deviceProfile.id}/edit?tab=devices" 
+                            class="text-primary hover:underline"
+                          >
+                            {deviceProfile.name}
+                          </a>
+                        </p>
+                      {:else}
+                        <div></div>
+                      {/if}
                       <Button 
                         type="submit"
                         size="sm"
@@ -399,40 +442,6 @@
                       </Button>
                     </div>
                   </form>
-                {/if}
-              {:else if deviceProfile.level === 'GLOBAL'}
-                <!-- Global profile - read-only view -->
-                <div class="rounded-md bg-muted p-3 mt-3">
-                  <p class="text-sm text-muted-foreground mb-2">
-                    This is a global profile. To customize settings for this device, please re-assign the profile from the 
-                    <a href="/admin/iot/device-profiles/{deviceProfile.id}/edit?tab=devices" class="text-primary hover:underline">
-                      device profile page
-                    </a>.
-                  </p>
-                </div>
-                
-                {#if deviceProfile.settings && deviceProfile.settings.length > 0}
-                  <div class="border-t pt-3 mt-3">
-                    <h5 class="text-xs font-medium mb-2">Settings (Read-only)</h5>
-                    <div class="space-y-2">
-                      {#each deviceProfile.settings as setting}
-                        <div class="flex items-start justify-between text-xs py-1.5 border-b last:border-b-0">
-                          <div class="flex-1">
-                            <span class="font-medium">{setting.label || setting.key}</span>
-                            {#if setting.category}
-                              <span class="text-muted-foreground ml-2">({setting.category})</span>
-                            {/if}
-                          </div>
-                          <div class="text-right">
-                            <span class="text-muted-foreground">{setting.value}</span>
-                            <span class="text-muted-foreground ml-1 text-[10px]">({setting.dataType})</span>
-                          </div>
-                        </div>
-                      {/each}
-                    </div>
-                  </div>
-                {:else}
-                  <p class="text-xs text-muted-foreground">No settings configured</p>
                 {/if}
               {:else}
                 <p class="text-sm text-muted-foreground">Profile loading...</p>

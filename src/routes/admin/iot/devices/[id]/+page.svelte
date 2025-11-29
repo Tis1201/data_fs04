@@ -23,7 +23,7 @@
     import { onMount, onDestroy } from 'svelte';
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
     import { useDeviceRealtime } from "$lib/mixins/deviceRealtimeMixin";
-    
+
     export let data: PageData;
     // Use let bindings so we can reassign and trigger Svelte reactivity on updates
     let device = (data as any).device;
@@ -187,7 +187,7 @@
         // Use global SSE connection (managed by AuthStateHandler)
         console.log('[AdminDeviceDetail] Using global SSE connection:', {
             connectionId: sseStore.connectionId,
-            status: sseStore.connectionStatus
+            isConnected: sseStore.isConnected
         });
         
         let lastSubscribedConnectionId: string | null = null;
@@ -222,7 +222,7 @@
         }
         
         // Check if SSE is already connected and subscribe immediately
-        if (sseStore.connectionId && sseStore.connectionStatus === 'OPEN') {
+        if (sseStore.connectionId && sseStore.isConnected) {
             console.log('[AdminDeviceDetail] SSE already connected, subscribing immediately');
             subscribeToDeviceChannel(sseStore.connectionId);
         }
@@ -468,33 +468,8 @@
             statusUnsubscribe = null;
         }
         
-        // Only unsubscribe if we're not navigating to a subpage of this device
-        // Check current URL to see if we're still on a device-related page
-        const currentPath = browser ? window.location.pathname : '';
-        const isStillOnDevicePage = currentPath.includes(`/devices/${device.id}`);
-        
-        if (!isStillOnDevicePage) {
-            // Unsubscribe from device channel (best-effort cleanup)
-            if (sseStore.connectionId) {
-                console.log('[AdminDeviceDetail] Unsubscribing from device channel (navigating away)...');
-                fetch(`/api/sse/unsubscribe/device/${device.id}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ connectionId: sseStore.connectionId })
-                }).catch(err => {
-                    // Ignore 404 errors - endpoint may not be available or connection already cleaned up
-                    if (err?.status !== 404) {
-                        console.warn('Unsubscribe failed:', err);
-                    }
-                });
-            }
-            
-            // Don't disconnect global SSE - other components/pages may still be using it
-            console.log('[AdminDeviceDetail] Keeping global SSE connection active for other components');
-        } else {
-            console.log('[AdminDeviceDetail] Still on device subpage, keeping SSE connection active');
-        }
+        // Don't disconnect global SSE - other components/pages may still be using it
+        console.log('[AdminDeviceDetail] Keeping global SSE connection active');
         console.log('[AdminDeviceDetail] Cleanup complete');
     });
 

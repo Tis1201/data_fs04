@@ -15,6 +15,7 @@ import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
 import { ClaimStatus } from '@prisma/client';
+import { PreclaimProfileService } from '$lib/server/device/profile';
 
 /**
  * Pushpin device registration endpoint (stateless).
@@ -188,6 +189,20 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                         }
                     });
                     logger.info(`[Register] Updated preclaim record for device ${deviceId}`);
+                    
+                    // Apply device profile if assigned to preclaim set
+                    try {
+                        const profileService = new PreclaimProfileService(locals.prisma);
+                        await profileService.applyToDevice(
+                            deviceId,
+                            preclaim.preclaim.setId,
+                            resolvedClaimUserId,
+                            { delay: 2000 } // Delay for Pushpin connection timing
+                        );
+                    } catch (profileError: any) {
+                        logger.error(`[Register] Failed to apply profile to claimed device ${deviceId}:`, profileError);
+                        // Don't fail the claim if profile application fails
+                    }
                     
                     // Publish "registered" message via Redis Pub/Sub (sidecars relay to Pushpin)
                     const messageRelay = getMessageRelay();

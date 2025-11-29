@@ -39,9 +39,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
         
         const accountIds = userAccountMemberships.map(m => m.accountId);
         
-        // Simple where clause - filter by user's accounts
+        // Simple where clause - filter by user's accounts and only show GLOBAL profiles
         const where: any = {
-            accountId: { in: accountIds }
+            accountId: { in: accountIds },
+            level: 'GLOBAL' // Only show global profiles, not device-level copies
         };
 
         // Search filter
