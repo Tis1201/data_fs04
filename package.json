@@ -34,7 +34,7 @@
 		"preview:dev": "vite preview",
 		"start:prod": "NODE_ENV=production dotenv -- node build",
 		"prodServer": "NODE_ENV=production dotenv -- node prodServer.js",
-		"mqtt:worker": "dotenv -- tsx src/worker/mqtt-transport.ts",
+		"mqtt:worker": "dotenv -- tsx src/worker/index.ts",
 		"package": "npm run build && node scripts/build/package-app.js"
 	},
 	"devDependencies": {
