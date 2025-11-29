@@ -187,15 +187,15 @@ export function createMQTTStore() {
 
         return {
             subscribe,
-            connect: async () => {},
-            disconnect: () => {},
-            resetForNewUser: () => {},
-            setAuthEnabled: () => {},
+            connect: async () => { },
+            disconnect: () => { },
+            resetForNewUser: () => { },
+            setAuthEnabled: () => { },
             publish: async () => {
                 throw new Error('MQTT unavailable during SSR');
             },
-            on: () => () => {},
-            clearMessages: () => {}
+            on: () => () => { },
+            clearMessages: () => { }
         };
     }
 
@@ -218,6 +218,7 @@ export function createMQTTStore() {
     let lastUsername: string | null = null;
     let lastClientId: string | null = null;
     let detachStreamDiagnostics: (() => void) | null = null;
+    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
 
     const topicListeners = new Map<string, Set<TopicCallback>>();
     const wildcardListeners = new Set<TopicCallback>();
@@ -239,7 +240,7 @@ export function createMQTTStore() {
         const cleanupFns: (() => void)[] = [];
 
         if (!stream) {
-            return () => {};
+            return () => { };
         }
 
         if (typeof stream.addEventListener === 'function') {
@@ -310,6 +311,33 @@ export function createMQTTStore() {
             console.warn('[MQTT] Error closing client', err);
         }
         currentClient = null;
+    };
+
+    const sendHeartbeat = () => {
+        if (currentClient && currentClient.connected && lastUsername) {
+            const topic = `user/${lastUsername}/heartbeat`;
+            const payload = JSON.stringify({ timestamp: Date.now() });
+            currentClient.publish(topic, payload, { qos: 0 }, (err) => {
+                if (err) {
+                    console.error('[MQTT] Failed to send heartbeat', err);
+                }
+            });
+        }
+    };
+
+    const startHeartbeat = () => {
+        if (heartbeatTimer) return;
+        console.log('[MQTT] Starting heartbeat');
+        sendHeartbeat();
+        heartbeatTimer = setInterval(sendHeartbeat, 60000);
+    };
+
+    const stopHeartbeat = () => {
+        if (heartbeatTimer) {
+            console.log('[MQTT] Stopping heartbeat');
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+        }
     };
 
     const updateState = (partial: Partial<MQTTState>) => {
@@ -518,6 +546,8 @@ export function createMQTTStore() {
                         }
                     });
 
+                    startHeartbeat();
+
                     if (pendingTopics.size > 0) {
                         pendingTopics.forEach(topic => {
                             client.subscribe(topic, (err) => {
@@ -536,6 +566,7 @@ export function createMQTTStore() {
 
                 client.on('close', (err?: Error) => {
                     detachDiagnostics();
+                    stopHeartbeat();
                     if (err) {
                         console.error('[MQTT] Connection closed due to error', err);
                     } else {
@@ -547,11 +578,13 @@ export function createMQTTStore() {
 
                 client.on('offline', () => {
                     console.log('[MQTT] Connection offline');
+                    stopHeartbeat();
                     updateState({ status: 'CONNECTING' });
                 });
 
                 client.on('error', (err: Error) => {
                     console.error('[MQTT] Error', err);
+                    stopHeartbeat();
                     updateState({ status: 'ERROR', error: err });
                 });
             } catch (err) {
@@ -589,6 +622,7 @@ export function createMQTTStore() {
 
     function disconnect() {
         console.log('[MQTT] Disconnect requested');
+        stopHeartbeat();
         if (reconnectTimer) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;

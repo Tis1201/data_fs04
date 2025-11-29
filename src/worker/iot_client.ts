@@ -68,6 +68,36 @@ async function mintWorkerCredentials(): Promise<
 
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
+let heartbeatTimer: NodeJS.Timeout | null = null;
+
+function sendHeartbeat() {
+    if (client && client.connected) {
+        client.publish('heartbeat', JSON.stringify({ timestamp: Date.now() }), { qos: 0 }, (err) => {
+            if (err) logger.error(`[MQTT Transport] Failed to send heartbeat: ${err.message}`);
+        });
+    }
+}
+
+function startHeartbeat() {
+    if (heartbeatTimer) return;
+    logger.info('[MQTT Transport] Starting heartbeat');
+
+    // Send immediately
+    sendHeartbeat();
+
+    heartbeatTimer = setInterval(() => {
+        sendHeartbeat();
+    }, 60000);
+}
+
+function stopHeartbeat() {
+    if (heartbeatTimer) {
+        logger.info('[MQTT Transport] Stopping heartbeat');
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+    }
+}
+
 
 export async function connectWorkerClient(): Promise<void> {
     const minted = await mintWorkerCredentials();
@@ -127,6 +157,8 @@ export async function connectWorkerClient(): Promise<void> {
                 logger.info(`[MQTT Transport] Subscribed to topics: ${grantedTopics.join(', ')}`);
             }
         );
+
+        startHeartbeat();
     });
 
     activeClient.on('message', async (topic, payload) => {
@@ -138,6 +170,7 @@ export async function connectWorkerClient(): Promise<void> {
         logger.error(`[MQTT Transport] Client error: ${err.message}`, {
             stack: err?.stack
         });
+        stopHeartbeat();
         scheduleReconnect();
     });
 
@@ -146,6 +179,7 @@ export async function connectWorkerClient(): Promise<void> {
             `[MQTT Transport] Broker sent disconnect (reasonCode=${packet?.reasonCode ?? 'n/a'
             }, reasonString=${packet?.properties?.reasonString ?? 'n/a'})`
         );
+        stopHeartbeat();
         scheduleReconnect();
     });
 
@@ -158,11 +192,13 @@ export async function connectWorkerClient(): Promise<void> {
             ? `connected=${activeClient.connected}, disconnecting=${activeClient.disconnecting}, reconnecting=${activeClient.reconnecting}`
             : 'client=null';
         logger.warn(`[MQTT Transport] Connection closed (${status})`);
+        stopHeartbeat();
         scheduleReconnect();
     });
 
     activeClient.on('offline', () => {
         logger.warn('[MQTT Transport] Client offline');
+        stopHeartbeat();
         scheduleReconnect();
     });
 }

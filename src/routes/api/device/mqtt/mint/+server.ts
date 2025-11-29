@@ -27,12 +27,14 @@ export const POST: RequestHandler = restrictDevice(async ({ device }) => {
       pubTopics: [
         `device/${mqttUsername}/replies`,
         `device/${mqttUsername}/requests`,
-        `device/${mqttUsername}/loopback`
+        `device/${mqttUsername}/loopback`,
+        `device/${mqttUsername}/heartbeat`
       ],
       subTopics: [
         `device/${mqttUsername}/response`,
         `device/${mqttUsername}/notifications`,
-        `device/${mqttUsername}/loopback`
+        `device/${mqttUsername}/loopback`,
+        `device/${mqttUsername}/heartbeat`
       ]
     });
 

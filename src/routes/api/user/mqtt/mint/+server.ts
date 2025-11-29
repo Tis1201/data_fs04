@@ -26,10 +26,16 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
 
     const mintData = await mintIoTCoreCredentials({
       username: mqttUsername,
-      pubTopics: [`user/${mqttUsername}/requests`],
+      pubTopics: [
+        `user/${mqttUsername}/requests`,
+        `user/${mqttUsername}/replies`,
+        `user/${mqttUsername}/loopback`,
+        `user/${mqttUsername}/heartbeat`
+      ],
       subTopics: [
         `user/${mqttUsername}/response`,
-        `user/${mqttUsername}/notifications`
+        `user/${mqttUsername}/notifications`,
+        `user/${mqttUsername}/loopback`
       ]
     });
 

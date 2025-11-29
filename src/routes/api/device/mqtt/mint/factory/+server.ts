@@ -32,7 +32,8 @@ async function mintFactoryMqttCredentials(factoryDeviceId: string) {
         pubTopics: [
             `device/${username}/replies`,
             `device/${username}/requests`,
-            `device/${username}/loopback`
+            `device/${username}/loopback`,
+            `device/${username}/heartbeat`
         ],
         subTopics: [
             `device/${username}/response`,
