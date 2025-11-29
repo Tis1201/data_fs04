@@ -1,0 +1,205 @@
+/**
+ * Shared Device Profile Loading Utilities
+ * 
+ * This module provides reusable functions for loading and managing device profiles
+ * across both admin and user routes.
+ */
+
+import type { PrismaClient } from '@prisma/client';
+import { superValidate } from 'sveltekit-superforms/server';
+import { zod } from 'sveltekit-superforms/adapters';
+import { z } from 'zod';
+
+/**
+ * Device Profile Schema
+ * Used for validating device profile form data
+ */
+export const deviceProfileSchema = z.object({
+    name: z.string().min(1).max(100),
+    description: z.string().max(500).optional(),
+    settings: z.string().optional().default('[]')
+});
+
+/**
+ * Load device profile for a specific device
+ * 
+ * With Override Model:
+ * 1. Get GLOBAL profile from assignment
+ * 2. Get device-specific overrides (if any)
+ * 3. Merge them to show effective configuration
+ * 
+ * Backward Compatibility:
+ * - Still supports DEVICE-level profiles (old model)
+ * 
+ * @param prisma - Prisma client instance
+ * @param deviceId - Device ID to load profile for
+ * @returns Device profile with merged settings or null if not found
+ */
+export async function loadDeviceProfile(prisma: any, deviceId: string) {
+    try {
+        // First, try to get device-level profile (backward compatibility)
+        // @ts-ignore - deviceId will be available after schema migration
+        const deviceLevelProfile = await prisma.deviceProfile.findFirst({
+            // @ts-ignore - deviceId will be available after schema migration
+            where: {
+                deviceId: deviceId,
+                level: 'DEVICE'
+            },
+            include: {
+                settings: {
+                    orderBy: { order: 'asc' }
+                },
+                account: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                }
+            }
+        });
+
+        if (deviceLevelProfile) {
+            console.log('[DeviceProfileLoader] Found DEVICE-level profile (legacy)', {
+                profileId: deviceLevelProfile.id,
+                deviceId
+            });
+            return deviceLevelProfile;
+        }
+
+        // Get GLOBAL profile from assignment (new override model)
+        const assignment = await prisma.deviceProfileAssignment.findUnique({
+            where: { deviceId },
+            include: {
+                profile: {
+                    include: {
+                        settings: {
+                            orderBy: { order: 'asc' }
+                        },
+                        account: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!assignment?.profile) {
+            console.log('[DeviceProfileLoader] No profile found for device', { deviceId });
+            return null;
+        }
+
+        const globalProfile = assignment.profile;
+
+        // Check for device-specific overrides
+        const override = await prisma.deviceProfileOverride.findUnique({
+            where: {
+                deviceId_globalProfileId: {
+                    deviceId: deviceId,
+                    globalProfileId: globalProfile.id
+                }
+            },
+            include: {
+                overriddenSettings: true
+            }
+        });
+
+        // Merge global settings with overrides
+        const effectiveSettings = globalProfile.settings.map((setting: any) => {
+            const overrideSetting = override?.overriddenSettings.find(
+                (os: any) => os.key === setting.key
+            );
+
+            return {
+                ...setting,
+                value: overrideSetting ? overrideSetting.value : setting.value,
+                isOverridden: !!overrideSetting
+            };
+        });
+
+        // Return profile with merged settings
+        const profileWithOverrides = {
+            ...globalProfile,
+            settings: effectiveSettings,
+            hasOverrides: !!override,
+            overrideCount: override?.overriddenSettings.length || 0
+        };
+
+        console.log('[DeviceProfileLoader] Found GLOBAL profile with overrides', {
+            profileId: globalProfile.id,
+            deviceId,
+            hasOverrides: !!override,
+            overrideCount: override?.overriddenSettings.length || 0
+        });
+
+        return profileWithOverrides;
+    } catch (error) {
+        console.error('[DeviceProfileLoader] Error loading device profile:', error);
+        return null;
+    }
+}
+
+/**
+ * Initialize superform for device profile editing
+ * 
+ * With Override Model:
+ * - Creates form for GLOBAL profiles (edits create overrides)
+ * - Still supports DEVICE-level profiles (backward compatibility)
+ * 
+ * @param deviceProfile - Device profile to create form for
+ * @returns Superform instance or null
+ */
+export async function initializeDeviceProfileForm(deviceProfile: any) {
+    if (!deviceProfile) {
+        console.log('[DeviceProfileLoader] Not creating form - no profile');
+        return null;
+    }
+
+    // Support both GLOBAL (with overrides) and DEVICE-level profiles
+    const isEditable = deviceProfile.level === 'DEVICE' || deviceProfile.level === 'GLOBAL';
+    
+    if (!isEditable) {
+        console.log('[DeviceProfileLoader] Not creating form - profile level not supported');
+        return null;
+    }
+
+    console.log('[DeviceProfileLoader] Creating form for profile', {
+        profileId: deviceProfile.id,
+        level: deviceProfile.level,
+        hasOverrides: deviceProfile.hasOverrides || false
+    });
+
+    try {
+        const form = await superValidate({
+            name: deviceProfile.name,
+            description: deviceProfile.description || '',
+            settings: JSON.stringify(deviceProfile.settings || [])
+        }, zod(deviceProfileSchema));
+
+        console.log('[DeviceProfileLoader] Device profile form created successfully');
+        return form;
+    } catch (error) {
+        console.error('[DeviceProfileLoader] Error creating device profile form:', error);
+        return null;
+    }
+}
+
+/**
+ * Combined loader function - loads profile and initializes form
+ * 
+ * @param prisma - Prisma client instance
+ * @param deviceId - Device ID to load profile for
+ * @returns Object with deviceProfile and deviceProfileForm
+ */
+export async function loadDeviceProfileWithForm(prisma: PrismaClient, deviceId: string) {
+    const deviceProfile = await loadDeviceProfile(prisma, deviceId);
+    const deviceProfileForm = await initializeDeviceProfileForm(deviceProfile);
+
+    return {
+        deviceProfile,
+        deviceProfileForm
+    };
+}
+
