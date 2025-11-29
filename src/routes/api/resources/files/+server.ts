@@ -57,7 +57,6 @@ export const GET: RequestHandler = restrict(
       if (search) {
         where.OR = [
           { name: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
           { packageName: { contains: search, mode: 'insensitive' } }
         ];
       }

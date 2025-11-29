@@ -17,6 +17,7 @@ export async function isDeviceOnline(deviceId: string): Promise<boolean> {
       return false;
     }
     const exists = await redis.exists(`presence:device:${deviceId}`);
+    logger.debug(`[DevicePresence] device online: ${exists} `);
     return exists === 1;
   } catch (error) {
     logger.error('[DevicePresence] Failed to check device online status', {

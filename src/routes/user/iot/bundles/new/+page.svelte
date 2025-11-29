@@ -325,6 +325,10 @@
                                 placeholder="Select date"
                                 format_string="yyyy-MM-dd"
                                 clearable={true}
+                                minDate={new Date()}
+                                showFutureDates={true}
+                                timelineOptions="future"
+                                defaultTimeline="future"
                             />
                         </FormField>
                         <FormField id="scheduledTime" label="Schedule Time" error={$errors.scheduledTime}>

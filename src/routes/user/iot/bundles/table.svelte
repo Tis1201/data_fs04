@@ -37,6 +37,12 @@
         loading: false
     };
     
+    // Make sort reactive to URL params - this ensures the sort indicator updates when URL changes
+    $: currentSort = {
+        field: $page.url.searchParams.get('sort') || props.sort?.field || "createdAt",
+        order: ($page.url.searchParams.get('order') as "asc" | "desc") || props.sort?.order || "desc"
+    };
+    
     // State for confirmation dialog
     let state = {
         selectedRecord: null as Bundle | null,
@@ -344,7 +350,7 @@
             props={{
                 records: props.records,
                 pagination: props.pagination,
-                sort: props.sort
+                sort: currentSort
             }}
             columns={columns}
             on:sort={(e) => handleTableSort(e)}

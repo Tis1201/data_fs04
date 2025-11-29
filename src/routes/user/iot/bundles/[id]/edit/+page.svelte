@@ -214,6 +214,10 @@
                                     form={$form}
                                     field="scheduledAt"
                                     disabled={$submitting}
+                                    minDate={new Date()}
+                                    showFutureDates={true}
+                                    timelineOptions="future"
+                                    defaultTimeline="future"
                                 />
                             </FormField>
                             <FormField id="scheduledTime" label="Scheduled Time (HH:mm)" error={err($errors.scheduledTime)}>

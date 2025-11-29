@@ -12,12 +12,19 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
   import { invalidate } from '$app/navigation';
+  import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
   export let baseUrl: string; // "/admin/iot/bundles" or "/user/iot/bundles"
   export let records: Bundle[] = [];
   export let pagination: any;
   export let sort: any;
   export let loading: boolean = false;
+  
+  // Make sort reactive to URL params to ensure sort indicator updates correctly
+  $: currentSort = {
+    field: $page.url.searchParams.get('sort') || sort?.field || null,
+    order: ($page.url.searchParams.get('order') as "asc" | "desc" | null) || sort?.order || null
+  };
 
   let state = { selectedRecord: null as Bundle | null, confirmationOpen: false };
   function confirmDelete(bundle: Bundle) { state.selectedRecord = bundle; state.confirmationOpen = true; }
@@ -113,7 +120,7 @@
       }} />
     </div>
 
-    <DataTable props={{ records, pagination, sort }} {columns} />
+    <DataTable props={{ records, pagination, sort: currentSort }} {columns} on:sort={handleTableSort} on:pagination={handleTablePagination} />
   {/if}
 </div>
 
