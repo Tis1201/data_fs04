@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { deleteFileFromCloudStorage } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
 import { getStorageConfig } from '$lib/server/storage';
+import { isCredentialError } from '$lib/server/storage/gcloudAuthUtils';
 
 const CLEANUP_TIMEOUT_HOURS = parseInt(process.env.PULL_FILE_CLEANUP_TIMEOUT_HOURS || '24');
 
@@ -93,10 +94,21 @@ export async function cleanupOrphanedPullFiles() {
                 logger.info(`[CleanupJob] Cleaned up file: ${objectPath}`);
                 
             } catch (error) {
-                errorCount++;
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                
+                // Check if it's a credential error - don't count as failure
+                // These will be retried on next run after credentials are refreshed
+                const credentialErr = isCredentialError(error);
+                
+                if (!credentialErr) {
+                    errorCount++;
+                }
+                
                 logger.error(`[CleanupJob] Failed to cleanup log ${log.id}:`, {
-                    error: error instanceof Error ? error.message : String(error),
-                    logId: log.id
+                    error: errorMessage,
+                    logId: log.id,
+                    isCredentialError: credentialErr,
+                    willRetry: credentialErr
                 });
                 
                 // Update log with error but don't mark as cleaned
@@ -105,8 +117,9 @@ export async function cleanupOrphanedPullFiles() {
                     data: {
                         metadata: {
                             ...(log.metadata as any),
-                            cleanupError: error instanceof Error ? error.message : String(error),
-                            cleanupAttemptedAt: new Date().toISOString()
+                            cleanupError: errorMessage,
+                            cleanupAttemptedAt: new Date().toISOString(),
+                            credentialError: credentialErr
                         }
                     }
                 });

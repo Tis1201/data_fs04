@@ -5,6 +5,7 @@ import { env } from '$env/dynamic/private';
 import { join, dirname } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { getGCloudAccessToken, isCredentialError } from './gcloudAuthUtils';
 
 export type StorageMode = 'LOCAL' | 'LOCAL_CLOUD' | 'GCLOUD';
 
@@ -131,18 +132,9 @@ export async function generatePresignedUrlLocalCloud(
         logger.info(`Using gcloud CLI to generate presigned URL...`);
         
         try {
-            // Generate presigned URL using gcloud CLI with service account impersonation
-            const gcloudCommand = `gcloud auth print-access-token --impersonate-service-account=${targetServiceAccount}`;
-            
+            // Get access token using shared utility
             logger.info(`Getting access token with impersonation...`);
-            
-            const accessToken = execSync(gcloudCommand, { 
-                encoding: 'utf8',
-                timeout: 10000,
-                env: { 
-                    ...process.env
-                }
-            }).trim();
+            const accessToken = getGCloudAccessToken(targetServiceAccount);
             
             logger.info(`Access token obtained, generating presigned URL...`);
             
@@ -404,19 +396,9 @@ export async function generateDownloadUrlLocalCloud(
         logger.info(`Using gcloud CLI to generate download URL...`);
         
         try {
-            // Generate download URL using gcloud CLI with service account impersonation
-            const gcloudCommand = `gcloud auth print-access-token --impersonate-service-account=${targetServiceAccount}`;
-            
+            // Get access token using shared utility
             logger.info(`Getting access token with impersonation...`);
-            
-            const accessToken = execSync(gcloudCommand, { 
-                encoding: 'utf8',
-                timeout: 10000,
-                env: { 
-                    ...process.env, 
-                    GOOGLE_APPLICATION_CREDENTIALS: '/Users/macbook/.config/gcloud/application_default_credentials.json'
-                }
-            }).trim();
+            const accessToken = getGCloudAccessToken(targetServiceAccount);
             
             logger.info(`Access token obtained, generating download URL...`);
             
@@ -589,6 +571,7 @@ export async function deleteFileFromCloudStorage(filePath: string): Promise<void
 
 /**
  * Delete file from LOCAL_CLOUD mode (using service account impersonation)
+ * Uses gcloud CLI to avoid invalid_rapt errors with user credentials
  */
 async function deleteFileFromLocalCloud(
     bucket: string,
@@ -598,46 +581,111 @@ async function deleteFileFromLocalCloud(
     try {
         logger.info(`Deleting file from LOCAL_CLOUD: bucket=${bucket}, objectPath=${objectPath}, targetSA=${targetServiceAccount}`);
 
-        // Use local ADC (user creds)
-        const auth = new GoogleAuth({ 
-            scopes: ['https://www.googleapis.com/auth/cloud-platform'] 
-        });
-        const sourceClient = await auth.getClient();
-        
-        logger.debug(`Source client obtained: ${sourceClient.constructor.name}`);
+        // Use gcloud CLI with service account impersonation (more reliable than SDK impersonation)
+        try {
+            // Get access token using shared utility
+            logger.debug(`Getting access token with impersonation...`);
+            const accessToken = getGCloudAccessToken(targetServiceAccount);
+            
+            logger.debug(`Access token obtained, deleting file via API...`);
+            
+            // Delete file using GCloud Storage API with access token
+            const deleteUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectPath)}`;
+            
+            // Use native fetch (Node.js 18+)
+            const response = await fetch(deleteUrl, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+            
+            if (response.status === 404) {
+                logger.warn(`File does not exist in cloud storage: ${objectPath}`);
+                return; // File already deleted, consider it success
+            }
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`GCloud API error: ${response.status} ${response.statusText} - ${errorText}`);
+            }
+            
+            logger.info(`Successfully deleted file from LOCAL_CLOUD: ${objectPath}`);
+            
+        } catch (gcloudError) {
+            // If gcloud CLI fails (e.g., invalid_rapt), try SDK approach as fallback
+            const errorMessage = gcloudError instanceof Error ? gcloudError.message : String(gcloudError);
+            
+            // If it's a credential error, don't try SDK fallback (it will fail too)
+            if (isCredentialError(gcloudError)) {
+                logger.error(`Failed to delete file from LOCAL_CLOUD: Credentials need refresh. Please run 'gcloud auth application-default login'`, {
+                    error: errorMessage,
+                    objectPath,
+                    bucket,
+                    targetServiceAccount
+                });
+                // Don't throw - allow cleanup to continue with other files
+                // The file will be retried on next cleanup run
+                return;
+            }
+            
+            logger.warn(`gcloud CLI deletion failed, trying SDK approach: ${errorMessage}`);
+            
+            // Fallback to SDK approach
+            const auth = new GoogleAuth({ 
+                scopes: ['https://www.googleapis.com/auth/cloud-platform'] 
+            });
+            const sourceClient = await auth.getClient();
+            
+            logger.debug(`Source client obtained: ${sourceClient.constructor.name}`);
 
-        // Impersonate the service account
-        const impersonated = new Impersonated({
-            sourceClient,
-            targetPrincipal: targetServiceAccount,
-            lifetime: 3600,
-            delegates: [],
-            targetScopes: ['https://www.googleapis.com/auth/cloud-platform'],
-        });
+            // Impersonate the service account
+            const impersonated = new Impersonated({
+                sourceClient,
+                targetPrincipal: targetServiceAccount,
+                lifetime: 3600,
+                delegates: [],
+                targetScopes: ['https://www.googleapis.com/auth/cloud-platform'],
+            });
 
-        logger.debug(`Impersonated client created for: ${targetServiceAccount}`);
+            logger.debug(`Impersonated client created for: ${targetServiceAccount}`);
 
-        // Use the impersonated client with Storage
-        const config = getStorageConfig();
-        const storage = new Storage({ 
-            authClient: impersonated,
-            projectId: config.projectId
-        });
-        
-        logger.debug(`Storage client created with projectId: ${config.projectId}`);
-        
-        const file = storage.bucket(bucket).file(objectPath);
-        
-        // Check if file exists before deleting
-        const [exists] = await file.exists();
-        if (!exists) {
-            logger.warn(`File does not exist in cloud storage: ${objectPath}`);
+            // Use the impersonated client with Storage
+            const config = getStorageConfig();
+            const storage = new Storage({ 
+                authClient: impersonated,
+                projectId: config.projectId
+            });
+            
+            logger.debug(`Storage client created with projectId: ${config.projectId}`);
+            
+            const file = storage.bucket(bucket).file(objectPath);
+            
+            // Check if file exists before deleting
+            const [exists] = await file.exists();
+            if (!exists) {
+                logger.warn(`File does not exist in cloud storage: ${objectPath}`);
+                return;
+            }
+            
+            await file.delete();
+            logger.info(`Successfully deleted file from LOCAL_CLOUD (SDK fallback): ${objectPath}`);
+        }
+    } catch (error) {
+        // Check if it's a credential error (credentials need refresh)
+        if (isCredentialError(error)) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error(`Failed to delete file from LOCAL_CLOUD: Credentials need refresh. Please run 'gcloud auth application-default login'`, {
+                error: errorMessage,
+                objectPath,
+                bucket,
+                targetServiceAccount
+            });
+            // Don't throw - allow cleanup to continue with other files
+            // The file will be retried on next cleanup run
             return;
         }
         
-        await file.delete();
-        logger.info(`Successfully deleted file from LOCAL_CLOUD: ${objectPath}`);
-    } catch (error) {
         logger.error(`Failed to delete file from LOCAL_CLOUD: ${error}`);
         throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
     }
