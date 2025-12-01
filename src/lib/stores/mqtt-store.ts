@@ -421,9 +421,9 @@ export function createMQTTStore() {
         }, delay);
     };
 
-    const mintIfNeeded = async (): Promise<{ token: string; brokerUrl: string | null; username: string | null; clientId: string | null }> => {
+    const mintIfNeeded = async (forceRefresh = false): Promise<{ token: string; brokerUrl: string | null; username: string | null; clientId: string | null }> => {
         const now = Date.now();
-        if (lastJwt && lastJwtExpiry && now < lastJwtExpiry - 30_000) {
+        if (!forceRefresh && lastJwt && lastJwtExpiry && now < lastJwtExpiry - 30_000) {
             return {
                 token: lastJwt,
                 brokerUrl: lastBrokerUrl,
@@ -473,7 +473,9 @@ export function createMQTTStore() {
             }
 
             try {
-                const { token, brokerUrl: mintedBrokerUrl, username, clientId } = await mintIfNeeded();
+                // Force fresh JWT on reconnection attempts to avoid using stale/expiring tokens
+                const forceRefresh = reconnectAttempts > 0;
+                const { token, brokerUrl: mintedBrokerUrl, username, clientId } = await mintIfNeeded(forceRefresh);
                 const brokerUrl = resolveBrokerUrl(options.url, mintedBrokerUrl);
                 if (!brokerUrl) {
                     throw new Error('MQTT broker URL is not available from mint response');
