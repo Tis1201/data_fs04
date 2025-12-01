@@ -76,10 +76,11 @@ async function handleScreenshotMessage(message: InMessage): Promise<void> {
   const type = (payload as any)?.type;
   const requestId = (payload as any)?.requestId || (message as any)?.requestId;
 
-  logger.debug('[DeviceMessageHandler] Handling screenshot message', { type, deviceId, requestId });
+  logger.debug('[DeviceMessageHandler] Handling screenshot message', { type, deviceId, requestId, messageScope: message.scope });
 
   // For screenshot responses, save to database and send back to the specific connection that requested it
   if (type === 'screenshot:response' && requestId && deviceId) {
+    logger.info('[DeviceMessageHandler] Processing screenshot:response', { deviceId, requestId, hasImage: !!(payload as any)?.image });
     // Save screenshot action to database
     try {
       // Try to find existing action log by requestId
@@ -120,26 +121,42 @@ async function handleScreenshotMessage(message: InMessage): Promise<void> {
       // Don't fail the whole operation if DB save fails
     }
 
-    // Extract connection ID from the message scope (format: connection:{connectionId})
-    const originalScope = message.scope || '';
-    const connectionMatch = originalScope.match(/connection:(.+)/);
-    const connectionId = connectionMatch ? connectionMatch[1] : null;
+    // Publish to device scope so SSE store can match by requestId
+    // The SSE connection is subscribed to subscription:device:{deviceId}
+    const deviceScope = `subscription:device:${deviceId}`;
     
-    if (connectionId) {
-      const scope = `connection:${connectionId}`;
-      
-      logger.debug('[DeviceMessageHandler] Sending screenshot response to connection', { connectionId, requestId, originalScope });
-      
-      // Use sudo to bypass authorization check for screenshot responses
-      const routingMessage = MessageFactory.toRoutingMessage(message, { scope, sudo: true });
-      await publisher.publish(routingMessage);
-    } else {
-      logger.warn('[DeviceMessageHandler] Could not extract connection ID from scope for screenshot response', { originalScope, requestId });
-      // Fallback to device scope
-      const scope = `subscription:device:${deviceId}`;
-      const routingMessage = MessageFactory.toRoutingMessage(message, { scope });
-      await publisher.publish(routingMessage);
-    }
+    logger.info('[DeviceMessageHandler] Publishing screenshot response', { 
+      deviceId, 
+      requestId, 
+      scope: deviceScope,
+      hasImage: !!(payload as any)?.image,
+      imageLength: (payload as any)?.image ? String((payload as any).image).length : 0
+    });
+    
+    // Ensure requestId is preserved at top level for SSE store matching
+    // The device sends requestId in payload.requestId, but SSE store needs it at message root level
+    const routingMessage = MessageFactory.toRoutingMessage(message, { 
+      scope: deviceScope, 
+      sudo: true,
+      requestId: requestId || message.requestId // Ensure requestId is at top level
+    });
+    
+    // Preserve the image data and format in the payload (device sends image in payload.image)
+    routingMessage.payload = {
+      ...routingMessage.payload,
+      type: 'screenshot:response',
+      requestId: requestId || routingMessage.payload.requestId
+    };
+    
+    logger.debug('[DeviceMessageHandler] Routing message structure', {
+      requestId: routingMessage.requestId,
+      payloadType: routingMessage.payload.type,
+      payloadRequestId: routingMessage.payload.requestId,
+      hasImage: !!(routingMessage.payload as any)?.image
+    });
+    
+    await publisher.publish(routingMessage);
+    logger.info('[DeviceMessageHandler] Screenshot response published successfully', { deviceId, requestId });
   } else if (type === 'screenshot:error' && requestId && deviceId) {
     // Handle screenshot errors - update action log if exists
     try {
@@ -156,6 +173,19 @@ async function handleScreenshotMessage(message: InMessage): Promise<void> {
     // Forward error message
     const scope = `subscription:device:${deviceId}`;
     const routingMessage = MessageFactory.toRoutingMessage(message, { scope });
+    await publisher.publish(routingMessage);
+  } else if (type === 'screenshot:request' && deviceId) {
+    // For screenshot requests, forward directly to the device connection
+    // Use device connection scope and sudo to bypass authorization (device needs to receive the request)
+    const deviceConnectionScope = `connection:${deviceId}`;
+    
+    logger.debug('[DeviceMessageHandler] Forwarding screenshot request to device', { deviceId, requestId, scope: deviceConnectionScope });
+    
+    const routingMessage = MessageFactory.toRoutingMessage(message, { 
+      scope: deviceConnectionScope,
+      sudo: true // Bypass authorization - device needs to receive screenshot requests
+    });
+    
     await publisher.publish(routingMessage);
   } else {
     // For other screenshot messages, forward to device scope

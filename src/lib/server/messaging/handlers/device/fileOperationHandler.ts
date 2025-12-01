@@ -4,6 +4,8 @@ import { publisher } from '../../core/publisher';
 import { logger } from '$lib/server/logger';
 import { ActionLogger } from '$lib/server/action-logger';
 import { SystemUser } from '../../interfaces/message';
+import { generatePresignedUrlGCloud, getStorageConfig } from '$lib/server/storage';
+import path from 'path';
 
 /**
  * Handles file push operations
@@ -72,7 +74,7 @@ export async function handlePushFile(message: InMessage): Promise<void> {
 
 /**
  * Handles file pull operations
- * Creates action log and sends device:actionRequest to device
+ * Creates action log, generates upload signed URL, and sends device:actionRequest to device
  */
 export async function handlePullFile(message: InMessage): Promise<void> {
   const { payload } = message;
@@ -93,7 +95,33 @@ export async function handlePullFile(message: InMessage): Promise<void> {
       throw new Error('User ID not found in message context');
     }
 
-    // Create action log
+    // Extract filename from sourcePath or use resourceId to get resource name
+    const fileName = sourcePath ? path.basename(sourcePath) : (resourceId ? `${resourceId}` : 'file');
+    
+    // Generate file path in GCloud: devices/{deviceId}/pull-files/{timestamp}/{fileName}
+    const timestamp = Date.now();
+    const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
+
+    // Get storage config
+    const storageConfig = getStorageConfig();
+    if (!storageConfig.bucket) {
+      throw new Error('GCloud bucket not configured');
+    }
+
+    // Generate presigned upload URL
+    logger.info('[FileOperationHandler] Generating presigned upload URL', {
+      bucket: storageConfig.bucket,
+      objectPath
+    });
+
+    const presignedUrlResult = await generatePresignedUrlGCloud(
+      storageConfig.bucket,
+      objectPath,
+      'application/octet-stream',
+      3600 // 1 hour expiration
+    );
+
+    // Create action log with metadata including objectPath
     const actionLog = await ActionLogger.createInitiated({
       deviceId,
       actionType: 'pull_file',
@@ -101,10 +129,18 @@ export async function handlePullFile(message: InMessage): Promise<void> {
       requestId: (message as any)?.requestId,
       connectionId: (message as any)?.connectionId,
       protocol: (message as any)?.protocol,
-      initialMessage: `Pulling file: ${sourcePath}`
+      initialMessage: `Preparing file upload...`,
+      metadata: {
+        sourcePath,
+        objectPath,
+        bucket: storageConfig.bucket,
+        fileName,
+        uploadUrl: presignedUrlResult.url,
+        expires: presignedUrlResult.expires
+      }
     });
 
-    // Send device:actionRequest to device via SSE
+    // Send device:actionRequest to device via SSE with upload URL included
     const deviceMessage = MessageFactory.createSystemMessage(
       'device:actionRequest',
       `subscription:device:${deviceId}`,
@@ -115,7 +151,13 @@ export async function handlePullFile(message: InMessage): Promise<void> {
         requestId: (message as any)?.requestId,
         sourcePath,
         destinationPath: targetPath || sourcePath,
-        resourceId
+        resourceId,
+        // NEW FIELDS for signed URL upload
+        uploadUrl: presignedUrlResult.url,
+        objectPath: presignedUrlResult.objectPath,
+        bucket: presignedUrlResult.bucket,
+        expires: presignedUrlResult.expires,
+        contentType: presignedUrlResult.contentType
       },
       SystemUser,
       { echoToSender: false }
@@ -123,10 +165,11 @@ export async function handlePullFile(message: InMessage): Promise<void> {
 
     await publisher.publish(deviceMessage);
 
-    logger.info('[FileOperationHandler] PullFile action initiated', {
+    logger.info('[FileOperationHandler] PullFile action initiated with upload URL', {
       deviceId,
       logId: actionLog.id,
-      sourcePath
+      sourcePath,
+      objectPath
     });
 
   } catch (error) {

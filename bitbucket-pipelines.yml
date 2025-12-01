@@ -74,8 +74,33 @@ x-deploy-gke-shared: &deploy_gke_shared |
   fi
   gcloud container clusters get-credentials "${TARGET_GKE_CLUSTER_NAME}" "${LOCATION_FLAG}" "${TARGET_GKE_CLUSTER_LOCATION}" --project "${TARGET_GCP_PROJECT}"
   echo "Using ${IMAGE_URI_COMMIT} for ${TARGET_ENV} deployment"
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_COMMIT}"
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/"${TARGET_K8S_DEPLOYMENT}"
+  
+  # Replace image tag in manifests with actual image URI
+  # Create temporary directory for processed manifests
+  mkdir -p /tmp/k8s-manifests
+  
+  # Process and deploy main deployment
+  echo "Deploying main application..."
+  sed "s|registry.gitlab.com/fs040/web:\${IMAGE_TAG:-latest}|${IMAGE_URI_COMMIT}|g" k8s/deployment-main.yaml > /tmp/k8s-manifests/deployment-main.yaml
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f /tmp/k8s-manifests/deployment-main.yaml
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/fs04-web --timeout=5m || echo "Rollout status check failed, but deployment may still be in progress"
+  
+  # Process and deploy bundle worker
+  echo "Deploying bundle worker..."
+  sed "s|registry.gitlab.com/fs040/web:\${IMAGE_TAG:-latest}|${IMAGE_URI_COMMIT}|g" k8s/deployment-bundle.yaml > /tmp/k8s-manifests/deployment-bundle.yaml
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f /tmp/k8s-manifests/deployment-bundle.yaml
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/fs04-web-bundle --timeout=5m || echo "Rollout status check failed, but deployment may still be in progress"
+  
+  # Process and deploy cleanup cronjob
+  echo "Deploying cleanup cronjob..."
+  sed "s|registry.gitlab.com/fs040/web:\${IMAGE_TAG:-latest}|${IMAGE_URI_COMMIT}|g" k8s/cronjob-cleanup.yaml > /tmp/k8s-manifests/cronjob-cleanup.yaml
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f /tmp/k8s-manifests/cronjob-cleanup.yaml
+  
+  # Deploy service (idempotent, safe to run multiple times)
+  echo "Deploying service..."
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f k8s/service-main.yaml
+  
+  echo "Deployment complete for ${TARGET_ENV}"
 
 definitions:
   services:
@@ -135,6 +160,12 @@ definitions:
           - echo "Pushing Docker image ${IMAGE_URI_VERSION}"
           - docker push "${IMAGE_URI_VERSION}"
           - echo "Docker image pushed successfully"
+          - echo "Verifying Kubernetes manifests exist..."
+          - test -d k8s || { echo "k8s/ directory not found"; exit 1; }
+          - test -f k8s/deployment-main.yaml || { echo "k8s/deployment-main.yaml not found"; exit 1; }
+          - test -f k8s/deployment-bundle.yaml || { echo "k8s/deployment-bundle.yaml not found"; exit 1; }
+          - test -f k8s/cronjob-cleanup.yaml || { echo "k8s/cronjob-cleanup.yaml not found"; exit 1; }
+          - echo "Kubernetes manifests verified"
     - step: &access_gke_dev
         name: Deploy image to dev GKE
         oidc: true

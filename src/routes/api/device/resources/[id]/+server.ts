@@ -5,7 +5,7 @@ import { restrictJWT, type JWTAuthenticatedEvent } from '$lib/server/security/jw
 import { withRateLimit, deviceIdKeyGenerator } from '$lib/server/security/rate-limit';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
+import { generateDownloadUrl, getStorageConfig, parseGCloudUrl, isGCloudUrl } from '$lib/server/storage';
 
 /**
  * GET handler for resource files - JWT authenticated version
@@ -95,15 +95,14 @@ export const GET: RequestHandler = restrictJWT(
                 let objectPath = resource.path;
                 
                 // Extract object path from full URL if needed
-                if (resource.path.startsWith('https://storage.googleapis.com/')) {
-                  const url = new URL(resource.path);
-                  const pathParts = url.pathname.substring(1).split('/');
-                  if (pathParts.length > 1) {
-                    objectPath = pathParts.slice(1).join('/');
+                if (isGCloudUrl(resource.path)) {
+                  const parsed = parseGCloudUrl(resource.path);
+                  if (parsed) {
+                    objectPath = parsed.objectPath;
+                    logger.debug(`[JWT] Extracted object path from GCloud URL: ${objectPath}`);
                   } else {
-                    objectPath = pathParts[0];
+                    logger.warn(`[JWT] Failed to parse GCloud URL, using path as-is: ${resource.path}`);
                   }
-                  logger.debug(`[JWT] Extracted object path: ${objectPath}`);
                 }
                 
                 logger.info(`[JWT] Generating presigned URL for cloud storage`);

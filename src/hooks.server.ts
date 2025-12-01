@@ -9,59 +9,25 @@ import { pushpinMiddleware } from "$lib/server/pushpin/middleware";
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
 import prisma from "$lib/server/prisma";
-import { startBundleAutoPublishScheduler } from "$lib/server/scheduler/bundleScheduler";
-import { _publishBundleDirect } from "./routes/api/admin/iot/bundles/[id]/publish/+server";
-import { startBundleStatusScheduler, cleanupBundleStatusScheduler } from "$lib/server/scheduler/bundleStatusScheduler";
-import { startDevicePresenceMonitor } from "$lib/server/device/devicePresenceMonitor";
+import { initializeMainProcess } from "$lib/server/processes/main";
 
-// Initialize WhatsApp clients on server startup (not during build)
-// Use a self-executing async function to avoid blocking the main thread
+// Initialize main application process (WhatsApp, Device Presence Monitor)
+// Note: Bundle and cleanup processes run separately via npm scripts
 if (!building) {
-    logger.info('STARTING WHATSAPP CLIENT INITIALIZATION FROM HOOKS');
+    logger.info('🚀 Starting main application process from hooks...');
 
     // Use a non-blocking approach with Promise
     (async () => {
         try {
             // Delay initialization without blocking
             await new Promise(resolve => setTimeout(resolve, 1000));
-
-            logger.info('DELAYED WHATSAPP CLIENT INITIALIZATION');
-
-            // Initialize WhatsApp clients from database
-            logger.info('Loading WhatsApp clients from database...');
-            await whatsAppAccountManager.initializeClientsFromDatabase();
-
-            await ensureActiveSetting();
-            logger.info('WhatsAppAccountManager is ready');
-
-            // Start bundle auto-publish scheduler
-            try {
-                startBundleAutoPublishScheduler(prisma as any, async (bundleId: string) => _publishBundleDirect(prisma as any, bundleId));
-                logger.info('Bundle auto-publish scheduler started');
-            } catch (e:any) {
-                logger.warn(`Failed to start auto-publish scheduler: ${e?.message || String(e)}`);
-            }
-
-            // Start bundle status scheduler (ClickHouse or file-based polling)
-            try {
-                await startBundleStatusScheduler();
-                logger.info('Bundle status scheduler started');
-            } catch (e:any) {
-                logger.warn(`Failed to start bundle status scheduler: ${e?.message || String(e)}`);
-            }
-
-            // Start device presence monitor (if Redis/Pushpin enabled)
-            if (redis) {
-                try {
-                    startDevicePresenceMonitor(redis);
-                    logger.info('Device presence monitor started');
-                } catch (e:any) {
-                    logger.warn(`Failed to start device presence monitor: ${e?.message || String(e)}`);
-                }
-            }
+            await initializeMainProcess();
         } catch (error: unknown) {
             const e = error as any;
-            logger.error('Error in WhatsApp initialization process', { error: e?.message, stack: e?.stack });
+            logger.error('❌ Error in main process initialization', { 
+                error: e?.message, 
+                stack: e?.stack 
+            });
         }
     })();
 }

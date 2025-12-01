@@ -34,6 +34,8 @@ COPY vite.config.ts ./
 COPY tsconfig.json ./
 COPY scripts ./scripts
 COPY prodServer.js ./
+# Ensure process scripts are available (needed for bundle and cleanup processes)
+COPY scripts/processes ./scripts/processes
 COPY postcss.config.js ./
 COPY tailwind.config.js ./
  # Build the application (no pre-built build directory in CI/CD)
@@ -73,6 +75,8 @@ COPY --from=build /app/static ./static
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/schema.zmodel ./
 COPY --from=build /app/prodServer.js ./prodServer.js
+# Copy process scripts (needed for bundle and cleanup processes)
+COPY --from=build /app/scripts/processes ./scripts/processes
 
 # Copy Prisma schema and migrations
 COPY --from=build /app/prisma/schema.prisma ./prisma/

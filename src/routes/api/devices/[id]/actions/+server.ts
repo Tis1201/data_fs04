@@ -10,6 +10,9 @@ import { publisher } from '$lib/server/messaging/core/publisher';
 import { SystemUser } from '$lib/server/messaging/interfaces/message';
 import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
+import { generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
+import { isGCloudUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
+import path from 'path';
 
 // Define action types and their configurations (NEW UNIFIED FLOW)
 const ACTION_CONFIGS = {
@@ -96,8 +99,20 @@ export const POST: RequestHandler = restrict(
         
         logger.info(`[UnifiedActionAPI] ========== REQUEST START ==========`);
         logger.info(`[UnifiedActionAPI] Device ID: ${deviceId}`);
-        logger.info(`[UnifiedActionAPI] User: ${event.auth.user.email} (${event.auth.user.systemRole})`);
-        logger.info(`[UnifiedActionAPI] User ID: ${event.auth.user.id}`);
+        
+        if (!event.auth?.user) {
+            return json({
+                success: false,
+                error: {
+                    code: 'UNAUTHORIZED',
+                    message: 'User not authenticated'
+                }
+            }, { status: 401 });
+        }
+        
+        const user = event.auth.user;
+        logger.info(`[UnifiedActionAPI] User: ${user.email} (${user.systemRole})`);
+        logger.info(`[UnifiedActionAPI] User ID: ${user.id}`);
         
         if (!deviceId) {
             logger.warn(`[UnifiedActionAPI] Missing device ID`);
@@ -173,7 +188,11 @@ export const POST: RequestHandler = restrict(
                 }
             });
 
-            logger.info(`[UnifiedActionAPI] Device query result:`, device ? { id: device.id, name: device.name, connected: device.connected, createdBy: device.createdBy, accountId: device.accountId } : null);
+            if (device) {
+                logger.info(`[UnifiedActionAPI] Device query result:`, { id: device.id, name: device.name, connected: device.connected, createdBy: device.createdBy, accountId: device.accountId });
+            } else {
+                logger.info(`[UnifiedActionAPI] Device query result: null`);
+            }
 
             if (!device) {
                 logger.warn(`[UnifiedActionAPI] Device not found: ${deviceId}`);
@@ -189,13 +208,13 @@ export const POST: RequestHandler = restrict(
             }
 
             // Check if user has access to this device
-            if (event.auth.user.systemRole !== SystemRole.ADMIN) {
+            if (user.systemRole !== SystemRole.ADMIN) {
                 // Check direct ownership
-                const isOwner = device.createdBy === event.auth.user.id;
+                const isOwner = device.createdBy === user.id;
                 
                 // Check account membership if device has an account
                 const isAccountMember = device.accountId && device.account?.members?.some(
-                    (member: { userId: string }) => member.userId === event.auth.user.id
+                    (member: { userId: string }) => member.userId === user.id
                 );
                 
                 if (!isOwner && !isAccountMember) {
@@ -226,26 +245,417 @@ export const POST: RequestHandler = restrict(
             }
 
             logger.info(`[UnifiedActionAPI] Creating action log entry...`);
+            
+            // For pullFile action, generate upload URL before creating action log
+            let uploadUrlData: {
+                uploadUrl: string;
+                objectPath: string;
+                bucket: string;
+                expires: number;
+                contentType: string;
+            } | null = null;
+            
+            // For pushFile action, generate download URL if sourcePath is a GCloud URL
+            let downloadUrlData: {
+                downloadUrl: string;
+                objectPath: string;
+                bucket: string;
+                expires: number;
+            } | null = null;
+            
+            if (action === 'pushFile') {
+                try {
+                    const sourcePath = payload.sourcePath as string;
+                    const resourceId = payload.resourceId as string | undefined;
+                    
+                    logger.info(`[UnifiedActionAPI] Processing pushFile action`, {
+                        sourcePath,
+                        resourceId
+                    });
+                    
+                    // Check if sourcePath is a GCloud URL and convert to signed download URL
+                    if (isGCloudUrl(sourcePath)) {
+                        const result = await convertGCloudUrlToSignedDownloadUrl(sourcePath, 3600);
+                        
+                        if (result) {
+                            downloadUrlData = {
+                                downloadUrl: result.downloadUrl,
+                                objectPath: result.objectPath,
+                                bucket: result.bucket,
+                                expires: result.expires
+                            };
+                            
+                            // Replace sourcePath in payload with signed download URL
+                            payload.sourcePath = downloadUrlData.downloadUrl;
+                            
+                            logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for pushFile`, {
+                                originalSourcePath: sourcePath,
+                                signedDownloadUrl: downloadUrlData.downloadUrl,
+                                objectPath: downloadUrlData.objectPath,
+                                bucket: downloadUrlData.bucket
+                            });
+                        } else {
+                            logger.error(`[UnifiedActionAPI] Failed to convert GCloud URL to signed download URL`, {
+                                sourcePath
+                            });
+                            return json({
+                                success: false,
+                                error: {
+                                    code: 'OPERATION_FAILED',
+                                    message: 'Failed to generate download URL for pushFile',
+                                    details: 'Could not convert GCloud URL to signed download URL'
+                                }
+                            }, { status: 500 });
+                        }
+                    } else {
+                        logger.info(`[UnifiedActionAPI] pushFile sourcePath is not a GCloud URL, using as-is`, {
+                            sourcePath
+                        });
+                    }
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate download URL for pushFile`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate download URL for pushFile',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500 });
+                }
+            }
+            
+            if (action === 'pullFile') {
+                try {
+                    const sourcePath = payload.sourcePath as string;
+                    const fileName = sourcePath ? path.basename(sourcePath) : 'file';
+                    const timestamp = Date.now();
+                    const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
+                    
+                    const storageConfig = getStorageConfig();
+                    if (!storageConfig.bucket) {
+                        throw new Error('GCloud bucket not configured');
+                    }
+                    
+                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for pullFile`, {
+                        mode: storageConfig.mode,
+                        bucket: storageConfig.bucket,
+                        objectPath
+                    });
+                    
+                    let presignedUrlResult;
+                    
+                    // Use the appropriate method based on storage mode
+                    if (storageConfig.mode === 'LOCAL_CLOUD') {
+                        if (!storageConfig.targetServiceAccount) {
+                            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
+                        }
+                        presignedUrlResult = await generatePresignedUrlLocalCloud(
+                            storageConfig.bucket,
+                            objectPath,
+                            'application/octet-stream',
+                            storageConfig.targetServiceAccount,
+                            3600 // 1 hour expiration
+                        );
+                    } else if (storageConfig.mode === 'GCLOUD') {
+                        presignedUrlResult = await generatePresignedUrlGCloud(
+                            storageConfig.bucket,
+                            objectPath,
+                            'application/octet-stream',
+                            3600 // 1 hour expiration
+                        );
+                    } else {
+                        // For LOCAL mode, use the generic function which handles it
+                        presignedUrlResult = await generatePresignedUrl(
+                            objectPath,
+                            'application/octet-stream',
+                            3600
+                        );
+                    }
+                    
+                    uploadUrlData = {
+                        uploadUrl: presignedUrlResult.url,
+                        objectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        expires: presignedUrlResult.expires,
+                        contentType: presignedUrlResult.contentType
+                    };
+                    
+                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully`, {
+                        constructedObjectPath: objectPath,
+                        returnedObjectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        uploadUrlData,
+                        mode: storageConfig.mode
+                    });
+                    
+                    // Validate that the returned objectPath matches what we constructed
+                    if (presignedUrlResult.objectPath !== objectPath) {
+                        logger.warn(`[UnifiedActionAPI] ObjectPath mismatch!`, {
+                            constructed: objectPath,
+                            returned: presignedUrlResult.objectPath,
+                            bucket: presignedUrlResult.bucket
+                        });
+                    }
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for pullFile`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate upload URL',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500                     });
+                }
+            }
+            
+            if (action === 'getLogs') {
+                try {
+                    const format = (payload.format as string) || 'zip';
+                    const timestamp = Date.now();
+                    const fileName = `device_logs_${timestamp}.${format === 'zip' ? 'zip' : 'txt'}`;
+                    const objectPath = `devices/${deviceId}/logs/${timestamp}/${fileName}`;
+                    
+                    const storageConfig = getStorageConfig();
+                    if (!storageConfig.bucket) {
+                        throw new Error('GCloud bucket not configured');
+                    }
+                    
+                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for getLogs`, {
+                        mode: storageConfig.mode,
+                        bucket: storageConfig.bucket,
+                        objectPath,
+                        format
+                    });
+                    
+                    let presignedUrlResult;
+                    
+                    // Use the appropriate method based on storage mode
+                    if (storageConfig.mode === 'LOCAL_CLOUD') {
+                        if (!storageConfig.targetServiceAccount) {
+                            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
+                        }
+                        presignedUrlResult = await generatePresignedUrlLocalCloud(
+                            storageConfig.bucket,
+                            objectPath,
+                            format === 'zip' ? 'application/zip' : 'text/plain',
+                            storageConfig.targetServiceAccount,
+                            3600 // 1 hour expiration
+                        );
+                    } else if (storageConfig.mode === 'GCLOUD') {
+                        presignedUrlResult = await generatePresignedUrlGCloud(
+                            storageConfig.bucket,
+                            objectPath,
+                            format === 'zip' ? 'application/zip' : 'text/plain',
+                            3600 // 1 hour expiration
+                        );
+                    } else {
+                        // For LOCAL mode, use the generic function which handles it
+                        presignedUrlResult = await generatePresignedUrl(
+                            objectPath,
+                            format === 'zip' ? 'application/zip' : 'text/plain',
+                            3600
+                        );
+                    }
+                    
+                    uploadUrlData = {
+                        uploadUrl: presignedUrlResult.url,
+                        objectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        expires: presignedUrlResult.expires,
+                        contentType: presignedUrlResult.contentType
+                    };
+                    
+                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully for getLogs`, {
+                        objectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        mode: storageConfig.mode
+                    });
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for getLogs`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate upload URL for getLogs',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500 });
+                }
+            }
+            
+            if (action === 'installApp') {
+                try {
+                    const resourceId = payload.resourceId as string | undefined;
+                    
+                    if (!resourceId) {
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'INVALID_REQUEST',
+                                message: 'resourceId is required for installApp action'
+                            }
+                        }, { status: 400 });
+                    }
+                    
+                    logger.info(`[UnifiedActionAPI] Processing installApp action`, {
+                        resourceId,
+                        packageName: payload.packageName
+                    });
+                    
+                    // Fetch resource from database
+                    const resource = await prisma.resource.findUnique({
+                        where: { id: resourceId },
+                        select: {
+                            id: true,
+                            name: true,
+                            path: true,
+                            size: true,
+                            type: true
+                        }
+                    });
+                    
+                    if (!resource) {
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'RESOURCE_NOT_FOUND',
+                                message: 'Resource not found'
+                            }
+                        }, { status: 404 });
+                    }
+                    
+                    if (!resource.path) {
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'INVALID_RESOURCE',
+                                message: 'Resource has no file path'
+                            }
+                        }, { status: 400 });
+                    }
+                    
+                    // Generate signed download URL for the app file
+                    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
+                    
+                    if (result) {
+                        downloadUrlData = {
+                            downloadUrl: result.downloadUrl,
+                            objectPath: result.objectPath,
+                            bucket: result.bucket,
+                            expires: result.expires
+                        };
+                        
+                        // Add download URL to payload sent to device
+                        payload.downloadUrl = downloadUrlData.downloadUrl;
+                        payload.appPath = resource.path; // Keep original path for reference
+                        
+                        logger.info(`[UnifiedActionAPI] Generated signed download URL for installApp`, {
+                            resourceId,
+                            resourceName: resource.name,
+                            signedDownloadUrl: downloadUrlData.downloadUrl,
+                            objectPath: downloadUrlData.objectPath,
+                            bucket: downloadUrlData.bucket
+                        });
+                    } else {
+                        logger.error(`[UnifiedActionAPI] Failed to generate download URL for installApp`, {
+                            resourceId,
+                            resourcePath: resource.path
+                        });
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'OPERATION_FAILED',
+                                message: 'Failed to generate download URL for app file',
+                                details: 'Could not convert resource path to signed download URL'
+                            }
+                        }, { status: 500 });
+                    }
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate download URL for installApp`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate download URL for installApp',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500 });
+                }
+            }
+            
             // Create action log entry
             const requestId = crypto.randomUUID();
+            const actionLogMetadata = {
+                action,
+                payload,
+                initiatedBy: user.email,
+                ...(uploadUrlData ? {
+                    objectPath: uploadUrlData.objectPath,
+                    bucket: uploadUrlData.bucket,
+                    fileName: path.basename(uploadUrlData.objectPath)
+                } : {})
+            };
+            
+            logger.info(`[UnifiedActionAPI] Creating action log with metadata:`, { 
+                logId: 'pending',
+                requestId,
+                metadata: actionLogMetadata,
+                uploadUrlData: uploadUrlData ? {
+                    objectPath: uploadUrlData.objectPath,
+                    bucket: uploadUrlData.bucket
+                } : null
+            });
+            
             const created = await ActionLogger.createInitiated({
                 deviceId,
-                actionType: actionConfig.actionType,
-                initiatedBy: event.auth.user.id,
+                actionType: actionConfig.actionType as any, // Type assertion needed due to type mismatch
+                initiatedBy: user.id,
                 requestId,
                 connectionId: 'api',
                 protocol: 'api',
-                metadata: {
-                    action,
-                    payload,
-                    initiatedBy: event.auth.user.email
-                },
-                initialMessage: `Initiating ${action} action`
+                metadata: actionLogMetadata,
+                initialMessage: action === 'pullFile' ? 'Preparing file upload...' : `Initiating ${action} action`
             });
             
-            logger.info(`[UnifiedActionAPI] Action log created:`, { logId: created.id, requestId });
+            logger.info(`[UnifiedActionAPI] Action log created:`, { 
+                logId: created.id, 
+                requestId,
+                storedMetadata: created.metadata
+            });
 
             const messageRelay = getMessageRelay();
+            
+            // Prepare message payload
+            const messagePayload: any = {
+                action,
+                deviceId,
+                ...payload,
+                logId: created.id,
+                requestId
+            };
+            
+            // Add upload URL data for pullFile actions
+            if (uploadUrlData) {
+                messagePayload.uploadUrl = uploadUrlData.uploadUrl;
+                messagePayload.objectPath = uploadUrlData.objectPath;
+                messagePayload.bucket = uploadUrlData.bucket;
+                messagePayload.expires = uploadUrlData.expires;
+                messagePayload.contentType = uploadUrlData.contentType;
+            }
             
             if (!messageRelay) {
                 logger.error(`[UnifiedActionAPI] MessageRelay not initialized - falling back to publisher system`);
@@ -253,13 +663,7 @@ export const POST: RequestHandler = restrict(
                 const routingMessage = MessageFactory.createSystemMessage(
                     actionConfig.sseAction,
                     `subscription:device:${deviceId}`,
-                    {
-                        action,
-                        deviceId,
-                        ...payload,
-                        logId: created.id,
-                        requestId
-                    },
+                    messagePayload,
                     SystemUser,
                     { echoToSender: false }
                 );
@@ -268,20 +672,14 @@ export const POST: RequestHandler = restrict(
                 // Use Redis Pub/Sub for scalable device messaging
                 const message = {
                     type: actionConfig.sseAction,
-                    payload: {
-                        action,
-                        deviceId,
-                        ...payload,
-                        logId: created.id,
-                        requestId
-                    },
+                    payload: messagePayload,
                     timestamp: new Date().toISOString()
                 };
                 
                 logger.info(`[UnifiedActionAPI] Publishing message to device via Redis Pub/Sub...`, { 
                     action: actionConfig.sseAction, 
                     deviceId,
-                    payload: { action, deviceId, logId: created.id }
+                    payload: { action, deviceId, logId: created.id, hasUploadUrl: !!uploadUrlData }
                 });
 
                 await messageRelay.publishToDevice(deviceId, message);
@@ -306,7 +704,7 @@ export const POST: RequestHandler = restrict(
                 }
             }, actionConfig.timeout);
 
-            logger.info(`[UnifiedActionAPI] ${action} action initiated for device ${deviceId} by user ${event.auth.user.email}`);
+            logger.info(`[UnifiedActionAPI] ${action} action initiated for device ${deviceId} by user ${user.email}`);
             logger.info(`[UnifiedActionAPI] ========== REQUEST END (SUCCESS) ==========`);
 
             return json({
@@ -325,7 +723,8 @@ export const POST: RequestHandler = restrict(
 
         } catch (error) {
             logger.error(`[UnifiedActionAPI] Error handling action request: ${String(error)}`);
-            logger.error(`[UnifiedActionAPI] Error stack:`, error instanceof Error ? error.stack : 'No stack');
+            const errorStack = error instanceof Error ? error.stack : 'No stack';
+            logger.error(`[UnifiedActionAPI] Error stack:`, { stack: errorStack });
             logger.error(`[UnifiedActionAPI] ========== REQUEST END (ERROR) ==========`);
             return json({ 
                 success: false, 

@@ -510,6 +510,9 @@ export async function generateDownloadUrlGCloud(
 /**
  * Delete file from cloud storage
  */
+// Export GCloud URL utilities
+export { parseGCloudUrl, isGCloudUrl, convertGCloudUrlToSignedDownloadUrl } from './gcloudUrlUtils';
+
 export async function deleteFileFromCloudStorage(filePath: string): Promise<void> {
     const config = getStorageConfig();
     
@@ -546,16 +549,18 @@ export async function deleteFileFromCloudStorage(filePath: string): Promise<void
     // Extract object path from the stored path
     let objectPath = filePath;
     
-    if (filePath.startsWith('https://storage.googleapis.com/')) {
+    // Lazy import to avoid circular dependency
+    const { isGCloudUrl, parseGCloudUrl } = await import('./gcloudUrlUtils');
+    
+    if (isGCloudUrl(filePath)) {
         // Extract the object path from the full URL
-        const url = new URL(filePath);
-        const pathParts = url.pathname.substring(1).split('/');
-        if (pathParts.length > 1) {
-            objectPath = pathParts.slice(1).join('/'); // Remove bucket name, keep the rest
+        const parsed = parseGCloudUrl(filePath);
+        if (parsed) {
+            objectPath = parsed.objectPath;
+            logger.info(`Extracted object path from GCloud URL: ${objectPath}`);
         } else {
-            objectPath = pathParts[0];
+            logger.warn(`Failed to parse GCloud URL for deletion, using path as-is: ${filePath}`);
         }
-        logger.info(`Extracted object path from full URL: ${objectPath}`);
     } else if (filePath.includes('/')) {
         // This is already an object path
         objectPath = filePath;

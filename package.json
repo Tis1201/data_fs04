@@ -34,7 +34,11 @@
 		"preview:dev": "vite preview",
 		"start:prod": "NODE_ENV=production dotenv -- node build",
 		"prodServer": "NODE_ENV=production dotenv -- node prodServer.js",
-		"package": "npm run build && node scripts/build/package-app.js"
+		"package": "npm run build && node scripts/build/package-app.js",
+		"process:main": "dotenv -- tsx scripts/processes/main-process.ts",
+		"bundle:process": "dotenv -- tsx scripts/processes/bundle-process.ts",
+		"gcloud:cleanup": "dotenv -- tsx scripts/processes/gcloud-cleanup.ts",
+		"dev:all-processes": "concurrently \"npm run dev\" \"npm run bundle:process\" \"npm run gcloud:cleanup\""
 	},
 	"devDependencies": {
 		"@faker-js/faker": "^9.2.0",

@@ -346,6 +346,10 @@ function createSSEStore() {
                 'device:statusUpdate',     // Device status update
                 'device:dataUpdate',       // Device data update
                 'device:profileUpdate',    // Device profile update
+                'device:progressUpdate',   // Device progress updates
+                'device:pullFileStatus',   // Pull file status updates
+                'device:pushFileStatus',   // Push file status updates
+                'device:getLogsStatus',    // Get logs status updates
                 'bundle:waveStatus',       // Bundle wave status
                 'bundle:status',           // Bundle status
                 'terminal',                // Terminal responses (connect, input, resize, etc.)

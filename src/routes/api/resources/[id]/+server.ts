@@ -5,7 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { restrict } from '$lib/server/security/guards';
-import { generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
+import { generateDownloadUrl, getStorageConfig, parseGCloudUrl, isGCloudUrl } from '$lib/server/storage';
 
 /**
  * GET handler for resource files
@@ -102,17 +102,14 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                         // Extract object path from the stored path
                         let objectPath = resource.path;
                         
-                        if (resource.path.startsWith('https://storage.googleapis.com/')) {
-                            // Extract the object path from the full URL
-                            const url = new URL(resource.path);
-                            // Remove the leading slash and the bucket name (first part after the slash)
-                            const pathParts = url.pathname.substring(1).split('/');
-                            if (pathParts.length > 1) {
-                                objectPath = pathParts.slice(1).join('/'); // Remove bucket name, keep the rest
+                        if (isGCloudUrl(resource.path)) {
+                            const parsed = parseGCloudUrl(resource.path);
+                            if (parsed) {
+                                objectPath = parsed.objectPath;
+                                logger.info(`Extracted object path from GCloud URL: ${objectPath}`);
                             } else {
-                                objectPath = pathParts[0];
+                                logger.warn(`Failed to parse GCloud URL, using path as-is: ${resource.path}`);
                             }
-                            logger.info(`Extracted object path from full URL: ${objectPath}`);
                         } else if (resource.path.includes('/')) {
                             // This is already an object path
                             objectPath = resource.path;

@@ -51,8 +51,31 @@ if [ -n "${DATABASE_URL:-}" ]; then
   fi
 fi
 
-echo "[entrypoint] Starting application..."
-exec node prodServer.js
+# Determine which process to start based on PROCESS_TYPE environment variable
+PROCESS_TYPE="${PROCESS_TYPE:-main}"
+
+echo "[entrypoint] Process type: $PROCESS_TYPE"
+
+case "$PROCESS_TYPE" in
+  main)
+    echo "[entrypoint] Starting main application server..."
+    exec node prodServer.js
+    ;;
+  bundle)
+    echo "[entrypoint] Starting bundle processing worker..."
+    exec tsx scripts/processes/bundle-process.ts
+    ;;
+  cleanup)
+    echo "[entrypoint] Starting GCloud cleanup process..."
+    exec tsx scripts/processes/gcloud-cleanup.ts
+    ;;
+  *)
+    echo "[entrypoint] ERROR: Unknown PROCESS_TYPE: $PROCESS_TYPE"
+    echo "[entrypoint] Valid values: main, bundle, cleanup"
+    echo "[entrypoint] Defaulting to main process..."
+    exec node prodServer.js
+    ;;
+esac
 
 
 

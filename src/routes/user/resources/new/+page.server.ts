@@ -149,7 +149,8 @@ export const actions: Actions = {
 
                 try {
                     // Check if file has already been uploaded to cloud storage
-                    if (form.data.path && form.data.path.startsWith('https://storage.googleapis.com/')) {
+                    const { isGCloudUrl } = await import('$lib/server/storage/gcloudUrlUtils');
+                    if (form.data.path && isGCloudUrl(form.data.path)) {
                         logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
                         // File is already uploaded, use the existing path
                         filePath = form.data.path;
