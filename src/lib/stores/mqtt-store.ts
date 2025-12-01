@@ -26,10 +26,10 @@ interface MQTTState {
 
 type TopicCallback = (message: MQTTMessage) => void;
 
-const BASE_RECONNECT_INTERVAL = 1000;
+const BASE_RECONNECT_INTERVAL = 2000;
 const MAX_RECONNECT_INTERVAL = 30000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const DEFAULT_KEEP_ALIVE = 60;
+const DEFAULT_KEEP_ALIVE = 120;
 const MINT_ENDPOINT = '/api/user/mqtt/mint';
 
 const textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
@@ -557,6 +557,18 @@ export function createMQTTStore() {
                             });
                         });
                         pendingTopics.clear();
+                    }
+                });
+
+                client.on('packetsend', (packet: any) => {
+                    if (packet.cmd === 'pingreq') {
+                        console.log('[MQTT] Sent PINGREQ');
+                    }
+                });
+
+                client.on('packetreceive', (packet: any) => {
+                    if (packet.cmd === 'pingresp') {
+                        console.log('[MQTT] Received PINGRESP');
                     }
                 });
 

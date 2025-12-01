@@ -39,6 +39,10 @@ const connectionOptions: IClientOptions = {
     path: process.env.MQTT_WORKER_PATH ?? '/mqtt'
 };
 
+/*****************************************************************
+ * Mints new MQTT credentials via the IoT Core API.
+ * Returns null if configuration is missing or minting fails.
+ *****************************************************************/
 async function mintWorkerCredentials(): Promise<
     { clientId: string; username: string; password: string } | null
 > {
@@ -70,6 +74,9 @@ let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
 
+/*****************************************************
+ * Sends a heartbeat message to the 'heartbeat' topic.
+ *****************************************************/
 function sendHeartbeat() {
     if (client && client.connected) {
         client.publish('heartbeat', JSON.stringify({ timestamp: Date.now() }), { qos: 0 }, (err) => {
@@ -78,6 +85,9 @@ function sendHeartbeat() {
     }
 }
 
+/*******************************************************
+ * Starts the heartbeat interval if not already running.
+ *******************************************************/
 function startHeartbeat() {
     if (heartbeatTimer) return;
     logger.info('[MQTT Transport] Starting heartbeat');
@@ -90,6 +100,9 @@ function startHeartbeat() {
     }, 60000);
 }
 
+/********************************
+ * Stops the heartbeat interval.
+ ********************************/
 function stopHeartbeat() {
     if (heartbeatTimer) {
         logger.info('[MQTT Transport] Stopping heartbeat');
@@ -99,6 +112,10 @@ function stopHeartbeat() {
 }
 
 
+/*************************************************************************
+ * Connects the worker MQTT client.
+ * Mints credentials, sets up event listeners, and handles subscriptions.
+ *************************************************************************/
 export async function connectWorkerClient(): Promise<void> {
     const minted = await mintWorkerCredentials();
 
@@ -203,6 +220,9 @@ export async function connectWorkerClient(): Promise<void> {
     });
 }
 
+/***********************************************************
+ * Schedules a reconnect attempt with exponential backoff.
+ ***********************************************************/
 function scheduleReconnect() {
     if (reconnectTimer) {
         return;
@@ -263,15 +283,25 @@ function scheduleReconnect() {
     }, delay);
 }
 
+/*****************************************
+ * Sets the started state of the worker.
+ *****************************************/
 export function setStarted(value: boolean) {
     started = value;
 }
 
+/*************************************************************
+ * Manually sets the MQTT client instance (mainly for testing).
+ *************************************************************/
 export function setClient(value: MqttClient | null) {
     client = value;
 }
 
 
+/********************************************************
+ * Publishes an MQTT message using the active client.
+ * Throws if the client is not connected.
+ ********************************************************/
 export async function publishMqttMessage(
     topic: string,
     payload: string | Buffer,
