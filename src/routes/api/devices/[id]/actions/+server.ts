@@ -273,9 +273,51 @@ export const POST: RequestHandler = restrict(
                         resourceId
                     });
                     
+                    // Fetch file metadata (name and size) from Resource table if resourceId is provided
+                    if (resourceId) {
+                        try {
+                            const resource = await prisma.resource.findUnique({
+                                where: { id: resourceId },
+                                select: {
+                                    name: true,
+                                    size: true,
+                                    packageName: true,
+                                    path: true
+                                }
+                            });
+
+                            if (resource) {
+                                // Use packageName if available, otherwise use name
+                                const packageName = resource.packageName || resource.name;
+                                payload.packageName = packageName;
+                                payload.packageSize = resource.size;
+                                
+                                // If resource has a path and sourcePath is not set, use resource path
+                                if (resource.path && !sourcePath) {
+                                    payload.sourcePath = resource.path;
+                                }
+                                
+                                logger.info(`[UnifiedActionAPI] Added file metadata from Resource table to pushFile payload`, {
+                                    resourceId,
+                                    packageName: packageName,
+                                    packageSize: resource.size,
+                                    resourcePath: resource.path
+                                });
+                            } else {
+                                logger.warn(`[UnifiedActionAPI] Resource not found for resourceId: ${resourceId}`);
+                            }
+                        } catch (resourceError) {
+                            logger.warn(`[UnifiedActionAPI] Failed to get resource metadata, continuing without it:`, {
+                                error: resourceError instanceof Error ? resourceError.message : String(resourceError)
+                            });
+                            // Continue without metadata if retrieval fails
+                        }
+                    }
+                    
                     // Check if sourcePath is a GCloud URL and convert to signed download URL
-                    if (isGCloudUrl(sourcePath)) {
-                        const result = await convertGCloudUrlToSignedDownloadUrl(sourcePath, 3600);
+                    const finalSourcePath = payload.sourcePath || sourcePath;
+                    if (finalSourcePath && isGCloudUrl(finalSourcePath)) {
+                        const result = await convertGCloudUrlToSignedDownloadUrl(finalSourcePath, 3600);
                         
                         if (result) {
                             downloadUrlData = {
@@ -289,14 +331,14 @@ export const POST: RequestHandler = restrict(
                             payload.sourcePath = downloadUrlData.downloadUrl;
                             
                             logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for pushFile`, {
-                                originalSourcePath: sourcePath,
+                                originalSourcePath: finalSourcePath,
                                 signedDownloadUrl: downloadUrlData.downloadUrl,
                                 objectPath: downloadUrlData.objectPath,
                                 bucket: downloadUrlData.bucket
                             });
                         } else {
                             logger.error(`[UnifiedActionAPI] Failed to convert GCloud URL to signed download URL`, {
-                                sourcePath
+                                sourcePath: finalSourcePath
                             });
                             return json({
                                 success: false,
@@ -309,11 +351,11 @@ export const POST: RequestHandler = restrict(
                         }
                     } else {
                         logger.info(`[UnifiedActionAPI] pushFile sourcePath is not a GCloud URL, using as-is`, {
-                            sourcePath
+                            sourcePath: finalSourcePath
                         });
                     }
                 } catch (error) {
-                    logger.error(`[UnifiedActionAPI] Failed to generate download URL for pushFile`, {
+                    logger.error(`[UnifiedActionAPI] Failed to process pushFile action`, {
                         error: error instanceof Error ? error.message : String(error),
                         stack: error instanceof Error ? error.stack : undefined
                     });
@@ -321,7 +363,7 @@ export const POST: RequestHandler = restrict(
                         success: false,
                         error: {
                             code: 'OPERATION_FAILED',
-                            message: 'Failed to generate download URL for pushFile',
+                            message: 'Failed to process pushFile action',
                             details: error instanceof Error ? error.message : String(error)
                         }
                     }, { status: 500 });
@@ -521,7 +563,8 @@ export const POST: RequestHandler = restrict(
                             name: true,
                             path: true,
                             size: true,
-                            type: true
+                            type: true,
+                            packageName: true
                         }
                     });
                     
@@ -545,6 +588,12 @@ export const POST: RequestHandler = restrict(
                         }, { status: 400 });
                     }
                     
+                    // Add resource metadata to payload (packageName, packageSize)
+                    const packageName = resource.packageName || resource.name;
+                    payload.packageName = payload.packageName || packageName; // Use provided packageName or resource packageName
+                    payload.packageSize = resource.size;
+                    payload.appName = packageName; // For backward compatibility
+                    
                     // Generate signed download URL for the app file
                     const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
                     
@@ -563,6 +612,8 @@ export const POST: RequestHandler = restrict(
                         logger.info(`[UnifiedActionAPI] Generated signed download URL for installApp`, {
                             resourceId,
                             resourceName: resource.name,
+                            packageName: packageName,
+                            packageSize: resource.size,
                             signedDownloadUrl: downloadUrlData.downloadUrl,
                             objectPath: downloadUrlData.objectPath,
                             bucket: downloadUrlData.bucket

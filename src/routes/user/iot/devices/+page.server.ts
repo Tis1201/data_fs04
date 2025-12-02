@@ -13,6 +13,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
 import { isDeviceOnline, areDevicesOnline } from '$lib/server/device/devicePresence';
+import { getMultipleDeviceInformation } from '$lib/server/clickhouse/client';
 
 // Define table options for Devices
 const table_options = {
@@ -122,6 +123,12 @@ export const load = restrict(
                 };
             })
         );
+
+        // Load device information from ClickHouse for all devices
+        const macAddresses = devicesWithRealTimeStatus
+            .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
+            .filter(Boolean);
+        const deviceInfoMap = await getMultipleDeviceInformation(macAddresses);
         
         // Get user's current account ID for account-level subscriptions
         const user = locals.auth?.user;
@@ -233,6 +240,7 @@ export const load = restrict(
         
         return {
             devices: devicesWithRealTimeStatus,
+            deviceInformation: Object.fromEntries(deviceInfoMap), // Convert Map to object for serialization
             meta: result.meta,
             availableTags,
             userRole: user?.systemRole || 'MEMBER',

@@ -13,6 +13,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
 import { isDeviceOnline, areDevicesOnline } from '$lib/server/device/devicePresence';
+import { getMultipleDeviceInformation } from '$lib/server/clickhouse/client';
 
 // Define table options for Devices
 const table_options = {
@@ -92,6 +93,12 @@ export const load = restrict(
                 };
             })
         );
+
+        // Load device information from ClickHouse for all devices
+        const macAddresses = devicesWithRealTimeStatus
+            .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
+            .filter(Boolean);
+        const deviceInfoMap = await getMultipleDeviceInformation(macAddresses);
 
         // Fetch device statistics grouped by OS
         const allDevices = await locals.prisma.device.findMany({
@@ -181,6 +188,7 @@ export const load = restrict(
 
         return {
             devices: devicesWithRealTimeStatus,
+            deviceInformation: Object.fromEntries(deviceInfoMap), // Convert Map to object for serialization
             availableTags,
             meta: result.meta,
             deviceStats: stats

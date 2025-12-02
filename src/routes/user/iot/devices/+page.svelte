@@ -17,10 +17,10 @@
     export let data: PageData;
     
     // Extract data from the server
-    $: ({ devices: records, meta, availableTags, userRole, accountId, deviceStats } = data);
+    $: ({ devices: records, deviceInformation, meta, availableTags, userRole, accountId, deviceStats } = data);
     $: pagination = getDefaultPagination(meta, 10);
     $: sort = getDefaultSort(meta, "createdAt", "desc");
-    $: props = { records: records as any, availableTags: availableTags || [], pagination, sort, loading };
+    $: props = { records: records as any, deviceInformation: deviceInformation || {}, availableTags: availableTags || [], pagination, sort, loading };
     
     let loading = false;
     
