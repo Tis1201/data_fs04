@@ -29,6 +29,7 @@
     // Props for DataTable component
     export let props = {
         records: [] as Device[],
+        deviceInformation: {} as Record<string, any>,
         availableTags: [] as DeviceTag[],
         pagination: {
             page: 1,
@@ -156,8 +157,52 @@
             id: "usage",
             label: "Usage",
             sortable: false,
-            width: "8%",
-            render: (record: Device) => "N/A"  // Will use table device info later
+            width: "12%",
+            render: (record: Device) => {
+                // Get MAC address (prefer macAddress, fallback to lanMac or wifiMac)
+                const macAddress = record.macAddress || record.lanMac || record.wifiMac;
+                const deviceInfo = macAddress ? props.deviceInformation[macAddress] : null;
+                
+                if (!deviceInfo) {
+                    return "N/A";
+                }
+                
+                // Format percentage values
+                const formatPercent = (value: number | null | undefined): string => {
+                    if (value === null || value === undefined) return "N/A";
+                    return `${Math.round(value)}%`;
+                };
+                
+                // Get color for usage value
+                const getUsageColor = (value: number | null | undefined): string => {
+                    if (value === null || value === undefined) return "text-gray-500 dark:text-gray-400";
+                    if (value < 50) return "text-blue-600 dark:text-blue-400";
+                    if (value < 80) return "text-yellow-600 dark:text-yellow-400";
+                    return "text-orange-600 dark:text-orange-400";
+                };
+                
+                const cpuUsage = deviceInfo.cpu_usage;
+                const ramUsage = deviceInfo.ram_usage;
+                const diskUsage = deviceInfo.disk_usage;
+                
+                // Return HTML string directly
+                return `
+                    <div class="text-xs space-y-0.5">
+                        <div class="flex items-center gap-1">
+                            <span class="text-gray-600 dark:text-gray-400">CPU:</span>
+                            <span class="${getUsageColor(cpuUsage)} font-medium">${formatPercent(cpuUsage)}</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-gray-600 dark:text-gray-400">MEM:</span>
+                            <span class="${getUsageColor(ramUsage)} font-medium">${formatPercent(ramUsage)}</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-gray-600 dark:text-gray-400">DSK:</span>
+                            <span class="${getUsageColor(diskUsage)} font-medium">${formatPercent(diskUsage)}</span>
+                        </div>
+                    </div>
+                `;
+            }
         },
         {
             id: "tags",

@@ -70,7 +70,7 @@
             <!-- Edit Form -->
             <FormContainer action="?/save" {enhance} errorMessage={$errorMessage}>
                 <!-- Editable fields -->
-                <FormRow columns={2}>
+                <FormRow columns={1}>
                     <!-- Name -->
                     <FormField
                         id="name"
@@ -82,19 +82,6 @@
                             name="name"
                             placeholder="Enter device name"
                             bind:value={$form.name}
-                        />
-                    </FormField>
-                    
-                    <!-- Status (read-only) -->
-                    <FormField
-                        id="status-display"
-                        label="Status"
-                    >
-                        <Input
-                            id="status-display"
-                            value={$form.status}
-                            readonly
-                            disabled
                         />
                     </FormField>
                 </FormRow>

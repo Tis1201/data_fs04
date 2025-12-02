@@ -2,7 +2,7 @@ import { Storage } from '@google-cloud/storage';
 import { GoogleAuth, Impersonated } from 'google-auth-library';
 import { logger } from '$lib/server/logger';
 import { env } from '$env/dynamic/private';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { getGCloudAccessToken, isCredentialError } from './gcloudAuthUtils';
@@ -28,6 +28,12 @@ export interface PresignedUrlResult {
     objectPath: string;
     contentType: string;
     expires: number;
+}
+
+export interface FileMetadata {
+    name: string;
+    size: number;
+    contentType?: string;
 }
 
 /**
@@ -720,5 +726,109 @@ async function deleteFileFromGCloud(
     } catch (error) {
         logger.error(`Failed to delete file from GCLOUD: ${error}`);
         throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Get file metadata (name and size) from GCS URL
+ * Returns null if file is not in GCS or if metadata cannot be retrieved
+ */
+export async function getFileMetadataFromGcsUrl(gcsUrl: string): Promise<FileMetadata | null> {
+    try {
+        // Check if URL is a GCS URL
+        if (!gcsUrl.startsWith('https://storage.googleapis.com/') && 
+            !gcsUrl.startsWith('http://storage.googleapis.com/')) {
+            logger.debug(`URL is not a GCS URL: ${gcsUrl}`);
+            return null;
+        }
+
+        const config = getStorageConfig();
+        if (config.mode === 'LOCAL') {
+            logger.debug(`Storage mode is LOCAL, cannot get GCS metadata`);
+            return null;
+        }
+
+        if (!config.bucket) {
+            logger.warn(`GCLOUD_BUCKET not configured`);
+            return null;
+        }
+
+        // Parse GCS URL to extract bucket and object path
+        const url = new URL(gcsUrl);
+        const pathParts = url.pathname.substring(1).split('/');
+        
+        if (pathParts.length < 2) {
+            logger.warn(`Invalid GCS URL format: ${gcsUrl}`);
+            return null;
+        }
+
+        const bucketName = pathParts[0];
+        const objectPath = pathParts.slice(1).join('/');
+
+        logger.debug(`Getting metadata for GCS file: bucket=${bucketName}, objectPath=${objectPath}`);
+
+        // Get file metadata based on storage mode
+        if (config.mode === 'GCLOUD') {
+            const storage = new Storage({ 
+                projectId: config.projectId 
+            });
+            const file = storage.bucket(bucketName).file(objectPath);
+            
+            const [exists] = await file.exists();
+            if (!exists) {
+                logger.warn(`File does not exist in GCS: ${objectPath}`);
+                return null;
+            }
+
+            const [metadata] = await file.getMetadata();
+            const fileName = metadata.name ? basename(metadata.name) : basename(objectPath);
+            const fileSize = typeof metadata.size === 'string' 
+                ? parseInt(metadata.size, 10) 
+                : (typeof metadata.size === 'number' ? metadata.size : 0);
+            
+            return {
+                name: fileName,
+                size: fileSize,
+                contentType: metadata.contentType
+            };
+        } else if (config.mode === 'LOCAL_CLOUD' && config.targetServiceAccount) {
+            // For LOCAL_CLOUD mode, use gcloud CLI to get metadata
+            try {
+                const { execSync } = await import('child_process');
+                const gcloudCommand = `gcloud storage objects describe gs://${bucketName}/${objectPath} --impersonate-service-account=${config.targetServiceAccount} --format=json`;
+                
+                const output = execSync(gcloudCommand, { 
+                    encoding: 'utf8',
+                    timeout: 10000,
+                    env: { 
+                        ...process.env, 
+                        GOOGLE_APPLICATION_CREDENTIALS: '/Users/macbook/.config/gcloud/application_default_credentials.json'
+                    }
+                }).trim();
+                
+                const metadata = JSON.parse(output);
+                const fileName = metadata.name ? basename(metadata.name) : basename(objectPath);
+                
+                return {
+                    name: fileName,
+                    size: parseInt(metadata.size || '0', 10),
+                    contentType: metadata.contentType
+                };
+            } catch (gcloudError) {
+                logger.warn(`Failed to get metadata via gcloud CLI: ${gcloudError}`);
+                // Fallback: extract filename from URL
+                const fileName = basename(objectPath);
+                return {
+                    name: fileName,
+                    size: 0, // Size unknown
+                };
+            }
+        }
+
+        return null;
+    } catch (error) {
+        logger.error(`Failed to get file metadata from GCS URL: ${error}`);
+        // Return null instead of throwing to allow the operation to continue without metadata
+        return null;
     }
 }

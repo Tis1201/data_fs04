@@ -122,6 +122,9 @@ export type DeviceInformation = {
   public_ip: string;
   private_ip: string;
   created_at: string;
+  cpu_usage: number | null;
+  ram_usage: number | null;
+  disk_usage: number | null;
 };
 
 export async function getLatestDeviceInformation(macAddress: string | null): Promise<DeviceInformation | null> {
@@ -152,8 +155,11 @@ export async function getLatestDeviceInformation(macAddress: string | null): Pro
         timezone,
         public_ip,
         private_ip,
-        created_at
-      FROM device_information
+        created_at,
+        cpu_usage,
+        ram_usage,
+        disk_usage
+      FROM mv_device_information
       WHERE mac_lan = {macAddress: String}
       ORDER BY created_at DESC
       LIMIT 1
@@ -181,5 +187,81 @@ export async function getLatestDeviceInformation(macAddress: string | null): Pro
   } catch (error) {
     logger.error(`[ClickHouse] Failed to query device_information for MAC address ${macAddress}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
+  }
+}
+
+export async function getMultipleDeviceInformation(macAddresses: string[]): Promise<Map<string, DeviceInformation>> {
+  const client = getClickHouseClient();
+  const resultMap = new Map<string, DeviceInformation>();
+  
+  try {
+    if (macAddresses.length === 0) {
+      logger.debug(`[ClickHouse] No MAC addresses provided, skipping bulk device_information query`);
+      return resultMap;
+    }
+
+    // Filter out null/empty MAC addresses
+    const validMacAddresses = macAddresses.filter(mac => mac && mac.trim().length > 0);
+    if (validMacAddresses.length === 0) {
+      return resultMap;
+    }
+
+    const query = `
+      SELECT 
+        last_connected_at,
+        last_status_at,
+        os_version,
+        system_uptime_seconds,
+        firmware,
+        model,
+        network_interface,
+        wifi_ssid,
+        signal_strength_dbm,
+        mac_wifi,
+        mac_lan,
+        orientation,
+        resolution,
+        timezone,
+        public_ip,
+        private_ip,
+        created_at,
+        cpu_usage,
+        ram_usage,
+        disk_usage
+      FROM (
+        SELECT 
+          *,
+          ROW_NUMBER() OVER (PARTITION BY mac_lan ORDER BY created_at DESC) as rn
+        FROM mv_device_information
+        WHERE mac_lan IN {macAddresses:Array(String)}
+      ) ranked
+      WHERE rn = 1
+    `;
+
+    logger.debug(`[ClickHouse] Querying device_information for ${validMacAddresses.length} MAC addresses`);
+
+    const result = await client.query({
+      query,
+      query_params: {
+        macAddresses: validMacAddresses
+      }
+    });
+
+    const data = await result.json();
+    const rows = data.data || [];
+    
+    // Map results by mac_lan
+    for (const row of rows) {
+      const info = row as DeviceInformation;
+      if (info.mac_lan) {
+        resultMap.set(info.mac_lan, info);
+      }
+    }
+
+    logger.info(`[ClickHouse] Found device_information for ${resultMap.size} of ${validMacAddresses.length} MAC addresses`);
+    return resultMap;
+  } catch (error) {
+    logger.error(`[ClickHouse] Failed to query multiple device_information: ${error instanceof Error ? error.message : String(error)}`);
+    return resultMap;
   }
 }

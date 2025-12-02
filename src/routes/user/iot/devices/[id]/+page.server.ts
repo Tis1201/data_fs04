@@ -1,6 +1,5 @@
 import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import type { RequestEvent } from '@sveltejs/kit';
 import { z } from 'zod';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';

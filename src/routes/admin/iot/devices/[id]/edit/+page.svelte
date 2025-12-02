@@ -84,7 +84,7 @@
             <!-- Edit Form -->
             <FormContainer id="device-edit-form" action="?/save" {enhance} errorMessage={$errorMessage}>
                 <!-- Editable fields -->
-                <FormRow columns={2}>
+                <FormRow columns={1}>
                     <!-- Name -->
                     <FormField
                         id="name"
@@ -96,20 +96,6 @@
                             name="name"
                             placeholder="Enter device name"
                             bind:value={$form.name}
-                        />
-                    </FormField>
-
-                    <!-- Status -->
-                    <FormField
-                        id="status"
-                        label="Status"
-                        error={$errors.status}
-                    >
-                        <EnhancedSelect
-                            id="status"
-                            name="status"
-                            options={DEVICE_STATUSES}
-                            bind:value={$form.status}
                         />
                     </FormField>
                 </FormRow>
