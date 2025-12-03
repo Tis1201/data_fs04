@@ -12,5 +12,7 @@ services:
     environment:
       EMQX_DASHBOARD__DEFAULT_USERNAME: admin
       EMQX_DASHBOARD__DEFAULT_PASSWORD: public
-      EMQX_ALLOW_ANONYMOUS: "true"
+      EMQX_ALLOW_ANONYMOUS: "false" # Changed to false as we have AuthN/AuthZ
       EMQX_LOG__LEVEL: info
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
