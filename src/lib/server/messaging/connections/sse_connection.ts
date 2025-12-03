@@ -14,7 +14,7 @@ import {
 } from '$lib/shared/response_format';
 
 export class SSEConnection implements Connection {
-  private static readonly PING_INTERVAL_MS = 30000; // 30 seconds
+  private static readonly PING_INTERVAL_MS = 15000; // 15 seconds (Cloudflare proxy compatibility)
   private pingInterval: NodeJS.Timeout | null = null;
   private isAlive = true;
   private controllerClosed = false;

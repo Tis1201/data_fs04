@@ -22,8 +22,8 @@ import {
 export type PushpinPublishFunction = (channel: string, message: any) => Promise<void>;
 
 export class PushpinConnection implements Connection {
-    private static readonly PING_INTERVAL_MS = 30000; // 30 seconds
-    private static readonly PING_TIMEOUT_MS = 60000; // 60 seconds timeout
+    private static readonly PING_INTERVAL_MS = 15000; // 15 seconds (Cloudflare proxy compatibility)
+    private static readonly PING_TIMEOUT_MS = 45000; // 45 seconds timeout (3x ping interval)
     private pingInterval: NodeJS.Timeout | null = null;
     private pingTimeout: NodeJS.Timeout | null = null;
     private keepAliveInterval: NodeJS.Timeout | null = null;

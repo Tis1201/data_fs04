@@ -244,9 +244,10 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                 'X-Accel-Buffering': 'no',
                 'Access-Control-Allow-Origin': '*',
                 // Pushpin GRIP headers for long-lived connections
+                // Cloudflare-compatible: shorter keep-alive interval (15s) for proxy compatibility
                 'Grip-Hold': 'stream',
                 'Grip-Channel': `device:${deviceId}`,
-                'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=60'
+                'Grip-Keep-Alive': ':\\n\\n; format=cstring; timeout=15'
             }
         });
     } catch (error: any) {
