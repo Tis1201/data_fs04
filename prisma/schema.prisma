@@ -1126,3 +1126,19 @@ model UserAppAction {
   @@index([action])
   @@index([createdAt])
 }
+
+model MqttConnection {
+  clientId       String    @id()
+  username       String
+  kind           String
+  status         String    @default("CONNECTED")
+  connectedAt    DateTime  @default(now())
+  disconnectedAt DateTime?
+  lastEventAt    DateTime  @default(now())
+  node           String?
+  reason         String?
+
+  @@index([username])
+  @@index([status])
+  @@index([lastEventAt])
+}

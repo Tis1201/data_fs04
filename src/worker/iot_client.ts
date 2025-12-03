@@ -48,11 +48,14 @@ async function mintWorkerCredentials(): Promise<
 > {
     const workerUsername = process.env.MQTT_WORKER_USERNAME ?? 'server:fs04-worker';
 
-    const data = await mintIoTCoreCredentials({
-        username: workerUsername,
-        pubTopics: ['#'],
-        subTopics: ['#']
-    });
+    const data = await mintIoTCoreCredentials(
+        {
+            username: workerUsername,
+            pubTopics: ['#'],
+            subTopics: ['#']
+        },
+        adminPrisma
+    );
 
     if (!data) {
         logger.info('[MQTT Transport] IoT Core minting not configured or failed; using static MQTT_SERVER_USERNAME/PASSWORD');

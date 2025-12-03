@@ -110,6 +110,185 @@ export function registerRpcClient<P extends PrismaClient>(
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
     logger.debug(`[MQTT Messaging] Received message on ${topic}`);
 
+    if (
+        topic === '$events/client/connected' ||
+        topic === '$events/client/connected/' ||
+        topic === '$events/client/disconnected' ||
+        topic === '$events/client/disconnected/' ||
+        topic === '$events/client_connected' ||
+        topic === '$events/client_disconnected'
+    ) {
+        const rawEvent = payload.toString('utf8');
+        let eventData: any = null;
+
+        // EMQX may emit event payloads as Erlang-style maps, e.g.:
+        // {
+        // clientid: "device:..._suffix",
+        // username: "device:...",
+        // reason: "remote",
+        // disconnected_at: "<epoch-ms>"
+        // }
+        // which is not valid JSON. Try JSON.parse first, then fall back to regex extraction.
+        try {
+            // eslint-disable-next-line no-console
+            console.log('rawEvent', rawEvent);
+            eventData = JSON.parse(rawEvent);
+        } catch {
+            // Swallow JSON errors; we'll try to extract fields from the raw string below.
+        }
+
+        let clientId = typeof eventData?.clientid === 'string' ? eventData.clientid : '';
+        let username = typeof eventData?.username === 'string' ? eventData.username : '';
+        let reason = typeof eventData?.reason === 'string' ? eventData.reason : '';
+        let connectedAtMs: number | null = null;
+        let disconnectedAtMs: number | null = null;
+        let node: string | null =
+            typeof eventData?.node === 'string' ? (eventData.node as string) : null;
+
+        if (!clientId) {
+            const clientIdMatch = rawEvent.match(/clientid:\s*"([^\"]+)"/);
+            if (clientIdMatch) {
+                clientId = clientIdMatch[1];
+            }
+        }
+
+        if (!username) {
+            const usernameMatch = rawEvent.match(/username:\s*"([^\"]+)"/);
+            if (usernameMatch) {
+                username = usernameMatch[1];
+            }
+        }
+
+        if (!reason) {
+            const reasonMatch = rawEvent.match(/reason:\s*"([^\"]+)"/);
+            if (reasonMatch) {
+                reason = reasonMatch[1];
+            }
+        }
+
+        if (!node) {
+            const nodeMatch = rawEvent.match(/node:\s*"([^\"]+)"/);
+            if (nodeMatch) {
+                node = nodeMatch[1];
+            }
+        }
+
+        if (eventData?.connected_at != null) {
+            connectedAtMs = Number(eventData.connected_at);
+        } else {
+            const connectedMatch = rawEvent.match(/connected_at:\s*"?(\d+)"?/);
+            if (connectedMatch) {
+                connectedAtMs = Number(connectedMatch[1]);
+            }
+        }
+
+        if (eventData?.disconnected_at != null) {
+            disconnectedAtMs = Number(eventData.disconnected_at);
+        } else {
+            const disconnectedMatch = rawEvent.match(/disconnected_at:\s*"?(\d+)"?/);
+            if (disconnectedMatch) {
+                disconnectedAtMs = Number(disconnectedMatch[1]);
+            }
+        }
+
+        // Derive username from clientId if necessary: clientId is typically `${username}_${suffix}`.
+        if (!username && clientId.startsWith('device:')) {
+            username = clientId.split('_')[0];
+        }
+        if (!username && clientId.startsWith('user:')) {
+            username = clientId.split('_')[0];
+        }
+
+        const kind = username.startsWith('device:')
+            ? 'device'
+            : username.startsWith('user:')
+              ? 'user'
+              : 'other';
+        const deviceId = kind === 'device' ? username.slice('device:'.length) : null;
+
+        const now = new Date();
+        const isConnectEvent =
+            topic === '$events/client/connected' ||
+            topic === '$events/client/connected/' ||
+            topic === '$events/client_connected';
+        const eventTimestampMs = isConnectEvent ? connectedAtMs ?? disconnectedAtMs : disconnectedAtMs ?? connectedAtMs;
+        const eventDate =
+            typeof eventTimestampMs === 'number' && !Number.isNaN(eventTimestampMs)
+                ? new Date(eventTimestampMs)
+                : now;
+
+        // Single-row-per-clientId session style: track latest state per clientId
+        if (isConnectEvent) {
+            await prisma.mqttConnection.upsert({
+                where: { clientId },
+                create: {
+                    clientId,
+                    username,
+                    kind,
+                    status: 'CONNECTED',
+                    connectedAt: eventDate,
+                    disconnectedAt: null,
+                    lastEventAt: eventDate,
+                    node: node ?? undefined,
+                    reason: null
+                },
+                update: {
+                    username,
+                    kind,
+                    status: 'CONNECTED',
+                    connectedAt: eventDate,
+                    disconnectedAt: null,
+                    lastEventAt: eventDate,
+                    node: node ?? undefined,
+                    reason: null
+                }
+            });
+        } else {
+            await prisma.mqttConnection.upsert({
+                where: { clientId },
+                create: {
+                    clientId,
+                    username,
+                    kind,
+                    status: 'DISCONNECTED',
+                    connectedAt: eventDate,
+                    disconnectedAt: eventDate,
+                    lastEventAt: eventDate,
+                    node: node ?? undefined,
+                    reason: reason || null
+                },
+                update: {
+                    username,
+                    kind,
+                    status: 'DISCONNECTED',
+                    disconnectedAt: eventDate,
+                    lastEventAt: eventDate,
+                    node: node ?? undefined,
+                    reason: reason || null
+                }
+            });
+        }
+
+        // Maintain high-level Device.connected flags for device clients only
+        if (kind === 'device' && deviceId) {
+            if (isConnectEvent) {
+                await prisma.device.updateMany({
+                    where: { id: deviceId },
+                    data: { connected: true, connectedAt: eventDate }
+                });
+                logger.info('[MQTT Events] Device connected', { deviceId, username, clientId });
+            } else {
+                await prisma.device.updateMany({
+                    where: { id: deviceId },
+                    data: { connected: false, disconnectedAt: eventDate }
+                });
+                logger.info('[MQTT Events] Device disconnected', { deviceId, username, clientId, reason });
+            }
+        }
+
+        return;
+    }
+
     // First, try RPC handlers for raw JSON RPC requests
     const raw = payload.toString('utf8');
     let rpcData: any;

@@ -4,6 +4,7 @@ import jwt, { type Algorithm } from 'jsonwebtoken';
 import mqtt, { type IClientOptions } from 'mqtt';
 
 import { getAdminPrisma } from '$lib/server/prisma';
+import { mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
 
 /**
  * E2E: use the fs04_web LINK signing key to sign a JWT and connect to EMQX over WS.
@@ -142,6 +143,109 @@ describe('EMQX LINK JWT connect E2E', () => {
 
           client.end(true, () => resolve());
         });
+      });
+
+      client.on('error', (err) => {
+        clearTimeout(connectTimeout);
+        if (messageTimeout) clearTimeout(messageTimeout);
+        client.end(true, () => reject(err));
+      });
+    });
+  }, 80_000);
+
+  it('mints EMQX JWT via mintIoTCoreCredentials and connects over WebSocket', async () => {
+    const mintUsername = 'link-jwt-emqx-mint-iotcore';
+    const testTopic = 'emqx/mint-iotcore-e2e';
+
+    const minted = await mintIoTCoreCredentials({
+      username: mintUsername,
+      pubTopics: [testTopic],
+      subTopics: [testTopic]
+    });
+
+    expect(minted).not.toBeNull();
+
+    const { clientId, token, username } = minted!;
+
+    expect(typeof clientId).toBe('string');
+    expect(clientId.length).toBeGreaterThan(0);
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(0);
+
+    const options: IClientOptions = {
+      protocolVersion: 5,
+      clean: true,
+      clientId,
+      username: username ?? mintUsername,
+      password: token,
+      reconnectPeriod: 0,
+      connectTimeout: 10_000
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const client = mqtt.connect(EMQX_WS_URL, options);
+
+      const connectTimeout = setTimeout(() => {
+        client.end(true, () => {
+          reject(new Error('Connection timed out'));
+        });
+      }, 15_000);
+
+      let messageTimeout: ReturnType<typeof setTimeout> | null = null;
+      let messageReceived = false;
+
+      client.on('connect', () => {
+        clearTimeout(connectTimeout);
+
+        const testMessage = `hello-from-mint-iotcore:${Date.now()}`;
+
+        messageTimeout = setTimeout(() => {
+          client.end(true, () => {
+            reject(new Error('Timed out waiting for test message'));
+          });
+        }, 10_000);
+
+        client.subscribe(testTopic, { qos: 1 }, (err) => {
+          if (err) {
+            if (messageTimeout) clearTimeout(messageTimeout);
+            client.end(true, () => reject(err));
+            return;
+          }
+
+          client.publish(testTopic, testMessage, { qos: 1 }, (pubErr) => {
+            if (pubErr) {
+              if (messageTimeout) clearTimeout(messageTimeout);
+              client.end(true, () => reject(pubErr));
+            } else {
+              // eslint-disable-next-line no-console
+              console.log('[EMQX LINK JWT mintIoTCoreCredentials] Published', {
+                testTopic,
+                testMessage
+              });
+            }
+          });
+        });
+      });
+
+      client.on('message', (topic, payload) => {
+        if (messageReceived) return;
+        if (topic !== testTopic) return;
+
+        const text = payload.toString();
+        try {
+          expect(text).toBeDefined();
+        } catch (err) {
+          if (messageTimeout) clearTimeout(messageTimeout);
+          client.end(true, () => reject(err));
+          return;
+        }
+
+        messageReceived = true;
+        if (messageTimeout) clearTimeout(messageTimeout);
+        // eslint-disable-next-line no-console
+        console.log('[EMQX LINK JWT mintIoTCoreCredentials] Received', { topic, text });
+
+        client.end(true, () => resolve());
       });
 
       client.on('error', (err) => {

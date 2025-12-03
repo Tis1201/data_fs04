@@ -14,7 +14,9 @@ const WORKER_TOPIC_PATTERNS = [
     'device/+/replies',
     'user/+/requests',
     'user/+/events',
-    'user/+/replies'
+    'user/+/replies',
+    '$events/client/connected',
+    '$events/client/disconnected'
 ] as const;
 
 /********************************************************************************************

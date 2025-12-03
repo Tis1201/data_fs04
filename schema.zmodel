@@ -1649,3 +1649,23 @@ model UserAppAction {
   @@index([action])
   @@index([createdAt])
 }
+
+
+model MqttConnection {
+	clientId       String   @id                    // EMQX clientid, e.g. "device:<id>_suffix"
+	username       String                            // MQTT username
+	kind           String                            // 'device', 'user', 'worker', etc.
+
+	status         String   @default("CONNECTED")   // CONNECTED, DISCONNECTED
+	connectedAt    DateTime @default(now())
+	disconnectedAt DateTime?
+	lastEventAt    DateTime @default(now())
+	node           String?
+	reason         String?
+
+	@@index([username])
+	@@index([status])
+	@@index([lastEventAt])
+
+	@@allow('all', auth().systemRole == 'ADMIN')
+}

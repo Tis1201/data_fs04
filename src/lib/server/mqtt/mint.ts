@@ -1,3 +1,7 @@
+import jwt, { type Algorithm } from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
+import type { PrismaClient } from '@prisma/client';
+import { getAdminPrisma } from '$lib/server/prisma';
 import { logger } from '../logger';
 
 export interface IoTCoreMintParams {
@@ -56,69 +60,71 @@ export function buildMqttMintPayload(args: {
     return base;
 }
 
+type JwtSigningKeyClient = Pick<PrismaClient, 'jwtSigningKey'>;
+
 /**
- * Helper for minting MQTT credentials from fs04_iot_core `/api/mq/mint`.
+ * Helper for minting MQTT credentials for EMQX using a locally signed JWT.
  *
- * Uses IOT_CORE_BASE_URL and IOT_CORE_API_KEY from process.env. Returns null
- * on any configuration or HTTP error so callers can decide how to respond
- * (fallback, 5xx, etc.).
+ * Uses the primary LINK signing key from fs04_web's jwtSigningKey table to
+ * sign a short-lived JWT that includes EMQX-compatible ACL claims derived
+ * from pubTopics/subTopics. Returns null on any error so callers can decide
+ * how to respond (fallback, 5xx, etc.).
  */
 export async function mintIoTCoreCredentials(
-    params: IoTCoreMintParams
+    params: IoTCoreMintParams,
+    prismaOverride?: JwtSigningKeyClient
 ): Promise<IoTCoreMintResult | null> {
-    const iotCoreBaseUrl = process.env.IOT_CORE_BASE_URL;
-    const iotCoreApiKey = process.env.IOT_CORE_API_KEY;
-
-    if (!iotCoreBaseUrl || !iotCoreApiKey) {
-        logger.error('[IoTCoreMint] IOT_CORE_BASE_URL or IOT_CORE_API_KEY is not configured');
-        return null;
-    }
-
-    const mintUrl = `${iotCoreBaseUrl.replace(/\/+$/, '')}/api/mq/mint`;
-
     try {
-        const res = await fetch(mintUrl, {
-            method: 'POST',
-            headers: {
-                'x-api-key': iotCoreApiKey,
-                'Content-Type': 'application/json'
+        const prisma = prismaOverride ?? getAdminPrisma();
+        const linkKey = await prisma.jwtSigningKey.findFirst({
+            where: {
+                keyType: 'LINK',
+                isActive: true,
+                isPrimary: true
             },
-            body: JSON.stringify({
-                username: params.username,
-                pub_topics: params.pubTopics,
-                sub_topics: params.subTopics
-            })
+            orderBy: {
+                createdAt: 'desc'
+            }
         });
 
-        if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            logger.error(
-                `[IoTCoreMint] /api/mq/mint failed for ${params.username} with status ${res.status}: ${text}`
-            );
+        if (!linkKey) {
+            logger.error('[MqttMint] No active primary LINK signing key found');
             return null;
         }
 
-        const data = (await res.json()) as {
-            clientId: string;
-            token: string;
-            username?: string;
-            accountId?: string;
+        const randomSuffix = randomBytes(3).toString('hex');
+        const clientId = `${params.username}_${randomSuffix}`;
+
+        // JWT payload compatible with EMQX JWT + ACL (old ACL format)
+        const payload = {
+            sub: params.username,
+            client_id: clientId,
+            username: params.username,
+            pub: params.pubTopics,
+            sub_topics: params.subTopics,
+            acl: {
+                pub: params.pubTopics,
+                sub: params.subTopics
+            }
         };
 
-        if (!data.clientId || !data.token) {
-            logger.error('[IoTCoreMint] Mint response missing clientId or token');
-            return null;
-        }
+        const algorithm: Algorithm = (linkKey.algorithm || 'RS256') as Algorithm;
+
+        const token = jwt.sign(payload, linkKey.privateKey, {
+            algorithm,
+            expiresIn: '1h',
+            keyid: linkKey.keyId
+        });
 
         return {
-            clientId: data.clientId,
-            token: data.token,
-            username: data.username,
-            accountId: data.accountId
+            clientId,
+            token,
+            username: params.username,
+            accountId: undefined
         };
     } catch (err) {
         logger.error(
-            `[IoTCoreMint] Error calling /api/mq/mint: ${err instanceof Error ? err.message : String(err)}`
+            `[MqttMint] Error generating EMQX JWT credentials: ${err instanceof Error ? err.message : String(err)}`
         );
         return null;
     }
