@@ -114,7 +114,8 @@
                 { href: "/admin/accounts/accounts", label: "Accounts", icon: Layers },
                 { href: "/admin/accounts/companies", label: "Companies", icon: Briefcase },
                 { href: "/admin/users", label: "Users", icon: Users },
-                { href: "/admin/accounts/groups", label: "Groups", icon: UserCog2 }
+                { href: "/admin/accounts/groups", label: "Groups", icon: UserCog2 },
+                { href: "/admin/accounts/hierarchy", label: "Hierarchy", icon: Layers }
             ]
         },
         {
