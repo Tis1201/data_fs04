@@ -126,7 +126,7 @@ async function mintConnectionJwt(): Promise<{ token: string; brokerUrl: string |
     // Prefer explicit username from mint response (aligned with /api/user/mqtt/mint)
     let derivedUsername: string | null = data?.username ?? payload?.username ?? null;
 
-    console.log('[MQTT] Minted JWT:', token);
+    console.log('[MQTT] Minted JWT credential');
     if (brokerUrl) {
         console.log('[MQTT] Minted broker URL:', brokerUrl);
     }
@@ -145,7 +145,7 @@ async function mintConnectionJwt(): Promise<{ token: string; brokerUrl: string |
                 const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
                 const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
                 const decodedPayload = JSON.parse(atob(padded));
-                console.log('[MQTT] JWT payload:', decodedPayload);
+                console.debug('[MQTT] JWT payload:', decodedPayload);
                 if (!derivedUsername) {
                     derivedUsername =
                         decodedPayload?.email ??
@@ -346,13 +346,6 @@ export function createMQTTStore() {
 
     const handleMessage = (topic: string, payload: Buffer) => {
         const { raw, parsed } = parsePayload(new Uint8Array(payload));
-
-        console.log('[MQTT] Received message:', {
-            topic,
-            payload: parsed,
-            raw,
-            receivedAt: new Date().toISOString()
-        });
 
         const message: MQTTMessage = {
             topic,
@@ -559,18 +552,6 @@ export function createMQTTStore() {
                             });
                         });
                         pendingTopics.clear();
-                    }
-                });
-
-                client.on('packetsend', (packet: any) => {
-                    if (packet.cmd === 'pingreq') {
-                        console.log('[MQTT] Sent PINGREQ');
-                    }
-                });
-
-                client.on('packetreceive', (packet: any) => {
-                    if (packet.cmd === 'pingresp') {
-                        console.log('[MQTT] Received PINGRESP');
                     }
                 });
 
