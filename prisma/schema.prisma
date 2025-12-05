@@ -25,36 +25,38 @@ enum SetStatus {
 }
 
 model Account {
-  id                 String              @id() @default(cuid())
-  name               String
-  slug               String              @unique()
-  status             String              @default("ACTIVE")
-  isSystem           Boolean             @default(false)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt()
-  description        String?
-  logoUrl            String?
-  settings           String?
-  companies          Company[]
-  members            AccountMembership[]
-  groups             Group[]
-  devices            Device[]
-  deviceTags         DeviceTag[]
-  apiKeys            ApiKey[]
-  primaryUsers       User[]              @relation("UserPrimaryAccount")
-  resources          Resource[]
-  bunles             Bundle[]
-  refreshTokens      RefreshToken[]
-  tokenUsageLogs     TokenUsageLog[]
-  whatsappAccounts   WhatsAppAccount[]
-  preclaimSets       PreclaimSet[]
-  preclaimDevices    PreclaimDevice[]
-  factoryDevices     FactoryDevice[]     @relation("AccountFactoryDevices")
-  licenses           License[]
-  entitlements       Entitlement[]
-  deviceProfiles     DeviceProfile[]
-  deviceAppSummaries DeviceAppSummary[]
-  pinRules           PinRule[]
+  id                       String              @id() @default(cuid())
+  name                     String
+  slug                     String              @unique()
+  status                   String              @default("ACTIVE")
+  isSystem                 Boolean             @default(false)
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt()
+  description              String?
+  logoUrl                  String?
+  settings                 String?
+  companies                Company[]
+  members                  AccountMembership[]
+  groups                   Group[]
+  devices                  Device[]
+  deviceTags               DeviceTag[]
+  apiKeys                  ApiKey[]
+  primaryUsers             User[]              @relation("UserPrimaryAccount")
+  resources                Resource[]
+  bunles                   Bundle[]
+  refreshTokens            RefreshToken[]
+  tokenUsageLogs           TokenUsageLog[]
+  whatsappAccounts         WhatsAppAccount[]
+  preclaimSets             PreclaimSet[]
+  preclaimDevices          PreclaimDevice[]
+  factoryDevices           FactoryDevice[]     @relation("AccountFactoryDevices")
+  licenses                 License[]
+  entitlements             Entitlement[]
+  deviceProfiles           DeviceProfile[]
+  deviceAppSummaries       DeviceAppSummary[]
+  pinRules                 PinRule[]
+  parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
+  childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
 
   @@index([slug])
 }
@@ -107,6 +109,26 @@ model AccountMembership {
   @@index([accountId])
 }
 
+model AccountAssignment {
+  id               String    @id() @default(cuid())
+  parentAccountId  String
+  parentAccount    Account   @relation("ParentAccountAssignments", fields: [parentAccountId], references: [id], onDelete: Cascade)
+  childAccountId   String
+  childAccount     Account   @relation("ChildAccountAssignments", fields: [childAccountId], references: [id], onDelete: Cascade)
+  relationshipType String
+  status           String    @default("ACTIVE")
+  validFrom        DateTime?
+  validTo          DateTime?
+  createdById      String?
+  createdBy        User?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt()
+
+  @@unique([parentAccountId, childAccountId, relationshipType])
+  @@index([parentAccountId])
+  @@index([childAccountId])
+}
+
 model Group {
   id          String            @id() @default(cuid())
   name        String
@@ -152,32 +174,33 @@ model Permission {
 }
 
 model User {
-  id                    String                 @id() @default(cuid())
-  name                  String?
-  status                String                 @default("ACTIVE")
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt()
-  email                 String                 @unique()
-  password              String
-  rolesString           String                 @default("")
-  systemRole            String                 @default("USER")
-  primaryAccountId      String?
-  sessions              Session[]
-  keys                  Key[]
-  apiKeys               ApiKey[]
-  whatsappAccounts      WhatsAppAccount[]
-  listeners             ListenerEndpoint[]
-  devices               Device[]
-  accountMemberships    AccountMembership[]
-  primaryAccount        Account?               @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
-  invitationTokens      InvitationToken[]
-  jwtSigningKeys        JwtSigningKey[]
-  tokenUsageLogs        TokenUsageLog[]
-  refreshTokens         RefreshToken[]
-  actionLogs            DeviceActionLog[]      @relation("UserToActionLogs")
-  bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
-  pinRules              PinRule[]
-  userAppActions        UserAppAction[]
+  id                        String                 @id() @default(cuid())
+  name                      String?
+  status                    String                 @default("ACTIVE")
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt()
+  email                     String                 @unique()
+  password                  String
+  rolesString               String                 @default("")
+  systemRole                String                 @default("USER")
+  primaryAccountId          String?
+  sessions                  Session[]
+  keys                      Key[]
+  apiKeys                   ApiKey[]
+  whatsappAccounts          WhatsAppAccount[]
+  listeners                 ListenerEndpoint[]
+  devices                   Device[]
+  accountMemberships        AccountMembership[]
+  primaryAccount            Account?               @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  invitationTokens          InvitationToken[]
+  jwtSigningKeys            JwtSigningKey[]
+  tokenUsageLogs            TokenUsageLog[]
+  refreshTokens             RefreshToken[]
+  actionLogs                DeviceActionLog[]      @relation("UserToActionLogs")
+  bundleInstallSessions     BundleInstallSession[] @relation("UserToBundleInstallSession")
+  pinRules                  PinRule[]
+  userAppActions            UserAppAction[]
+  createdAccountAssignments AccountAssignment[]
 
   @@index([primaryAccountId])
 }

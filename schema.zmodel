@@ -58,6 +58,10 @@ model Account {
   
   // Pin management
   pinRules         PinRule[]
+
+  // Account-to-account relationships
+  parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
+  childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -136,6 +140,43 @@ model AccountMembership {
   @@unique([userId, accountId])
   @@index([userId])
   @@index([accountId])
+}
+
+model AccountAssignment {
+  id               String   @id @default(cuid())
+
+  // Relationships
+  parentAccountId  String
+  parentAccount    Account  @relation("ParentAccountAssignments", fields: [parentAccountId], references: [id], onDelete: Cascade)
+
+  childAccountId   String
+  childAccount     Account  @relation("ChildAccountAssignments", fields: [childAccountId], references: [id], onDelete: Cascade)
+
+  relationshipType String   // OWNERSHIP, DELEGATION, VISIBILITY_ONLY
+  status           String   @default("ACTIVE") // ACTIVE, SUSPENDED
+
+  validFrom        DateTime?
+  validTo          DateTime?
+
+  createdById      String?
+  createdBy        User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Authorization rules
+  // Admins can manage all assignments
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  // Members of either account can see the link
+  @@allow('read', parentAccount.members?[userId == auth().id] || childAccount.members?[userId == auth().id])
+
+  // Only OWNER/ADMIN of the parent account can create/update/delete
+  @@allow('create,update,delete', parentAccount.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+  @@unique([parentAccountId, childAccountId, relationshipType])
+  @@index([parentAccountId])
+  @@index([childAccountId])
 }
 
 model Group {
@@ -239,6 +280,9 @@ model User {
   // Pin management relations
   pinRules       PinRule[]
   userAppActions UserAppAction[]
+
+  // Account assignment relations (creator)
+  createdAccountAssignments AccountAssignment[]
 
 
 
