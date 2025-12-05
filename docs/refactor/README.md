@@ -107,6 +107,11 @@ Relevant pieces:
 
 These are all multiplexed on the same custom messaging layer.
 
+For detailed transport-specific sunset plans, see:
+
+- `docs/refactor/SUNSET_SSE.md`
+- `docs/refactor/SUNSET_WEBSOCKET.md`
+
 ---
 
 ## 3. IoT Core Capabilities (fs04_iot_core)
@@ -230,12 +235,12 @@ We will migrate in vertical slices, with feature flags where needed, to avoid a 
     - Mint MQTT tokens via `/api/mq/mint` for the current user/account.
   - Action-based API in fs04_web that returns the token + broker URL to the browser.
 
-- **1.2 Browser MQTT client**
-  - Introduce a minimal Svelte store/hook that:
-    - Connects to MQTT over WebSocket using provided token
-    - Subscribes to a read-only subset of topics (e.g. presence/telemetry)
+- **1.2 Browser MQTT client** (already present)
+  - Use the existing `mqttStore` @`src/lib/stores/mqtt-store.ts`, which:
+    - Connects to MQTT over WebSocket using a minted token (see `/api/user/mqtt/mint`)
+    - Subscribes to topics (e.g. presence/telemetry, notifications)
     - Exposes a stable store API for UI components
-  - Keep existing WebSocket/SSE messaging untouched for now.
+  - In this phase, limit usage to read-only presence/telemetry flows and keep existing WebSocket/SSE messaging untouched for now.
 
 - **1.3 Verify presence & telemetry mirrors**
   - For selected test devices/accounts, ensure presence/telemetry visible both via:
@@ -354,7 +359,7 @@ Short-term actions to start the migration:
    - Presence, telemetry
    - Commands + replies
    - WebRTC signaling
-2. **Add IoT Core integration layer in fs04_web** (server-side client + Actions for token minting)
-3. **Introduce browser MQTT client store** in fs04_web, initially for read-only presence/telemetry
+2. **Refine IoT Core integration layer in fs04_web** (server-side client + Actions for token minting; align with existing MQTT utilities and `/api/user/mqtt/mint`)
+3. **Adopt the existing browser MQTT client store** (`mqttStore` in fs04_web) for read-only presence/telemetry, then expand to commands/WebRTC
 4. **Select a pilot account/device set** for dual-stack testing
 5. **Iterate on vertical slices** (presence → commands → WebRTC), updating this doc as we learn.
