@@ -16,15 +16,16 @@ import { getStatusBeforeToggled } from '$lib/utils';
 // Define table options for Devices
 const table_options = {
     modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac', 'osVersion'],
-    allowedFilters: ['types', 'statuses'],
+    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac', 'osVersion', 'claimedBy'],
+    allowedFilters: ['types', 'statuses', 'claimStatus'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
     // Define filter mappings at the table level
     filterMappings: {
         'types': { field: 'deviceType', operator: 'in' },
-        'statuses': { field: 'status', operator: 'in' }
+        'statuses': { field: 'status', operator: 'in' },
+        'claimStatus': { field: 'claimedBy', operator: 'equals', valueTransformer: (value: string) => value === 'claimed' ? { not: null } : null }
     },
     select: {
         id: true,
@@ -39,6 +40,8 @@ const table_options = {
         createdAt: true,
         status: true,
         osVersion: true,
+        claimedBy: true,
+        claimedAt: true,
         tags: {
             select: {
                 id: true,

@@ -3,6 +3,7 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Button } from "$lib/components/ui/button";
     import { createEventDispatcher } from "svelte";
+    import HierarchySubTree from "./HierarchySubTree.svelte";
 
     type Account = {
         id: string;
@@ -29,13 +30,20 @@
         collapse: { accountId: string };
     }>();
 
-    // Build hierarchy tree structure
+    // Build hierarchy tree structure with nested children
     $: hierarchyTree = buildHierarchyTree(assignments);
     
     let expandedNodes = new Set<string>();
 
-    function buildHierarchyTree(assignments: Assignment[]) {
-        const accountMap = new Map<string, Account & { children: Assignment[], isRoot: boolean }>();
+    type TreeNode = Account & {
+        children: TreeNode[];
+        assignment?: Assignment;
+        depth: number;
+        isRoot: boolean;
+    };
+
+    function buildHierarchyTree(assignments: Assignment[]): TreeNode[] {
+        const accountMap = new Map<string, TreeNode>();
         const childAccountIds = new Set<string>();
 
         // Initialize all accounts
@@ -43,10 +51,20 @@
             const { parentAccount, childAccount } = assignment;
             
             if (!accountMap.has(parentAccount.id)) {
-                accountMap.set(parentAccount.id, { ...parentAccount, children: [], isRoot: true });
+                accountMap.set(parentAccount.id, { 
+                    ...parentAccount, 
+                    children: [], 
+                    depth: 0, 
+                    isRoot: true 
+                });
             }
             if (!accountMap.has(childAccount.id)) {
-                accountMap.set(childAccount.id, { ...childAccount, children: [], isRoot: true });
+                accountMap.set(childAccount.id, { 
+                    ...childAccount, 
+                    children: [], 
+                    depth: 0, 
+                    isRoot: true 
+                });
             }
             
             childAccountIds.add(childAccount.id);
@@ -58,16 +76,34 @@
             if (account) account.isRoot = false;
         });
 
-        // Build parent-child relationships
-        assignments.forEach(assignment => {
-            const parent = accountMap.get(assignment.parentAccount.id);
-            if (parent) {
-                parent.children.push(assignment);
-            }
-        });
+        // Build parent-child relationships recursively
+        function buildChildren(parentId: string, depth: number): TreeNode[] {
+            return assignments
+                .filter(a => a.parentAccount.id === parentId)
+                .map(assignment => {
+                    const childNode: TreeNode = {
+                        ...assignment.childAccount,
+                        children: [],
+                        assignment,
+                        depth,
+                        isRoot: false
+                    };
+                    
+                    // Recursively build children
+                    childNode.children = buildChildren(assignment.childAccount.id, depth + 1);
+                    
+                    return childNode;
+                });
+        }
 
-        // Return only root accounts (those that are not children of others)
-        return Array.from(accountMap.values()).filter(account => account.isRoot);
+        // Get root accounts and build their trees
+        const rootAccounts = Array.from(accountMap.values()).filter(account => account.isRoot);
+        
+        return rootAccounts.map(root => ({
+            ...root,
+            children: buildChildren(root.id, 1),
+            depth: 0
+        }));
     }
 
     function toggleExpanded(accountId: string) {
@@ -168,52 +204,20 @@
                     </div>
                 </div>
 
-                <!-- Children (when expanded) -->
-                {#if expandedNodes.has(rootAccount.id) && rootAccount.children.length > 0}
-                    <div class="divide-y">
-                        {#each rootAccount.children as assignment}
-                            {@const RelationshipIcon = getRelationshipIcon(assignment.relationshipType)}
-                            <button
-                                class="group w-full p-3 text-left hover:bg-blue-50 hover:border-l-2 hover:border-l-blue-300 transition-all duration-200 cursor-pointer {selectedAssignmentId === assignment.id ? 'bg-blue-50 border-l-4 border-l-blue-500 shadow-sm' : 'hover:shadow-sm border-l-2 border-l-transparent'}"
-                                on:click={() => selectAssignment(assignment)}
-                            >
-                                <div class="flex items-center gap-3">
-                                    <div class="w-6 flex justify-center">
-                                        <div class="w-px h-4 bg-gray-300"></div>
-                                    </div>
-                                    
-                                    <div class="flex items-center gap-2 flex-1">
-                                        <RelationshipIcon class="h-4 w-4 text-gray-500" />
-                                        <span class="font-medium">{assignment.childAccount.name}</span>
-                                        <span class="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">Click to manage</span>
-                                        
-                                        <div class="flex items-center gap-2 ml-auto">
-                                            <Badge 
-                                                variant="outline" 
-                                                class="text-xs {getRelationshipColor(assignment.relationshipType)}"
-                                            >
-                                                {assignment.relationshipType.replace('_', ' ')}
-                                            </Badge>
-                                            
-                                            <Badge 
-                                                variant="outline" 
-                                                class="text-xs {getStatusColor(assignment.status)}"
-                                            >
-                                                {assignment.status}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                {#if assignment.validFrom || assignment.validTo}
-                                    <div class="mt-2 ml-9 text-xs text-gray-500">
-                                        Valid: {assignment.validFrom || '∞'} → {assignment.validTo || '∞'}
-                                    </div>
-                                {/if}
-                            </button>
-                        {/each}
-                    </div>
-                {/if}
+                <!-- Children (when expanded) - rendered recursively via HierarchySubTree -->
+        {#if expandedNodes.has(rootAccount.id)}
+            <HierarchySubTree
+                parentAccountId={rootAccount.id}
+                {assignments}
+                {selectedAssignmentId}
+                {getRelationshipIcon}
+                {getRelationshipColor}
+                {getStatusColor}
+                {selectAssignment}
+                {expandedNodes}
+                {toggleExpanded}
+            />
+        {/if}
             </div>
         {/each}
     {/if}

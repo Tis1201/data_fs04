@@ -2,11 +2,11 @@
     import { Button } from "$lib/components/ui/button";
     import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "$lib/components/ui/dialog";
     import { Label } from "$lib/components/ui/label";
-    import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
     import { Input } from "$lib/components/ui/input";
     import { Badge } from "$lib/components/ui/badge";
     import { Building2, Crown, Handshake, Eye, Calendar } from "lucide-svelte";
     import { createEventDispatcher } from "svelte";
+    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableSelect.svelte";
 
     type Account = {
         id: string;
@@ -86,9 +86,36 @@
         dispatch('close');
     }
 
-    // Filter out selected accounts from the other dropdown
-    $: availableParentAccounts = accounts.filter(a => a.id !== childAccountId);
-    $: availableChildAccounts = accounts.filter(a => a.id !== parentAccountId);
+    // Filter out selected accounts from the other dropdown and format for SearchableSelect
+    $: availableParentAccounts = accounts
+        .filter(a => a.id !== childAccountId)
+        .map(account => ({
+            value: account.id,
+            label: account.name,
+            description: account.slug ? `(${account.slug})` : undefined,
+            html: `<div class="flex items-center gap-2">
+                <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                </svg>
+                <span>${account.name}</span>
+                ${account.slug ? `<span class="text-xs text-gray-500">(${account.slug})</span>` : ''}
+            </div>`
+        }));
+    
+    $: availableChildAccounts = accounts
+        .filter(a => a.id !== parentAccountId)
+        .map(account => ({
+            value: account.id,
+            label: account.name,
+            description: account.slug ? `(${account.slug})` : undefined,
+            html: `<div class="flex items-center gap-2">
+                <svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                </svg>
+                <span>${account.name}</span>
+                ${account.slug ? `<span class="text-xs text-gray-500">(${account.slug})</span>` : ''}
+            </div>`
+        }));
 </script>
 
 <Dialog bind:open on:close={handleClose}>
@@ -108,46 +135,32 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-2">
                     <Label for="parent-account">Parent Account</Label>
-                    <Select bind:value={parentAccountId}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select parent account" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {#each availableParentAccounts as account}
-                                <SelectItem value={account.id}>
-                                    <div class="flex items-center gap-2">
-                                        <Building2 class="h-4 w-4 text-gray-500" />
-                                        <span>{account.name}</span>
-                                        {#if account.slug}
-                                            <span class="text-xs text-gray-500">({account.slug})</span>
-                                        {/if}
-                                    </div>
-                                </SelectItem>
-                            {/each}
-                        </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                        bind:value={parentAccountId}
+                        name="parent-account"
+                        placeholder="Select parent account"
+                        searchPlaceholder="Search parent accounts..."
+                        options={availableParentAccounts}
+                        debounceMs={200}
+                        minSearchLength={1}
+                        noResultsText="No parent accounts found"
+                        disabled={loading}
+                    />
                 </div>
 
                 <div class="space-y-2">
                     <Label for="child-account">Child Account</Label>
-                    <Select bind:value={childAccountId}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select child account" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {#each availableChildAccounts as account}
-                                <SelectItem value={account.id}>
-                                    <div class="flex items-center gap-2">
-                                        <Building2 class="h-4 w-4 text-gray-500" />
-                                        <span>{account.name}</span>
-                                        {#if account.slug}
-                                            <span class="text-xs text-gray-500">({account.slug})</span>
-                                        {/if}
-                                    </div>
-                                </SelectItem>
-                            {/each}
-                        </SelectContent>
-                    </Select>
+                    <SearchableSelect
+                        bind:value={childAccountId}
+                        name="child-account"
+                        placeholder="Select child account"
+                        searchPlaceholder="Search child accounts..."
+                        options={availableChildAccounts}
+                        debounceMs={200}
+                        minSearchLength={1}
+                        noResultsText="No child accounts found"
+                        disabled={loading}
+                    />
                 </div>
             </div>
 
