@@ -127,6 +127,9 @@
                     <div><strong>Ownership:</strong> Full administrative rights</div>
                     <div><strong>Delegation:</strong> Limited admin (no billing/users)</div>
                     <div><strong>Visibility:</strong> View-only access</div>
+                    <div class="mt-2 pt-2 border-t border-blue-200">
+                        <strong>Tip:</strong> Click any relationship to view details and manage it
+                    </div>
                 </div>
             </div>
         </div>
@@ -171,7 +174,7 @@
                         {#each rootAccount.children as assignment}
                             {@const RelationshipIcon = getRelationshipIcon(assignment.relationshipType)}
                             <button
-                                class="group w-full p-3 text-left hover:bg-gray-50 transition-all duration-200 {selectedAssignmentId === assignment.id ? 'bg-blue-50 border-l-4 border-l-blue-500 shadow-sm' : 'hover:shadow-sm'}"
+                                class="group w-full p-3 text-left hover:bg-blue-50 hover:border-l-2 hover:border-l-blue-300 transition-all duration-200 cursor-pointer {selectedAssignmentId === assignment.id ? 'bg-blue-50 border-l-4 border-l-blue-500 shadow-sm' : 'hover:shadow-sm border-l-2 border-l-transparent'}"
                                 on:click={() => selectAssignment(assignment)}
                             >
                                 <div class="flex items-center gap-3">

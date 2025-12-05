@@ -4,7 +4,7 @@
     import { Plus } from "lucide-svelte";
     import type { PageData } from "./$types";
     import HierarchyTreeView from "./components/HierarchyTreeView.svelte";
-    import RelationshipDetailsPanel from "./components/RelationshipDetailsPanel.svelte";
+    import RelationshipDrawer from "./components/RelationshipDrawer.svelte";
     import AddRelationshipDialog from "./components/AddRelationshipDialog.svelte";
     import { enhance } from '$app/forms';
     import { invalidateAll } from '$app/navigation';
@@ -16,6 +16,7 @@
     let selectedAssignment: any = null;
     let isSubmitting = false;
     let showAddDialog = false;
+    let showDetailsSheet = false;
 
     const pageCrumbs = [
         ["Admin", "/admin"],
@@ -26,6 +27,19 @@
     function handleAssignmentSelect(event: CustomEvent) {
         selectedAssignmentId = event.detail.assignmentId;
         selectedAssignment = event.detail.assignment;
+        showDetailsSheet = true;
+    }
+
+    function closeDetailsSheet() {
+        showDetailsSheet = false;
+        selectedAssignmentId = null;
+        selectedAssignment = null;
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (event.key === 'Escape' && showDetailsSheet) {
+            closeDetailsSheet();
+        }
     }
 
     function handleEdit(event: CustomEvent) {
@@ -51,8 +65,7 @@
 
             if (response.ok) {
                 toast.success('Relationship deleted successfully');
-                selectedAssignmentId = null;
-                selectedAssignment = null;
+                closeDetailsSheet();
                 await invalidateAll();
             } else {
                 toast.error('Failed to delete relationship');
@@ -150,6 +163,8 @@
     }
 </script>
 
+<svelte:window on:keydown={handleKeydown} />
+
 <AdminPageLayout
     title="Account Hierarchy"
     crumbs={pageCrumbs}
@@ -161,6 +176,7 @@
         }
     ]}
 >
+    <div class="transition-all duration-300 {showDetailsSheet ? 'pr-0 sm:pr-[480px]' : ''}">
     <div class="grid gap-4 md:grid-cols-4">
         <Card>
             <CardHeader>
@@ -200,40 +216,42 @@
         </Card>
     </div>
 
-    <!-- Main Content: Tree View + Details Panel -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Hierarchy Tree (Left Panel) -->
-        <div class="lg:col-span-2">
-            <Card class="h-fit">
-                <CardHeader>
-                    <CardTitle>Account Hierarchy</CardTitle>
-                    <CardDescription>
-                        Expandable tree showing parent → child relationships. Click on a relationship to view details.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <HierarchyTreeView 
-                        assignments={data.assignments || []}
-                        {selectedAssignmentId}
-                        on:select={handleAssignmentSelect}
-                    />
-                </CardContent>
-            </Card>
-        </div>
-
-        <!-- Relationship Details (Right Panel) -->
-        <div class="lg:col-span-1">
-            <RelationshipDetailsPanel 
-                assignment={selectedAssignment}
-                loading={isSubmitting}
-                on:edit={handleEdit}
-                on:delete={handleDelete}
-                on:suspend={handleSuspend}
-                on:activate={handleActivate}
+    <!-- Main Content: Full-Width Tree View -->
+    <Card class="w-full">
+        <CardHeader>
+            <CardTitle>Account Hierarchy</CardTitle>
+            <CardDescription>
+                Expandable tree showing parent → child relationships. Click on any relationship to open details panel.
+                {#if showDetailsSheet}
+                    <span class="inline-flex items-center gap-1 ml-2 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-md">
+                        <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                        Details panel open
+                    </span>
+                {/if}
+            </CardDescription>
+        </CardHeader>
+        <CardContent>
+            <HierarchyTreeView 
+                assignments={data.assignments || []}
+                {selectedAssignmentId}
+                on:select={handleAssignmentSelect}
             />
-        </div>
+        </CardContent>
+    </Card>
     </div>
 </AdminPageLayout>
+
+<!-- Relationship Details Drawer -->
+<RelationshipDrawer 
+    bind:open={showDetailsSheet}
+    assignment={selectedAssignment}
+    loading={isSubmitting}
+    on:close={closeDetailsSheet}
+    on:edit={handleEdit}
+    on:delete={handleDelete}
+    on:suspend={handleSuspend}
+    on:activate={handleActivate}
+/>
 
 <!-- Add Relationship Dialog -->
 <AddRelationshipDialog 
