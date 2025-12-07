@@ -2,6 +2,7 @@ import type { Cookies, RequestEvent } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 import { lucia } from './lucia';
 import { getUserIdFromApiKey, validateApiKey, getUserInfoFromApiKey } from './api-key-utils';
+import { validateSessionWithCache } from './session-cache';
 
 /**
  * Authentication method types
@@ -48,8 +49,8 @@ export async function validateApiAuth(cookies: Cookies, requireAdmin = false, ap
         };
     }
 
-    // Validate session
-    const { session, user } = await lucia.validateSession(sessionId);
+    // Validate session with cache
+    const { session, user } = await validateSessionWithCache(sessionId);
     if (!session || (requireAdmin && user.systemRole !== 'ADMIN')) {
         return {
             valid: false,

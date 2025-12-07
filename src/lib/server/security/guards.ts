@@ -24,6 +24,14 @@ export type AuthenticatedEvent = RequestEvent & {
 export type AuthenticatedRouteHandler<T> = (event: AuthenticatedEvent) => Promise<T>;
 
 /**
+ * Type for authenticated load functions that includes depends
+ * Use this for PageServerLoad functions that need depends()
+ */
+export type AuthenticatedLoadEvent = AuthenticatedEvent & {
+  depends: (tag: string) => void;
+};
+
+/**
  * Type for the enhanced event with both auth and account information
  */
 export type AccountAuthenticatedEvent = RequestEvent & {
@@ -47,7 +55,7 @@ export type AccountAuthenticatedRouteHandler<T> = (event: AccountAuthenticatedEv
  * @returns A wrapped handler function that checks permissions before executing
  */
 export function restrict<T>(
-  handler: AuthenticatedRouteHandler<T> | RouteHandler<T>,
+  handler: AuthenticatedRouteHandler<T> | RouteHandler<T> | ((event: AuthenticatedLoadEvent) => Promise<T>),
   allowedRoles: string[] = ['ADMIN']
 ): RouteHandler<T> {
   return async (event: RequestEvent) => {
@@ -65,10 +73,12 @@ export function restrict<T>(
     }
 
     // Create an enhanced event with auth information
+    // Include depends if it exists on the event (for load functions)
     const authenticatedEvent = {
       ...event,
-      auth
-    } as AuthenticatedEvent;
+      auth,
+      ...(('depends' in event) && { depends: (event as any).depends })
+    } as AuthenticatedEvent & Partial<Pick<AuthenticatedLoadEvent, 'depends'>>;
 
     // Pass the enhanced event to the handler
     return handler(authenticatedEvent as any);

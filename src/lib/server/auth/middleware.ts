@@ -2,6 +2,7 @@ import { lucia } from "../auth/lucia";
 import type { Handle } from "@sveltejs/kit";
 import prisma, { getEnhancedPrisma } from "../prisma";
 import { error } from '@sveltejs/kit';
+import { validateSessionWithCache } from './session-cache';
 
 export const authMiddleware: Handle = async ({ event, resolve }) => {
     // Add raw Prisma to locals for non-authenticated routes
@@ -17,8 +18,9 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
         validate: async () => {
             if (!sessionId) return null;
             
-            const { session, user } = await lucia.validateSession(sessionId);
-            if (!session) {
+            // Use cached session validation for better performance
+            const { session, user } = await validateSessionWithCache(sessionId);
+            if (!session || !user) {
                 const sessionCookie = lucia.createBlankSessionCookie();
                 event.cookies.set(sessionCookie.name, sessionCookie.value, {
                     path: ".",
