@@ -1,38 +1,28 @@
 <script lang="ts">
     import type { PageData } from "./$types";
     import DeviceDetailPage from "$lib/components/device/DeviceDetailPage.svelte";
+    import { getDeviceDetailBreadcrumbs } from "$lib/utils/navigation";
 
     export let data: PageData;
 
-    // Extract data from server
-    const device = (data as any).device;
-    const licenses = device.licenses;
-    const deviceActionLogs = (data as any).deviceActionLogs;
-    const deviceInformation = (data as any).deviceInformation;
-    const deviceProfile = (data as any).deviceProfile;
-    const deviceProfileForm = (data as any).deviceProfileForm;
-    const form = (data as any).form;
+    // Make device reactive to server invalidations
+    let device = data.device;
+    $: device = data.device;
 
-    const title = device.name || "Device Details";
-
-    // Define breadcrumbs for this page
-    const pageCrumbs: [string, string][] = [
-        ["Home", "/user"],
-        ["Devices", "/user/iot/devices"],
-        [device.name || "Device", ""],
-    ];
+    // Generate breadcrumbs using navigation utility
+    $: breadcrumbs = getDeviceDetailBreadcrumbs('user', device?.name, device?.id);
 </script>
 
 <DeviceDetailPage
     {device}
-    {licenses}
-    {deviceActionLogs}
-    {deviceInformation}
-    {deviceProfile}
-    {deviceProfileForm}
-    {form}
-    {title}
-    {pageCrumbs}
+    licenses={data.device?.licenses || []}
+    deviceActionLogs={data.deviceActionLogs || []}
+    deviceInformation={data.deviceInformation}
+    deviceProfile={data.deviceProfile}
+    deviceProfileForm={data.deviceProfileForm}
+    form={data.form}
+    title={data.meta?.title || `Device: ${device?.name || device?.id || 'Unknown'}`}
+    pageCrumbs={breadcrumbs}
     basePath="/user"
     resourceApiPath="/api/user/resources"
 />

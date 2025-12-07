@@ -1,27 +1,34 @@
 import type { PageServerLoad, Actions } from './$types';
-import type { RequestEvent } from '@sveltejs/kit';
-import { fail } from '@sveltejs/kit';
+import { fail, error } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedEvent, AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { deviceEditSchema } from './schema';
-import { loadDeviceDetail } from '$lib/server/device/deviceDetailLoader';
+import { loadDeviceDetail } from '$lib/server/devices/deviceLoader';
 import { 
     createSaveAction, 
     createGenerateApiKeyAction, 
     createUpdateDeviceProfileAction 
 } from '$lib/server/device/deviceDetailActions';
 
+/*******************************************************************************************
+ * 
+ *  Load Block
+ * 
+ *******************************************************************************************/
 export const load = restrict(
-    async (event: any) => {
-        event.depends('app:device');
+    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+        // Mark for client-side invalidation
+        depends('app:device');
         
-        if (!event.params.id) {
-            throw new Error('Device ID is required');
+        const { id } = params;
+        if (!id) {
+            throw error(400, 'Device ID is required');
         }
         
         return await loadDeviceDetail(
-            event.locals.prisma,
-            event.params.id,
+            locals,
+            id,
             deviceEditSchema,
             {
                 checkOwnership: false, // Admin doesn't need ownership check
@@ -32,20 +39,29 @@ export const load = restrict(
     [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
 
+/*******************************************************************************************
+ * 
+ *  Actions Block
+ * 
+ *******************************************************************************************/
 export const actions: Actions = {
     /**
      * Update device data
      */
     save: restrict(
-        async (event: any) => {
+        async ({ params, request, locals }: AuthenticatedEvent) => {
+            const { id } = params;
+            if (!id) {
+                return fail(400, { error: 'Device ID is required' });
+            }
             const saveAction = createSaveAction(deviceEditSchema);
             return await saveAction({
-                prisma: event.locals.prisma,
-                userId: (event.locals as any).user.id,
-                ipAddress: (event.locals as any).ipAddress,
-                deviceId: event.params.id,
+                prisma: locals.prisma,
+                userId: (locals as any).user.id,
+                ipAddress: (locals as any).ipAddress,
+                deviceId: id,
                 checkOwnership: false // Admin doesn't need ownership check
-            }, event.request);
+            }, request);
         },
         [SystemRole.ADMIN] // Only allow admin role to access this action
     ),
@@ -54,13 +70,17 @@ export const actions: Actions = {
      * Generate new API key for the device
      */
     generateApiKey: restrict(
-        async (event: any) => {
+        async ({ params, locals }: AuthenticatedEvent) => {
+            const { id } = params;
+            if (!id) {
+                throw error(400, 'Device ID is required');
+            }
             const generateApiKeyAction = createGenerateApiKeyAction(deviceEditSchema);
             return await generateApiKeyAction({
-                prisma: event.locals.prisma,
-                userId: (event.locals as any).user.id,
-                ipAddress: (event.locals as any).ipAddress,
-                deviceId: event.params.id,
+                prisma: locals.prisma,
+                userId: (locals as any).user.id,
+                ipAddress: (locals as any).ipAddress,
+                deviceId: id,
                 checkOwnership: false // Admin doesn't need ownership check
             });
         },
@@ -71,8 +91,12 @@ export const actions: Actions = {
      * Update device-level profile
      */
     updateDeviceProfile: restrict(
-        async (event: any) => {
-            const auth = await event.locals.auth.validate();
+        async ({ params, request, locals }: AuthenticatedEvent) => {
+            const { id } = params;
+            if (!id) {
+                return fail(400, { error: 'Device ID is required' });
+            }
+            const auth = await locals.auth.validate();
             
             if (!auth?.user) {
                 return fail(401, { message: 'Unauthorized' });
@@ -80,12 +104,12 @@ export const actions: Actions = {
 
             const updateProfileAction = createUpdateDeviceProfileAction();
             return await updateProfileAction({
-                prisma: event.locals.prisma,
+                prisma: locals.prisma,
                 userId: auth.user.id,
-                ipAddress: (event.locals as any).ipAddress,
-                deviceId: event.params.id,
+                ipAddress: (locals as any).ipAddress,
+                deviceId: id,
                 checkOwnership: false // Admin doesn't need ownership check
-            }, event.request);
+            }, request);
         },
         [SystemRole.ADMIN]
     )
