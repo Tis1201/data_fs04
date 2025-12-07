@@ -1,17 +1,10 @@
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { restrict } from '$lib/server/security/guards';
-import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import type { AuthenticatedLoadEvent } from '$lib/server/security/guards';
+import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
-
-// Define table options for Factory Tokens
-const table_options = {
-    modelName: 'deviceTag',
-    // Updated searchableFields to match actual fields in the FactoryToken model
-    searchableFields: ['name'],
-    defaultSortField: 'createdAt',
-    defaultSortOrder: 'desc' as const,
-    defaultPerPage: 10,
-};
+import { loadDeviceTagList } from '$lib/server/device-tags/deviceTagLoader';
 
 /*******************************************************************************************
  * 
@@ -19,15 +12,16 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals, depends  }: any) => {
+    async ({ url, locals, depends }: AuthenticatedLoadEvent) => {
         depends('app:deviceTags');
-        // Use the reusable fetchTableData function with our table options
-        const result = await fetchTableData(locals, url, table_options);
         
-        return {
-            deviceTags: result.records,
-            meta: result.meta
-        };
+        try {
+            // Admin routes don't need ownership checking - can see all device tags
+            return await loadDeviceTagList(locals, url);
+        } catch (e) {
+            logger.error(`Error loading device tags: ${JSON.stringify(e)}`);
+            throw error(500, 'Failed to load device tags');
+        }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
 ) satisfies PageServerLoad;
@@ -38,5 +32,5 @@ export const load = restrict(
  * 
  *******************************************************************************************/
 export const actions = {
-    
+    // Actions can be added here if needed (e.g., delete from list page)
 };
