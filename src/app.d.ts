@@ -10,10 +10,8 @@ declare global {
 			auth: {
 				validate: () => Promise<{
 					user: {
-						id: string
-						userId: string;
+						id: string;
 						email: string;
-						name: string | null;
 						rolesString: string;
 						systemRole: string;
 					};
@@ -22,6 +20,28 @@ declare global {
 						userId: string;
 						expiresAt: Date;
 					};
+					memberships: Array<{
+						id: string;
+						userId: string;
+						accountId: string;
+						role: string;
+						account: {
+							id: string;
+							name: string;
+							slug: string;
+						};
+					}>;
+					currentAccount: {
+						id: string;
+						userId: string;
+						accountId: string;
+						role: string;
+						account: {
+							id: string;
+							name: string;
+							slug: string;
+						};
+					} | null;
 				} | null>;
 				createSession: (userId: string, attributes?: Record<string, any>) => Promise<{
 					id: string;
@@ -29,7 +49,37 @@ declare global {
 					expiresAt: Date;
 				}>;
 				setSession: (session: { id: string }) => void;
+				switchAccount: (accountId: string) => Promise<boolean>;
+				hasPermission: (requiredRoles: string | string[]) => Promise<boolean>;
 			};
+			user?: {
+				id: string;
+				email: string;
+				rolesString: string;
+				systemRole: string;
+			};
+			accountMemberships?: Array<{
+				id: string;
+				userId: string;
+				accountId: string;
+				role: string;
+				account: {
+					id: string;
+					name: string;
+					slug: string;
+				};
+			}>;
+			currentAccount?: {
+				id: string;
+				userId: string;
+				accountId: string;
+				role: string;
+				account: {
+					id: string;
+					name: string;
+					slug: string;
+				};
+			} | null;
 			prisma: PrismaClient;
 			wss?: ExtendedWebSocketServer;
 			deviceManager: DefaultDeviceManager;

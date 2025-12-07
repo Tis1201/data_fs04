@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { logSessionActivity } from '$lib/server/session-logger';
 import { logger } from '$lib/server/logger';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
+import { invalidateSessionCache } from '$lib/server/auth/session-cache';
 
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
@@ -49,7 +50,7 @@ async function handleAsyncOperations(sessionId: string, userId: string, request:
                             ConnectionManager.unregisterConnection(connMeta.id);
                             terminatedCount++;
                         } catch (err) {
-                            logger.warn(`Error closing connection ${connMeta.id}:`, err);
+                            logger.warn(`Error closing connection ${connMeta.id}:`, { error: err });
                         }
                     }
                 }
@@ -64,6 +65,11 @@ async function handleAsyncOperations(sessionId: string, userId: string, request:
         // 4) Invalidate the session (this should be last as it might affect other operations)
         lucia.invalidateSession(sessionId).catch(error => {
             logger.error('Error invalidating session', { error, sessionId });
+        });
+        
+        // 5) Invalidate session cache
+        await invalidateSessionCache(sessionId).catch(error => {
+            logger.warn('Error invalidating session cache', { error, sessionId });
         });
 
         logger.info('User logged out successfully', { userId });
