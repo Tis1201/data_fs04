@@ -1,50 +1,33 @@
 import { redirect } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
-import prisma from '$lib/server/prisma';
 import type { PageServerLoad } from './$types';
+import { restrict } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
+import { loadPinRuleDetail } from '$lib/server/pin-rules/pinRuleLoader';
+import type { AuthenticatedLoadEvent } from '$lib/server/security/guards';
 
-export const load: PageServerLoad = restrict(
-    async ({ params, locals, auth }) => {
-        // Check if user has admin access
-        if (auth.user.systemRole !== 'ADMIN') {
-            throw redirect(302, '/dashboard');
+/**
+ * Load pin rule detail data for edit page
+ * Per structural standard: thin wrapper using shared loader
+ */
+export const load = restrict(
+    async ({ params, locals, auth }: AuthenticatedLoadEvent) => {
+        const { id } = params;
+        if (!id) {
+            throw redirect(302, '/admin/iot/pin-rules');
         }
 
         try {
-            // Load the pin rule
-            const rule = await prisma.pinRule.findUnique({
-                where: {
-                    id: params.id
-                },
-                include: {
-                    createdByUser: {
-                        select: {
-                            id: true,
-                            name: true,
-                            email: true
-                        }
-                    },
-                    account: {
-                        select: {
-                            id: true,
-                            name: true,
-                            slug: true
-                        }
-                    }
-                }
+            const result = await loadPinRuleDetail(locals, id, {
+                includeUserInfo: true
             });
 
-            if (!rule) {
-                throw redirect(302, '/admin/iot/pin-rules');
-            }
-
             return {
-                rule
+                rule: result.pinRule
             };
         } catch (error) {
             console.error('Error loading pin rule:', error);
             throw redirect(302, '/admin/iot/pin-rules');
         }
     },
-    ['ADMIN'] // Restrict to admin users only
-);
+    [SystemRole.ADMIN]
+) satisfies PageServerLoad;
