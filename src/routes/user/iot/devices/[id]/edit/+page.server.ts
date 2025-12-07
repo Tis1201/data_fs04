@@ -4,6 +4,7 @@ import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedEvent, AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { deviceEditSchema } from '../schema';
 import { AuditActionType } from '$lib/constants/system';
@@ -11,7 +12,10 @@ import { logAudit } from '$lib/server/audit-logger';
 import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+        // Mark for client-side invalidation
+        depends('app:device');
+        
         try {
             // Load existing device
             const device = await locals.prisma.device.findUnique({
@@ -69,7 +73,7 @@ export const load = restrict(
                 device
             };
         } catch (e) {
-            logger.error('Error loading device for edit:', e);
+            logger.error('Error loading device for edit:', { error: e });
             throw error(500, 'Failed to load device');
         }
     },
@@ -81,8 +85,11 @@ export const actions: Actions = {
      * Update device data
      */
     save: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals }: AuthenticatedEvent) => {
             const id = params.id;
+            if (!id) {
+                return fail(400, { error: 'Device ID is required' });
+            }
 
             const form = await superValidate(request, zod(deviceEditSchema));
             logger.debug(`Device update form data: ${JSON.stringify(form)}`);
@@ -154,13 +161,13 @@ export const actions: Actions = {
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Device',
-                    recordId: id,
+                    recordId: id as string,
                     oldData: existingDevice,
                     newData: device,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: (locals as any).user.id,
+                    ipAddress: (locals as any).ipAddress,
                     prisma: locals.prisma
-                })
+                });
                 logger.debug(`Audit log completed`);
 
                 // Return success response
