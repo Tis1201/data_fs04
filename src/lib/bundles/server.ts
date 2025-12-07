@@ -3,18 +3,7 @@ import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/ut
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
-export const bundleTableOptions = {
-  modelName: 'bundle',
-  searchableFields: ['name', 'description', 'version', 'os'],
-  allowedFilters: ['status', 'os'],
-  defaultSortField: 'createdAt',
-  defaultSortOrder: 'desc' as const,
-  defaultPerPage: 10,
-  filterMappings: {
-    status: { field: 'status', operator: 'equals' },
-    os: { field: 'os', operator: 'equals' }
-  }
-};
+export { bundleTableOptions } from '$lib/server/bundles/bundleTableOptions';
 
 export async function loadBundles(locals: any, url: URL) {
   const result = await fetchTableData(locals, url, bundleTableOptions);

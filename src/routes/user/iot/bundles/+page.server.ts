@@ -1,14 +1,11 @@
-import { error, fail } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
-import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
-import { bundleTableOptions, loadBundles, deleteBundle } from '$lib/bundles/server';
-import { logAudit } from '$lib/server/audit-logger';
-import { AuditActionType } from '$lib/constants/system';
-
-const table_options = bundleTableOptions;
+import { loadBundleList } from '$lib/server/bundles/bundleLoader';
+import { createBundleActions } from '$lib/server/bundles/bundleActions';
+import type { AuthenticatedEvent } from '$lib/server/security/guards';
 
 /*******************************************************************************************
  * 
@@ -16,15 +13,23 @@ const table_options = bundleTableOptions;
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedEvent) => {
         try {
-            return await loadBundles(locals, url);
+            // User routes need ownership checking - only show bundles they own or have access to
+            const userId = (locals as any).user?.id;
+            const accountId = (locals as any).currentAccount?.account?.id;
+            
+            return await loadBundleList(locals, url, {
+                checkOwnership: true,
+                userId,
+                accountId
+            });
         } catch (e) {
             logger.error(`Error loading bundles: ${JSON.stringify(e)}`);
             throw error(500, 'Failed to load bundles');
         }
     },
-    [SystemRole.USER] // Only allow admin role to access this route
+    [SystemRole.USER] // Only allow user role to access this route
 ) satisfies PageServerLoad;
 
 /*******************************************************************************************
@@ -32,29 +37,23 @@ export const load = restrict(
  *  Actions Block
  * 
  *******************************************************************************************/
-export const actions = {
-    /*******************************************************************************************
-     * Delete
-     ******************************************************************************************/
+// Create actions with user privileges (ownership check enabled)
+const bundleActions = createBundleActions({
+    checkOwnership: true, // Users can only delete bundles they own
+    enableAdvancedFeatures: false // List page doesn't need advanced features
+});
+
+export const actions: Actions = {
+    /**
+     * Delete bundle action
+     */
     delete: restrict(
-        async ({ request, locals }) => {
-            try {
-                // Get the bundle ID from form data
-                const data = await request.formData();
-                const id = data.get('id')?.toString();
-                
-                if (!id) {
-                    return fail(400, { error: 'Bundle ID is required' });
-                }
-                const result = await deleteBundle(locals, id);
-                if ((result as any).notFound) return fail(404, { error: 'Bundle not found' });
-                if ((result as any).cannotDelete) return fail(400, { error: 'Cannot delete a published or in-progress bundle' });
-                return { success: true };
-            } catch (e: any) {
-                logger.error(`Error deleting bundle: ${e?.message || String(e)}`);
-                return fail(500, { error: 'Failed to delete bundle' });
-            }
+        async ({ request, locals }: AuthenticatedEvent) => {
+            return await bundleActions.delete({
+                request,
+                locals
+            });
         },
-        [SystemRole.USER] // Only allow admin role to access this action
+        [SystemRole.USER] // Only allow user role to access this action
     )
 };
