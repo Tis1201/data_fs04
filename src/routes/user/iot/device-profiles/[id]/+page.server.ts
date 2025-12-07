@@ -1,72 +1,44 @@
 import type { PageServerLoad } from './$types';
-import { error, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
+import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedLoadEvent } from '$lib/server/security/guards';
+import { logger } from '$lib/server/logger';
+import { SystemRole } from '$lib/types/roles';
+import { loadDeviceProfileDetail } from '$lib/server/device-profiles/deviceProfileLoader';
 
-export const load: PageServerLoad = async ({ params, url, locals }) => {
-    try {
-        // Check authentication
-        const auth = await locals.auth.validate();
-        if (!auth?.user) {
-            throw redirect(302, '/auth/login');
-        }
-
+/*******************************************************************************************
+ * 
+ *  Load Block
+ * 
+ *******************************************************************************************/
+export const load = restrict(
+    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+        // Mark for client-side invalidation
+        depends('app:deviceProfile');
+        
         const { id: profileId } = params;
-
-        // Get profile details with settings and assignments
-        const profile = await locals.prisma.deviceProfile.findUnique({
-            where: { id: profileId },
-            include: {
-                settings: {
-                    orderBy: { order: 'asc' }
-                },
-                assignments: {
-                    include: {
-                        device: {
-                            select: {
-                                id: true,
-                                name: true,
-                                description: true,
-                                deviceType: true,
-                                status: true
-                            }
-                        }
-                    }
-                },
-                account: {
-                    select: {
-                        id: true,
-                        name: true
-                    }
-                }
+        if (!profileId) {
+            throw error(400, 'Profile ID is required');
+        }
+        
+        try {
+            // User routes need ownership checking - only show device profiles from their accounts
+            const auth = await locals.auth.validate();
+            const userId = auth?.user?.id;
+            const accountId = (locals as any).currentAccount?.account?.id;
+            
+            return await loadDeviceProfileDetail(locals, profileId, {
+                checkOwnership: true, // User can only see profiles from their accounts
+                userId,
+                accountId
+            });
+        } catch (err) {
+            logger.error(`Error loading device profile details: ${err instanceof Error ? err.message : String(err)}`);
+            if (err instanceof Error && 'status' in err) {
+                throw err;
             }
-        });
-
-        if (!profile) {
-            throw error(404, 'Profile not found');
+            throw error(500, 'Failed to load device profile details');
         }
-
-        // Check if user has access to this profile (user context - no admin override)
-        const hasAccess = await locals.prisma.accountMembership.findFirst({
-            where: {
-                accountId: profile.accountId,
-                userId: auth.user.id
-            }
-        });
-
-        console.log('User access check:', { hasAccess: !!hasAccess });
-
-        if (!hasAccess) {
-            throw error(403, 'Access denied');
-        }
-
-        return {
-            profile
-        };
-
-    } catch (err) {
-        console.error('Error loading profile:', err);
-        if (err instanceof Error && 'status' in err) {
-            throw err;
-        }
-        throw error(500, 'Failed to load profile');
-    }
-};
+    },
+    [SystemRole.USER] // Only allow user role to access this route
+) satisfies PageServerLoad;

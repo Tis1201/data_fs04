@@ -24,16 +24,13 @@
     import { sseStore } from "$lib/stores/sse-store";
     import { writable } from 'svelte/store';
     
+    import { getDeviceProfileEditBreadcrumbs } from "$lib/utils/navigation";
+    
     export let data;
     const title = "Edit Device Profile";
     
-    // Breadcrumbs for navigation
-    const pageCrumbs: [string, string][] = [
-        ["Admin", "/admin"],
-        ["IOT", "/admin/iot"],
-        ["Device Profiles", "/admin/iot/device-profiles"],
-        ["Edit", `/admin/iot/device-profiles/${data.profile.id}/edit`]
-    ];
+    // Generate breadcrumbs using navigation utility
+    $: breadcrumbs = getDeviceProfileEditBreadcrumbs('admin', data.profile?.name, data.profile?.id);
     
     // Initialize form handler using superForm directly
     const errorMessage = writable(null);
@@ -177,7 +174,7 @@
 
 <AdminPageLayout
     {title}
-    crumbs={pageCrumbs}
+    crumbs={breadcrumbs}
     actionButtons={[
         {
             label: "Cancel",
