@@ -8,6 +8,27 @@ export PORT="${PORT:-3000}"
 echo "[entrypoint] Environment: NODE_ENV=$NODE_ENV PORT=$PORT"
 # Compose now injects env via env_file; do not source /app/.env directly
 
+# Rewrite localhost/127.0.0.1 to host.docker.internal for Docker networking
+rewrite_localhost() {
+  local var_name="$1"
+  local var_value="${!var_name}"
+  if [ -n "$var_value" ]; then
+    local new_value=$(echo "$var_value" | sed -e 's/localhost/host.docker.internal/g' -e 's/127\.0\.0\.1/host.docker.internal/g')
+    if [ "$new_value" != "$var_value" ]; then
+      echo "[entrypoint] Rewrote $var_name: localhost -> host.docker.internal"
+      export "$var_name"="$new_value"
+    fi
+  fi
+}
+
+# Rewrite common env vars that may reference localhost
+rewrite_localhost "REDIS_HOST"
+rewrite_localhost "REDIS_URL"
+rewrite_localhost "MQTT_BROKER_URL"
+rewrite_localhost "EMQX_URL"
+rewrite_localhost "CLICKHOUSE_URL"
+rewrite_localhost "IOT_CORE_BASE_URL"
+
 # If DATABASE_URL is set, wait for the DB to be reachable to avoid crash loops
 if [ -n "${DATABASE_URL:-}" ]; then
   echo "[entrypoint] Parsing DATABASE_URL to wait for DB..."
@@ -49,6 +70,12 @@ if [ -n "${DATABASE_URL:-}" ]; then
       fi
     fi
   fi
+fi
+
+# Run seed if requested
+if [ "${RUN_SEED:-false}" = "true" ]; then
+  echo "[entrypoint] RUN_SEED=true detected. Running database seed..."
+  npx prisma db seed || echo "[entrypoint] Seed failed or already seeded."
 fi
 
 echo "[entrypoint] Starting application..."
