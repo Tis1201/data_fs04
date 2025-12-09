@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { createDeviceTagTableOptions } from './deviceTagTableOptions';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 
@@ -26,7 +27,7 @@ export async function loadDeviceTagList(
                 where: { userId: options.userId },
                 select: { accountId: true }
             });
-            accountIds = userAccountMemberships.map(m => m.accountId);
+            accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
         }
 
         // Create table options with optional ownership filtering
@@ -85,7 +86,7 @@ export async function loadDeviceTagDetail(
                     where: { userId: options.userId },
                     select: { accountId: true }
                 });
-                accountIds = userAccountMemberships.map(m => m.accountId);
+                accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
             }
             
             // Filter by account membership
@@ -112,7 +113,10 @@ export async function loadDeviceTagDetail(
                         name: true,
                         deviceType: true,
                         status: true,
-                        connected: true
+                        connected: true,
+                        model: true,
+                        macAddress: true,
+                        createdAt: true
                     }
                 },
                 account: {
@@ -125,10 +129,19 @@ export async function loadDeviceTagDetail(
         });
 
         if (!deviceTag) {
-            throw error(404, {
-                message: 'Device tag not found',
-                code: 'DEVICE_TAG_NOT_FOUND'
-            });
+            throw error(404, 'Device tag not found');
+        }
+
+        // Override connected with real-time presence for devices
+        let devicesWithPresence = deviceTag.devices || [];
+        try {
+            const presenceMap = await areDevicesOnline(devicesWithPresence.map((d: any) => d.id));
+            devicesWithPresence = devicesWithPresence.map((d: any) => ({
+                ...d,
+                connected: presenceMap.get(d.id) ?? false
+            }));
+        } catch (presenceErr) {
+            logger.warn(`[DeviceTags] Failed to enrich device presence: ${presenceErr instanceof Error ? presenceErr.message : String(presenceErr)}`);
         }
 
         // Create form data from existing tag
@@ -141,17 +154,17 @@ export async function loadDeviceTagDetail(
 
         return {
             form,
-            deviceTag
+            deviceTag: {
+                ...deviceTag,
+                devices: devicesWithPresence
+            }
         };
     } catch (err) {
         if (err && typeof err === 'object' && 'status' in err) {
             throw err; // Re-throw SvelteKit errors
         }
         logger.error(`Error loading device tag ${tagId}: ${err}`);
-        throw error(500, {
-            message: 'Failed to load device tag',
-            code: 'DEVICE_TAG_LOAD_ERROR'
-        });
+        throw error(500, 'Failed to load device tag');
     }
 }
 

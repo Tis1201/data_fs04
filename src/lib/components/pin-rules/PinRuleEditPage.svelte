@@ -293,8 +293,8 @@
                     <!-- Target Devices -->
                     <div class="space-y-2">
                         <Label for="targetType">Target Devices <span class="text-red-500">*</span></Label>
-                        <Select.Root 
-                            onSelectedChange={(selected) => {
+                                <Select.Root 
+                                    onSelectedChange={(selected: { value: string; label?: string } | null) => {
                                 formData.targetType = selected?.value ?? 'all';
                             }}
                             selected={{ 

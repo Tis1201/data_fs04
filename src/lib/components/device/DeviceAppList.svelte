@@ -141,7 +141,8 @@
 
       const params = new URLSearchParams({
         page: String(currentPage),
-        limit: String(pageSize),
+        pageSize: String(pageSize), // v2 expects pageSize
+        limit: String(pageSize) // keep legacy compatibility
       });
 
       if (searchTerm) params.set('search', searchTerm);
@@ -155,17 +156,26 @@
         });
       }
 
-      const base = endpoint ?? `/api/devices/${deviceId}/apps`;
+      const base = endpoint ?? `/api/v2/devices/${deviceId}/apps`;
       const res = await fetch(`${base}?${params.toString()}`);
       if (!res.ok) throw new Error(`Failed to load apps: ${res.statusText}`);
 
       const data = await res.json();
       if (!data?.success) throw new Error(data?.error || 'Failed to load apps');
 
-      apps = data.data.apps;
-      totalApps = data.data.pagination.total;
-      totalPages = data.data.pagination.totalPages;
-      lastSync = new Date(data.data.timestamp);
+      const payload = data.data ?? data;
+      const appsPayload = payload.apps ?? payload.items ?? [];
+      const paginationPayload = payload.pagination ?? {
+        total: payload.total,
+        totalPages: payload.totalPages,
+        page: payload.page,
+        pageSize: payload.pageSize ?? payload.limit
+      };
+
+      apps = appsPayload;
+      totalApps = paginationPayload?.total ?? appsPayload.length ?? 0;
+      totalPages = paginationPayload?.totalPages ?? 1;
+      lastSync = new Date(payload.timestamp ?? data.meta?.timestamp ?? Date.now());
       calculateSummary();
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load data';

@@ -2,22 +2,8 @@ import { Lucia } from "lucia";
 import { PrismaAdapter } from "@lucia-auth/adapter-prisma";
 import prisma from '../prisma';
 
-// Create a new adapter with the correct field mappings
-const adapter = new PrismaAdapter(
-    prisma.session,
-    prisma.user,
-    {
-        user: {
-            id: "id",
-            attributes: ["email", "rolesString", "systemRole"]
-        },
-        session: {
-            id: "id",
-            userId: "userId",
-            expiresAt: "expiresAt"
-        }
-    }
-);
+// Create a new adapter (Prisma models already use Lucia's default field names)
+const adapter = new PrismaAdapter(prisma.session, prisma.user);
 
 export const lucia = new Lucia(adapter, {
     sessionCookie: {
@@ -31,6 +17,7 @@ export const lucia = new Lucia(adapter, {
         return {
             id: attributes.id,
             email: attributes.email,
+            name: attributes.name,
             rolesString: attributes.rolesString,
             systemRole: attributes.systemRole
         };
@@ -43,6 +30,7 @@ declare module "lucia" {
         DatabaseUserAttributes: {
             id: string;
             email: string;
+            name: string | null;
             rolesString: string;
             systemRole: string;
         };

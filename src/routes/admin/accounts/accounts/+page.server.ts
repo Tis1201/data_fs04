@@ -1,6 +1,6 @@
-import { error, type RequestEvent } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import {restrict} from "$lib/server/security/guards";
+import {restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent} from "$lib/server/security/guards";
 import {SystemRole} from "$lib/types/roles";
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType, UserStatus } from '$lib/constants/system';
@@ -16,46 +16,33 @@ const table_options = {
     filterMappings: {
         'statuses': { field: 'status', operator: 'in' }
     },
-    select: {
-        id: true,
-        name: true,
-        slug: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-        description: true,
-        logoUrl: true,
-        _count: {
-            select: {
-                companies: true,
-                members: true,
-                devices: true
-            }
-        }
-    },
     baseWhere: {
         isSystem: false
     }
 };
 
-export const load: PageServerLoad = async ({ url, locals }: RequestEvent) => {
-    try {
-        // Use the reusable fetchTableData function with our table options
-        const result = await fetchTableData(locals, url, table_options);
-        
-        return {
-            accounts: result.records,
-            meta: result.meta
-        };
-    } catch (err) {
-        console.error('Error loading accounts:', err);
-        throw error(500, 'Failed to load accounts');
-    }
-};
+export const load = restrict(
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
+        try {
+            // Use the reusable fetchTableData function with our table options
+            const result = await fetchTableData(locals, url, table_options);
+            
+            return {
+                accounts: result.records,
+                meta: result.meta
+            };
+        } catch (err) {
+            console.error('Error loading accounts:', err);
+            throw error(500, 'Failed to load accounts');
+        }
+    },
+    [SystemRole.ADMIN]
+) satisfies PageServerLoad;
 
 export const actions: Actions = {
     deleteAccount: restrict(
-        async ({ request, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+        const { request, locals } = event;
         const formData = await request.formData();
         const id = formData.get('id')?.toString();
 
@@ -68,14 +55,16 @@ export const actions: Actions = {
                 where: { id }
             });
 
+            const auth = await locals.auth.validate();
+
             await logAudit({
                 actionType: AuditActionType.DELETE,
                 tableName: 'Account',
                 recordId: id,
                 oldData: account,
                 newData: null,
-                userId: locals.user.id,
-                ipAddress: locals.ipAddress,
+                userId: auth?.user?.id ?? '',
+                ipAddress: event.getClientAddress(),
                 prisma: locals.prisma
             })
 
@@ -86,36 +75,42 @@ export const actions: Actions = {
         }
     },[SystemRole.ADMIN]),
     
-    toggleStatus: async ({ request, locals }: RequestEvent) => {
-        const formData = await request.formData();
-        const id = formData.get('id')?.toString();
-        const status = formData.get('status')?.toString();
+    toggleStatus: restrict(
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
+            const formData = await request.formData();
+            const id = formData.get('id')?.toString();
+            const status = formData.get('status')?.toString();
 
-        if (!id || !status) {
-            return { success: false, error: 'Account ID and status are required' };
-        }
+            if (!id || !status) {
+                return { success: false, error: 'Account ID and status are required' };
+            }
 
-        try {
-            await locals.prisma.account.update({
-                where: { id },
-                data: { status }
-            });
+            try {
+                await locals.prisma.account.update({
+                    where: { id },
+                    data: { status }
+                });
 
-            await logAudit({
-                actionType: AuditActionType.UPDATE,
-                tableName: 'Account',
-                recordId: id,
-                oldData: {status: status == UserStatus.ACTIVE ? UserStatus.INACTIVE : UserStatus.ACTIVE},
-                newData: {status},
-                userId: locals.user.id,
-                ipAddress: locals.ipAddress,
-                prisma: locals.prisma
-            })
+                const auth = await locals.auth.validate();
 
-            return { success: true };
-        } catch (err) {
-            console.error('Error updating account status:', err);
-            return { success: false, error: 'Failed to update account status' };
-        }
-    }
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Account',
+                    recordId: id,
+                    oldData: {status: status == UserStatus.ACTIVE ? UserStatus.INACTIVE : UserStatus.ACTIVE},
+                    newData: {status},
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
+                    prisma: locals.prisma
+                })
+
+                return { success: true };
+            } catch (err) {
+                console.error('Error updating account status:', err);
+                return { success: false, error: 'Failed to update account status' };
+            }
+        },
+        [SystemRole.ADMIN]
+    )
 };

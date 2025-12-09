@@ -83,7 +83,6 @@
 
             <PreclaimDeviceTable
                 preclaimId={preclaimSet?.id}
-                {apiPrefix}
             />
         </AdminCard>
     </div>

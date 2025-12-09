@@ -484,7 +484,7 @@
             {isLoading}
             {actionStatus}
             {sseStore}
-            endpoint={`/api/devices/${device.id}/apps-with-pins`}
+            endpoint={`/api/v2/devices/${device.id}/apps-with-pins`}
             initialQuery={{ filter: 'pinned' }}
           />
         </AdminCard>
@@ -503,7 +503,7 @@
             {isLoading}
             {actionStatus}
             {sseStore}
-            endpoint={`/api/devices/${device.id}/apps`}
+            endpoint={`/api/v2/devices/${device.id}/apps`}
             initialQuery={{ filter: 'all' }}
           />
         </AdminCard>

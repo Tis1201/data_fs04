@@ -45,12 +45,13 @@
       loading = true;
       error = null;
 
-      const response = await fetch(`/api/devices/${deviceId}/apps`);
+      const response = await fetch(`/api/v2/devices/${deviceId}/apps`);
       const data = await response.json();
 
       if (data.success) {
         // Calculate summary from apps data
-        const apps = data.data.apps;
+        const payload = data.data ?? data;
+        const apps = payload.apps ?? payload.items ?? [];
         const systemApps = apps.filter((app: any) => app.app_type?.toLowerCase() === 'system');
         const normalApps = apps.filter((app: any) => app.app_type?.toLowerCase() === 'user' || app.app_type?.toLowerCase() === 'normal');
         
@@ -60,15 +61,15 @@
           totalAppsCount: apps.length,
           systemAppsCount: systemApps.length,
           normalAppsCount: normalApps.length,
-          lastAppSync: data.data.timestamp,
-          lastProcessedAt: data.data.timestamp,
+          lastAppSync: payload.timestamp ?? data.meta?.timestamp ?? null,
+          lastProcessedAt: payload.timestamp ?? data.meta?.timestamp ?? null,
           device: {
             id: deviceId,
             name: 'Device', // We don't have device name in apps data
             status: 'ACTIVE',
             connected: true,
-            connectedAt: data.data.timestamp,
-            lastUsedAt: data.data.timestamp
+            connectedAt: payload.timestamp ?? data.meta?.timestamp ?? null,
+            lastUsedAt: payload.timestamp ?? data.meta?.timestamp ?? null
           }
         };
       } else {

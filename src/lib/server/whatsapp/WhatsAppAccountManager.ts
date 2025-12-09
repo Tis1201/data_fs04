@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import EventEmitter from 'events';
 import { logger } from '$lib/server/logger';
 import { WhatsAppAccountClient } from './WhatsAppAccountClient';
@@ -59,6 +60,20 @@ export class WhatsAppAccountManager extends EventEmitter {
     }
   }  
 
+  /**
+   * Convenience wrapper used by legacy callers to create a client.
+   * Returns a generated client ID and a placeholder QR promise.
+   */
+  public async createClient(_phoneNumber?: string, createdBy: string = ''): Promise<{ clientId: string; qrCodePromise: Promise<string | null> | null }> {
+    const clientId = crypto.randomUUID();
+    const { client } = await this.create(clientId, createdBy);
+
+    // TODO: wire QR generation to resolve this promise when available.
+    const qrCodePromise: Promise<string | null> | null = null;
+
+    return { clientId: client.getId(), qrCodePromise };
+  }
+
   /****************************************************************************************
    * 
    *  getClients
@@ -73,6 +88,14 @@ export class WhatsAppAccountManager extends EventEmitter {
 
   public getAllClients(): WhatsAppAccountClient[] {
     return Array.from(this.clients.values());
+  }
+
+  /**
+   * Remove a client from the registry and allow its resources to be cleaned up.
+   * This is a lightweight cleanup used by routes that delete an account.
+   */
+  public async cleanupClient(clientId: string): Promise<void> {
+    this.clients.delete(clientId);
   }
 
 

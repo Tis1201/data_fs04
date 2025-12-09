@@ -204,8 +204,10 @@
     } = deviceDetail;
 
     // Wrapper functions for modal components
-    function handleModalSearch(search: string) {
-        firmwareSearch = search;
+    function handleModalSearch(page?: number) {
+        if (page !== undefined) {
+            firmwarePage = page;
+        }
         loadFirmwareResources();
     }
 
@@ -213,8 +215,10 @@
         onSelectFirmware(id);
     }
 
-    function onInstallAppSearch(search: string) {
-        installAppSearch = search;
+    function onInstallAppSearch(page?: number) {
+        if (page !== undefined) {
+            installAppPage = page;
+        }
         loadInstallAppResources();
     }
 
@@ -222,8 +226,10 @@
         onSelectInstallApp(id);
     }
 
-    function onPullFileSearch(search: string) {
-        pullFileSearch = search;
+    function onPullFileSearch(page?: number) {
+        if (page !== undefined) {
+            pullFilePage = page;
+        }
         loadPullFileResources();
     }
 

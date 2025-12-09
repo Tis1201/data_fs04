@@ -157,10 +157,6 @@ export function useDeviceSSEHandlers(
                     const updatedData = evt.payload?.updatedData;
                     if (updatedData && updatedData.deviceInfo) {
                         callbacks.onDataUpdate?.(updatedData);
-                        toast.success('Device updated', {
-                            description: `Updated after ${evt.payload.action}`,
-                            duration: 2000
-                        });
                     }
                 }
                 
