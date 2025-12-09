@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { resourceSchema } from './resource';
@@ -15,7 +15,7 @@ import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
 import { getStorageConfig } from '$lib/server/storage';
 
 export const load = restrict(
-    async (event: any) => {
+    async (event: AuthenticatedLoadEvent) => {
         const { locals, auth } = event;
         try {
             // Create a form based on the schema with defaults
@@ -49,8 +49,12 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async (event: any) => {
+        async (event: AuthenticatedEvent) => {
             const { request, locals, auth } = event;
+            // Hard guard to satisfy TS nullability and provide clear error
+            if (!auth) {
+                throw error(401, 'Authentication required');
+            }
             try {
                 // Get the current account from auth
                 if (!auth.currentAccount || !auth.currentAccount.account) {
@@ -78,9 +82,11 @@ export const actions: Actions = {
                         const form = await superValidate(zod(resourceSchema));
                         return message(
                             form,
-                            createErrorResponse('Invalid file format', {
-                                details: 'Only .zip, .cpk, and .apk files are allowed'
-                            })
+                            createErrorResponse(
+                                'Invalid file format',
+                                'VALIDATION_ERROR',
+                                { details: 'Only .zip, .cpk, and .apk files are allowed' }
+                            )
                         );
                     }
                     
@@ -161,9 +167,13 @@ export const actions: Actions = {
                             logger.warn('Uploaded file has zero size; aborting.');
                             return message(
                                 form,
-                                createErrorResponse('Empty file', {
-                                    details: 'The uploaded file is empty (0 bytes). Please re-upload a valid file.'
-                                })
+                                createErrorResponse(
+                                    'Empty file',
+                                    'VALIDATION_ERROR',
+                                    {
+                                        details: 'The uploaded file is empty (0 bytes). Please re-upload a valid file.'
+                                    }
+                                )
                             );
                         }
 
@@ -224,8 +234,8 @@ export const actions: Actions = {
                         recordId: resource.id,
                         oldData: null,
                         newData: resource,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
+                        userId: auth.user.id,
+                        ipAddress: event.getClientAddress(),
                         prisma: enhancedPrisma
                     })
 

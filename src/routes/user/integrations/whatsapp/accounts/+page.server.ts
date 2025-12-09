@@ -1,8 +1,8 @@
 import type { PageServerLoad, Actions } from './$types';
 import { error, fail } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
-import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
+import { whatsAppAccountManager, type WhatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { logger } from '$lib/server/logger';
 import { handleApiError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
@@ -36,7 +36,11 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals, auth }: any) => {
+    async ({ url, locals, auth }: AuthenticatedLoadEvent) => {
+        if (!auth?.user) {
+            throw error(401, 'Unauthorized');
+        }
+
         try {
             // Get the current user's account ID from auth.currentAccount
             const accountId = auth.currentAccount?.account?.id;
@@ -64,13 +68,14 @@ export const load = restrict(
                 meta: result.meta
             };
         } catch (err) {
+            const isAccountError = err instanceof Error && err.message?.includes('account');
             // Use the standardized API error handler
             // If getCurrentAccountId failed, we'll just pass the error as is
             return handleApiError({
                 error: err,
                 prisma: locals.prisma,
                 // Don't try to get account ID if that's what caused the error
-                accountId: err.message?.includes('account') ? undefined : auth.currentAccount?.account?.id,
+                accountId: isAccountError ? undefined : auth?.currentAccount?.account?.id,
                 defaultMessage: 'Failed to load WhatsApp accounts',
                 action: 'loading WhatsApp accounts'
             });
@@ -80,10 +85,15 @@ export const load = restrict(
 ) satisfies PageServerLoad;
 
 
-export const actions = restrict(
-    {
-        // Action name must match what's being called from the client (delete)
-        delete: async ({ request, locals, auth }) => {
+export const actions = {
+    // Action name must match what's being called from the client (delete)
+    delete: restrict(
+        async (event: AuthenticatedEvent) => {
+            const { request, locals, auth } = event;
+            if (!auth?.user) {
+                throw error(401, 'Unauthorized');
+            }
+
             const form = await request.formData();
             const id = form.get('id')?.toString();
             
@@ -127,7 +137,8 @@ export const actions = restrict(
                 
                 // Disconnect the client if it's connected
                 try {
-                    await whatsAppAccountManager.cleanupClient(id);
+                    const manager: WhatsAppAccountManager = whatsAppAccountManager;
+                    await manager.cleanupClient(id);
                     logger.debug(`WhatsApp client for account ${id} disconnected successfully`);
                 } catch (cleanupErr) {
                     // Log the error but continue with deletion
@@ -150,10 +161,10 @@ export const actions = restrict(
                     recordId: id,
                     oldData: whatsAppAccount,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth.user.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
-                })
+                });
                 
                 return { 
                     success: true, 
@@ -196,7 +207,7 @@ export const actions = restrict(
                     code: err && typeof err === 'object' && 'code' in err ? (err as any).code : undefined
                 });
             }
-        }
-    },
-    ['USER', 'ADMIN'] // Allow both user and admin roles to access these actions
-) satisfies Actions;
+        },
+        ['USER', 'ADMIN'] // Allow both user and admin roles to access these actions
+    )
+} satisfies Actions;

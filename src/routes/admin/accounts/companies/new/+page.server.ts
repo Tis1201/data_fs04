@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { companySchema } from './company';
@@ -12,7 +12,7 @@ import { AuditActionType } from '$lib/constants/system';
 
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedLoadEvent) => {
         try {
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(companySchema), {
@@ -45,7 +45,10 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+            if (!auth?.user) {
+                throw error(401, 'Unauthorized');
+            }
             // Validate the form data
             const form = await superValidate(request, zod(companySchema));
             
@@ -75,8 +78,8 @@ export const actions: Actions = {
                     recordId: company.id,
                     oldData: null,
                     newData: company,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth.user.id,
+                    ipAddress: getClientAddress(),
                     prisma: locals.prisma
                 })
                 

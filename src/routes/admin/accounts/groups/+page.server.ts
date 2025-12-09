@@ -1,13 +1,13 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Get query parameters for filtering, sorting, and pagination
             const search = url.searchParams.get('search') || '';
@@ -109,7 +109,7 @@ export const load = restrict(
                 }
             };
         } catch (err) {
-            logger.error(`Error loading groups:, ${err}` );
+            logger.error('Error loading groups:', { error: err });
             throw error(500, 'Failed to load groups');
         }
     },
@@ -118,7 +118,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     deleteGroup: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const formData = await request.formData();
             const id = formData.get('id')?.toString();
 
@@ -168,8 +168,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: deletedGroup,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: getClientAddress(),
                     prisma: locals.prisma
                 });
 

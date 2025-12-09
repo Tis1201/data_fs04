@@ -1,7 +1,7 @@
 import type { PageServerLoad, Actions } from './$types';
-import { json, fail } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import type { WhatsAppAccountClient } from '$lib/server/whatsapp/WhatsAppAccountClient';
@@ -24,7 +24,7 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
@@ -46,7 +46,7 @@ export const actions = {
      * Delete
      ******************************************************************************************/
     deleteAccount: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             const data = await request.formData();
             const id = data.get('id')?.toString();
             
@@ -64,7 +64,7 @@ export const actions = {
      * Request QR Code
      ******************************************************************************************/
     requestQRCode: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const phoneNumber = formData.get('phoneNumber')?.toString();
@@ -124,7 +124,7 @@ export const actions = {
      * Request Pairing Code
      ******************************************************************************************/
     requestPairingCode: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const phoneNumber = formData.get('phoneNumber')?.toString();

@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { SystemRole } from '$lib/types/roles';
 import { fail } from '@sveltejs/kit';
@@ -29,7 +29,7 @@ const table_options = {
 };
 
 export const load = restrict(
-    async ({ url, locals, depends }: any) => {
+    async ({ url, locals, depends }: AuthenticatedLoadEvent) => {
         depends('app:licenses');
         const result = await fetchTableData(locals, url, table_options);
         return {
@@ -42,7 +42,8 @@ export const load = restrict(
 
 export const actions = {
     delete: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
@@ -66,14 +67,16 @@ export const actions = {
 
                 logger.info('License deleted successfully:', { licenseId: id });
 
+                const session = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'License',
                     recordId: id,
                     oldData: license,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: session?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -83,7 +86,7 @@ export const actions = {
                 };
 
             } catch (e) {
-                logger.error('Error deleting license:', e);
+                logger.error('Error deleting license', { error: e });
                 return fail(500, {
                     error: 'Failed to delete license'
                 });

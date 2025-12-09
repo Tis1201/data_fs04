@@ -6,7 +6,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { webhookSchema } from './new/webhook';
 import { zod } from 'sveltekit-superforms/adapters';
 import type { Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
@@ -37,7 +37,7 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
@@ -59,14 +59,22 @@ export const actions = {
      * Create
      ******************************************************************************************/
     create: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             const form = await superValidate(request, zod(webhookSchema));
             if (!form.valid) {
                 return fail(400, { form });
             }
 
             try {
-                const { name, postfix, description, active, expiresAt } = form.data;
+                const { name, postfix: rawPostfix, description, active, expiresAt } = form.data;
+                const postfix = rawPostfix ?? '';
+                if (!postfix) {
+                    return fail(400, {
+                        form,
+                        error: 'Postfix is required'
+                    });
+                }
                 
                 // Check if webhook with the same postfix already exists
                 const existingWebhook = await locals.prisma.webhookEndPoint.findFirst({
@@ -116,8 +124,8 @@ export const actions = {
                     recordId: webhook.id,
                     oldData: null,
                     newData: webhook,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth.user.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
 
@@ -126,7 +134,7 @@ export const actions = {
                     success: true
                 };
             } catch (e) {
-                logger.error('Error creating webhook endpoint:', e);
+                logger.error('Error creating webhook endpoint', { error: e });
                 return fail(500, {
                     form,
                     error: "Failed to create webhook endpoint"
@@ -140,7 +148,8 @@ export const actions = {
      * Toggle Active Status
      ******************************************************************************************/
     toggleStatus: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 // Get the webhook ID and new status from form data
                 const data = await request.formData();
@@ -185,20 +194,22 @@ export const actions = {
                     status
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'WebhookEndpoint',
                     recordId: webhook.id,
                     oldData: getStatusBeforeToggled(status),
                     newData: { status },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 
                 return { success: true };
             } catch (err) {
-                logger.error(`Error toggling webhook status:`, err);
+                logger.error(`Error toggling webhook status`, { error: err });
                 return fail(500, { error: 'Failed to update webhook status' });
             }
         },
@@ -209,7 +220,8 @@ export const actions = {
      * Delete
      ******************************************************************************************/
     delete: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 // Get the webhook ID from form data
                 const data = await request.formData();
@@ -244,14 +256,16 @@ export const actions = {
                     postfix: webhook.postfix
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'WebhookEndpoint',
                     recordId: id,
                     oldData: webhook,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 
@@ -262,8 +276,8 @@ export const actions = {
                 };
 
             } catch (e) {
-                logger.error('Error deleting webhook endpoint:', e);
-                if (e.code === 'P2025') {
+                logger.error('Error deleting webhook endpoint', { error: e });
+                if ((e as any)?.code === 'P2025') {
                     return fail(404, {
                         error: 'Webhook endpoint not found'
                     });
@@ -280,7 +294,8 @@ export const actions = {
      * Update
      ******************************************************************************************/
     update: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const form = await superValidate(request, zod(webhookSchema));
                 if (!form.valid) {
@@ -340,14 +355,16 @@ export const actions = {
                     postfix
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'WebhookEndpoint',
                     recordId: id,
                     oldData: webhook,
                     newData: updatedWebhook,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 
@@ -367,7 +384,8 @@ export const actions = {
     ),
     
     deleteWebhook: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             const formData = await request.formData();
             const id = formData.get('id') as string;
             
@@ -395,14 +413,16 @@ export const actions = {
                     name: webhook.name
                 });
                 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'WebhookEndpoint',
                     recordId: id,
                     oldData: webhook,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 });
                 

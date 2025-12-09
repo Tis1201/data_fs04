@@ -26,6 +26,7 @@
     let message = "";
     let priority = "normal";
     let searchQuery = "";
+    let tabValue = "help";
     
     // Mock data for FAQs
     const faqs = [
@@ -99,7 +100,7 @@
                 <h1 class="text-2xl font-bold tracking-tight">How can we help you?</h1>
                 <p class="text-muted-foreground">Find answers in our help center or contact our support team</p>
             </div>
-            <Button onclick={createNewTicket}>
+            <Button on:click={createNewTicket}>
                 <Plus class="mr-2 h-4 w-4" />
                 New Support Ticket
             </Button>
@@ -117,7 +118,7 @@
             />
         </div>
         
-        <Tabs defaultValue="help" class="w-full">
+        <Tabs bind:value={tabValue} class="w-full">
             <TabsList class="grid w-full grid-cols-3 max-w-md">
                 <TabsTrigger value="help">Help Center</TabsTrigger>
                 <TabsTrigger value="tickets">My Tickets</TabsTrigger>
@@ -174,7 +175,7 @@
                             <p class="text-sm text-muted-foreground">
                                 Our support team is here to help. Contact us directly for personalized assistance.
                             </p>
-                            <Button variant="link" class="p-0 h-auto" onclick={() => document.getElementById('new-ticket-tab')?.click()}>Contact Us →</Button>
+                            <Button variant="link" class="p-0 h-auto" on:click={() => document.getElementById('new-ticket-tab')?.click()}>Contact Us →</Button>
                         </CardContent>
                     </Card>
                 </div>

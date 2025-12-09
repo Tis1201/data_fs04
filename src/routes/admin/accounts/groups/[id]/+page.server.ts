@@ -2,7 +2,7 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from '../../groups/new/group';
@@ -11,8 +11,8 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import rawPrisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack policies
 
-export const load = restrict(
-    async ({ params, locals }) => {
+export const load: PageServerLoad = restrict(
+    async ({ params, locals }: AuthenticatedLoadEvent) => {
         const { id } = params;
         
         try {
@@ -52,10 +52,7 @@ export const load = restrict(
             
             // If group doesn't exist, throw a 404 error
             if (!group) {
-                throw error(404, {
-                    message: 'Group not found',
-                    code: 'GROUP_NOT_FOUND'
-                });
+                throw error(404, 'Group not found');
             }
             
             // Get all accounts for the dropdown (use rawPrisma for consistency)
@@ -107,9 +104,8 @@ export const load = restrict(
                 {
                     name: group.name,
                     description: group.description || '',
-                    accountId: group.accountId,
-                    permissions: {} // Initialize as empty object (will be serialized as JSON)
-                }, 
+                    accountId: group.accountId
+                },
                 zod(groupSchema)
             );
 
@@ -168,10 +164,11 @@ export const load = restrict(
                 groupRole
             };
         } catch (err) {
-            if (err.status === 404) {
+            const loadErr = err as { status?: number };
+            if (loadErr?.status === 404) {
                 throw err;
             }
-            logger.error('Error loading group:', err);
+            logger.error('Error loading group:', { error: err });
             throw error(500, 'Failed to load group details');
         }
     },
@@ -181,8 +178,11 @@ export const load = restrict(
 export const actions: Actions = {
     // Action for updating a group using Superforms
     updateGroup: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
+        if (!id) {
+            return fail(400, { error: 'Group ID is required' });
+        }
             
             // Validate the form data against the schema
             const form = await superValidate(request, zod(groupSchema));
@@ -241,8 +241,8 @@ export const actions: Actions = {
                     recordId: updatedGroup.id,
                     oldData: existingGroup,
                     newData: updatedGroup,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth?.user?.id ?? '',
+                    ipAddress: (locals as any).ipAddress ?? getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -262,8 +262,11 @@ export const actions: Actions = {
     
     // Action for adding a user to a group
     addUser: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
+            if (!id) {
+                return fail(400, { error: 'Group ID is required' });
+            }
             
             // Get the form data directly
             const formData = await request.formData();
@@ -368,8 +371,8 @@ export const actions: Actions = {
                     recordId: groupMembership.id,
                     oldData: null,
                     newData: groupMembership,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth?.user?.id ?? '',
+                    ipAddress: (locals as any).ipAddress ?? getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -399,8 +402,11 @@ export const actions: Actions = {
     
     // Action for removing a user from a group
     removeUser: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
+            if (!id) {
+                return fail(400, { error: 'Group ID is required' });
+            }
             const formData = await request.formData();
             const membershipId = formData.get('membershipId')?.toString();
             
@@ -450,8 +456,8 @@ export const actions: Actions = {
                     recordId: groupMembership.id,
                     oldData: groupMembership,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth?.user?.id ?? '',
+                    ipAddress: (locals as any).ipAddress ?? getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -469,8 +475,11 @@ export const actions: Actions = {
 
     // Update group permissions
     updatePermissions: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
+            if (!id) {
+                return fail(400, { error: 'Group ID is required' });
+            }
             const formData = await request.formData();
             const permissionsJson = formData.get('permissions')?.toString();
             const groupRole = formData.get('groupRole')?.toString() as 'ADMIN' | 'USER' | undefined;
@@ -593,8 +602,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: existingGroup.permissions,
                     newData: permissionRecords,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth?.user?.id ?? '',
+                    ipAddress: (locals as any).ipAddress ?? getClientAddress(),
                     prisma: locals.prisma
                 });
                 
@@ -609,7 +618,7 @@ export const actions: Actions = {
 
     // Delete group action
     deleteGroup: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
 
             if (!id) {
@@ -668,8 +677,8 @@ export const actions: Actions = {
                         recordId: id,
                         oldData: deletedGroup,
                         newData: null,
-                        userId: locals.user?.id || 'unknown',
-                        ipAddress: locals.ipAddress || 'unknown',
+                        userId: locals.user?.id ?? auth?.user?.id ?? 'unknown',
+                        ipAddress: (locals as any).ipAddress ?? getClientAddress?.() ?? 'unknown',
                         prisma: locals.prisma
                     });
                     logger.info(`Audit log entry created for group deletion: ${id}`);

@@ -2,7 +2,7 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
@@ -136,7 +136,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     updateCompany: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
             
             const form = await superValidate(request, zod(companySchema));
@@ -225,8 +225,8 @@ export const actions: Actions = {
                     recordId: updatedCompany.id,
                     oldData: existingCompany,
                     newData: updatedCompany,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -317,7 +317,7 @@ export const actions: Actions = {
         [SystemRole.ADMIN]
     ),
     removeMember: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id: companyId } = params;
             
             // Create a simple schema for the remove action
@@ -366,8 +366,8 @@ export const actions: Actions = {
                     recordId: membership.id,
                     oldData: membership,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -393,7 +393,7 @@ export const actions: Actions = {
 
     // Delete company action
     deleteCompany: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const { id } = params;
 
             if (!id) {
@@ -452,8 +452,8 @@ export const actions: Actions = {
                         recordId: id,
                         oldData: deletedCompany,
                         newData: null,
-                        userId: locals.user?.id || 'unknown',
-                        ipAddress: locals.ipAddress || 'unknown',
+                        userId: auth?.user?.id || 'unknown',
+                        ipAddress: getClientAddress() || 'unknown',
                         prisma: locals.prisma
                     });
                     logger.info(`Audit log entry created for company deletion: ${id}`);

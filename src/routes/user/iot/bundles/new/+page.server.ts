@@ -1,19 +1,18 @@
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { superValidate, message } from 'sveltekit-superforms/server';
+import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { bundleSchema } from './bundle';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
-import { FormValidationError } from '$lib/server/errors/FormValidationError';
-import { createSuccessResponse } from '$lib/types/api';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
-    async ({ locals, auth }: any) => { // Use auth from enhanced event
+    async (event: AuthenticatedLoadEvent) => {
+        const { locals } = event;
         try {
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(bundleSchema), {
@@ -23,9 +22,12 @@ export const load = restrict(
                     description: '',
                     os: 'ANDROID',
                     reboot: false,
+                    autoOpen: false,
+                    forceUpdate: false,
                     version: '1.0.0',
                     waveSize: 500,
                     scheduledAt: null,
+                    scheduledTime: '',
                     scheduledAtTimezone: 'UTC',
                     scheduledAtStartIfMissed: false,
                     activePeriodDays: 1
@@ -33,6 +35,10 @@ export const load = restrict(
             });
 
             const { currentAccount } = locals;
+            if (!currentAccount) {
+                logger.error('No current account found in load');
+                throw error(400, 'Account context is required');
+            }
             
             return {
                 form,
@@ -48,7 +54,8 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals, auth }: any) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals, auth } = event;
             // Validate the form data
             const form = await superValidate(request, zod(bundleSchema));
             
@@ -57,14 +64,24 @@ export const actions: Actions = {
             }
             
             try {
+                if (!auth) {
+                    throw error(401, 'Unauthorized');
+                }
+
                 // Get authenticated user from the enhanced event provided by restrict guard
                 const userInfo = auth.user; // Auth is guaranteed by the restrict guard
+                if (!userInfo) {
+                    throw error(401, 'Unauthorized');
+                }
+
                 const { currentAccount } = locals;
-                console.log({currentAccount});
+                if (!currentAccount) {
+                    throw error(400, 'Account context is required');
+                }
                 
                 
                 // Process scheduled datetime - convert from user's timezone to UTC
-                let scheduledDateTime = null;
+                let scheduledDateTime: Date | null = null;
                 if (form.data.scheduledAt && form.data.scheduledTime) {
                     try {
                         const datePart = form.data.scheduledAt;  // "2025-11-21"
@@ -168,7 +185,7 @@ export const actions: Actions = {
                             scheduledAtTimezone: form.data.scheduledAtTimezone || 'UTC',
                             scheduledAtStartIfMissed: form.data.scheduledAtStartIfMissed || false,
                             activePeriodDays: Math.min(Math.max(form.data.activePeriodDays || 1, 1), 30), // Clamp between 1 and 30
-                            accountId: currentAccount.accountId,
+                            accountId: currentAccount.accountId ?? currentAccount.id,
                             createdBy: userInfo.id,
                             updatedBy: userInfo.id
                         }
@@ -182,8 +199,8 @@ export const actions: Actions = {
                         recordId: bundle.id,
                         oldData: null,
                         newData: bundle,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
+                        userId: locals.user?.id ?? userInfo.id,
+                        ipAddress: (locals as any)?.ipAddress,
                         prisma: locals.prisma
                     })
                     

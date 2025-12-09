@@ -3,16 +3,19 @@ import type { PageServerLoad, Actions } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { bundleSchema } from '../../new/bundle';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: AuthenticatedLoadEvent) => {
         try {
             const { id } = params;
+            if (!id) {
+                throw error(400, 'Bundle ID is required');
+            }
             
             // Load existing bundle
             const bundle = await locals.prisma.bundle.findUnique({
@@ -44,21 +47,23 @@ export const load = restrict(
             }
 
             // Prepare form data from the bundle
-            const form = await superValidate({
-                id: bundle.id,
-                name: bundle.name,
-                description: bundle.description || "",
-                accountId: bundle.accountId || "",
-                os: bundle.os,
-                version: bundle.version || "",
-                waveSize: bundle.waveSize || 0,
-                scheduledAt: bundle.scheduledAt ? bundle.scheduledAt.toISOString() : null,
-                // Let client compute local HH:mm from scheduledAt to avoid timezone mismatch
-                scheduledTime: null,
-                reboot: bundle.reboot || false,
-                forceUpdate: (bundle as any).forceUpdate || false,
-                autoOpen: (bundle as any).autoOpen || false,
-            }, zod(bundleSchema));
+            const form = await superValidate(
+                {
+                    name: bundle.name,
+                    description: bundle.description || "",
+                    accountId: bundle.accountId || "",
+                    os: bundle.os,
+                    version: bundle.version || "",
+                    waveSize: bundle.waveSize || 0,
+                    scheduledAt: bundle.scheduledAt ? bundle.scheduledAt.toISOString() : null,
+                    // Let client compute local HH:mm from scheduledAt to avoid timezone mismatch
+                    scheduledTime: null,
+                    reboot: bundle.reboot || false,
+                    forceUpdate: (bundle as any).forceUpdate || false,
+                    autoOpen: (bundle as any).autoOpen || false,
+                },
+                zod(bundleSchema)
+            );
 
             return {
                 form,
@@ -77,8 +82,8 @@ export const actions: Actions = {
      * Update bundle data
      */
     save: restrict(
-        async ({ request, params, locals }) => {
-            const id = params.id;
+        async ({ request, params, locals }: AuthenticatedEvent) => {
+            const id = params.id as string;
 
             const form = await superValidate(request, zod(bundleSchema));
             logger.debug(`Update bundle form data: ${JSON.stringify(form)}`);
@@ -124,8 +129,8 @@ export const actions: Actions = {
                         name: form.data.name,
                         description: form.data.description || null,
                         os: form.data.os,
-                        version: form.data.version || null,
-                        waveSize: form.data.waveSize || null,
+                        version: form.data.version ?? undefined,
+                        waveSize: form.data.waveSize ?? undefined,
                         scheduledAt: combineDateTime(form.data.scheduledAt, (form.data as any).scheduledTime) || null,
                         activePeriodDays: Math.min(Math.max(form.data.activePeriodDays || 1, 1), 30), // Clamp between 1 and 30
                         reboot: form.data.reboot,
@@ -145,20 +150,20 @@ export const actions: Actions = {
                         recordId: id,
                         oldData: existingBundle,
                         newData: bundle,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
+                        userId: (locals as any)?.user?.id ?? 'system',
+                        ipAddress: (locals as any)?.ipAddress ?? undefined,
                         prisma: tx
                     });
                 });
 
                 // Redirect back to the bundle detail page after successful update
                 throw redirect(303, `/user/iot/bundles/${id}`);
-            } catch (e) {
+            } catch (e: unknown) {
                 if (e instanceof Response || (e as any)?.status === 303) {
                     throw e; // This is the redirect
                 }
                 
-                logger.error(`Error updating bundle:`, e);
+                logger.error(`Error updating bundle`, { error: e });
                 return fail(500, {
                     form,
                     error: 'Failed to update bundle'
@@ -169,7 +174,7 @@ export const actions: Actions = {
     ),
     
     cancel: restrict(
-        async ({ params }) => {
+        async ({ params }: AuthenticatedEvent) => {
             // Redirect back to the bundle detail page
             throw redirect(303, `/user/iot/bundles/${params.id}`);
         },

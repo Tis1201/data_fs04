@@ -2,11 +2,11 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { licenseSchema } from './license';
-import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
+import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
@@ -16,7 +16,7 @@ import { getActiveTokenKey } from '$lib/server/jwt_issuer/keys/token-key';
 import { randomUUID } from 'crypto';
 
 export const load = restrict(
-    async (event: any) => {
+    async (event: AuthenticatedLoadEvent) => {
         const { locals, url } = event;
         try {
             
@@ -43,13 +43,17 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async (event: any) => {
+        async (event: AuthenticatedEvent) => {
             const { request, locals, auth } = event;
             // Move form declaration outside try-catch to make it available in the catch block
             const form = await superValidate(request, zod(licenseSchema));
             if (!form.valid) {
                 logger.debug(`License form validation failed: ${JSON.stringify(form.errors)}`);
                 return fail(400, { form });
+            }
+
+            if (!auth?.user) {
+                throw error(401, 'Unauthorized');
             }
             
             try {
@@ -63,23 +67,13 @@ export const actions: Actions = {
                     if (accountId && accountId !== '') {
                         account = await locals.prisma.account.findUnique({ where: { id: accountId } });
                         if (!account) {
-                            return message(
-                                form,
-                                createErrorResponse('Invalid account', {
-                                    details: `The selected account with ID '${accountId}' does not exist.`
-                                })
-                            );
+                            return message(form, `Invalid account: '${accountId}' does not exist.`, { status: 400 });
                         }
                     } else {
                         account = await locals.prisma.account.findFirst({ where: { isSystem: true } });
                         if (!account) {
                             logger.error('System account not found in database');
-                            return message(
-                                form,
-                                createErrorResponse('System account not found', {
-                                    details: 'The system account does not exist. Please run the database seed to create it.'
-                                })
-                            );
+                            return message(form, 'System account not found. Please seed the database.', { status: 500 });
                         }
                     }
 
@@ -87,12 +81,7 @@ export const actions: Actions = {
                     accountId = account.id; // canonicalize
                 } catch (acctErr) {
                     logger.error(`Error verifying account: ${String(acctErr)}`);
-                    return message(
-                        form,
-                        createErrorResponse('Error verifying account', {
-                            details: 'Failed to verify the selected account. Please try again.'
-                        })
-                    );
+                    return message(form, 'Failed to verify the selected account. Please try again.', { status: 500 });
                 }
 
 
@@ -100,34 +89,19 @@ export const actions: Actions = {
                 
                 // Validate and parse expiration date
                 if (!form.data.expiresAt || form.data.expiresAt === 'undefined') {
-                    return message(
-                        form,
-                        createErrorResponse('Invalid expiration date', {
-                            details: 'Please select a valid expiration date for the license.'
-                        })
-                    );
+                    return message(form, 'Invalid expiration date. Please select a valid date.', { status: 400 });
                 }
                 
                 const expiresAtDate = new Date(form.data.expiresAt);
                 
                 // Check if date is valid
                 if (isNaN(expiresAtDate.getTime())) {
-                    return message(
-                        form,
-                        createErrorResponse('Invalid expiration date', {
-                            details: `The expiration date "${form.data.expiresAt}" is not a valid date.`
-                        })
-                    );
+                    return message(form, `Invalid expiration date: "${form.data.expiresAt}" is not a valid date.`, { status: 400 });
                 }
                 
                 // Check if date is in the future
                 if (expiresAtDate <= new Date()) {
-                    return message(
-                        form,
-                        createErrorResponse('Invalid expiration date', {
-                            details: 'The expiration date must be in the future.'
-                        })
-                    );
+                    return message(form, 'Invalid expiration date. It must be in the future.', { status: 400 });
                 }
                 
                 // Validate device exists
@@ -144,12 +118,7 @@ export const actions: Actions = {
                 });
 
                 if (!device) {
-                    return message(
-                        form,
-                        createErrorResponse('Invalid device', {
-                            details: `The selected device with ID '${deviceId}' does not exist.`
-                        })
-                    );
+                    return message(form, `Invalid device: '${deviceId}' does not exist.`, { status: 400 });
                 }
 
                 // Get active TOKEN signing key (NOT factory key!)
@@ -159,12 +128,7 @@ export const actions: Actions = {
                     logger.info(`Using TOKEN signing key: ${signingKey.keyId} for license`);
                 } catch (keyError) {
                     logger.error(`Error fetching TOKEN signing key: ${keyError}`);
-                    return message(
-                        form,
-                        createErrorResponse('No TOKEN signing key available', {
-                            details: 'Please create a TOKEN signing key first. Factory keys cannot be used for licenses.'
-                        })
-                    );
+                    return message(form, 'No TOKEN signing key available. Please create one before issuing licenses.', { status: 500 });
                 }
 
                 // Generate license ID
@@ -211,9 +175,7 @@ export const actions: Actions = {
                     logger.info(`Generated license JWT using TOKEN key: ${signingKey.keyId}`);
                 } catch (signError) {
                     logger.error(`Error signing JWT with TOKEN key: ${signError}`);
-                    return message(form, createErrorResponse('JWT signing failed', {
-                        details: 'Failed to sign license JWT. Please check the TOKEN signing key configuration.'
-                    }));
+                    return message(form, 'JWT signing failed. Please check the TOKEN signing key configuration.', { status: 500 });
                 }
 
                 // Create the license (no factory token involved!)
@@ -244,7 +206,7 @@ export const actions: Actions = {
                     oldData: null,
                     newData: license,
                     userId: auth.user.id,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 });
                 

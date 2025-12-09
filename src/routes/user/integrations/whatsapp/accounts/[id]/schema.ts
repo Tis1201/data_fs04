@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { superValidate } from 'sveltekit-superforms/server';
+import { zod } from 'sveltekit-superforms/adapters';
+
+type SuperValidateInput = Parameters<typeof superValidate>[0];
 
 // Base schema for common fields
 const baseSchema = {
@@ -34,8 +37,9 @@ export const whatsappAccountUpdateSchema = z.object({
 
 export type WhatsAppAccount = z.infer<typeof whatsappAccountSchema>;
 
-export function createForm(event: any, isUpdate = false) {
+export function createForm(event: SuperValidateInput | null | undefined, isUpdate = false) {
     // Ensure we have a valid event object to prevent errors with superValidate
-    const safeEvent = event || {};
-    return superValidate(safeEvent, isUpdate ? whatsappAccountUpdateSchema : whatsappAccountSchema);
+    const safeEvent = (event ?? {}) as SuperValidateInput;
+    const schema = isUpdate ? whatsappAccountUpdateSchema : whatsappAccountSchema;
+    return superValidate(safeEvent, zod(schema));
 }

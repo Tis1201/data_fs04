@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import type { RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { deviceEditSchema } from '../schema';
@@ -11,11 +12,17 @@ import { logAudit } from '$lib/server/audit-logger';
 import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async (event: AuthenticatedEvent) => {
+        const { params, locals } = event;
+        const id = params.id;
+
+        if (!id) {
+            throw error(400, 'Missing device id');
+        }
         try {
             // Load existing device
             const device = await locals.prisma.device.findUnique({
-                where: { id: params.id },
+                where: { id },
                 select: {
                     id: true,
                     tags: true,
@@ -52,8 +59,8 @@ export const load = restrict(
                 {
                     id: device.id,
                     name: device.name,
-                    description: device.description || "",
-                    status: device.status,
+                    description: device.description || '',
+                    status: device.status
                 },
                 zod(deviceEditSchema)
             );
@@ -63,7 +70,7 @@ export const load = restrict(
                 device
             };
         } catch (e) {
-            logger.error('Error loading device for edit:', e);
+            logger.error('Error loading device for edit:', { error: e });
             throw error(500, 'Failed to load device');
         }
     },
@@ -75,8 +82,13 @@ export const actions: Actions = {
      * Update device data
      */
     save: restrict(
-        async ({ request, params, locals }) => {
+        async (event: RequestEvent) => {
+            const { request, params, locals } = event;
             const id = params.id;
+
+            if (!id) {
+                return fail(400, { form: null, error: 'Missing device id' });
+            }
 
             const form = await superValidate(request, zod(deviceEditSchema));
             logger.debug('Update device form data:', form);
@@ -115,10 +127,10 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: existingDevice,
                     newData: updatedDevice,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
-                })
+                });
 
                 // Return success response
                 logger.debug(`Device update completed successfully`);
@@ -133,7 +145,7 @@ export const actions: Actions = {
                     })
                 );
             } catch (e) {
-                logger.error('Error updating device:', e);
+                logger.error('Error updating device:', { error: e });
                 return fail(500, {
                     form,
                     error: 'Failed to update device'
@@ -144,7 +156,11 @@ export const actions: Actions = {
     ),
     
     cancel: restrict(
-        async ({ params }) => {
+        async (event: RequestEvent) => {
+            const { params } = event;
+            if (!params.id) {
+                throw error(400, 'Missing device id');
+            }
             // Redirect back to the device detail page
             throw redirect(303, `/admin/iot/device/${params.id}`);
         },

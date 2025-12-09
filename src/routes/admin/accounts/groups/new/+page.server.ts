@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from './group';
@@ -10,8 +10,8 @@ import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import rawPrisma from '$lib/server/prisma';
 
-export const load = restrict(
-    async ({ locals }) => {
+export const load: PageServerLoad = restrict(
+    async ({ locals }: AuthenticatedLoadEvent) => {
         try {
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(groupSchema));
@@ -61,7 +61,7 @@ export const load = restrict(
                 accountMembers
             };
         } catch (err) {
-            logger.error(`Error loading group form: ${err}`);
+            logger.error('Error loading group form:', { error: err });
             throw error(500, 'Failed to load group form');
         }
     },
@@ -70,7 +70,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             // Read formData first to avoid "Body already read" error
             const formData = await request.formData();
             
@@ -112,7 +112,7 @@ export const actions: Actions = {
                     try {
                         userIds = JSON.parse(userIdsJson);
                     } catch (e) {
-                        logger.warn('[CREATE GROUP] Failed to parse user IDs:', e);
+                        logger.warn('[CREATE GROUP] Failed to parse user IDs', { error: e });
                     }
                 }
                 
@@ -141,12 +141,12 @@ export const actions: Actions = {
                             records: permissionRecords.map(p => `${p.module}_${p.action}`)
                         });
                     } catch (e) {
-                        logger.error('[CREATE GROUP] Failed to parse permissions:', e);
+                        logger.error('[CREATE GROUP] Failed to parse permissions', { error: e });
                     }
                 }
                 
                 // Use transaction to create group, permissions, and memberships atomically
-                const result = await rawPrisma.$transaction(async (tx: any) => {
+                const result = await rawPrisma.$transaction(async (tx) => {
                     // Create the group
                     const group = await tx.group.create({
                         data: {
@@ -156,7 +156,7 @@ export const actions: Actions = {
                         }
                     });
                     
-                    logger.info('[CREATE GROUP] Group created:', group.id);
+                    logger.info('[CREATE GROUP] Group created:', { groupId: group.id });
                     
                     // Create permissions if any
                     if (permissionRecords.length > 0) {
@@ -168,7 +168,7 @@ export const actions: Actions = {
                                 allowed: perm.allowed
                             }))
                         });
-                        logger.info('[CREATE GROUP] Created permissions:', permissionRecords.length);
+                        logger.info('[CREATE GROUP] Created permissions', { count: permissionRecords.length });
                     }
                     
                     // Add users to group if any
@@ -179,13 +179,16 @@ export const actions: Actions = {
                                 membershipId
                             }))
                         });
-                        logger.info('[CREATE GROUP] Added users to group:', userIds.length);
+                        logger.info('[CREATE GROUP] Added users to group', { count: userIds.length });
                     }
                     
                     return group;
                 });
                 
                 logger.info(`[CREATE GROUP] Successfully created group: ${result.id} (${result.name})`);
+
+                const auditUserId = locals.user?.id ?? auth?.user?.id ?? '';
+                const auditIp = (locals as any).ipAddress ?? getClientAddress();
 
                 await logAudit({
                     actionType: AuditActionType.INSERT,
@@ -197,8 +200,8 @@ export const actions: Actions = {
                         permissions: permissionRecords,
                         members: userIds
                     },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auditUserId,
+                    ipAddress: auditIp,
                     prisma: locals.prisma
                 });
                 
@@ -213,7 +216,7 @@ export const actions: Actions = {
                     }
                 };
             } catch (err) {
-                logger.error(`[CREATE GROUP] Error creating group:`, err);
+                logger.error('[CREATE GROUP] Error creating group', { error: err });
                 return fail(500, { 
                     form, 
                     error: 'Failed to create group: ' + (err instanceof Error ? err.message : 'Unknown error')

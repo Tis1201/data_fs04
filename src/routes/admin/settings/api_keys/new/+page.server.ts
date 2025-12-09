@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
 import { SystemRole } from '$lib/types/roles';
 import { createApiKeySchema } from './schema';
@@ -11,7 +11,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedLoadEvent) => {
         // Generate a 32-character API key
         const apiKey = generateId(32);
         
@@ -33,7 +33,8 @@ export const load = restrict(
 
 export const actions = {
     save: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             logger.info('Save API key action triggered');
             
             const form = await superValidate(request, zod(createApiKeySchema));
@@ -89,8 +90,8 @@ export const actions = {
                     recordId: newApiKey.id,
                     oldData: null,
                     newData: newApiKey,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth.user.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -100,7 +101,7 @@ export const actions = {
                     apiKey: newApiKey.key // Return the actual key only once
                 };
             } catch (error) {
-                logger.error('Error creating API key:', error);
+                logger.error('Error creating API key:', { error });
                 
                 let errorMessage = {
                     type: 'error' as const,
@@ -108,13 +109,15 @@ export const actions = {
                     details: 'An unexpected error occurred while processing your request.'
                 };
 
-                if (error.code === 'P2002') {
+                const errAny = error as any;
+
+                if (errAny?.code === 'P2002') {
                     errorMessage.text = 'API key already exists';
-                    errorMessage.details = `An API key with this ${error.meta?.target?.[0] || 'identifier'} already exists.`;
-                } else if (error.code === 'FORBIDDEN') {
+                    errorMessage.details = `An API key with this ${errAny?.meta?.target?.[0] || 'identifier'} already exists.`;
+                } else if (errAny?.code === 'FORBIDDEN') {
                     errorMessage.text = 'Permission denied';
                     errorMessage.details = 'You do not have permission to perform this action.';
-                } else if (error.message === 'User not found') {
+                } else if (errAny?.message === 'User not found') {
                     errorMessage.text = 'User not found';
                     errorMessage.details = 'Please log in again to create an API key.';
                 }
@@ -123,7 +126,7 @@ export const actions = {
                     form,
                     message: {
                         ...errorMessage,
-                        code: error.code || 'UNKNOWN_ERROR',
+                        code: errAny?.code || 'UNKNOWN_ERROR',
                         requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
                         timestamp: new Date().toISOString()
                     }

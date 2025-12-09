@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import type { Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
@@ -82,7 +82,7 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
@@ -107,7 +107,8 @@ export const actions = {
      * Create
      ******************************************************************************************/
     create: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             const schema = z.object({
                 name: z.string().min(1, "Name is required"),
                 description: z.string().optional(),
@@ -125,7 +126,11 @@ export const actions = {
             try {
                 const { name, description, expiresAt } = form.data;
 
-                const userId = locals.auth.validate()?.user?.id || '';
+                const session = await locals.auth.validate();
+                if (!session?.user?.id) {
+                    return fail(401, { form, error: 'Unauthorized' });
+                }
+                const userId = session.user.id;
 
                 // Check if user already has 10 or more API keys
                 const existingKeysCount = await locals.prisma.apiKey.count({
@@ -159,8 +164,8 @@ export const actions = {
                     recordId: apiKey.id,
                     oldData: null,
                     newData: apiKey,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: session.user.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -170,7 +175,7 @@ export const actions = {
                     apiKey: apiKey.key // Return the actual key only once
                 };
             } catch (e) {
-                logger.error('Error creating API key:', e);
+                logger.error('Error creating API key:', { error: e });
                 return fail(500, {
                     form,
                     error: "Failed to create API key"
@@ -184,7 +189,8 @@ export const actions = {
      * Toggle Status
      ******************************************************************************************/
     toggleStatus: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
@@ -231,8 +237,8 @@ export const actions = {
                     recordId: id,
                     oldData: { active: !active },
                     newData: { active },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -249,7 +255,8 @@ export const actions = {
      * Regenerate
      ******************************************************************************************/
     regenerate: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
@@ -299,8 +306,8 @@ export const actions = {
                     recordId: id,
                     oldData: { key: apiKey.key, lastUsedAt: apiKey.lastUsedAt },
                     newData: { key: newApiKey.key, lastUsedAt: newApiKey.lastUsedAt },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -309,7 +316,7 @@ export const actions = {
                     apiKey: newApiKey.key // Return the new key
                 };
             } catch (err) {
-                logger.error('Error regenerating API key:', err);
+                logger.error('Error regenerating API key:', { error: err });
                 return fail(500, { error: 'Failed to regenerate API key' });
             }
         },
@@ -320,7 +327,8 @@ export const actions = {
      * Delete
      ******************************************************************************************/
     delete: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
@@ -364,8 +372,8 @@ export const actions = {
                     recordId: id,
                     oldData: apiKey,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -375,8 +383,8 @@ export const actions = {
                 };
 
             } catch (e) {
-                logger.error('Error deleting API key:', e);
-                if (e.code === 'P2025') {
+                logger.error('Error deleting API key:', { error: e });
+                if ((e as any)?.code === 'P2025') {
                     return fail(404, {
                         error: 'API key not found'
                     });

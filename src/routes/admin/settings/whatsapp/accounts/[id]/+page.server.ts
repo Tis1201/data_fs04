@@ -2,16 +2,16 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { whatsappAccountSchema, createForm } from './schema';
 import { superValidate } from 'sveltekit-superforms/server';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { zod } from 'sveltekit-superforms/adapters';
 import { SystemRole } from '$lib/types/roles';
-// import { SystemRole } from '$lib/server/users/schema'
+import { randomUUID } from 'crypto';
 
 /**
  * Load WhatsApp account data for viewing/editing
  */
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: AuthenticatedLoadEvent) => {
         const id = params.id;
         
         // Handle "new" case
@@ -34,7 +34,18 @@ export const load = restrict(
             }
             
             // Create form with account data
-            const form = await superValidate(account, zod(whatsappAccountSchema));
+            const form = await superValidate(
+                {
+                    id: account.id,
+                    phoneNumber: account.phoneNumber ?? '',
+                    name: account.name ?? '',
+                    description: account.description ?? '',
+                    status: (account.status?.toLowerCase() as 'active' | 'inactive' | 'pending') ?? 'inactive',
+                    createdAt: account.createdAt,
+                    updatedAt: account.updatedAt
+                },
+                zod(whatsappAccountSchema)
+            );
             
             return {
                 form,
@@ -56,7 +67,7 @@ export const actions = {
      * Save WhatsApp account data
      */
     save: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals }: AuthenticatedEvent) => {
             const id = params.id;
             const form = await superValidate(request, zod(whatsappAccountSchema));
             
@@ -66,16 +77,24 @@ export const actions = {
             
             try {
                 const data = form.data;
+                const auth = await locals.auth.validate();
+                const userId = auth?.user?.id ?? locals.user?.id;
+
+                if (!userId) {
+                    return fail(401, { form, error: 'You must be logged in' });
+                }
                 
                 // Create or update account
                 if (id === 'new') {
                     // Create new account
                     await locals.prisma.whatsAppAccount.create({
                         data: {
+                            client_id: randomUUID(),
+                            createdBy: userId,
                             phoneNumber: data.phoneNumber,
                             name: data.name,
                             description: data.description || '',
-                            status: data.status
+                            status: data.status.toUpperCase()
                         }
                     });
                 } else {
@@ -86,7 +105,7 @@ export const actions = {
                             phoneNumber: data.phoneNumber,
                             name: data.name,
                             description: data.description || '',
-                            status: data.status
+                            status: data.status.toUpperCase()
                         }
                     });
                 }

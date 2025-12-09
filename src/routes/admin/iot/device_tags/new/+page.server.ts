@@ -11,7 +11,6 @@ import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { deviceTagSchema } from './device-tag';
-import type NameWithIdLink from '$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte';
 
 export const load = restrict(
     async ({ locals }:any) => {
@@ -77,9 +76,11 @@ export const actions: Actions = {
                         if (!account) {
                             return message(
                                 form,
-                                createErrorResponse('Invalid account', {
-                                    details: `The selected account with ID '${accountId}' does not exist.`
-                                })
+                                createErrorResponse(
+                                    'Invalid account',
+                                    'INVALID_ACCOUNT',
+                                    { details: `The selected account with ID '${accountId}' does not exist.` }
+                                )
                             );
                         }
                     } else {
@@ -88,9 +89,14 @@ export const actions: Actions = {
                             logger.error('System account not found in database');
                             return message(
                                 form,
-                                createErrorResponse('System account not found', {
-                                    details: 'The system account does not exist. Please run the database seed to create it.'
-                                })
+                                createErrorResponse(
+                                    'System account not found',
+                                    'SYSTEM_ACCOUNT_NOT_FOUND',
+                                    {
+                                        details:
+                                            'The system account does not exist. Please run the database seed to create it.'
+                                    }
+                                )
                             );
                         }
                     }
@@ -100,15 +106,15 @@ export const actions: Actions = {
                     logger.error(`Error verifying account: ${String(acctErr)}`);
                     return message(
                         form,
-                        createErrorResponse('Error verifying account', {
-                            details: 'Failed to verify the selected account. Please try again.'
-                        })
+                        createErrorResponse(
+                            'Error verifying account',
+                            'ACCOUNT_VERIFICATION_ERROR',
+                            { details: 'Failed to verify the selected account. Please try again.' }
+                        )
                     );
                 }
 
                 // Verify that the device tag name not exists
-                console.log({accountId});
-                
                 const existingDeviceTag = await locals.prisma.deviceTag.findFirst({
                     where: {
                         accountId,
@@ -148,7 +154,7 @@ export const actions: Actions = {
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
                     prisma: locals.prisma
-                })
+                });
 
                 // Return success response with the form and additional data
                 return message(

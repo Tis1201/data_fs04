@@ -4,7 +4,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { webhookSchema } from './webhook';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { generateId } from 'lucia';
 import { randomUUID } from 'crypto';
 import { SystemRole } from '$lib/types/roles';
@@ -14,7 +14,7 @@ import { logAudit } from '$lib/server/audit-logger';
 
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedLoadEvent) => {
         // Generate a sample postfix for preview
         const timestamp = Date.now().toString(36);
         const uuid = randomUUID().replace(/-/g, '');
@@ -46,7 +46,8 @@ export const actions = {
      * Create new webhook endpoint
      */
     create: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             logger.info('Create webhook action triggered');
             
             const form = await superValidate(request, zod(webhookSchema));
@@ -132,8 +133,8 @@ export const actions = {
                     recordId: webhook.id,
                     oldData: null,
                     newData: webhook,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth.user.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
 
@@ -148,7 +149,7 @@ export const actions = {
                     }
                 };
             } catch (error) {
-                logger.error('Error creating webhook endpoint:', error);
+                logger.error('Error creating webhook endpoint', { error });
                 
                 // Determine the type of error and return appropriate response
                 let errorMessage = {
@@ -158,15 +159,17 @@ export const actions = {
                 };
                 
                 // Handle specific error types
-                if (error.code === 'P2002') {
+                const errAny = error as any;
+
+                if (errAny?.code === 'P2002') {
                     // Unique constraint violation
                     errorMessage.text = 'Webhook already exists';
-                    errorMessage.details = `A webhook with this ${error.meta?.target?.[0] || 'identifier'} already exists.`;
-                } else if (error.code === 'P2003') {
+                    errorMessage.details = `A webhook with this ${errAny?.meta?.target?.[0] || 'identifier'} already exists.`;
+                } else if (errAny?.code === 'P2003') {
                     // Foreign key constraint violation
                     errorMessage.text = 'Invalid reference';
                     errorMessage.details = 'One of the references in your request is invalid.';
-                } else if (error.code === 'FORBIDDEN') {
+                } else if (errAny?.code === 'FORBIDDEN') {
                     // Zenstack permission error
                     errorMessage.text = 'Permission denied';
                     errorMessage.details = 'You do not have permission to perform this action.';
@@ -177,7 +180,7 @@ export const actions = {
                     form,
                     message: {
                         ...errorMessage,
-                        code: error.code || 'UNKNOWN_ERROR',
+                        code: errAny?.code || 'UNKNOWN_ERROR',
                         requestId: `req-${Math.random().toString(36).substring(2, 15)}`,
                         timestamp: new Date().toISOString()
                     }

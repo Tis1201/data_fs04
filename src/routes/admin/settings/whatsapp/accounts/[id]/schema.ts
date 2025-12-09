@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { superValidate } from 'sveltekit-superforms/server';
+import { zod } from 'sveltekit-superforms/adapters';
 
 export const whatsappAccountSchema = z.object({
     id: z.string().optional(),
@@ -16,6 +17,6 @@ export const whatsappAccountSchema = z.object({
 
 export type WhatsAppAccount = z.infer<typeof whatsappAccountSchema>;
 
-export function createForm(event: any) {
-    return superValidate(event, whatsappAccountSchema);
+export function createForm(data?: Partial<WhatsAppAccount> | null) {
+    return superValidate(data ?? {}, zod(whatsappAccountSchema));
 }

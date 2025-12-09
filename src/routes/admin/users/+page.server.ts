@@ -1,5 +1,5 @@
 import type { PageServerLoad } from './$types';
-import { error, fail, json } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import { generateId } from 'lucia';
 import { hash } from '@node-rs/argon2';
@@ -7,7 +7,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { userSchema } from '$lib/schemas/user';
 import { zod } from 'sveltekit-superforms/adapters';
 import type { Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole, UserStatus } from '$lib/types/roles';
@@ -57,7 +57,7 @@ export interface UserWithCount {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         console.log('url: ', url)
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
@@ -85,14 +85,19 @@ export const actions = {
      * Create
      ******************************************************************************************/
     create: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             const form = await superValidate(request, zod(userSchema));
             if (!form.valid) {
                 return fail(400, { form });
             }
 
             try {
-                const { email, name, role, password } = form.data;
+                const { email, name, role, password, status } = form.data;
+
+                if (!password) {
+                    return fail(400, { form, error: 'Password is required' });
+                }
 
                 // Check if user already exists
                 const existingUser = await locals.prisma.user.findUnique({
@@ -114,12 +119,15 @@ export const actions = {
                     data: {
                         id: userId,
                         email,
-                        name,
-                        role,
-                        hashedPassword,
-                        status: 'ACTIVE'
+                        name: name || null,
+                        password: hashedPassword,
+                        systemRole: role,
+                        status: status ?? 'ACTIVE',
+                        rolesString: ''
                     }
                 });
+
+                const session = await locals.auth.validate();
 
                 await logAudit({
                     actionType: AuditActionType.INSERT,
@@ -127,8 +135,8 @@ export const actions = {
                     recordId: user.id,
                     oldData: null,
                     newData: user,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: session?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -137,7 +145,7 @@ export const actions = {
                     success: true
                 };
             } catch (e) {
-                logger.error('Error creating user:', e);
+                logger.error('Error creating user', { error: e });
                 return fail(500, {
                     form,
                     error: "Failed to create user"
@@ -154,7 +162,8 @@ export const actions = {
      * Toggle user status (activate/deactivate)
      */
     toggleStatus: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 // Get the user ID and new status from form data
                 const data = await request.formData();
@@ -206,14 +215,14 @@ export const actions = {
                     recordId: user.id,
                     oldData: { status: user.status },
                     newData: { status },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
                 return { success: true };
             } catch (err) {
-                logger.error(`Error toggling user status: ${err}`);
+                logger.error('Error toggling user status', { error: err });
                 return fail(500, { error: 'Failed to update user status' });
             }
         },
@@ -224,7 +233,8 @@ export const actions = {
      * Delete user account
      */
     delete: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const id = data.get('id')?.toString();
@@ -290,8 +300,8 @@ export const actions = {
                     recordId: user.id,
                     oldData: user,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
                 
@@ -301,16 +311,17 @@ export const actions = {
                 };
 
             } catch (e) {
-                logger.error('Error deleting user:', e);
+                logger.error('Error deleting user', { error: e });
                 
                 // Handle specific Prisma errors
-                if (e.code === 'P2003') {
+                const errAny = e as any;
+                if (errAny?.code === 'P2003') {
                     return fail(400, {
                         error: 'Cannot delete user: This user has related records that must be removed first. Please deactivate the user instead or contact an administrator.'
                     });
                 }
                 
-                if (e.code === 'P2025') {
+                if (errAny?.code === 'P2025') {
                     return fail(404, {
                         error: 'User not found'
                     });
@@ -328,7 +339,8 @@ export const actions = {
      * Update Password
      ******************************************************************************************/
     updatePassword: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const userId = data.get('userId')?.toString();
@@ -378,21 +390,23 @@ export const actions = {
                 
                 logger.info(`Password updated for user: ${userId}`);
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'User',
                     recordId: user.id,
                     oldData: null,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                     changeSummary: "Update Password"
                 })
                 
                 return { success: true, message: 'Password updated successfully' };
             } catch (e) {
-                logger.error('Error updating password:', e as Record<string, any>);
+                logger.error('Error updating password', { error: e });
                 return fail(500, { success: false, message: 'Failed to update password' });
             }
         },
@@ -403,7 +417,8 @@ export const actions = {
      * Reset Password
      ******************************************************************************************/
     resetPassword: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const data = await request.formData();
                 const userId = data.get('userId')?.toString();
@@ -437,14 +452,16 @@ export const actions = {
                     prisma: prisma
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'User',
                     recordId: user.id,
                     oldData: null,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                     changeSummary: "Reset Password"
                 })
@@ -465,7 +482,7 @@ export const actions = {
                 }
 
             } catch (error) {
-                logger.error('Error resetting password:', error as Record<string, any>);
+                logger.error('Error resetting password', { error });
                 return fail(500, { success: false, message: 'Failed to reset password' });
             }
         },

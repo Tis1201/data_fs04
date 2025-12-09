@@ -1,6 +1,5 @@
 import { fail } from '@sveltejs/kit';
 import type { Actions } from './$types';
-import { initWhatsAppClient, generatePairingCode, getWhatsAppClient } from '$lib/server/bailey/client';
 import { logger } from '$lib/server/logger';
 
 export const actions: Actions = {
@@ -36,14 +35,8 @@ export const actions: Actions = {
                 return fail(400, { error: 'No active WebSocket connection found' });
             }
             
-            // Initialize a new WhatsApp client
-            try {
-                const clientId = await initWhatsAppClient(phoneNumber, accountId, socket);
-                return { success: true, clientId };
-            } catch (error) {
-                logger.error('Failed to initialize WhatsApp client:', { error });
-                return fail(500, { error: 'Failed to initialize WhatsApp client' });
-            }
+            // Not implemented in this build
+            return fail(501, { error: 'WhatsApp QR code generation is not available.' });
         } catch (error) {
             logger.error('Error in requestQRCode action:', { error });
             return fail(500, { error: 'An unexpected error occurred' });
@@ -82,20 +75,8 @@ export const actions: Actions = {
                 return fail(400, { error: 'No active WebSocket connection found' });
             }
             
-            // Get the WhatsApp client
-            const client = await getWhatsAppClient(accountId);
-            if (!client) {
-                return fail(404, { error: 'WhatsApp client not found' });
-            }
-            
-            // Generate a pairing code
-            try {
-                const code = await generatePairingCode(client.id, phoneNumber);
-                return { success: true, code };
-            } catch (error) {
-                logger.error('Failed to generate pairing code:', { error });
-                return fail(500, { error: 'Failed to generate pairing code' });
-            }
+            // Not implemented in this build
+            return fail(501, { error: 'WhatsApp pairing code generation is not available.' });
         } catch (error) {
             logger.error('Error in requestPairingCode action:', { error });
             return fail(500, { error: 'An unexpected error occurred' });

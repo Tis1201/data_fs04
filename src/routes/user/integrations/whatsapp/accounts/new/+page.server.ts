@@ -1,10 +1,9 @@
-import { fail, error } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { createWhatsAppAccountSchema } from './schema';
 import { zod } from 'sveltekit-superforms/adapters';
-import { v4 as uuidv4 } from 'uuid';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId } from '$lib/server/security/auth-utils';
@@ -14,11 +13,18 @@ import { logAudit } from '$lib/server/audit-logger';
 
 
 export const load = restrict(
-    async ({ locals, auth }) => {
+    async ({ locals, auth }: AuthenticatedLoadEvent) => {
+        if (!auth) {
+            throw redirect(302, '/auth/login');
+        }
+
         // Initialize the form with the schema and defaults
         const form = await superValidate(zod(createWhatsAppAccountSchema), {
             defaults: {
-                description: ''
+                description: '',
+                client_id: '',
+                name: '',
+                phoneNumber: ''
             }
         });
         
@@ -48,7 +54,13 @@ export const load = restrict(
 export const actions: Actions = {
     // Main action for creating a WhatsApp account
     createAccount: restrict(
-        async ({ request, locals, auth }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals, auth } = event;
+
+            if (!auth) {
+                return fail(401, { error: 'Unauthorized' });
+            }
+
             // Validate form submission
             const form = await superValidate(request, zod(createWhatsAppAccountSchema));
             
@@ -68,7 +80,7 @@ export const actions: Actions = {
                 
                 // Validate client ID
                 if (!form.data.client_id) {
-                    return fail(400, message(form, 'Client ID is required. Please authenticate with WhatsApp first.', { status: 'error' }));
+                    return fail(400, message(form, 'Client ID is required. Please authenticate with WhatsApp first.'));
                 }
                 
                 // Get client info from the WhatsApp account manager
@@ -76,7 +88,7 @@ export const actions: Actions = {
                 
                 if (!client) {
                     logger.warn(`WhatsApp client not found: ${form.data.client_id}`);
-                    return fail(400, message(form, 'WhatsApp connection not found. Please reconnect and try again.', { status: 'error' }));
+                    return fail(400, message(form, 'WhatsApp connection not found. Please reconnect and try again.'));
                 }
                 
                 // const clientInfo = client ? client.getInfo() : null;
@@ -84,7 +96,7 @@ export const actions: Actions = {
                 // Get the current account ID
                 const accountId = auth.currentAccount?.account?.id;
                 if (!accountId) {
-                    return fail(400, message(form, 'No account selected. Please select an account first.', { status: 'error' }));
+                    return fail(400, message(form, 'No account selected. Please select an account first.'));
                 }
                 
                 // Create the WhatsApp account in the database
@@ -105,7 +117,7 @@ export const actions: Actions = {
                 // }
 
                 // Create a success message with the form data
-                const successForm = message(form, 'WhatsApp account created successfully!', { status: 'success' });
+                const successForm = message(form, 'WhatsApp account created successfully!');
                 
                 // Add the account data to the form data object directly
                 const formWithAccount = {
@@ -121,8 +133,8 @@ export const actions: Actions = {
                     recordId: account.id,
                     oldData: null,
                     newData: account,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: userInfo.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -139,7 +151,7 @@ export const actions: Actions = {
                     ? `Failed to create WhatsApp account: ${err.message}` 
                     : 'Failed to create WhatsApp account. Please try again.';
                 
-                return fail(500, message(form, errorMessage, { status: 'error' }));
+                return fail(500, message(form, errorMessage));
             }
         },
         [SystemRole.USER, SystemRole.ADMIN] // Allow both user and admin roles to access this action

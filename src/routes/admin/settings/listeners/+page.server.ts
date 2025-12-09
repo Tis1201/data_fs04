@@ -6,7 +6,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 // import { listenerSchema } from './new/listener';
 import { zod } from 'sveltekit-superforms/adapters';
 import type { Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData, deleteRecord } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
@@ -38,7 +38,7 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         // Use the reusable fetchTableData function with our table options
         const result = await fetchTableData(locals, url, table_options);
         
@@ -81,7 +81,8 @@ export const actions = {
      * Create
      ******************************************************************************************/
     create: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             const form = await superValidate(request, zod(listenerSchema));
             if (!form.valid) {
                 return fail(400, { form });
@@ -135,8 +136,8 @@ export const actions = {
                     recordId: listener.id,
                     oldData: null,
                     newData: listener,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth.user.id,
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 
@@ -175,7 +176,7 @@ export const actions = {
                     success: true
                 };
             } catch (e) {
-                logger.error('Error creating listener endpoint:', e);
+                logger.error('Error creating listener endpoint', { error: e });
                 return fail(500, {
                     form,
                     error: "Failed to create listener endpoint"
@@ -189,7 +190,8 @@ export const actions = {
      * Toggle Active Status
      ******************************************************************************************/
     toggleStatus: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 // Get the listener ID and new status from form data
                 const data = await request.formData();
@@ -233,20 +235,22 @@ export const actions = {
                     status
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'ListenerEndpoint',
                     recordId: id,
                     oldData: getStatusBeforeToggled(status),
                     newData: { status },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 
                 return { success: true };
             } catch (err) {
-                logger.error(`Error toggling listener status:`, err);
+                logger.error(`Error toggling listener status`, { error: err });
                 return fail(500, { error: 'Failed to update listener status' });
             }
         },
@@ -257,7 +261,8 @@ export const actions = {
      * Delete
      ******************************************************************************************/
     delete: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 // Get the listener ID from form data
                 const data = await request.formData();
@@ -292,14 +297,16 @@ export const actions = {
                     postfix: listener.postfix
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'ListenerEndpoint',
                     recordId: id,
                     oldData: listener,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 
@@ -310,8 +317,8 @@ export const actions = {
                 };
 
             } catch (e) {
-                logger.error('Error deleting listener endpoint:', e);
-                if (e.code === 'P2025') {
+                logger.error('Error deleting listener endpoint', { error: e });
+                if ((e as any)?.code === 'P2025') {
                     return fail(404, {
                         error: 'Listener endpoint not found'
                     });
@@ -328,7 +335,8 @@ export const actions = {
      * Update
      ******************************************************************************************/
     update: restrict(
-        async ({ request, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals } = event;
             try {
                 const form = await superValidate(request, zod(listenerSchema));
                 if (!form.valid) {
@@ -345,7 +353,7 @@ export const actions = {
                 const { name, postfix, description, active, expiresAt } = form.data;
                 
                 // Check if the listener exists
-                const listener = await locals.prisma.listenerEndPoint.findUnique({
+                const listener = await locals.prisma.listenerEndpoint.findUnique({
                     where: { id }
                 });
                 
@@ -355,7 +363,7 @@ export const actions = {
                 
                 // Check if another listener with the same postfix exists
                 if (postfix !== listener.postfix) {
-                    const existinglistener = await locals.prisma.listenerEndPoint.findFirst({
+                    const existinglistener = await locals.prisma.listenerEndpoint.findFirst({
                         where: { 
                             postfix,
                             id: { not: id }
@@ -371,7 +379,7 @@ export const actions = {
                 }
                 
                 // Update the listener
-                const updatedListener = await locals.prisma.listenerEndPoint.update({
+                const updatedListener = await locals.prisma.listenerEndpoint.update({
                     where: { id },
                     data: {
                         name,
@@ -388,14 +396,16 @@ export const actions = {
                     postfix
                 });
 
+                const auth = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'ListenerEndpoint',
                     recordId: id,
                     oldData: listener,
                     newData: updatedListener,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: auth?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma,
                 })
                 

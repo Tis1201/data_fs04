@@ -13,6 +13,7 @@ declare global {
 					user: {
 						id: string;
 						email: string;
+						name: string | null;
 						rolesString: string;
 						systemRole: string;
 					};
@@ -56,6 +57,7 @@ declare global {
 			user?: {
 				id: string;
 				email: string;
+				name: string | null;
 				rolesString: string;
 				systemRole: string;
 			};
@@ -93,6 +95,7 @@ declare global {
 		type Auth = import("$lib/server/auth/lucia").Auth;
 		type DatabaseUserAttributes = {
 			email: string;
+			name: string | null;
 			systemRole: string;
 			rolesString: string;
 		};

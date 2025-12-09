@@ -1,8 +1,8 @@
-import { fail, error, type RequestEvent } from '@sveltejs/kit';
+import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createSuccessResponse } from '$lib/types/api';
@@ -12,7 +12,7 @@ import { AuditActionType } from '$lib/constants/system';
 
 
 export const load = restrict(
-    async ({ params, locals } : RequestEvent) => {
+    async ({ params, locals } : AuthenticatedLoadEvent) => {
         const { id } = params;
         
         // Fetch the account by ID with related data
@@ -171,7 +171,8 @@ export const load = restrict(
 
 export const actions: Actions = {
     updateAccount: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id } = params;
             
             const form = await superValidate(request, zod(accountEditSchema));
@@ -232,14 +233,16 @@ export const actions: Actions = {
 
                 logger.info(`Account updated: ${account.id} (${account.name})`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Account',
                     recordId: account.id,
                     oldData: existingAccount,
                     newData: account,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -274,7 +277,8 @@ export const actions: Actions = {
 
     // Create new company and add to account
     createAndAddCompany: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -323,14 +327,16 @@ export const actions: Actions = {
 
                 logger.info(`New company created and added to account: ${company.id} (${company.name}) -> ${accountId}`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.INSERT,
                     tableName: 'Company',
                     recordId: company.id,
                     oldData: null,
                     newData: company,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -357,7 +363,8 @@ export const actions: Actions = {
 
     // Add companies to account (handles both single and multiple)
     addCompany: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -416,14 +423,16 @@ export const actions: Actions = {
 
                 logger.info(`Companies ${itemIds.join(', ')} added to account ${accountId}`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Company',
                     recordId: itemIds,
                     oldData: { accountId: null },
                     newData: { accountId },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -442,7 +451,8 @@ export const actions: Actions = {
 
     // Add members to account (handles both single and multiple)
     addMember: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -515,6 +525,8 @@ export const actions: Actions = {
                     }
                 });
 
+                const authSession = await locals.auth.validate();
+
                 await Promise.all(
                     memberships.map(membership =>
                         logAudit({
@@ -523,8 +535,8 @@ export const actions: Actions = {
                             recordId: membership.id,
                             oldData: null,
                             newData: membership,
-                            userId: locals.user.id,
-                            ipAddress: locals.ipAddress,
+                            userId: authSession?.user?.id ?? '',
+                            ipAddress: event.getClientAddress(),
                             prisma: locals.prisma
                         })
                     )
@@ -545,7 +557,8 @@ export const actions: Actions = {
 
     // Add groups to account (handles both single and multiple)
     addGroup: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -604,14 +617,16 @@ export const actions: Actions = {
 
                 logger.info(`Groups ${itemIds.join(', ')} added to account ${accountId}`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Group',
                     recordId: itemIds,
                     oldData: { accountId: null },
                     newData: { accountId },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -630,7 +645,8 @@ export const actions: Actions = {
 
     // Remove company from account
     removeCompany: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -669,14 +685,16 @@ export const actions: Actions = {
 
                 logger.info(`Company ${form.data.itemId} removed from account ${accountId}`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Company',
                     recordId: form.data.itemId,
                     oldData: company,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -699,7 +717,8 @@ export const actions: Actions = {
 
     // Remove member from account
     removeMember: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -725,14 +744,16 @@ export const actions: Actions = {
 
                 logger.info(`User ${form.data.itemId} removed from account ${accountId}`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'AccountMembership',
                     recordId: accountMembership.id,
                     oldData: accountMembership,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -755,7 +776,8 @@ export const actions: Actions = {
 
     // Remove group from account
     removeGroup: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id: accountId } = params;
 
             if (!accountId) {
@@ -794,14 +816,16 @@ export const actions: Actions = {
 
                 logger.info(`Group ${form.data.itemId} removed from account ${accountId}`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Group',
                     recordId: group.id,
                     oldData: group,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 })
 
@@ -824,7 +848,8 @@ export const actions: Actions = {
 
     // Delete account action
     deleteAccount: restrict(
-        async ({ request, params, locals }: RequestEvent) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
             const { id } = params;
 
             if (!id) {
@@ -878,14 +903,16 @@ export const actions: Actions = {
 
                 logger.info(`Account deleted: ${deletedAccount.id} (${deletedAccount.name})`);
 
+                const authSession = await locals.auth.validate();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Account',
                     recordId: id,
                     oldData: deletedAccount,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: authSession?.user?.id ?? '',
+                    ipAddress: event.getClientAddress(),
                     prisma: locals.prisma
                 });
 

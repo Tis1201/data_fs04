@@ -1,9 +1,8 @@
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { loadPinRuleList } from '$lib/server/pin-rules/pinRuleLoader';
 import { createPinRuleActions } from '$lib/server/pin-rules/pinRuleActions';
-import type { AuthenticatedLoadEvent } from '$lib/server/security/guards';
 
 /**
  * Load pin rule list data
@@ -15,15 +14,19 @@ export const load = restrict(
         depends('app:pin-rules');
         
         try {
+            if (!auth) {
+                throw new Error('Unauthorized');
+            }
+            const user = auth.user;
             // Get user's account for scoping
             const membership = await locals.prisma.accountMembership.findFirst({
-                where: { userId: auth.user.id },
+                where: { userId: user.id },
                 select: { accountId: true, role: true }
             });
 
             if (!membership) {
                 return {
-                    user: auth.user,
+                    user,
                     accountRole: null,
                     rules: [],
                     meta: {
@@ -49,14 +52,14 @@ export const load = restrict(
             });
             
             return {
-                user: auth.user,
+                user,
                 accountRole: membership.role,
                 ...result
             };
         } catch (error) {
             console.error('Error loading pin rules:', error);
             return {
-                user: auth.user,
+                user: auth?.user ?? null,
                 accountRole: null,
                 rules: [],
                 meta: {
@@ -83,5 +86,13 @@ export const load = restrict(
  * Per structural standard: thin wrapper using shared actions factory
  */
 export const actions: Actions = {
-    ...createPinRuleActions({ checkOwnership: true })
+    deletePinRule: restrict(
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
+            if (!auth) {
+                throw new Error('Unauthorized');
+            }
+            return createPinRuleActions({ checkOwnership: true }).deletePinRule({ request, locals, auth });
+        },
+        [SystemRole.USER]
+    )
 };

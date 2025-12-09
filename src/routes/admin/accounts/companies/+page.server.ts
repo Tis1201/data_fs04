@@ -1,13 +1,13 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType, CompanyStatus } from '$lib/constants/system';
 
-export const load = restrict(
-    async ({ url, locals }) => {
+export const load: PageServerLoad = restrict(
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Get query parameters for filtering, sorting, and pagination
             const search = url.searchParams.get('search') || '';
@@ -134,7 +134,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     deleteCompany: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const formData = await request.formData();
             const id = formData.get('id')?.toString();
 
@@ -155,14 +155,14 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: company,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth?.user?.id ?? '',
+                    ipAddress: (locals as any).ipAddress ?? getClientAddress?.() ?? 'unknown',
                     prisma: locals.prisma
                 })
 
                 return { success: true };
             } catch (err) {
-                logger.error('Error deleting company:', err);
+                logger.error('Error deleting company:', { error: err });
                 return { success: false, error: 'Failed to delete company' };
             }
         },
@@ -170,7 +170,7 @@ export const actions: Actions = {
     ),
     
     toggleStatus: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const formData = await request.formData();
             const id = formData.get('id')?.toString();
             const status = formData.get('status')?.toString();
@@ -193,14 +193,14 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: {status: status == CompanyStatus.ACTIVE ? CompanyStatus.INACTIVE : CompanyStatus.ACTIVE},
                     newData: {status},
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth?.user?.id ?? '',
+                    ipAddress: (locals as any).ipAddress ?? getClientAddress?.() ?? 'unknown',
                     prisma: locals.prisma
                 })
 
                 return { success: true, company };
             } catch (err) {
-                logger.error('Error updating company status:', err);
+                logger.error('Error updating company status:', { error: err });
                 return { success: false, error: 'Failed to update company status' };
             }
         },

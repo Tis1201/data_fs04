@@ -1,8 +1,8 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { whatsappAccountSchema, whatsappAccountUpdateSchema, createForm } from './schema';
 import { superValidate } from 'sveltekit-superforms/server';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { zod } from 'sveltekit-superforms/adapters';
 import { message } from 'sveltekit-superforms/server';
 import { createSuccessResponse } from '$lib/types/api';
@@ -15,7 +15,11 @@ import { logAudit } from '$lib/server/audit-logger';
  * Load WhatsApp account data for viewing/editing
  */
 export const load = restrict(
-    async ({ params, locals, auth }: any) => {
+    async ({ params, locals, auth }: AuthenticatedLoadEvent) => {
+        if (!auth) {
+            throw redirect(302, '/auth/login');
+        }
+
         const id = params.id;
         const userInfo = auth.user;
         
@@ -35,7 +39,7 @@ export const load = restrict(
         try {
             // Get account data from database with user-level security and include creator info
             const account = await locals.prisma.whatsAppAccount.findUnique({
-                where: { 
+                where: {
                     id,
                     // Ensure the account belongs to the user's account
                     account: {
@@ -55,26 +59,25 @@ export const load = restrict(
             const accountWithCreator = account ? account : null;
             
             if (!account) {
-                throw error(404, {
-                    message: 'WhatsApp account not found',
-                    code: 'WHATSAPP_ACCOUNT_NOT_FOUND'
-                });
+                throw error(404, 'WhatsApp account not found');
             }
             
             // Create form for validation - use update schema for existing accounts
             // Use direct superValidate to avoid any issues with null values
             const form = await superValidate(
+                zod(whatsappAccountUpdateSchema),
                 {
-                    id: account.id,
-                    name: account.name,
-                    description: account.description,
-                    phoneNumber: account.phoneNumber,
-                    status: account.status,
-                    roles: account.roles || [],
-                    createdAt: account.createdAt,
-                    updatedAt: account.updatedAt
-                }, 
-                zod(whatsappAccountUpdateSchema)
+                    defaults: {
+                        id: account.id,
+                        name: account.name ?? '',
+                        description: account.description ?? '',
+                        phoneNumber: account.phoneNumber ?? '',
+                        status: account.status ?? 'active',
+                        roles: (account as any)?.roles ?? [],
+                        createdAt: account.createdAt,
+                        updatedAt: account.updatedAt
+                    }
+                }
             );
             
             return {
@@ -87,10 +90,7 @@ export const load = restrict(
             };
         } catch (err) {
             console.error(`Error loading WhatsApp account ${id}:`, err);
-            throw error(500, {
-                message: 'Failed to load WhatsApp account',
-                code: 'WHATSAPP_ACCOUNT_LOAD_ERROR'
-            });
+            throw error(500, 'Failed to load WhatsApp account');
         }
     },
     ['USER', 'ADMIN']
@@ -104,9 +104,20 @@ export const actions = {
      * Save WhatsApp account data
      */
     save: restrict(
-        async ({ request, params, locals, auth }:any) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals, auth } = event;
+
+            if (!auth) {
+                return fail(401, { error: 'Unauthorized' });
+            }
+
             const id = params.id;
             const userInfo = auth.user;
+            const accountId = auth.currentAccount?.account?.id;
+
+            if (!accountId) {
+                return fail(400, { error: 'No account selected.' });
+            }
             // Validate the form data using the appropriate schema based on whether it's a new or existing account
             const form = await superValidate(
                 request, 
@@ -125,31 +136,17 @@ export const actions = {
                     // Create new account
                     const account = await locals.prisma.whatsAppAccount.create({
                         data: {
-                            phoneNumber: data.phoneNumber,
+                            phoneNumber: data.phoneNumber ?? '',
                             name: data.name,
                             description: data.description || '',
-                            status: data.status,
-                            createdBy: userInfo.id,
-                            updatedBy: userInfo.id,
-                            // Connect to user's account
-                            account: {
-                                connect: {
-                                    id: userInfo.accountId
-                                }
-                            }
+                            status: data.status ?? 'active',
+                            createdBy: userInfo.id ?? '',
+                            client_id: (data as any).client_id ?? '',
+                            accountId
                         }
                     });
                     
-                    return message(
-                        form,
-                        createSuccessResponse('WhatsApp account created successfully!', {
-                            details: `WhatsApp account '${account.name}' has been created.`,
-                            data: {
-                                id: account.id,
-                                name: account.name
-                            }
-                        })
-                    );
+                    return message(form, 'WhatsApp account created successfully!');
                 } else {
                     // Verify user has access to this account
                     const existingAccount = await locals.prisma.whatsAppAccount.findUnique({
@@ -186,24 +183,15 @@ export const actions = {
                     await logAudit({
                         actionType: AuditActionType.UPDATE,
                         tableName: 'WhatsAppAccount',
-                        recordId: id,
+                        recordId: id ?? '',
                         oldData: existingAccount,
                         newData: account,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
+                        userId: userInfo.id ?? '',
+                        ipAddress: event.getClientAddress(),
                         prisma: locals.prisma
                     })
                     
-                    return message(
-                        form,
-                        createSuccessResponse('WhatsApp account updated successfully!', {
-                            details: `WhatsApp account '${account.name}' has been updated.`,
-                            data: {
-                                id: account.id,
-                                name: account.name
-                            }
-                        })
-                    );
+                    return message(form, 'WhatsApp account updated successfully!');
                 }
             } catch (err) {
                 return handleFormError({

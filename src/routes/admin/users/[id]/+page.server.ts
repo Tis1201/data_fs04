@@ -728,7 +728,7 @@ export const actions: Actions = {
                 logger.info(`No critical dependencies found, proceeding with deletion of user: ${id}`);
 
                 // Use transaction to delete related records and then the user
-                await locals.prisma.$transaction(async (tx) => {
+                await locals.prisma.$transaction(async (tx: PrismaClient) => {
                     // Delete invitation tokens (not critical)
                     await tx.invitationToken.deleteMany({
                         where: { userId: id }
@@ -778,8 +778,9 @@ export const actions: Actions = {
                 logger.info(`User deletion completed successfully: ${id}`);
                 return { success: true };
             } catch (err) {
-                const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-                const stackTrace = err instanceof Error ? err.stack : undefined;
+                const errAny = err as { code?: string } | Error | unknown;
+                const errorMsg = errAny instanceof Error ? errAny.message : 'Unknown error';
+                const stackTrace = errAny instanceof Error ? errAny.stack : undefined;
                 
                 logger.error(`Error deleting user ${id}:`, { 
                     message: errorMsg, 
@@ -788,13 +789,13 @@ export const actions: Actions = {
                 });
                 
                 // Handle specific Prisma errors (same as list page)
-                if (err.code === 'P2003') {
+                if ((errAny as any)?.code === 'P2003') {
                     return fail(400, {
                         error: 'Cannot delete user: This user has related records that must be removed first. Please deactivate the user instead or contact an administrator.'
                     });
                 }
                 
-                if (err.code === 'P2025') {
+                if ((errAny as any)?.code === 'P2025') {
                     return fail(404, {
                         error: 'User not found'
                     });
