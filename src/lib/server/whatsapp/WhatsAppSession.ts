@@ -1,10 +1,8 @@
 import { EventEmitter } from 'events';
-import pkg from '@whiskeysockets/baileys';
-const { default: makeWASocket, DisconnectReason, makeCacheableSignalKeyStore } = pkg;
+import makeWASocket, { DisconnectReason, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import type { WASocket, AuthenticationState, AnyMessageContent, proto } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import P from 'pino';
-import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
 import { usePrismaAuthState } from './usePrismaAuthState';
 import { PrismaClient } from '@prisma/client';
@@ -12,15 +10,15 @@ import NodeCache from 'node-cache';
 
 export interface WhatsAppSessionEvents {
   'qrcode': (qr: string) => void;
-  'authenticated': () => void;
+  'authenticated': (data?: { pushName?: string; phoneNumber?: string }) => void;
   'auth_failure': (msg: string) => void;
   'ready': () => void;
   'disconnected': (reason: string) => void;
   'message': (message: proto.IWebMessageInfo) => void;
-  'error': (error: Error) => void;
+  'error': (error: Error | any) => void;
 }
 
-declare interface WhatsAppSession {
+export declare interface WhatsAppSession {
   on<U extends keyof WhatsAppSessionEvents>(
     event: U,
     listener: WhatsAppSessionEvents[U]
@@ -36,7 +34,7 @@ export class WhatsAppSession extends EventEmitter {
   private prisma: PrismaClient;
   private session_id: string;
   private sock: WASocket | null = null;
-  private logger = P({ level: 'warn', prettyPrint: false });
+  private logger = P({ level: 'warn' });
   private saveCreds!: () => Promise<void>;
   private state!: AuthenticationState;
   
@@ -85,7 +83,7 @@ export class WhatsAppSession extends EventEmitter {
       generateHighQualityLinkPreview: false,
       markOnlineOnConnect: true,
       // Caching
-      cachedGroupMetadata: async (jid) => this.groupCache.get(jid),
+      cachedGroupMetadata: async (jid: string) => this.groupCache.get(jid),
       msgRetryCounterCache: this.msgRetryCounterCache,
     });
 
@@ -107,7 +105,7 @@ export class WhatsAppSession extends EventEmitter {
               this.groupCache.set(update.id, metadata);
             }
           } catch (error) {
-            this.logger.error(`Error updating group cache for ${update.id}:`, error);
+            this.logger.error(`Error updating group cache for ${update.id}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
       }
@@ -225,10 +223,9 @@ export class WhatsAppSession extends EventEmitter {
 
         } catch (error) {
           console.error(`[${this.session_id}] Error during connection setup:`, error);
-          this.emit('error', { 
-            type: 'connection_setup', 
-            error: error instanceof Error ? error.message : 'Unknown error during connection setup'
-          });
+          const errorObj = new Error(error instanceof Error ? error.message : 'Unknown error during connection setup');
+          (errorObj as any).type = 'connection_setup';
+          this.emit('error', errorObj);
         }
       }
     } catch (error) {
@@ -323,9 +320,8 @@ export class WhatsAppSession extends EventEmitter {
   private getDisconnectReasonName(code: number): string {
     const reasonMap: Record<number, string> = {
       [DisconnectReason.connectionClosed]: 'CONNECTION_CLOSED',
-      [DisconnectReason.connectionLost]: 'CONNECTION_LOST',
       [DisconnectReason.connectionReplaced]: 'CONNECTION_REPLACED',
-      [DisconnectReason.timedOut]: 'TIMED_OUT',
+      [DisconnectReason.timedOut]: 'TIMED_OUT/CONNECTION_LOST', // 408 maps to both timedOut and connectionLost
       [DisconnectReason.loggedOut]: 'LOGGED_OUT',
       [DisconnectReason.badSession]: 'BAD_SESSION',
       [DisconnectReason.restartRequired]: 'RESTART_REQUIRED',
@@ -391,13 +387,13 @@ export class WhatsAppSession extends EventEmitter {
   public getInfo() {
     return {
       session_id: this.session_id,
-      isConnected: this.sock?.ws.readyState === 'OPEN',
+      isConnected: (this.sock?.ws as any)?.readyState === 'OPEN',
       user: this.sock?.user,
-      connectionStatus: this.sock?.ws.readyState
+      connectionStatus: (this.sock?.ws as any)?.readyState
     };
   }
   
   public isConnected(): boolean {
-    return this.sock?.ws.readyState === 'OPEN';
+    return (this.sock?.ws as any)?.readyState === 'OPEN';
   }
 }
