@@ -33,12 +33,7 @@ const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         isActive: true,
         createdAt: true,
         updatedAt: true,
-        account: {
-            select: {
-                id: true,
-                name: true
-            }
-        }
+        account: true
     }
 };
 

@@ -1,12 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { logger } from '$lib/server/logger';
 
-export const GET: RequestHandler = restrict(async ({ auth }) => {
+export const GET: RequestHandler = restrict(async ({ auth }: AuthenticatedEvent) => {
   try {
     // Get connection statistics
     const connectionCount = ConnectionManager.getLiveConnectionCount();

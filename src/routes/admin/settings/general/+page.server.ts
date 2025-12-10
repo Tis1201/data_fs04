@@ -3,7 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { z } from 'zod';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import prisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack
@@ -16,7 +16,7 @@ const settingsSchema = z.object({
 });
 
 export const load = restrict(
-  async (event: AuthenticatedEvent) => {
+  async (event: AuthenticatedLoadEvent) => {
     const { locals, auth, depends } = event;
     
     // Mark this load function as dependent on 'settings:data'

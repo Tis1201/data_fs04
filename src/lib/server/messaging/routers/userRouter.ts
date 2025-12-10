@@ -22,6 +22,6 @@ export const userRouter: Router = {
 
     // Optionally: connectionSharedStore.debugPrint?.();
 
-    return connections.map(c => c.id);
+    return connections.map(c => c.id).filter((id): id is string => id !== undefined);
   }
 };

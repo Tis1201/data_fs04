@@ -1,5 +1,4 @@
-import { json } from '@sveltejs/kit';
-import type { RequestHandler } from '../$types';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
 import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';

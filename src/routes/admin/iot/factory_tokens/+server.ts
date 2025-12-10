@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
@@ -14,7 +14,7 @@ import { logAudit } from '$lib/server/audit-logger';
 
 // Handle DELETE requests to delete a factory token
 export const DELETE = restrict(
-    async ({ request, locals }) => {
+    async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
         try {
             const { prisma } = locals;
             const data = await request.json();
@@ -40,16 +40,23 @@ export const DELETE = restrict(
             
             logger.info(`Factory token deleted: ${id}`);
 
+            const actorUserId = auth?.user?.id;
+            if (!actorUserId) {
+                throw error(401, 'Unauthorized');
+            }
+
+            const ipAddress = locals.requestContext?.ip ?? getClientAddress();
+
             await logAudit({
                 actionType: AuditActionType.DELETE,
                 tableName: 'FactoryToken',
                 recordId: id,
                 oldData: factoryToken,
                 newData: null,
-                userId: locals.user.id,
-                ipAddress: locals.ipAddress,
+                userId: actorUserId,
+                ipAddress,
                 prisma: prisma
-            })
+            });
             
             return json({
                 success: true
@@ -70,7 +77,7 @@ export const DELETE = restrict(
 
 // Handle PATCH requests to update factory token status
 export const PATCH = restrict(
-    async ({ request, locals }) => {
+    async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
         try {
             const { prisma } = locals;
             const data = await request.json();
@@ -94,8 +101,7 @@ export const PATCH = restrict(
             }
             
             // Get the authenticated user
-            const auth = await locals.auth.validate();
-            if (!auth) {
+            if (!auth?.user) {
                 throw error(401, 'Unauthorized');
             }
             
@@ -103,12 +109,13 @@ export const PATCH = restrict(
             const updatedToken = await prisma.factoryToken.update({
                 where: { id },
                 data: {
-                    isUsed: isUsed === true,
-                    updatedBy: auth.user.userId
+                    isUsed: isUsed === true
                 }
             });
             
             logger.info(`Factory token status updated: ${id}, isUsed: ${isUsed}`);
+
+            const ipAddress = locals.requestContext?.ip ?? getClientAddress();
 
             await logAudit({
                 actionType: AuditActionType.UPDATE,
@@ -116,10 +123,10 @@ export const PATCH = restrict(
                 recordId: id,
                 oldData: factoryToken,
                 newData: updatedToken,
-                userId: locals.user.id,
-                ipAddress: locals.ipAddress,
+                userId: auth.user.id,
+                ipAddress,
                 prisma: prisma
-            })
+            });
             
             return json({
                 success: true,

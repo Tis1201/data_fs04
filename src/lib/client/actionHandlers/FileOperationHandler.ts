@@ -39,7 +39,7 @@ export class FileOperationHandler extends StreamActionHandler {
         this.handleFileChunk(entity);
       } else {
         console.log(`[${this.operationType}FileHandler] Processing regular progress update`);
-        this.handleProgressUpdate(entity);
+        this.handleFileProgress(entity);
       }
       return;
     }
@@ -53,7 +53,7 @@ export class FileOperationHandler extends StreamActionHandler {
     });
   }
 
-  private handleProgressUpdate(entity: DeviceMessageEntity): void {
+  private handleFileProgress(entity: DeviceMessageEntity): void {
     const { action, progress, message, logId } = entity;
     const actionType = `${this.operationType}File`;
 

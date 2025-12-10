@@ -1,8 +1,11 @@
 import { logger } from '../logger';
-import { Room, RoomConfig, RoomResult, RoomParticipant, RoomError } from './Room';
+import { Room, RoomError } from './Room';
+import type { RoomConfig, RoomResult, RoomParticipant } from './Room';
 // import { eventRouter, EventType } from '../event/EventRouter';
 import { v4 as uuidv4 } from 'uuid';
 
+// Re-export types for external use
+export type { RoomConfig, RoomResult, RoomParticipant, RoomError };
 
 // Module-scoped state
 const rooms = new Map<string, Room>();
@@ -14,15 +17,16 @@ export function getRoom(roomId: string): Room | undefined {
 // Alias for compatibility
 export const findRoom = getRoom;
 
-export function createRoom(roomId?: string, secret: string, config: RoomConfig = {}, createdBy?: string, socketId?: string): Room {
+export function createRoom(roomId: string | undefined, secret: string | undefined, config: RoomConfig = {}, createdBy?: string, socketId?: string): Room {
   // Always generate a password if not provided
   if (!config.password) {
     config.password = uuidv4();
   }
   const actualRoomId = roomId || uuidv4();
+  const actualSecret = secret || uuidv4();
   let room = rooms.get(actualRoomId);
   if (!room) {
-    room = new Room(actualRoomId, secret, config, createdBy);
+    room = new Room(actualRoomId, actualSecret, config, createdBy);
     rooms.set(actualRoomId, room);
     // Add creator as first participant and admin if createdBy is present
     if (createdBy) {
@@ -48,7 +52,7 @@ export function joinRoom(roomId: string, secret: string, socketId: string, isAdm
   if (!room) {
     room = createRoom(roomId, secret, config); // joinRoom does not set createdBy
   }
-  return room.addParticipant(socketId, isAdmin, metadata);
+  return room.addParticipant(socketId, undefined, isAdmin, metadata);
 }
 
 export function leaveRoom(roomId: string, socketId: string): RoomResult<void> {
@@ -77,7 +81,7 @@ export function listRooms(): Room[] {
 // ws: expects an object with send(msg: string) and optional socketId
 export function handleRoomMessage(
   message: any,
-  ws: { send: (msg: string) => void; socketId?: string },
+  ws: { send: (msg: string) => void; socketId?: string; userId?: string },
   wsManager: any
 ) {
   const { action, data } = message;
@@ -95,7 +99,7 @@ export function handleRoomMessage(
         break;
       }
       // Create a new room, let RoomManager generate the ID
-      const room = createRoom(undefined, undefined, config as RoomConfig || {}, ws.userId, ws.socketId);
+      const room = createRoom(undefined, uuidv4(), config as RoomConfig || {}, ws.userId, ws.socketId);
       ws.send(JSON.stringify({
         type: 'room',
         action: 'created',
@@ -120,6 +124,11 @@ export function handleRoomMessage(
       const access = room.validateAccess(password);
       if (!access.success) {
         ws.send(JSON.stringify({ type: 'room', action: 'error', error: access.message || 'Invalid password' }));
+        return;
+      }
+
+      if (!ws.userId) {
+        ws.send(JSON.stringify({ type: 'room', action: 'error', error: 'Missing userId' }));
         return;
       }
 

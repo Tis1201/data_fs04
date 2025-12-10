@@ -1,9 +1,9 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
@@ -12,8 +12,17 @@ import { EmailService } from '$lib/server/email';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
+const idSchema = z.object({
+    id: z.string().min(1, 'Email provider ID is required')
+});
+
+const toggleActiveSchema = z.object({
+    id: z.string().min(1, 'Email provider ID is required'),
+    active: z.coerce.boolean()
+});
+
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Get query parameters for filtering, sorting, and pagination
             const search = url.searchParams.get('search') || '';
@@ -121,7 +130,10 @@ export const load = restrict(
                 prisma: locals.prisma,
                 requestId: locals.requestId
             });
-            throw error(500, errorResponse.text, { details: errorResponse });
+            throw error(
+                500,
+                errorResponse.error?.message ?? 'Failed to load email providers'
+            );
         }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
@@ -129,17 +141,18 @@ export const load = restrict(
 
 export const actions: Actions = {
     deleteEmailProvider: restrict(
-        async ({ request, locals }) => {
-            const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                id: id || ''
-            };
+        async ({ request, locals }: RequestEvent) => {
+            const form = await superValidate(request, zod(idSchema));
 
-            if (!id) {
-                return message(form, createErrorResponse('Email provider ID is required'), { status: 400 });
+            if (!form.valid) {
+                return message(form, createErrorResponse('Please correct the errors in the form'), { status: 400 });
+            }
+
+            const { id } = form.data;
+            const userId = locals.user?.id;
+
+            if (!userId) {
+                return message(form, createErrorResponse('User not authenticated'), { status: 401 });
             }
 
             try {
@@ -152,8 +165,11 @@ export const actions: Actions = {
                 if (provider?.isDefault) {
                     return message(
                         form,
-                        createErrorResponse('Cannot delete the default email provider', 
-                        { details: 'Please set another provider as default first.' }),
+                        createErrorResponse(
+                            'Cannot delete the default email provider',
+                            'ERROR',
+                            'Please set another provider as default first.'
+                        ),
                         { status: 400 }
                     );
                 }
@@ -170,10 +186,10 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: provider,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: locals.prisma
-                })
+                });
 
                 return message(
                     form,
@@ -194,18 +210,14 @@ export const actions: Actions = {
     ),
     
     setDefault: restrict(
-        async ({ request, locals }) => {
-            const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                id: id || ''
-            };
+        async ({ request, locals }: RequestEvent) => {
+            const form = await superValidate(request, zod(idSchema));
 
-            if (!id) {
-                return message(form, createErrorResponse('Email provider ID is required'), { status: 400 });
+            if (!form.valid) {
+                return message(form, createErrorResponse('Please correct the errors in the form'), { status: 400 });
             }
+
+            const { id } = form.data;
 
             try {
                 // Get current user ID for tracking
@@ -239,10 +251,10 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: { isDefault: false },
                     newData: { isDefault: true },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: locals.prisma
-                })
+                });
 
                 return message(
                     form,
@@ -263,20 +275,14 @@ export const actions: Actions = {
     ),
     
     toggleActive: restrict(
-        async ({ request, locals }) => {
-            const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-            const active = formData.get('active') === 'true';
-            
-            // Create a form object for consistent handling
-            const form = {
-                id: id || '',
-                active: active
-            };
+        async ({ request, locals }: RequestEvent) => {
+            const form = await superValidate(request, zod(toggleActiveSchema));
 
-            if (!id) {
-                return message(form, createErrorResponse('Email provider ID is required'), { status: 400 });
+            if (!form.valid) {
+                return message(form, createErrorResponse('Please correct the errors in the form'), { status: 400 });
             }
+
+            const { id, active } = form.data;
 
             try {
                 // Get current user ID for tracking
@@ -295,8 +301,11 @@ export const actions: Actions = {
                     if (provider?.isDefault) {
                         return message(
                             form, 
-                            createErrorResponse('Cannot deactivate the default email provider', 
-                            { details: 'Please set another provider as default first.' }),
+                            createErrorResponse(
+                                'Cannot deactivate the default email provider',
+                                'ERROR',
+                                'Please set another provider as default first.'
+                            ),
                             { status: 400 }
                         );
                     }
@@ -324,10 +333,10 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: { isActive: !active },
                     newData: { isActive: active },
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: locals.prisma
-                })
+                });
 
                 return message(
                     form,
@@ -349,7 +358,7 @@ export const actions: Actions = {
     ),
 
     testEmailSend: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: RequestEvent) => {
             // Define the schema for test email validation
             const testEmailSchema = z.object({
                 id: z.string().min(1, 'Email provider ID is required'),
@@ -393,11 +402,11 @@ export const actions: Actions = {
                         recordId: form.data.id,
                         oldData: null,
                         newData: null,
-                        userId: locals.user.id,
-                        ipAddress: locals.ipAddress,
+                        userId,
+                        ipAddress: locals.requestContext?.ip,
                         prisma: locals.prisma,
                         changeSummary: "Test email send"
-                    })
+                    });
                     
                     // Create an instance of the EmailService with the provider
                     const emailService = new EmailService(provider);
@@ -415,7 +424,11 @@ export const actions: Actions = {
                             : String(result.error);
                         
                         logger.error(`Failed to send test email: ${errorMessage}`);
-                        return message(form, createErrorResponse('Failed to send test email', { details: errorMessage }), { status: 500 });
+                        return message(
+                            form,
+                            createErrorResponse('Failed to send test email', 'ERROR', errorMessage),
+                            { status: 500 }
+                        );
                     }
                     
                     // Email sent successfully

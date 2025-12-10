@@ -1,5 +1,4 @@
 import { logger } from '$lib/server/logger';
-import type { App } from '$lib/types/app';
 import { getPresenceManager, getMessageRelay } from '$lib/server/pushpin/middleware';
 
 /**
@@ -179,7 +178,7 @@ export class DeviceStatusManager {
             
             // Update all matching devices
             await this.setMultipleDevicesStatus(
-                devices.map(d => d.id), 
+                devices.map((d: { id: string; name: string }) => d.id), 
                 status, 
                 locals
             );

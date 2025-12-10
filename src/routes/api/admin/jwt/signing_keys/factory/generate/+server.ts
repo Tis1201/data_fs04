@@ -1,11 +1,11 @@
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 
-export const POST: RequestHandler = restrict(async ({ request, locals }) => {
+export const POST: RequestHandler = restrict(async ({ request, locals }: AuthenticatedEvent) => {
   try {
     const form = await request.formData();
     const keyId = String(form.get('keyId') || '');

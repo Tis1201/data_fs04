@@ -25,7 +25,7 @@ export interface JwtSigningKey {
   createdById: string;
   createdBy?: {
     id: string;
-    name?: string;
+    name?: string | null;
     email?: string;
   };
 }
@@ -44,6 +44,8 @@ export interface CreateKeyResult {
   error?: {
     message: string;
     code: string;
+    details?: string;
+    meta?: any;
   };
 }
 
@@ -55,7 +57,7 @@ const generateKeyPairAsync = promisify(generateKeyPair);
  */
 export async function generateJwtKeyPair(algorithm: 'RS256' | 'ES256' = 'RS256'): Promise<JwtKeyPair> {
   const keyType = algorithm === 'RS256' ? 'rsa' : 'ec';
-  const options = {
+  const options: any = {
     modulusLength: algorithm === 'RS256' ? 2048 : undefined,
     namedCurve: algorithm === 'ES256' ? 'prime256v1' : undefined,
     publicKeyEncoding: {
@@ -69,7 +71,7 @@ export async function generateJwtKeyPair(algorithm: 'RS256' | 'ES256' = 'RS256')
   };
 
   try {
-    const { publicKey, privateKey } = await generateKeyPairAsync(keyType, options);
+    const { publicKey, privateKey } = await generateKeyPairAsync(keyType as any, options);
     
     return {
       publicKey: publicKey.toString(),
@@ -149,14 +151,14 @@ export async function createKey(
       message: `${keyType} key created successfully`,
       key: newKey,
     };
-  } catch (error) {
+  } catch (error: any) {
     // Log detailed error information
     logger.error('Error creating JWT key:', error);
     
     // For P2002 errors, log the specific constraint that was violated
-    if (error.code === 'P2002') {
+    if (error?.code === 'P2002') {
       logger.error('Unique constraint violation details:', {
-        constraint: error.meta?.target || 'Unknown',
+        constraint: error?.meta?.target || 'Unknown',
         keyType: keyType
       });
     }
@@ -165,9 +167,9 @@ export async function createKey(
       success: false,
       error: {
         message: 'Failed to create JWT key',
-        code: error.code || 'KEY_CREATION_FAILED',
-        details: error.message,
-        meta: error.meta
+        code: error?.code || 'KEY_CREATION_FAILED',
+        details: error?.message,
+        meta: error?.meta
       },
     };
   }
@@ -280,14 +282,14 @@ export async function rotateKey(
       console.error('Error during key rotation operations:', innerError);
       throw innerError;
     }
-  } catch (error) {
+  } catch (error: any) {
     // Log detailed error information
     logger.error('Error rotating JWT key:', error);
     
     // For P2002 errors, log the specific constraint that was violated
-    if (error.code === 'P2002') {
+    if (error?.code === 'P2002') {
       logger.error('Unique constraint violation details:', {
-        constraint: error.meta?.target || 'Unknown'
+        constraint: error?.meta?.target || 'Unknown'
       });
     }
     
@@ -295,9 +297,9 @@ export async function rotateKey(
       success: false,
       error: {
         message: 'Failed to rotate JWT key',
-        code: error.code || 'KEY_ROTATION_FAILED',
-        details: error.message,
-        meta: error.meta
+        code: error?.code || 'KEY_ROTATION_FAILED',
+        details: error?.message,
+        meta: error?.meta
       },
     };
   }

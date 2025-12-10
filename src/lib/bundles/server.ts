@@ -2,8 +2,9 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { bundleTableOptions } from '$lib/server/bundles/bundleTableOptions';
 
-export { bundleTableOptions } from '$lib/server/bundles/bundleTableOptions';
+export { bundleTableOptions };
 
 export async function loadBundles(locals: any, url: URL) {
   const result = await fetchTableData(locals, url, bundleTableOptions);

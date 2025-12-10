@@ -3,6 +3,13 @@ import path from 'path';
 
 const dev = process.env.NODE_ENV !== 'production';
 
+// Type for caller information
+interface CallerInfo {
+    filePath?: string;
+    lineNumber?: string;
+    [key: string]: any;
+}
+
 // ANSI color codes optimized for light theme visibility
 const colors = {
   // Text styles
@@ -69,7 +76,7 @@ const createLogger = (defaultFilePath: string = 'unknown') => {
 
     // Create a custom format for the Winston logger
     const customFormat = winston.format.printf(({ level, message, timestamp, meta }) => {
-        const callerInfo = meta || {};
+        const callerInfo: CallerInfo = meta || {};
         const fileInfo = callerInfo.filePath ? `${callerInfo.filePath}${callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : ''}` : defaultFilePath;
         
         // Format based on log level
@@ -110,23 +117,38 @@ const createLogger = (defaultFilePath: string = 'unknown') => {
         ]
     });
 
+    // Safely merge caller info with optional metadata (supports non-object meta)
+    const buildMeta = (meta?: unknown): Record<string, any> => {
+        if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+            return meta as Record<string, any>;
+        }
+        if (meta === undefined) {
+            return {};
+        }
+        return { value: meta };
+    };
+
     // Return enhanced logger with automatic caller detection
     return {
-        debug: (message: string, meta: Record<string, any> = {}) => {
+        debug: (message: string, meta?: unknown) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.debug(message, { meta: { ...callerInfo, ...meta } });
+            const normalizedMeta = buildMeta(meta);
+            winstonLogger.debug(message, { meta: { ...callerInfo, ...normalizedMeta } });
         },
-        info: (message: string, meta: Record<string, any> = {}) => {
+        info: (message: string, meta?: unknown) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.info(message, { meta: { ...callerInfo, ...meta } });
+            const normalizedMeta = buildMeta(meta);
+            winstonLogger.info(message, { meta: { ...callerInfo, ...normalizedMeta } });
         },
-        warn: (message: string, meta: Record<string, any> = {}) => {
+        warn: (message: string, meta?: unknown) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.warn(message, { meta: { ...callerInfo, ...meta } });
+            const normalizedMeta = buildMeta(meta);
+            winstonLogger.warn(message, { meta: { ...callerInfo, ...normalizedMeta } });
         },
-        error: (message: string, meta: Record<string, any> = {}) => {
+        error: (message: string, meta?: unknown) => {
             const callerInfo = getCallerInfo();
-            winstonLogger.error(message, { meta: { ...callerInfo, ...meta } });
+            const normalizedMeta = buildMeta(meta);
+            winstonLogger.error(message, { meta: { ...callerInfo, ...normalizedMeta } });
         }
     };
 };

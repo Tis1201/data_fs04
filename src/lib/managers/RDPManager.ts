@@ -13,9 +13,9 @@ import type {
   RDPData,
   RDPOptions,
   MouseEventData,
-  KeyboardEventData,
-  MessageFactory 
+  KeyboardEventData
 } from '../types/unified';
+import { MessageFactory } from '../types/unified';
 import { getLoggingManager } from './LoggingManager';
 
 // ============================================================================
@@ -103,7 +103,9 @@ class RDPManagerClass {
   /**
    * Subscribe to state changes
    */
-  subscribe = this.state.subscribe;
+  get subscribe() {
+    return this.state.subscribe;
+  }
 
   /**
    * Set event handlers
@@ -143,7 +145,7 @@ class RDPManagerClass {
       this.logger?.logRDP('initialize', 'unknown', 'RDP initialized successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger?.logError('rdp', 'RDP initialization failed', { error: errorMessage });
+      this.logger?.error('rdp', 'RDP initialization failed', { error: errorMessage });
       this.updateState({ 
         isInitialized: false,
         error: errorMessage 
@@ -189,7 +191,7 @@ class RDPManagerClass {
       this.logger?.logRDP('connect', deviceId, 'RDP connection initiated successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger?.logError('rdp', 'RDP connection failed', { error: errorMessage, deviceId });
+      this.logger?.error('rdp', 'RDP connection failed', { error: errorMessage, deviceId });
       this.updateState({ 
         connectionStatus: 'failed', 
         error: errorMessage 
@@ -223,7 +225,7 @@ class RDPManagerClass {
 
       this.logger?.logRDP('disconnect', 'unknown', 'RDP disconnected successfully');
     } catch (error) {
-      this.logger?.logError('rdp', 'RDP disconnect error', { error });
+      this.logger?.error('rdp', 'RDP disconnect error', { error });
     }
   }
 
@@ -253,7 +255,7 @@ class RDPManagerClass {
           await this.handleError(message);
           break;
         default:
-          this.logger?.logWarn('rdp', `Unknown RDP action: ${message.action}`);
+          this.logger?.warn('rdp', `Unknown RDP action: ${message.action}`);
       }
 
       // Call message handler
@@ -261,7 +263,7 @@ class RDPManagerClass {
         this.eventHandlers.onMessage(message);
       }
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to handle RDP message', { error, message });
+      this.logger?.error('rdp', 'Failed to handle RDP message', { error, message });
       throw error;
     }
   }
@@ -281,7 +283,7 @@ class RDPManagerClass {
         mouse: event
       }));
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to send mouse event', { error, event });
+      this.logger?.error('rdp', 'Failed to send mouse event', { error, event });
       throw error;
     }
   }
@@ -301,7 +303,7 @@ class RDPManagerClass {
         keyboard: event
       }));
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to send keyboard event', { error, event });
+      this.logger?.error('rdp', 'Failed to send keyboard event', { error, event });
       throw error;
     }
   }
@@ -329,7 +331,7 @@ class RDPManagerClass {
         }
       }
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to toggle fullscreen', { error });
+      this.logger?.error('rdp', 'Failed to toggle fullscreen', { error });
       throw error;
     }
   }
@@ -352,7 +354,7 @@ class RDPManagerClass {
         this.eventHandlers.onRecordingChange(true);
       }
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to start recording', { error });
+      this.logger?.error('rdp', 'Failed to start recording', { error });
       throw error;
     }
   }
@@ -371,7 +373,7 @@ class RDPManagerClass {
         this.eventHandlers.onRecordingChange(false);
       }
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to stop recording', { error });
+      this.logger?.error('rdp', 'Failed to stop recording', { error });
       throw error;
     }
   }
@@ -449,7 +451,7 @@ class RDPManagerClass {
     });
 
     this.videoElement.addEventListener('error', (event) => {
-      this.logger?.logError('rdp', 'Video element error', { error: event });
+      this.logger?.error('rdp', 'Video element error', { error: event });
     });
 
     // Fullscreen change handler
@@ -520,7 +522,7 @@ class RDPManagerClass {
   }
 
   private async handleError(message: RDPMessage): Promise<void> {
-    this.logger?.logError('rdp', 'RDP error received', { 
+    this.logger?.error('rdp', 'RDP error received', { 
       error: message.data.error,
       deviceId: message.deviceId 
     });

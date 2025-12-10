@@ -1,7 +1,13 @@
 import { mkdir, readFile, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import pkg from '@whiskeysockets/baileys'
-const { proto, initAuthCreds } = pkg
+import { BufferJSON } from '@whiskeysockets/baileys/lib/Utils/generics'
+import type { PrismaClient } from '@prisma/client'
+import { logger } from '../logger'
+
+const proto = (pkg as any).proto
+const initAuthCreds = (pkg as any).initAuthCreds
+
 // Import types inline to avoid module resolution issues
 type AuthenticationCreds = any
 type AuthenticationState = {
@@ -11,9 +17,6 @@ type AuthenticationState = {
 type SignalDataTypeMap = {
   [key: string]: any
 }
-import { BufferJSON } from '@whiskeysockets/baileys/lib/Utils/generics'
-import type { PrismaClient } from '@prisma/client'
-import { logger } from '../logger'
 
 /**
  * stores the full authentication state in a single folder.
@@ -55,11 +58,11 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 	}
 
 	//Write
-	const writeData = async (data: any, file: string) => {
+	const writeData = async (data: any, file: string): Promise<void> => {
         // console.log("[usePrismaAuthState] ==> write data from file: ", file);
 		try{
 			//Use Prisma to write the data, using, clientId and file
-			const result = await prisma.whatsAppAuthData.upsert({
+			await prisma.whatsAppAuthData.upsert({
 				where: {
 					clientId_file: {  // Use the compound unique constraint
 						clientId: clientId,
@@ -76,8 +79,6 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 					data: JSON.stringify(data, BufferJSON.replacer)
 				}
 			});
-
-			return result;
 
 		}catch(error){
 			logger.error(`[usePrismaAuthState] Error writing data to prisma: ${clientId}:${file}`, error)
@@ -125,11 +126,11 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 		state: {
 			creds,
 			keys: {
-				get: async(type, ids) => {
+				get: async(type: any, ids: any[]) => {
 					const data: { [_: string]: SignalDataTypeMap[typeof type] } = { }
 					await Promise.all(
 						ids.map(
-							async id => {
+							async (id: any) => {
 								let value = await readData(`${type}-${id}.json`)
 								if(type === 'app-state-sync-key' && value) {
 									value = proto.Message.AppStateSyncKeyData.fromObject(value)
@@ -142,7 +143,7 @@ export const usePrismaAuthState = async(clientId:string, prisma: PrismaClient, f
 
 					return data
 				},
-				set: async(data) => {
+				set: async(data: any) => {
 					const tasks: Promise<void>[] = []
 					for(const category in data) {
 						for(const id in data[category]) {

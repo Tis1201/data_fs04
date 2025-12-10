@@ -24,7 +24,8 @@ class WebRTCHandlerClass implements Handler {
   }
 
   async handle(message: InMessage): Promise<void> {
-    this.logger?.logWebRTC('handle', message.deviceId || 'unknown', 'Handling WebRTC message');
+    const initialDeviceId = String(message.deviceId || 'unknown');
+    this.logger?.logWebRTC('handle', initialDeviceId, 'Handling WebRTC message');
 
     try {
       // Validate message
@@ -34,7 +35,7 @@ class WebRTCHandlerClass implements Handler {
       }
 
       const webrtcMessage = message as any as InMessage & { payload: { type: string; deviceId: string; [key: string]: any } };
-      const deviceId = webrtcMessage.payload?.deviceId || webrtcMessage.deviceId || 'unknown';
+      const deviceId = String(webrtcMessage.payload?.deviceId || webrtcMessage.deviceId || 'unknown');
       const messageType = webrtcMessage.payload?.type;
 
       switch (messageType) {

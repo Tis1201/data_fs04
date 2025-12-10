@@ -5,7 +5,7 @@ import { superValidate, message } from 'sveltekit-superforms/server';
 import { deviceEditSchema } from '../schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';

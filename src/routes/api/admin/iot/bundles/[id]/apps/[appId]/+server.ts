@@ -3,10 +3,10 @@ import type { RequestHandler } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
+import { createSuccessResponse, createErrorResponse, ErrorCodes } from '$lib/types/api';
 
 export const DELETE: RequestHandler = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: any) => {
         const { id: bundleId, appId } = params;
 
         try {
@@ -16,12 +16,18 @@ export const DELETE: RequestHandler = restrict(
             });
             
             if (!bundleApp) {
-                return json(createErrorResponse('Bundle app not found', {}), { status: 404 });
+                return json(createErrorResponse('Bundle app not found', ErrorCodes.NOT_FOUND), { status: 404 });
             }
             
             // Verify that the bundle app belongs to the specified bundle
             if (bundleApp.bundleId !== bundleId) {
-                return json(createErrorResponse('Bundle app does not belong to this bundle', {}), { status: 400 });
+                return json(
+                    createErrorResponse(
+                        'Bundle app does not belong to this bundle',
+                        ErrorCodes.CONFLICT
+                    ),
+                    { status: 400 }
+                );
             }
             
             // Delete the bundle app
@@ -34,7 +40,7 @@ export const DELETE: RequestHandler = restrict(
             return json(createSuccessResponse('App removed from bundle successfully', {}));
         } catch (err) {
             logger.error(`Error removing app from bundle: ${err instanceof Error ? err.message : String(err)}`);
-            return json(createErrorResponse('Failed to remove app from bundle', {}), { status: 500 });
+            return json(createErrorResponse('Failed to remove app from bundle', ErrorCodes.INTERNAL_ERROR), { status: 500 });
         }
     },
     [SystemRole.ADMIN]

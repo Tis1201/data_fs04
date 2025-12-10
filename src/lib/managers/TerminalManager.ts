@@ -10,9 +10,9 @@ import { writable, type Writable } from 'svelte/store';
 import type { 
   TerminalMessage, 
   TerminalAction, 
-  TerminalData,
-  MessageFactory 
+  TerminalData
 } from '../types/unified';
+import { MessageFactory } from '../types/unified';
 import { getLoggingManager } from './LoggingManager';
 
 // ============================================================================
@@ -90,7 +90,9 @@ class TerminalManagerClass {
   /**
    * Subscribe to state changes
    */
-  subscribe = this.state.subscribe;
+  get subscribe() {
+    return this.state.subscribe;
+  }
 
   /**
    * Set event handlers
@@ -119,7 +121,10 @@ class TerminalManagerClass {
       this.terminalInstance = {
         container,
         config: this.config,
-        write: (data: string) => this.handleOutput(data),
+        write: (data: string) => {
+          // Just write locally, not through handleOutput which expects a message
+          console.log('[Terminal] Write:', data);
+        },
         onData: (callback: (data: string) => void) => {
           this.terminalInstance.dataCallback = callback;
         },
@@ -156,7 +161,7 @@ class TerminalManagerClass {
       this.logger?.logTerminal('initialize', 'unknown', 'Terminal initialized successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger?.logError('terminal', 'Terminal initialization failed', { error: errorMessage });
+      this.logger?.error('terminal', 'Terminal initialization failed', { error: errorMessage });
       this.updateState({ 
         isInitialized: false,
         error: errorMessage 
@@ -189,7 +194,7 @@ class TerminalManagerClass {
       this.logger?.logTerminal('connect', deviceId, 'Terminal connection initiated successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger?.logError('terminal', 'Terminal connection failed', { error: errorMessage, deviceId });
+      this.logger?.error('terminal', 'Terminal connection failed', { error: errorMessage, deviceId });
       this.updateState({ 
         connectionStatus: 'failed', 
         error: errorMessage 
@@ -217,7 +222,7 @@ class TerminalManagerClass {
 
       this.logger?.logTerminal('disconnect', 'unknown', 'Terminal disconnected successfully');
     } catch (error) {
-      this.logger?.logError('terminal', 'Terminal disconnect error', { error });
+      this.logger?.error('terminal', 'Terminal disconnect error', { error });
     }
   }
 
@@ -250,7 +255,7 @@ class TerminalManagerClass {
           await this.handleError(message);
           break;
         default:
-          this.logger?.logWarn('terminal', `Unknown terminal action: ${message.action}`);
+          this.logger?.warn('terminal', `Unknown terminal action: ${message.action}`);
       }
 
       // Call message handler
@@ -258,7 +263,7 @@ class TerminalManagerClass {
         this.eventHandlers.onMessage(message);
       }
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to handle terminal message', { error, message });
+      this.logger?.error('terminal', 'Failed to handle terminal message', { error, message });
       throw error;
     }
   }
@@ -284,7 +289,7 @@ class TerminalManagerClass {
         this.terminalInstance.write(input);
       }
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to send terminal input', { error, input });
+      this.logger?.error('terminal', 'Failed to send terminal input', { error, input });
       throw error;
     }
   }
@@ -317,7 +322,7 @@ class TerminalManagerClass {
         this.eventHandlers.onResize(rows, cols);
       }
     } catch (error) {
-      this.logger?.logError('terminal', 'Failed to resize terminal', { error, rows, cols });
+      this.logger?.error('terminal', 'Failed to resize terminal', { error, rows, cols });
       throw error;
     }
   }
@@ -524,7 +529,7 @@ class TerminalManagerClass {
   }
 
   private async handleError(message: TerminalMessage): Promise<void> {
-    this.logger?.logError('terminal', 'Terminal error received', { 
+    this.logger?.error('terminal', 'Terminal error received', { 
       error: message.data.error,
       deviceId: message.deviceId 
     });

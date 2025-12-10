@@ -1,6 +1,12 @@
 // main.ts
 import { WhatsAppSession } from '../../src/lib/server/whatsapp/WhatsAppSession';
 import { getTestPrisma } from './test-prisma';
+
+// Type declaration for qrcode-terminal
+declare module 'qrcode-terminal' {
+  export function generate(text: string, options?: { small?: boolean }): void;
+}
+
 import qrcode from 'qrcode-terminal';
 
 // Use the simple file-based auth state instead of Prisma for this test

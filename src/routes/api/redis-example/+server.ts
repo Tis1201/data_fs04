@@ -1,4 +1,4 @@
-import { json } from '@sveltejs/kit';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { getRedisService } from '$lib/server/services/redisService';
 import {restrict} from "$lib/server/security/guards";
 import { logger } from '$lib/server/logger';
@@ -8,8 +8,8 @@ import { SystemRole } from '$lib/shared/roles';
  * Example endpoint to demonstrate Redis usage
  * GET /api/redis-example?key=mykey
  */
-export const GET = restrict(
-    async ({ url, locals, auth }) => {
+export const GET: RequestHandler = restrict(
+    async ({ url, locals, auth }: any) => {
         try {
             // Get the key from the query parameters
             const key = url.searchParams.get('key');
@@ -20,6 +20,9 @@ export const GET = restrict(
             
             // Get Redis service from locals
             const redisService = getRedisService(locals);
+            if (!redisService) {
+                return json({ error: 'Redis service not available' }, { status: 503 });
+            }
             
             // Get the value from Redis
             const value = await redisService.get(key);
@@ -44,8 +47,8 @@ export const GET = restrict(
  * Example endpoint to set a Redis value
  * POST /api/redis-example with body { key: 'mykey', value: 'myvalue', ttl: 3600 }
  */
-export const POST = restrict(
-    async ({ request, locals, auth }) => {
+export const POST: RequestHandler = restrict(
+    async ({ request, locals, auth }: any) => {
         try {
             // Parse the request body
             const body = await request.json();
@@ -57,6 +60,9 @@ export const POST = restrict(
             
             // Get Redis service from locals
             const redisService = getRedisService(locals);
+            if (!redisService) {
+                return json({ error: 'Redis service not available' }, { status: 503 });
+            }
             
             // Set the value in Redis with optional TTL
             const result = await redisService.set(key, value, ttl);

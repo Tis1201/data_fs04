@@ -150,7 +150,7 @@ export const POST = restrict(
                 }
                 
                 // Parse range parameters
-                const [start, stop] = value.split(' ').map(v => parseInt(v));
+                const [start, stop] = value.split(' ').map((v: string) => parseInt(v, 10));
                 
                 // Use the Redis client directly for the LRANGE command
                 const result = await redisService.client.lrange(key, start, stop);

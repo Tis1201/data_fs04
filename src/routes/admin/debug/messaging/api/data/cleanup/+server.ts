@@ -34,8 +34,9 @@ message: `Found ${connectionMetas.length} active connections`,
 connections: activeConnections
 });
 		} catch (err) {
-			console.error('Error processing connections:', err);
-			return json({ success: false, error: err.message }, { status: 500 });
+			const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+			logger.error('Error processing connections:', { err });
+			return json({ success: false, error: errorMessage }, { status: 500 });
 		}
 	},
 	[SystemRole.ADMIN]

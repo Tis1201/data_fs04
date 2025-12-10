@@ -14,7 +14,7 @@ export async function handleDeviceConnection(message: InMessage): Promise<void> 
 
   try {
     // Create a mock locals object with prisma for DeviceStatusManager
-    const locals = { prisma };
+    const locals = { prisma } as any;
 
     if (connected === true) {
       // Device is connecting

@@ -149,7 +149,7 @@ export const POST: RequestHandler = restrict(
                 });
             }
             
-            const message = messageResult.data as BaseMessage;
+            const message: SSEMessageInput = messageResult.data;
             
             // Find the SSE connection for this user instead of generating a new one
             let connectionId = message.senderConnectionId;
@@ -171,6 +171,7 @@ export const POST: RequestHandler = restrict(
                     logger.warn(`[SSE] No existing SSE connection found for user ${auth.user.id}, generated new ID: ${connectionId}`);
                 }
             }
+            const resolvedConnectionId = connectionId || `sse-${uuidv4()}`;
             
             // Determine if this is a message that should be dispatched to a handler
             const isWhatsAppMessage = message.type === 'whatsapp';
@@ -192,7 +193,7 @@ export const POST: RequestHandler = restrict(
                 connectionId: '',  // Will be filled by the router
                 systemGenerated: false,
                 senderId: auth.user?.id,
-                senderConnectionId: connectionId,
+                senderConnectionId: resolvedConnectionId,
                 senderAccountId: currentAccount?.id,
                 senderConnectionProtocol: 'sse',
                 timestamp: message.timestamp || new Date().toISOString()
@@ -208,7 +209,7 @@ export const POST: RequestHandler = restrict(
                     currentAccount: currentAccount
                 },
                 protocol: 'sse',
-                connectionId: connectionId,
+                connectionId: resolvedConnectionId,
                 requestId: message.requestId,
                 accountId: currentAccount?.accountId
             };

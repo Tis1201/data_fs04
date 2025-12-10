@@ -86,6 +86,11 @@ export class WhatsAppAccountManager extends EventEmitter {
     return this.clients.get(sessionId) || null;
   }
 
+  public getClientInfo(clientId: string) {
+    const client = this.getClient(clientId);
+    return client ? client.getInfo() : null;
+  }
+
   public getAllClients(): WhatsAppAccountClient[] {
     return Array.from(this.clients.values());
   }

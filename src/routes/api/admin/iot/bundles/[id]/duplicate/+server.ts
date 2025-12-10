@@ -5,7 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = restrict(
-  async ({ params, locals, auth }) => {
+  async ({ params, locals, auth }: any) => {
     const { id: bundleId } = params as { id: string };
     
     try {
@@ -51,7 +51,7 @@ export const POST: RequestHandler = restrict(
       });
 
       // Copy all apps from the original bundle
-      const appPromises = originalBundle.apps.map((app) =>
+      const appPromises = originalBundle.apps.map((app: { resourceId: string; order: number; autoOpen: boolean }) =>
         locals.prisma.bundleApp.create({
           data: {
             bundleId: newBundle.id,

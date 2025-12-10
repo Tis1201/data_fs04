@@ -5,7 +5,7 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { listKeys, createKey, rotateKey } from './service';
@@ -21,7 +21,8 @@ const rotateKeySchema = z.object({
 });
 
 export const load = restrict(
-  async ({ locals }) => {
+  async (event: AuthenticatedLoadEvent) => {
+    const { locals } = event;
     try {
       // Get all keys
       const keys = await listKeys(locals.prisma);
@@ -40,7 +41,7 @@ export const load = restrict(
         }
       };
     } catch (error) {
-      logger.error('Error loading JWT signing keys:', error);
+      logger.error('Error loading JWT signing keys', { error });
       return {
         keys: [],
         form: await superValidate(zod(createKeySchema)),
@@ -62,7 +63,8 @@ export const load = restrict(
 export const actions: Actions = {
   // Create a new key
   createKey: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       const form = await superValidate(request, zod(createKeySchema));
 
       if (!form.valid) {
@@ -88,18 +90,23 @@ export const actions: Actions = {
         }
 
         // Create a new key
+        if (!locals.user) {
+          return fail(401, { form, error: { message: 'Unauthorized' } });
+        }
+
         const result = await createKey(locals.prisma, keyType, locals.user.id);
         
         if (!result.success) {
-          logger.error('Failed to create key:', result.error);
+          logger.error('Failed to create key', { error: result.error });
+          const errorData = result.error as any;
           return fail(400, {
             form,
             success: false,
             error: {
-              message: result.error.message || 'Failed to create key',
-              details: result.error.details,
-              code: result.error.code,
-              meta: result.error.meta
+              message: result.error?.message || 'Failed to create key',
+              details: errorData?.details,
+              code: result.error?.code,
+              meta: errorData?.meta
             },
           });
         }
@@ -128,7 +135,7 @@ export const actions: Actions = {
           })
         );
       } catch (error) {
-        logger.error('Error creating JWT key:', error);
+        logger.error('Error creating JWT key', { error });
         return handleFormError({
           error,
           form,
@@ -143,7 +150,8 @@ export const actions: Actions = {
 
   // Rotate an existing key
   rotateKey: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       logger.info('Rotate key action called');
       const form = await superValidate(request, zod(rotateKeySchema));
       logger.info('Form data:', form.data);
@@ -155,7 +163,7 @@ export const actions: Actions = {
 
       try {
         const { keyId } = form.data;
-        logger.info('Rotating key with ID:', keyId);
+        logger.info('Rotating key with ID', { keyId });
         
         // Find the existing key to verify it exists
         const existingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -163,7 +171,7 @@ export const actions: Actions = {
         });
         
         if (!existingKey) {
-          logger.error('Key not found with ID:', keyId);
+          logger.error('Key not found with ID', { keyId });
           return fail(404, {
             form,
             success: false,
@@ -173,26 +181,30 @@ export const actions: Actions = {
           });
         }
         
-        logger.info('Found existing key:', {
+        logger.info('Found existing key', {
           id: existingKey.id,
           keyType: existingKey.keyType,
           isPrimary: existingKey.isPrimary
         });
 
         // Rotate the key using the ID directly from the form
-        logger.info('Calling rotateKey service with keyId:', keyId);
+        logger.info('Calling rotateKey service with keyId', { keyId });
+        if (!locals.user) {
+          return fail(401, { form, error: { message: 'Unauthorized' } });
+        }
         const result = await rotateKey(locals.prisma, keyId, locals.user.id);
 
         if (!result.success) {
-          logger.error(`Failed to rotate key: ${JSON.stringify(result.error)}`);
+          logger.error('Failed to rotate key', { error: result.error });
+          const errorData = result.error as any;
           return fail(400, {
             form,
             success: false,
             error: {
               message: result.error?.message || 'Failed to rotate key',
-              details: result.error?.details,
+              details: errorData?.details,
               code: result.error?.code || 'UNKNOWN_ERROR',
-              meta: result.error?.meta
+              meta: errorData?.meta
             },
           });
         }
@@ -222,7 +234,7 @@ export const actions: Actions = {
           })
         );
       } catch (error) {
-        logger.error('Error rotating JWT key:', error);
+        logger.error('Error rotating JWT key', { error });
         return handleFormError({
           error,
           form,

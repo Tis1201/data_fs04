@@ -15,6 +15,12 @@ export const GET: RequestHandler = restrict(
         const deviceId = params.id;
         const format = url.searchParams.get('format') || 'json';
         const limit = parseInt(url.searchParams.get('limit') || '100');
+
+        if (!event.auth?.user) {
+            return json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, { status: 401 });
+        }
+
+        const user = event.auth.user;
         
         if (!deviceId) {
             return json({ 
@@ -54,7 +60,7 @@ export const GET: RequestHandler = restrict(
             }
 
             // Check if user has access to this device
-            if (event.auth.user.systemRole !== SystemRole.ADMIN && device.user.id !== event.auth.user.id) {
+            if (user.systemRole !== SystemRole.ADMIN && device.user.id !== user.id) {
                 return json({ 
                     success: false, 
                     error: { 
@@ -85,14 +91,14 @@ export const GET: RequestHandler = restrict(
                 // Create action log entry
                 const created = await ActionLogger.createInitiated({
                     deviceId,
-                    actionType: 'get_logs',
-                    initiatedBy: event.auth.user.id,
+                    actionType: 'logs',
+                    initiatedBy: user.id,
                     requestId,
                     connectionId: 'api',
                     protocol: 'api',
                     metadata: {
                         format: 'zip',
-                        requestedBy: event.auth.user.email
+                        requestedBy: user.email
                     },
                     initialMessage: 'Requesting logs from device'
                 });
@@ -131,7 +137,7 @@ export const GET: RequestHandler = restrict(
                     }
                 }, 30 * 1000); // 30 seconds
 
-                logger.info(`[LogsAPI] Log retrieval initiated for device ${deviceId} by user ${event.auth.user.email}`);
+                logger.info(`[LogsAPI] Log retrieval initiated for device ${deviceId} by user ${user.email}`);
 
                 return json({
                     success: true,
@@ -167,7 +173,7 @@ export const GET: RequestHandler = restrict(
                 }
             });
 
-            logger.info(`[LogsAPI] Logs retrieved for device ${deviceId} by user ${event.auth.user.email}`);
+            logger.info(`[LogsAPI] Logs retrieved for device ${deviceId} by user ${user.email}`);
 
             return json({
                 success: true,
@@ -194,5 +200,5 @@ export const GET: RequestHandler = restrict(
             }, { status: 500 });
         }
     },
-    { roles: [SystemRole.ADMIN, SystemRole.USER] }
+    [SystemRole.ADMIN, SystemRole.USER]
 );

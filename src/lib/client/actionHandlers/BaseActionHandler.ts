@@ -38,7 +38,22 @@ export abstract class BaseActionHandler {
   }
 
   protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
-    const { action, status, message, logId, progress, durationMs } = entity.payload;
+    const payload = entity.payload ?? {};
+    const {
+      action,
+      status,
+      message,
+      logId,
+      progress,
+      durationMs
+    }: {
+      action?: string;
+      status?: string;
+      message?: string;
+      logId?: string;
+      progress?: number;
+      durationMs?: number;
+    } = payload as any;
 
     console.log(`[BaseActionHandler] Unified status update:`, { 
       action, 

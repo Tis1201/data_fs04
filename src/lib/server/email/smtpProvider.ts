@@ -57,8 +57,9 @@ export class SmtpProvider implements IEmailProvider {
             // Create nodemailer transport
             this.transport = nodemailer.createTransport(transportOptions);
         } catch (error) {
-            logger.error(`Failed to initialize SMTP transport: ${error.message}`, { error });
-            throw new Error(`Failed to initialize SMTP transport: ${error.message}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error(`Failed to initialize SMTP transport: ${errorMessage}`, { error });
+            throw new Error(`Failed to initialize SMTP transport: ${errorMessage}`);
         }
     }
 
@@ -106,7 +107,7 @@ export class SmtpProvider implements IEmailProvider {
             logger.error(`SMTP email error: ${errorMessage}`, { error });
             return {
                 success: false,
-                error
+                error: error instanceof Error ? error : new Error(String(error))
             };
         }
     }

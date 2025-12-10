@@ -1,14 +1,20 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 
 export const POST: RequestHandler = restrict(
-  async ({ params, locals, auth }) => {
+  async ({ params, locals, auth }: AuthenticatedEvent) => {
     const { id: bundleId } = params as { id: string };
     
     try {
+      if (!auth?.user) {
+        return json({ success: false, error: 'Unauthorized' }, { status: 401 });
+      }
+
+      const actorId = auth.user.id;
+
       // Get the original bundle with all its relationships
       const originalBundle = await locals.prisma.bundle.findUnique({
         where: { id: bundleId },
@@ -30,7 +36,7 @@ export const POST: RequestHandler = restrict(
       }
 
       // Check if user has access to this bundle
-      if (originalBundle.createdBy !== auth.user.id) {
+      if (originalBundle.createdBy !== actorId) {
         return json({ success: false, error: 'Access denied' }, { status: 403 });
       }
 
@@ -49,22 +55,22 @@ export const POST: RequestHandler = restrict(
           scheduledAt: null, // Reset scheduling
           scheduledAtTimezone: null,
           scheduledAtStartIfMissed: false,
-          createdBy: auth.user.id,
-          updatedBy: auth.user.id,
+          createdBy: actorId,
+          updatedBy: actorId,
           accountId: originalBundle.accountId
         }
       });
 
       // Copy all apps from the original bundle
-      const appPromises = originalBundle.apps.map((app) =>
+      const appPromises = originalBundle.apps.map((app: { resourceId: string; order: number; autoOpen: boolean }) =>
         locals.prisma.bundleApp.create({
           data: {
             bundleId: newBundle.id,
             resourceId: app.resourceId,
             order: app.order,
             autoOpen: app.autoOpen,
-            createdBy: auth.user.id,
-            updatedBy: auth.user.id
+            createdBy: actorId,
+            updatedBy: actorId
           }
         })
       );
@@ -83,8 +89,8 @@ export const POST: RequestHandler = restrict(
           data: {
             bundleId: newBundle.id,
             deviceId: bundleDevice.deviceId,
-            createdBy: auth.user.id,
-            updatedBy: auth.user.id
+            createdBy: actorId,
+            updatedBy: actorId
           }
         });
         
@@ -97,7 +103,7 @@ export const POST: RequestHandler = restrict(
       // Execute app copy operations
       await Promise.all(appPromises);
 
-      logger.info(`Bundle ${bundleId} duplicated to ${newBundle.id} by user ${auth.user.id}`);
+      logger.info(`Bundle ${bundleId} duplicated to ${newBundle.id} by user ${actorId}`);
 
       return json({
         success: true,

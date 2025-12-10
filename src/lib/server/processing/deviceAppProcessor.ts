@@ -5,6 +5,8 @@
 import { deviceAppService, type DeviceAppSummary as ClickHouseAppSummary } from '$lib/server/clickhouse/deviceAppService';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
+import { publisher } from '$lib/server/messaging/core/publisher';
+import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 
 export interface ProcessingResult {
   success: boolean;
@@ -27,34 +29,66 @@ export class DeviceAppProcessor {
     try {
       logger.info(`Starting app data processing for device ${deviceId}`);
 
-      // Get app summary from ClickHouse
-      const clickhouseSummary = await deviceAppService.getDeviceAppSummary(deviceId);
-      
-      if (!clickhouseSummary) {
-        logger.warn(`No app data found for device ${deviceId}`);
+      // Get device info to retrieve accountId
+      const device = await this.prisma.device.findUnique({
+        where: { id: deviceId },
+        select: { id: true, accountId: true }
+      });
+
+      if (!device || !device.accountId) {
+        logger.warn(`Device ${deviceId} not found or missing accountId`);
         return {
           success: false,
           deviceId,
           accountId: '',
           appCount: 0,
           processingTime: Date.now() - startTime,
+          error: 'Device not found or missing accountId'
+        };
+      }
+
+      // Get app data from ClickHouse (using pagination to get just the summary info)
+      const appsResult = await deviceAppService.getDeviceApps(deviceId, 1, 1);
+      
+      if (!appsResult || appsResult.total === 0) {
+        logger.warn(`No app data found for device ${deviceId}`);
+        return {
+          success: false,
+          deviceId,
+          accountId: device.accountId,
+          appCount: 0,
+          processingTime: Date.now() - startTime,
           error: 'No app data found'
         };
       }
 
+      // Get all apps to compute summary (we need full data to categorize)
+      const allAppsResult = await deviceAppService.getDeviceApps(deviceId, 1, 10000);
+      const apps = allAppsResult.apps;
+
+      // Compute app counts by type
+      const systemAppsCount = apps.filter(app => app.app_type?.toLowerCase() === 'system').length;
+      const normalAppsCount = apps.filter(app => app.app_type?.toLowerCase() === 'normal').length;
+      const userAppsCount = apps.filter(app => app.app_type?.toLowerCase() === 'user').length;
+
+      // Get the latest sync time
+      const latestAppSync = apps.length > 0 
+        ? new Date(Math.max(...apps.map(app => new Date(app.created_at).getTime())))
+        : new Date();
+
       // Update or create device app summary in PostgreSQL
       const summaryData = {
-        deviceId: clickhouseSummary.device_id,
-        accountId: clickhouseSummary.account_id,
-        totalAppsCount: clickhouseSummary.total_apps,
-        systemAppsCount: clickhouseSummary.system_apps,
-        normalAppsCount: clickhouseSummary.normal_apps,
-        lastAppSync: clickhouseSummary.last_app_sync,
+        deviceId: device.id,
+        accountId: device.accountId,
+        totalAppsCount: apps.length,
+        systemAppsCount,
+        normalAppsCount,
+        lastAppSync: latestAppSync,
         lastProcessedAt: new Date()
       };
 
       await this.prisma.deviceAppSummary.upsert({
-        where: { deviceId: clickhouseSummary.device_id },
+        where: { deviceId: device.id },
         update: summaryData,
         create: summaryData
       });
@@ -63,19 +97,25 @@ export class DeviceAppProcessor {
       
       logger.info(`Successfully processed app data for device ${deviceId}`, {
         deviceId,
-        accountId: clickhouseSummary.account_id,
-        appCount: clickhouseSummary.total_apps,
+        accountId: device.accountId,
+        appCount: apps.length,
         processingTime
       });
 
       // Broadcast update to UI subscribers
-      await this.broadcastAppUpdate(clickhouseSummary);
+      await this.broadcastAppUpdate(device.id, device.accountId, {
+        totalApps: apps.length,
+        systemApps: systemAppsCount,
+        normalApps: normalAppsCount,
+        userApps: userAppsCount,
+        lastAppSync: latestAppSync
+      });
 
       return {
         success: true,
-        deviceId: clickhouseSummary.device_id,
-        accountId: clickhouseSummary.account_id,
-        appCount: clickhouseSummary.total_apps,
+        deviceId: device.id,
+        accountId: device.accountId,
+        appCount: apps.length,
         processingTime
       };
 
@@ -141,34 +181,55 @@ export class DeviceAppProcessor {
   /**
    * Broadcast app update to SSE subscribers
    */
-  private async broadcastAppUpdate(summary: ClickHouseAppSummary): Promise<void> {
+  private async broadcastAppUpdate(
+    deviceId: string, 
+    accountId: string, 
+    summary: {
+      totalApps: number;
+      systemApps: number;
+      normalApps: number;
+      userApps: number;
+      lastAppSync: Date;
+    }
+  ): Promise<void> {
     try {
       const updateData = {
-        type: 'apps_updated',
-        deviceId: summary.device_id,
-        accountId: summary.account_id,
-        data: {
-          totalApps: summary.total_apps,
-          systemApps: summary.system_apps,
-          normalApps: summary.normal_apps,
-          userApps: summary.user_apps,
-          lastAppSync: summary.last_app_sync,
-          lastProcessedAt: summary.last_processed_at
-        },
-        timestamp: new Date()
+        totalApps: summary.totalApps,
+        systemApps: summary.systemApps,
+        normalApps: summary.normalApps,
+        userApps: summary.userApps,
+        lastAppSync: summary.lastAppSync.toISOString(),
+        lastProcessedAt: new Date().toISOString()
       };
 
       // Broadcast to device-specific subscribers
-      await sseManager.broadcast(`device-${summary.device_id}-detail`, updateData);
+      await publisher.publish(
+        MessageFactory.createSystemMessage(
+          'apps:updated',
+          `subscription:device:${deviceId}`,
+          updateData,
+          SystemUser
+        )
+      );
       
       // Broadcast to account-level subscribers
-      await sseManager.broadcast(`account-${summary.account_id}-device-apps-changed`, updateData);
+      await publisher.publish(
+        MessageFactory.createSystemMessage(
+          'apps:updated',
+          `subscription:account:${accountId}`,
+          {
+            deviceId,
+            ...updateData
+          },
+          SystemUser
+        )
+      );
 
-      logger.debug(`Broadcasted app update for device ${summary.device_id}`);
+      logger.debug(`Broadcasted app update for device ${deviceId}`);
     } catch (error) {
       logger.error('Failed to broadcast app update', {
         error: error instanceof Error ? error.message : String(error),
-        deviceId: summary.device_id
+        deviceId
       });
     }
   }

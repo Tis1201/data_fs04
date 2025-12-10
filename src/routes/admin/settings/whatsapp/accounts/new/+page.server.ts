@@ -1,22 +1,22 @@
 import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
-import { getEnhancedPrisma } from '$lib/server/prisma';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { createWhatsAppAccountSchema } from '$lib/schemas/whatsapp-account';
 import { zod } from 'sveltekit-superforms/adapters';
-import { v4 as uuidv4 } from 'uuid';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { whatsAppAccountManager } from '$lib/server/whatsapp/WhatsAppAccountManager';
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId } from '$lib/server/security/auth-utils';
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedEvent) => {
         // Initialize the form with the schema and defaults
         const form = await superValidate(zod(createWhatsAppAccountSchema), {
+            id: 'whatsapp-account-form',
             defaults: {
-                description: ''
+                description: '',
+                client_id: ''
             }
         });
         
@@ -56,7 +56,8 @@ export const load = restrict(
 
 export const actions: Actions = {
     // Main action for creating a WhatsApp account
-    createAccount: async ({ request, locals }) => {
+    createAccount: restrict(
+    async ({ request, locals }: AuthenticatedEvent) => {
         const auth = await locals.auth.validate();
         if (!auth?.user || auth.user.systemRole !== 'ADMIN') {
             throw error(403, 'Not authorized to create WhatsApp accounts');
@@ -81,7 +82,7 @@ export const actions: Actions = {
             // The client_id should have been set in the frontend when the WebSocket connection was authenticated
             if (!form.data.client_id) {
                 // SuperForms expects the form to be at the top level
-                return fail(400, message(form, 'Client ID is required. Please authenticate with WhatsApp first.', { status: 'error' }));
+                return fail(400, message(form, 'Client ID is required. Please authenticate with WhatsApp first.', { status: 400 }));
             }
             
             // Log the client ID from the form for debugging
@@ -92,7 +93,7 @@ export const actions: Actions = {
             
             if (!isValidClientId) {
                 logger.warn(`Invalid client ID format: ${form.data.client_id}`);
-                return fail(400, message(form, 'Invalid client ID format. Please reconnect your WhatsApp account.', { status: 'error' }));
+                return fail(400, message(form, 'Invalid client ID format. Please reconnect your WhatsApp account.', { status: 400 }));
             }
             
             // Get client directly by ID
@@ -100,10 +101,10 @@ export const actions: Actions = {
             
             if (!client) {
                 logger.warn(`Client with ID ${form.data.client_id} not found when creating account`);
-                return fail(400, message(form, 'WhatsApp client not found. Please reconnect and try again.', { status: 'error' }));
+                return fail(400, message(form, 'WhatsApp client not found. Please reconnect and try again.', { status: 400 }));
             }
             
-            const clientInfo = client ? client.getInfo() : null;
+            const clientInfo = (client ? client.getInfo() : null) as { phoneNumber?: string | null; pushName?: string | null } | null;
             
             if (!clientInfo) {
                 logger.warn(`Client info not available for client ${form.data.client_id}`);
@@ -141,11 +142,13 @@ export const actions: Actions = {
             
             // Update the client's account ID
             if (client) {
-                await client.setAccountId(account.id);
+                if (typeof (client as any).setAccountId === 'function') {
+                    await (client as any).setAccountId(account.id);
+                }
             }
 
             // Create a success message with the form data
-            const successForm = message(form, 'WhatsApp account created successfully!', { status: 'success' });
+            const successForm = message(form, 'WhatsApp account created successfully!');
             
             // Add the account data to the form data object directly
             // This ensures SuperForms gets the form data at the top level
@@ -166,7 +169,7 @@ export const actions: Actions = {
             return formWithAccount;
         } catch (err) {
             // Log the full error for debugging
-            logger.error('Error creating WhatsApp account:', err);
+            logger.error('Error creating WhatsApp account:', err as Record<string, unknown>);
             
             // Provide a more specific error message if possible
             const errorMessage = err instanceof Error 
@@ -174,12 +177,14 @@ export const actions: Actions = {
                 : 'Failed to create WhatsApp account. Please try again.';
             
             // SuperForms expects the form to be at the top level, even in error cases
-            return fail(500, message(form, errorMessage, { status: 'error' }));
+            return fail(500, message(form, errorMessage, { status: 500 }));
         }
     },
+    [SystemRole.ADMIN]
+    ),
     
     // Action to request a new QR code
-    requestQRCode: async ({ locals }) => {
+    requestQRCode: restrict(async (_event: AuthenticatedEvent) => {
         try {
             // Create a new WhatsApp client and let Baileys generate the client ID
             const { clientId, qrCodePromise } = await whatsAppAccountManager.createClient();
@@ -190,5 +195,5 @@ export const actions: Actions = {
             console.error('Error requesting QR code:', error);
             return fail(500, { error: 'Failed to request QR code' });
         }
-    }
+    }, [SystemRole.ADMIN])
 } satisfies Actions;

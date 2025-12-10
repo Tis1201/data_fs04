@@ -60,13 +60,6 @@ export const GET: RequestHandler = async ({ url, locals }) => {
             name: true
           }
         },
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true
-          }
-        },
         _count: {
           select: {
             assignments: true
@@ -147,13 +140,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         account: {
           select: {
             id: true,
-            name: true
-          }
-        },
-        user: {
-          select: {
-            id: true,
-            email: true,
             name: true
           }
         }

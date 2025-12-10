@@ -5,10 +5,11 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { listKeys, createKey, rotateKey } from '../service';
+import type { JwtSigningKey } from '@prisma/client';
 
 // Schema for creating a new key
 const createKeySchema = z.object({
@@ -21,7 +22,8 @@ const rotateKeySchema = z.object({
 });
 
 export const load = restrict(
-  async ({ url, locals }) => {
+  async (event: AuthenticatedLoadEvent) => {
+    const { url, locals } = event;
     try {
       // Get query parameters for filtering, sorting, and pagination
       const page = parseInt(url.searchParams.get('page') || '1');
@@ -110,7 +112,7 @@ export const load = restrict(
           logger.warn(`Invalid date format: ${dateStr}`);
           return null;
         } catch (e) {
-          logger.error(`Error parsing date parameter: ${dateStr}`, e);
+          logger.error(`Error parsing date parameter: ${dateStr}`, { error: e });
           return null;
         }
       };
@@ -237,9 +239,10 @@ export const load = restrict(
       
       // Sort the keys based on the sort parameters
       if (sortField && sortOrder) {
+        const field = sortField as keyof JwtSigningKey;
         keys = [...keys].sort((a, b) => {
-          const aValue = a[sortField as keyof JwtSigningKey];
-          const bValue = b[sortField as keyof JwtSigningKey];
+          const aValue = a[field];
+          const bValue = b[field];
           
           if (aValue === bValue) return 0;
           
@@ -323,7 +326,8 @@ export const load = restrict(
 export const actions: Actions = {
   // Create a new key
   createKey: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       // Accept both JSON and form submissions; default keyType to LINK if missing
       let form = await superValidate(request, zod(createKeySchema), {
         id: 'link-create-form'
@@ -341,6 +345,9 @@ export const actions: Actions = {
 
       try {
         const { keyType } = form.data;
+        if (!locals.user) {
+          return fail(401, { form, error: { message: 'Unauthorized' } });
+        }
         
         // Check if a key of this type already exists
         const existingKeys = await locals.prisma.jwtSigningKey.findMany({
@@ -361,15 +368,16 @@ export const actions: Actions = {
         const result = await createKey(locals.prisma, keyType, locals.user.id);
         
         if (!result.success) {
-          logger.error('Failed to create link key:', result.error);
+          logger.error('Failed to create link key', { error: result.error });
+          const errorData = result.error as any;
           return fail(400, {
             form,
             success: false,
             error: {
-              message: result.error.message || 'Failed to create link key',
-              details: result.error.details,
-              code: result.error.code,
-              meta: result.error.meta
+              message: result.error?.message || 'Failed to create link key',
+              details: errorData?.details,
+              code: result.error?.code,
+              meta: errorData?.meta
             },
           });
         }
@@ -398,7 +406,7 @@ export const actions: Actions = {
           })
         );
       } catch (err) {
-        logger.error('Error creating link JWT key:', err);
+        logger.error('Error creating link JWT key', { error: err });
         return handleFormError({
           error: err,
           form,
@@ -413,7 +421,8 @@ export const actions: Actions = {
 
   // Rotate an existing key
   rotateKey: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       logger.info('Rotate link key action called');
       logger.info('Request received:', { url: request.url });
       
@@ -430,7 +439,7 @@ export const actions: Actions = {
 
       try {
         const { keyId } = form.data;
-        logger.info('Rotating link key with ID:', keyId);
+        logger.info('Rotating link key with ID', { keyId });
         
         // Find the existing key to verify it exists
         const existingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -438,7 +447,7 @@ export const actions: Actions = {
         });
         
         if (!existingKey) {
-          logger.error('Key not found with ID:', keyId);
+          logger.error('Key not found with ID', { keyId });
           return fail(404, {
             form,
             success: false,
@@ -449,7 +458,7 @@ export const actions: Actions = {
         }
         
         if (existingKey.keyType !== 'LINK') {
-          logger.error('Key is not a link key:', existingKey.keyType);
+          logger.error('Key is not a link key', { keyType: existingKey.keyType });
           return fail(400, {
             form,
             success: false,
@@ -459,26 +468,30 @@ export const actions: Actions = {
           });
         }
         
-        logger.info('Found existing link key:', {
+        logger.info('Found existing link key', {
           id: existingKey.id,
           keyType: existingKey.keyType,
           isPrimary: existingKey.isPrimary
         });
 
         // Rotate the key using the ID directly from the form
-        logger.info('Calling rotateKey service with keyId:', keyId);
+        logger.info('Calling rotateKey service with keyId', { keyId });
+        if (!locals.user) {
+          return fail(401, { form, error: { message: 'Unauthorized' } });
+        }
         const result = await rotateKey(locals.prisma, keyId, locals.user.id);
 
         if (!result.success) {
-          logger.error(`Failed to rotate link key: ${JSON.stringify(result.error)}`);
+          logger.error('Failed to rotate link key', { error: result.error });
+          const errorData = result.error as any;
           return fail(400, {
             form,
             success: false,
             error: {
               message: result.error?.message || 'Failed to rotate link key',
-              details: result.error?.details,
+              details: errorData?.details,
               code: result.error?.code || 'UNKNOWN_ERROR',
-              meta: result.error?.meta
+              meta: errorData?.meta
             },
           });
         }
@@ -507,7 +520,7 @@ export const actions: Actions = {
           })
         );
       } catch (err) {
-        logger.error('Error rotating link JWT key:', err);
+        logger.error('Error rotating link JWT key', { error: err });
         return handleFormError({
           error: err,
           form,

@@ -8,6 +8,19 @@ import prisma from '$lib/server/prisma';
 export const GET: RequestHandler = restrict(
     async (event: AuthenticatedEvent) => {
         const { params } = event;
+        const auth = event.auth;
+
+        if (!auth?.user) {
+            return json({
+                success: false,
+                error: {
+                    code: 'UNAUTHORIZED',
+                    message: 'Authentication required',
+                    timestamp: new Date().toISOString(),
+                    requestId: crypto.randomUUID()
+                }
+            }, { status: 401 });
+        }
         const { id: deviceId, operationId } = params;
         
         if (!deviceId || !operationId) {
@@ -45,7 +58,7 @@ export const GET: RequestHandler = restrict(
             }
 
             // Check if user has access to this device
-            if (event.auth.user.systemRole !== SystemRole.ADMIN && device.user.id !== event.auth.user.id) {
+            if (auth.user.systemRole !== SystemRole.ADMIN && device.user.id !== auth.user.id) {
                 return json({ 
                     success: false, 
                     error: { 
@@ -97,7 +110,7 @@ export const GET: RequestHandler = restrict(
                 duration = new Date(operation.completedAt).getTime() - new Date(operation.initiatedAt).getTime();
             }
 
-            logger.info(`[OperationStatusAPI] Operation status retrieved for device ${deviceId}, operation ${operationId} by user ${event.auth.user.email}`);
+            logger.info(`[OperationStatusAPI] Operation status retrieved for device ${deviceId}, operation ${operationId} by user ${auth.user.email}`);
 
             return json({
                 success: true,
@@ -136,5 +149,5 @@ export const GET: RequestHandler = restrict(
             }, { status: 500 });
         }
     },
-    { roles: [SystemRole.ADMIN, SystemRole.USER] }
+    [SystemRole.ADMIN, SystemRole.USER]
 );

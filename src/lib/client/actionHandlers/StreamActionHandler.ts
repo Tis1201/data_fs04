@@ -82,7 +82,7 @@ export class StreamActionHandler extends BaseActionHandler {
   /**
    * Handle progress update messages using entity
    */
-  private handleProgressUpdate(entity: DeviceMessageEntity): void {
+  protected handleProgressUpdate(entity: DeviceMessageEntity): void {
     const { action, progress, message, logId } = entity;
     const actionType = this.actionType;
 

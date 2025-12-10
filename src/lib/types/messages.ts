@@ -41,6 +41,8 @@ export interface SSEMessage {
     sender?: {
         email?: string;
         name?: string | null;
+        connectionId?: string;
+        protocol?: string;
     };
 }
 

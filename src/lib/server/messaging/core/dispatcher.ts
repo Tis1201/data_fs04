@@ -43,10 +43,10 @@ export const MessageDispatcher: MessageDispatcher = {
     }
     
     // Debug: Log if WebRTC message was not caught
-    if (type === 'device' && message.payload?.type?.startsWith('webrtc:')) {
+    if (type === 'device' && typeof message.payload?.type === 'string' && message.payload.type.startsWith('webrtc:')) {
       console.log(`[Dispatcher] WARNING: WebRTC message not caught by handler!`, {
         type,
-        payloadType: message.payload?.type,
+        payloadType: message.payload.type,
         supportsResult: webrtcHandler.supports(type, message)
       });
     }

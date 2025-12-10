@@ -1,11 +1,11 @@
 import type { RequestHandler } from './$types';
 import { json, error } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 
-export const GET: RequestHandler = restrict(async ({ url, params, locals }) => {
+export const GET: RequestHandler = restrict(async ({ url, params, locals }: AuthenticatedEvent) => {
   const { id } = params; // preclaim set id
 
   try {

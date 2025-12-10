@@ -1,6 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -14,7 +14,8 @@ import { logAudit } from '$lib/server/audit-logger';
 
 export const actions: Actions = {
     updateToken: restrict(
-        async ({ params, locals, request }) => {
+        async (event: AuthenticatedEvent) => {
+            const { params, locals, request } = event;
             const { id } = params;
             
             // Validate form data
@@ -44,6 +45,13 @@ export const actions: Actions = {
                     throw new FormValidationError(
                         'You must be logged in to update a factory token',
                         'AUTH_REQUIRED',
+                        401
+                    );
+                }
+                if (!locals.user) {
+                    throw new FormValidationError(
+                        'User context missing',
+                        'AUTH_CONTEXT_REQUIRED',
                         401
                     );
                 }
@@ -78,8 +86,8 @@ export const actions: Actions = {
                     recordId: factoryToken.id,
                     oldData: existingToken,
                     newData: factoryToken,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? auth.user.id,
+                    ipAddress: (locals as any)?.ipAddress,
                     prisma: locals.prisma
                 })
 
@@ -113,7 +121,8 @@ export const actions: Actions = {
 };
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async (event: AuthenticatedLoadEvent) => {
+        const { params, locals } = event;
         const { id } = params;
 
         try {
@@ -133,10 +142,7 @@ export const load = restrict(
             });
             
             if (!factoryToken) {
-                throw error(404, {
-                    message: 'Factory token not found',
-                    code: 'FACTORY_TOKEN_NOT_FOUND'
-                });
+                throw error(404, 'Factory token not found');
             }
             
             // Get available JWT signing keys for factory tokens
@@ -180,10 +186,7 @@ export const load = restrict(
             };
         } catch (err) {
             logger.error(`Error loading factory token ${id}: ${err}`);
-            throw error(500, {
-                message: 'Failed to load factory token',
-                code: 'FACTORY_TOKEN_LOAD_ERROR'
-            });
+            throw error(500, 'Failed to load factory token');
         }
     },
     [SystemRole.ADMIN]

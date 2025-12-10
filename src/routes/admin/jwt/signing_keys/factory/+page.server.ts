@@ -5,12 +5,13 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { createSuccessResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { listKeys, createKey, rotateKey } from '../service';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
+import type { JwtSigningKey } from '@prisma/client';
 
 // Schema for creating a new key
 const createKeySchema = z.object({
@@ -23,7 +24,8 @@ const rotateKeySchema = z.object({
 });
 
 export const load = restrict(
-  async ({ url, locals }) => {
+  async (event: AuthenticatedLoadEvent) => {
+    const { url, locals } = event;
     try {
       // Get query parameters for filtering, sorting, and pagination
       const page = parseInt(url.searchParams.get('page') || '1');
@@ -112,7 +114,7 @@ export const load = restrict(
           logger.warn(`Invalid date format: ${dateStr}`);
           return null;
         } catch (e) {
-          logger.error(`Error parsing date parameter: ${dateStr}`, e);
+          logger.error(`Error parsing date parameter: ${dateStr}`, { error: e });
           return null;
         }
       };
@@ -325,7 +327,8 @@ export const load = restrict(
 export const actions: Actions = {
   // Create a new key
   createKey: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       const form = await superValidate(request, zod(createKeySchema), {
         id: 'factory-create-form'
       });
@@ -353,6 +356,14 @@ export const actions: Actions = {
         }
 
         // Create a new key
+        if (!locals.user) {
+          return fail(401, {
+            form,
+            success: false,
+            error: { message: 'Unauthorized' }
+          });
+        }
+
         const result = await createKey(locals.prisma, keyType, locals.user.id);
         
         if (!result.success) {
@@ -361,10 +372,8 @@ export const actions: Actions = {
             form,
             success: false,
             error: {
-              message: result.error.message || 'Failed to create factory key',
-              details: result.error.details,
-              code: result.error.code,
-              meta: result.error.meta
+              message: result.error?.message || 'Failed to create factory key',
+              code: result.error?.code
             },
           });
         }
@@ -393,7 +402,7 @@ export const actions: Actions = {
           })
         );
       } catch (err) {
-        logger.error('Error creating factory JWT key:', err);
+        logger.error('Error creating factory JWT key:', { error: err });
         return handleFormError({
           error: err,
           form,
@@ -408,7 +417,8 @@ export const actions: Actions = {
 
   // Rotate an existing key
   rotateKey: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       logger.info('Rotate factory key action called');
       logger.info('Request received:', { url: request.url });
       
@@ -425,7 +435,7 @@ export const actions: Actions = {
 
       try {
         const { keyId } = form.data;
-        logger.info('Rotating factory key with ID:', keyId);
+        logger.info('Rotating factory key with ID', { keyId });
         
         // Find the existing key to verify it exists
         const existingKey = await locals.prisma.jwtSigningKey.findUnique({
@@ -433,7 +443,7 @@ export const actions: Actions = {
         });
         
         if (!existingKey) {
-          logger.error('Key not found with ID:', keyId);
+          logger.error('Key not found with ID', { keyId });
           return fail(404, {
             form,
             success: false,
@@ -444,7 +454,7 @@ export const actions: Actions = {
         }
         
         if (existingKey.keyType !== 'FACTORY') {
-          logger.error('Key is not a factory key:', existingKey.keyType);
+          logger.error('Key is not a factory key:', { keyType: existingKey.keyType });
           return fail(400, {
             form,
             success: false,
@@ -461,7 +471,10 @@ export const actions: Actions = {
         });
 
         // Rotate the key using the ID directly from the form
-        logger.info('Calling rotateKey service with keyId:', keyId);
+        logger.info('Calling rotateKey service with keyId', { keyId });
+        if (!locals.user) {
+          return fail(401, { form, error: { message: 'Unauthorized' } });
+        }
         const result = await rotateKey(locals.prisma, keyId, locals.user.id);
 
         if (!result.success) {
@@ -471,9 +484,7 @@ export const actions: Actions = {
             success: false,
             error: {
               message: result.error?.message || 'Failed to rotate factory key',
-              details: result.error?.details,
-              code: result.error?.code || 'UNKNOWN_ERROR',
-              meta: result.error?.meta
+              code: result.error?.code || 'UNKNOWN_ERROR'
             },
           });
         }
@@ -502,7 +513,7 @@ export const actions: Actions = {
           })
         );
       } catch (err) {
-        logger.error('Error rotating factory JWT key:', err);
+        logger.error('Error rotating factory JWT key:', { error: err });
         return handleFormError({
           error: err,
           form,
@@ -517,7 +528,8 @@ export const actions: Actions = {
 
   // Generate a minimal, short-lived factory JWT and return as a file download
   generateFactoryJwt: restrict(
-    async ({ request, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, locals } = event;
       try {
         const form = await request.formData();
         const keyId = String(form.get('keyId') || '');
@@ -565,7 +577,7 @@ export const actions: Actions = {
           }
         });
       } catch (err) {
-        logger.error('Error generating factory JWT:', err);
+        logger.error('Error generating factory JWT:', { error: err });
         return fail(500, { error: { message: 'Failed to generate JWT' } });
       }
     },

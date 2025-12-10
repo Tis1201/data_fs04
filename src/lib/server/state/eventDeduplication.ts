@@ -11,7 +11,7 @@ export class EventDeduplicationService {
   }
 
   generateEventId(event: ClickHouseEvent): string {
-    return `${event.deviceId}:${event.waveId}:${event.bundleId}:${event.ts}`;
+    return `${event.device_id}:${event.wave_id}:${event.bundle_id}:${event.ts}`;
   }
 
   async isEventProcessed(event: ClickHouseEvent): Promise<boolean> {

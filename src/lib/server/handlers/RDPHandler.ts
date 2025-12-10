@@ -9,7 +9,7 @@ import type { InMessage, RoutingMessage } from '../messaging/interfaces/message'
 import type { Handler } from '../messaging/interfaces/handler';
 import { MessageFactory, SystemUser } from '../messaging/interfaces/message';
 import { MessageValidator } from '../../types/unified';
-import { getLoggingManager } from '../../managers/LoggingManager';
+import { getLoggingManager, LoggingManagerClass } from '../../managers/LoggingManager';
 import { publisher } from '../messaging/core/publisher';
 import { getMessageRelay } from '../pushpin/middleware';
 import { logger } from '../logger';
@@ -19,7 +19,7 @@ import { logger } from '../logger';
 // ============================================================================
 
 class RDPHandlerClass implements Handler {
-  private logger = getLoggingManager();
+  private logger: LoggingManagerClass | null = getLoggingManager();
 
   supports(type: string): boolean {
     return type === 'rdp' || 
@@ -27,15 +27,19 @@ class RDPHandlerClass implements Handler {
   }
 
   async handle(message: InMessage): Promise<void> {
-    this.logger?.logRDP('handle', message.deviceId || 'unknown', 'Handling RDP message', {
-      messageType: message.type,
-      payloadType: (message as any)?.payload?.type
-    });
+    const deviceId = message.deviceId || 'unknown';
+    if (this.logger) {
+      this.logger.log('debug', 'rdp', 'RDP handle: Handling RDP message', {
+        deviceId,
+        messageType: message.type,
+        payloadType: (message as any)?.payload?.type
+      });
+    }
 
     try {
       // Validate message
       if (!MessageValidator.validate(message)) {
-        this.logger?.logError('rdp', 'Invalid RDP message format', { message });
+        this.logger?.error('rdp', 'Invalid RDP message format', { message });
         throw new Error('Invalid message format');
       }
 
@@ -60,12 +64,14 @@ class RDPHandlerClass implements Handler {
           await this.handleError(rdpMessage);
           break;
         default:
-          this.logger?.logWarn('rdp', `Unknown RDP message type: ${rdpMessage.payload?.type}`);
+          this.logger?.warn('rdp', `Unknown RDP message type: ${rdpMessage.payload?.type}`);
       }
 
-      this.logger?.logRDP('handle', deviceId, 'RDP message handled successfully');
+      if (this.logger) {
+        this.logger.log('debug', 'rdp', 'RDP handle: Message handled successfully', { deviceId });
+      }
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to handle RDP message', { error, message });
+      this.logger?.error('rdp', 'Failed to handle RDP message', { error, message });
       throw error;
     }
   }
@@ -101,7 +107,7 @@ class RDPHandlerClass implements Handler {
       const isDeviceOnline = true; // Mock for now
 
       if (!isDeviceOnline) {
-        this.logger?.logWarn('rdp', 'Device is offline', { deviceId });
+        this.logger?.warn('rdp', 'Device is offline', { deviceId });
         await this.sendErrorResponse(deviceId, 'Device is offline', message);
         return;
       }
@@ -124,7 +130,7 @@ class RDPHandlerClass implements Handler {
 
       this.logger?.logRDP('start', deviceId, 'RDP start handled successfully');
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to handle RDP start', { error, deviceId, options });
+      this.logger?.error('rdp', 'Failed to handle RDP start', { error, deviceId, options });
       throw error;
     }
   }
@@ -158,7 +164,7 @@ class RDPHandlerClass implements Handler {
 
       this.logger?.logRDP('stop', deviceId, 'RDP stop handled successfully');
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to handle RDP stop', { error, deviceId });
+      this.logger?.error('rdp', 'Failed to handle RDP stop', { error, deviceId });
       throw error;
     }
   }
@@ -188,7 +194,7 @@ class RDPHandlerClass implements Handler {
 
       this.logger?.logRDP('mouse', deviceId, 'RDP mouse event handled successfully');
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to handle RDP mouse event', { error, deviceId, mouseEvent });
+      this.logger?.error('rdp', 'Failed to handle RDP mouse event', { error, deviceId, mouseEvent });
       throw error;
     }
   }
@@ -218,7 +224,7 @@ class RDPHandlerClass implements Handler {
 
       this.logger?.logRDP('keyboard', deviceId, 'RDP keyboard event handled successfully');
     } catch (error) {
-      this.logger?.logError('rdp', 'Failed to handle RDP keyboard event', { error, deviceId, keyboardEvent });
+      this.logger?.error('rdp', 'Failed to handle RDP keyboard event', { error, deviceId, keyboardEvent });
       throw error;
     }
   }
@@ -227,7 +233,7 @@ class RDPHandlerClass implements Handler {
     const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
     const error = (message as any)?.payload?.error || 'Unknown RDP error';
     
-    this.logger?.logError('rdp', 'RDP error received', { error, deviceId });
+    this.logger?.error('rdp', 'RDP error received', { error, deviceId });
 
     try {
       // Update action log
@@ -247,7 +253,7 @@ class RDPHandlerClass implements Handler {
 
       this.logger?.logRDP('error', deviceId, 'RDP error handled successfully');
     } catch (err) {
-      this.logger?.logError('rdp', 'Failed to handle RDP error', { error: err, deviceId });
+      this.logger?.error('rdp', 'Failed to handle RDP error', { error: err, deviceId });
       throw err;
     }
   }

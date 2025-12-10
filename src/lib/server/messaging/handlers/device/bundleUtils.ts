@@ -45,12 +45,12 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
     // Start the next wave
     logger.info(`[BundleUtils] Auto-starting next wave ${nextWave.id} for bundle ${bundleId}`);
     
-    // Update wave status to RUNNING
+    // Update wave status to IN_PROGRESS
     await prisma.bundleWave.update({
       where: { id: nextWave.id },
       data: { 
-        status: 'RUNNING',
-        startedAt: new Date()
+        status: 'IN_PROGRESS',
+        startTime: new Date()
       }
     });
 
@@ -63,23 +63,23 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
     }
 
     // Send start command to all devices in the next wave
-    const devices = await prisma.bundleWaveDevice.findMany({
+    const devices = await prisma.bundleDeviceProgress.findMany({
       where: { 
         waveId: nextWave.id,
         status: 'PENDING'
       },
-      include: { device: true }
+      include: { bundleDevice: true }
     });
 
     for (const waveDevice of devices) {
-      if (waveDevice.device) {
+      if (waveDevice.bundleDevice?.deviceId) {
         try {
           const message = MessageFactory.createSystemMessage(
             'device:actionRequest',
-            `subscription:device:${waveDevice.device.id}`,
+            `subscription:device:${waveDevice.bundleDevice.deviceId}`,
             {
               action: 'bundleStatus',
-              deviceId: waveDevice.device.id,
+              deviceId: waveDevice.bundleDevice.deviceId,
               waveId: nextWave.id,
               bundleId: bundleId,
               timestamp: new Date().toISOString()
@@ -88,9 +88,9 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
           );
 
           await publisher.publish(message);
-          logger.info(`[BundleUtils] Sent bundle start command to device ${waveDevice.device.id} for wave ${nextWave.id}`);
+          logger.info(`[BundleUtils] Sent bundle start command to device ${waveDevice.bundleDevice.deviceId} for wave ${nextWave.id}`);
         } catch (error) {
-          logger.error(`[BundleUtils] Failed to send bundle start command to device ${waveDevice.device.id}: ${String(error)}`);
+          logger.error(`[BundleUtils] Failed to send bundle start command to device ${waveDevice.bundleDevice.deviceId}: ${String(error)}`);
         }
       }
     }

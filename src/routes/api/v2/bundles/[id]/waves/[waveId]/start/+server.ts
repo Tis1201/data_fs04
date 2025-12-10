@@ -12,6 +12,7 @@ import { logger } from '$lib/server/logger';
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
+import type { UserInfo } from '$lib/server/types/user';
 
 /**
  * POST /api/v2/bundles/[id]/waves/[waveId]/start
@@ -82,6 +83,14 @@ export const POST = unifiedEndpoint(
 				include: { bundleDevice: true },
 				orderBy: { createdAt: 'asc' } // Ensure devices are processed in assignment order
 			});
+
+			const actingUser: UserInfo = {
+				id: context.session.user.id,
+				email: context.session.user.email,
+				name: (context.session.user as any).name ?? context.session.user.email,
+				systemRole: context.session.user.systemRole,
+				source: 'session'
+			};
 			
 			// Set startedAt for all devices in the wave when sending commands
 			const startTime = new Date();
@@ -90,7 +99,7 @@ export const POST = unifiedEndpoint(
 				data: { 
 					startedAt: startTime,
 					status: 'IN_PROGRESS',
-					updatedBy: context.session.user.id
+					updatedBy: actingUser.id
 				}
 			});
 			
@@ -112,7 +121,7 @@ export const POST = unifiedEndpoint(
 					'device:actionRequest',
 					`subscription:device:${deviceId}`,
 					command,
-					{ id: context.session.user.id, name: context.session.user.email || context.session.user.name },
+					actingUser,
 					{ echoToSender: false }
 				);
 				await publisher.publish(routing);

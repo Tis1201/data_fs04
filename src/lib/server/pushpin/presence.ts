@@ -18,6 +18,9 @@ export class PresenceManager {
    * Set device as online with TTL
    */
   async setDeviceOnline(deviceId: string): Promise<void> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const presenceKey = `presence:${deviceId}`;
     await this.redisService.setEx(presenceKey, this.presenceTTL, '1');
     logger.debug(`Device ${deviceId} presence set online (TTL: ${this.presenceTTL}s)`);
@@ -27,6 +30,9 @@ export class PresenceManager {
    * Set device as offline (remove presence key)
    */
   async setDeviceOffline(deviceId: string): Promise<void> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const presenceKey = `presence:${deviceId}`;
     await this.redisService.del(presenceKey);
     logger.debug(`Device ${deviceId} presence set offline`);
@@ -36,6 +42,9 @@ export class PresenceManager {
    * Check if device is online
    */
   async isDeviceOnline(deviceId: string): Promise<boolean> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const presenceKey = `presence:${deviceId}`;
     const result = await this.redisService.get(presenceKey);
     return result === '1';
@@ -45,6 +54,9 @@ export class PresenceManager {
    * Get all online devices
    */
   async getOnlineDevices(): Promise<string[]> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const keys = await this.redisService.client.keys('presence:*');
     return keys.map(key => key.replace('presence:', ''));
   }
@@ -53,6 +65,9 @@ export class PresenceManager {
    * Refresh device presence (extend TTL)
    */
   async refreshPresence(deviceId: string): Promise<void> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const presenceKey = `presence:${deviceId}`;
     await this.redisService.expire(presenceKey, this.presenceTTL);
     logger.debug(`Device ${deviceId} presence refreshed`);
@@ -62,6 +77,9 @@ export class PresenceManager {
    * Get presence count
    */
   async getPresenceCount(): Promise<number> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const keys = await this.redisService.client.keys('presence:*');
     return keys.length;
   }
@@ -70,6 +88,9 @@ export class PresenceManager {
    * Get presence info for a specific device
    */
   async getPresenceInfo(deviceId: string): Promise<{ online: boolean; ttl: number }> {
+    if (!this.redisService) {
+      throw new Error('Redis service not initialized');
+    }
     const presenceKey = `presence:${deviceId}`;
     const exists = await this.redisService.exists(presenceKey);
     const ttl = exists ? await this.redisService.client.ttl(presenceKey) : -1;

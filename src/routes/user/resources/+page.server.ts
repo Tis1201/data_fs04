@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
@@ -8,7 +8,8 @@ import { logAudit } from '$lib/server/audit-logger';
 import { deleteFileFromCloudStorage } from '$lib/server/storage';
 
 export const load = restrict(
-    async ({ url, locals }) => {
+    async (event: AuthenticatedLoadEvent) => {
+        const { url, locals } = event;
         try {
             // Get query parameters for filtering, sorting, and pagination
             const search = url.searchParams.get('search') || '';
@@ -108,7 +109,7 @@ export const load = restrict(
             return {
                 resources,
                 accounts,
-                resourceTypes: resourceTypes.map(rt => rt.type),
+                resourceTypes: resourceTypes.map((rt) => rt.type),
                 meta: {
                     totalItems: totalResources,
                     itemsPerPage: perPage,
@@ -133,7 +134,8 @@ export const load = restrict(
 
 export const actions: Actions = {
     delete: restrict(
-        async ({ request, locals, url }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, locals, url } = event;
             try {
                 const formData = await request.formData();
                 const id = formData.get('id')?.toString();
@@ -169,7 +171,7 @@ export const actions: Actions = {
                     where: { id }
                 });
 
-                logger.info(`Resource deleted: ${id} by user ${locals.user.id}`);
+                logger.info(`Resource deleted: ${id} by user ${locals.user?.id ?? 'unknown'}`);
 
                 await logAudit({
                     actionType: AuditActionType.DELETE,
@@ -177,8 +179,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: null,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
                 });
 

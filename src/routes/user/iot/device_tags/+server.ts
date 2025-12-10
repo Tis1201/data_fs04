@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
@@ -14,7 +14,7 @@ import { logAudit } from '$lib/server/audit-logger';
 
 // Handle DELETE requests to delete a Device Tag
 export const DELETE = restrict(
-    async ({ request, locals }) => {
+    async ({ request, locals }: AuthenticatedEvent) => {
         try {
             const { prisma } = locals;
             const data = await request.json();
@@ -46,8 +46,8 @@ export const DELETE = restrict(
                 recordId: id,
                 oldData: deviceTag,
                 newData: null,
-                userId: locals.user.id,
-                ipAddress: locals.ipAddress,
+                userId: locals.user?.id ?? 'system',
+                ipAddress: locals.requestContext?.ip,
                 prisma: prisma
             })
             

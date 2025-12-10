@@ -40,7 +40,18 @@ const table_options = {
 export const load = restrict(
     async ({ url, locals }: AuthenticatedLoadEvent) => {
         // Use the reusable fetchTableData function with our table options
-        const result = await fetchTableData(locals, url, table_options);
+        const result = await fetchTableData<{
+            id: string;
+            name: string;
+            postfix: string;
+            status: string;
+            listenToAll: boolean;
+            description: string | null;
+            expiresAt: Date | null;
+            userId: string;
+            createdAt: Date;
+            updatedAt: Date;
+        }>(locals, url, table_options);
         
         // Enhance the listeners with their webhook endpoints and WhatsApp accounts
         const enhancedListeners = await Promise.all(result.records.map(async (listener) => {
@@ -92,10 +103,11 @@ export const actions = {
                 const { name, postfix, description, listenToAll, expiresAt } = form.data;
                 const webhookEndpointIds = form.data.webhookEndpointIds || [];
                 const whatsappAccountIds = form.data.whatsappAccountIds || [];
+                const listenerPostfix = postfix ?? generateId(8);
                 
                 // Check if listener with the same postfix already exists
                 const existingListener = await locals.prisma.listenerEndpoint.findFirst({
-                    where: { postfix }
+                    where: { postfix: listenerPostfix }
                 });
 
                 if (existingListener) {
@@ -122,7 +134,7 @@ export const actions = {
                     data: {
                         id: listenerId,
                         name,
-                        postfix,
+                        postfix: listenerPostfix,
                         description,
                         listenToAll: listenToAll ?? true,
                         expiresAt,
@@ -350,7 +362,7 @@ export const actions = {
                     return fail(400, { form, error: 'Listener ID is required' });
                 }
                 
-                const { name, postfix, description, active, expiresAt } = form.data;
+                const { name, postfix, description, status, expiresAt } = form.data;
                 
                 // Check if the listener exists
                 const listener = await locals.prisma.listenerEndpoint.findUnique({
@@ -360,12 +372,14 @@ export const actions = {
                 if (!listener) {
                     return fail(404, { form, error: 'Listener endpoint not found' });
                 }
+
+                const listenerPostfix = postfix ?? listener.postfix;
                 
                 // Check if another listener with the same postfix exists
-                if (postfix !== listener.postfix) {
+                if (listenerPostfix !== listener.postfix) {
                     const existinglistener = await locals.prisma.listenerEndpoint.findFirst({
                         where: { 
-                            postfix,
+                            postfix: listenerPostfix,
                             id: { not: id }
                         }
                     });
@@ -383,9 +397,9 @@ export const actions = {
                     where: { id },
                     data: {
                         name,
-                        postfix,
+                        postfix: listenerPostfix,
                         description,
-                        active: active ?? listener.active,
+                        status: status ?? listener.status,
                         expiresAt
                     }
                 });

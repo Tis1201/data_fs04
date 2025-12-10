@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
-import type { RequestHandler } from '../$types';
 import { error } from '@sveltejs/kit';
-import { createSuccessResponse, type ApiSuccessResponse } from '$lib/types/api';
+import { createSuccessResponse } from '$lib/types/api';
 import { restrict_api } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
@@ -43,6 +42,7 @@ interface WhatsAppMessageRequest {
   type?: 'text' | 'image' | 'document';
   caption?: string;
   filename?: string;
+  mimeType?: string;
 }
 
 export const POST = restrict_api(async (event) => {
@@ -172,13 +172,11 @@ export const POST = restrict_api(async (event) => {
     }
     
     // Create API success response directly
-    const responseData: ApiSuccessResponse = {
-      type: 'success',
-      text: 'Message sent successfully',
+    const responseData = createSuccessResponse(result, {
+      timestamp: new Date().toISOString(),
       details: `Message sent to ${to}`,
-      data: result,
-      timestamp: new Date().toISOString()
-    };
+      text: 'Message sent successfully'
+    });
     
     // Log the successful message sending
     const messageId = result?.key?.id || 'unknown';

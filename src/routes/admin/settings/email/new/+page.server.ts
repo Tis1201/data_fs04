@@ -3,6 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
@@ -12,7 +13,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
-    async ({ locals }) => {
+    async () => {
         try {
             // Create a form based on the schema with defaults
             const form = await superValidate(zod(emailSchema), {
@@ -32,7 +33,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     create: restrict(
-        async ({ request, locals, getClientAddress }) => {
+        async ({ request, locals, getClientAddress }: AuthenticatedEvent) => {
             // Validate the form data
             const form = await superValidate(request, zod(emailSchema));
             
@@ -43,6 +44,7 @@ export const actions: Actions = {
             try {
                 // Get current user ID for tracking
                 const userId = locals.user?.id;
+                const ipAddress = getClientAddress();
                 if (!userId) {
                     return fail(401, { form, error: 'User not authenticated' });
                 }
@@ -82,7 +84,7 @@ export const actions: Actions = {
                         updatedBy: userId,
                         
                         // Status
-                        status: "ACTIVE"
+                        status: 'ACTIVE'
                     }
                 });
                 
@@ -109,8 +111,8 @@ export const actions: Actions = {
                     recordId: emailProvider.id,
                     oldData: null,
                     newData: emailProvider,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress,
                     prisma: locals.prisma
                 })
                 

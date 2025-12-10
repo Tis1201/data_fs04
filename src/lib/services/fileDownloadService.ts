@@ -124,7 +124,7 @@ export class FileDownloadService {
    * Save file using traditional download method
    */
   private async saveFileTraditional(fileName: string, fileData: Uint8Array): Promise<void> {
-    const blob = new Blob([fileData]);
+    const blob = new Blob([fileData] as BlobPart[]);
     const url = URL.createObjectURL(blob);
     
     const link = document.createElement('a');

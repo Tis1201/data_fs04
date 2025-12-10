@@ -9,7 +9,7 @@ export class TerminalHandler extends BaseActionHandler {
     super(params);
   }
 
-  handle(evtType: string, entity: DeviceMessageEntity): void {
+  handle(evtType: string, data: MessageData): void {
     // Handle terminal status message
     if (evtType === 'device:terminalStatus' || data?.type === 'device:terminalStatus') {
       this.handleTerminalStatus(evtType, data);

@@ -44,7 +44,8 @@ function safeStringify(obj: any, maxSize: number = MAX_PAYLOAD_SIZE): string {
     // Truncate if still too large
     return result.length > maxSize ? result.substring(0, maxSize) + '...' : result;
   } catch (err) {
-    return `[Error stringifying: ${err.message}]`;
+    const message = err instanceof Error ? err.message : String(err);
+    return `[Error stringifying: ${message}]`;
   }
 }
 
@@ -231,7 +232,7 @@ export class AuditLogger {
       payload, // Include the full payload
       connectionId,
       protocol,
-      sudo: message.sudo || false
+      sudo: Boolean((message as any).sudo)
     });
   }
 

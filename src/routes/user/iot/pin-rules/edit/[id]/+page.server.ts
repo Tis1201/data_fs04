@@ -16,6 +16,11 @@ export const load = restrict(
             throw redirect(302, '/user/iot/pin-rules');
         }
 
+        // auth is guaranteed by restrict but TypeScript still includes null, so guard
+        if (!auth) {
+            throw redirect(302, '/user/iot/pin-rules');
+        }
+
         try {
             // Get user's account for scoping
             const membership = await locals.prisma.accountMembership.findFirst({

@@ -18,7 +18,7 @@ export interface ExtendedWebSocket extends WebSocketBase {
 }
 
 // Extended WebSocket server interface
-export interface ExtendedWebSocketServer extends Server<ExtendedWebSocket> {
+export interface ExtendedWebSocketServer extends Server {
     clients: Set<ExtendedWebSocket>;
 }
 
@@ -31,8 +31,8 @@ export let wssInitialized = false;
 
 export const createWSSGlobalInstance = () => {
     logger.info(`[WebSocket] Creating WebSocket server instance`);
-    const wss = new WebSocketServer({ noServer: true }) as ExtendedWebSocketServer;
-    (globalThis as ExtendedGlobal)[GlobalThisWSS] = wss;
+    const wss = new WebSocketServer({ noServer: true }) as unknown as ExtendedWebSocketServer;
+    (globalThis as unknown as ExtendedGlobal)[GlobalThisWSS] = wss;
     logger.info(`[WebSocket] WebSocket server instance created and stored globally`);
     return wss;
 };

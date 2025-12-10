@@ -119,7 +119,7 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 export const actions: Actions = {
     updateUserStatus: async ({ request, locals, cookies }) => {
         const actionHandler = restrictAccountRole(
-            async ({ auth, accountMembership }: AccountAuthenticatedEvent) => {
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
                 const { accountId } = accountMembership;
                 
                 // Get user memberships for admin Prisma client
@@ -167,7 +167,7 @@ export const actions: Actions = {
                         oldData: { status: user?.status },
                         newData: { status: newStatus.toUpperCase() as keyof typeof UserStatus },
                         userId: auth!.user.id,
-                        ipAddress: auth?.ipAddress,
+                        ipAddress: locals.requestContext?.ip,
                         prisma: adminPrisma
                     })
 
@@ -188,7 +188,7 @@ export const actions: Actions = {
 
     removeFromAccount: async ({ request, locals, cookies }) => {
         const actionHandler = restrictAccountRole(
-            async ({ auth, accountMembership }: AccountAuthenticatedEvent) => {
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
                 const { accountId } = accountMembership;
                 
                 // Get user memberships for admin Prisma client
@@ -243,7 +243,7 @@ export const actions: Actions = {
                                 oldData: membership,
                                 newData: null,
                                 userId: auth!.user.id,
-                                ipAddress: auth?.ipAddress,
+                                ipAddress: locals.requestContext?.ip,
                                 prisma: adminPrisma
                             })
                         )
@@ -266,12 +266,12 @@ export const actions: Actions = {
 
     updateUserRole: async ({ request, locals, cookies }) => {
         const actionHandler = restrictAccountRole(
-            async ({ auth, accountMembership }: AccountAuthenticatedEvent) => {
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
                 const { accountId } = accountMembership;
                 
                 // Get user memberships for admin Prisma client
                 const userMemberships = await prisma.accountMembership.findMany({
-                    where: { userId: auth!.user.i, role: { not: 'SYSTEM' } },
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                     include: {
                         account: {
                             select: { id: true, name: true, slug: true }
@@ -324,7 +324,7 @@ export const actions: Actions = {
                                 oldData: { role: membership.role },
                                 newData: { role: newRole.toUpperCase() },
                                 userId: auth!.user.id,
-                                ipAddress: auth?.ipAddress,
+                                ipAddress: locals.requestContext?.ip,
                                 prisma: adminPrisma
                             })
                         )
@@ -350,7 +350,7 @@ export const actions: Actions = {
      */
     updatePassword: async ({ request, locals, cookies }) => {
         const actionHandler = restrictAccountRole(
-            async ({ auth, accountMembership }: AccountAuthenticatedEvent) => {
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
                 const { accountId } = accountMembership;
                 
                 // Get user memberships for admin Prisma client
@@ -432,7 +432,7 @@ export const actions: Actions = {
                         oldData: null,
                         newData: null,
                         userId: auth!.user.id,
-                        ipAddress: auth?.ipAddress,
+                        ipAddress: locals.requestContext?.ip,
                         prisma: adminPrisma,
                         changeSummary: "Update password"
                     })
@@ -454,7 +454,7 @@ export const actions: Actions = {
      */
     resetPassword: async ({ request, locals, cookies }) => {
         const actionHandler = restrictAccountRole(
-            async ({ auth, accountMembership }: AccountAuthenticatedEvent) => {
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
                 const { accountId } = accountMembership;
                 
                 // Get user memberships for admin Prisma client
@@ -516,7 +516,7 @@ export const actions: Actions = {
                             oldData: null,
                             newData: null,
                             userId: auth!.user.id,
-                            ipAddress: auth?.ipAddress,
+                            ipAddress: locals.requestContext?.ip,
                             prisma: adminPrisma,
                             changeSummary: "Reset Password"
                         })

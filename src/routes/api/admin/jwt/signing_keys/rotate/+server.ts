@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { rotateKey } from '../../../../../admin/jwt/signing_keys/service';
@@ -11,7 +11,7 @@ const rotateKeySchema = z.object({
 });
 
 export const POST = restrict(
-  async ({ request, locals }) => {
+  async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
     logger.info('Rotate JWT signing key API called');
     
     try {
@@ -44,10 +44,15 @@ export const POST = restrict(
       }
       
       // Rotate the key
+      const actorUserId = auth?.user?.id;
+      if (!actorUserId) {
+        return json({ success: false, message: 'Unauthorized' }, { status: 401 });
+      }
+
       const keyResult = await rotateKey(
         locals.prisma,
         keyId,
-        locals.user?.id || 'system'
+        actorUserId
       );
       
       if (!keyResult.success) {
@@ -57,6 +62,13 @@ export const POST = restrict(
         }, { status: 500 });
       }
       
+      if (!keyResult.key) {
+        return json({
+          success: false,
+          message: keyResult.error || 'Failed to rotate key'
+        }, { status: 500 });
+      }
+
       return json({
         success: true,
         message: `${existingKey.keyType.toLowerCase()} key rotated successfully`,
@@ -73,7 +85,7 @@ export const POST = restrict(
         }
       });
     } catch (err) {
-      logger.error('Error rotating JWT signing key:', err);
+      logger.error('Error rotating JWT signing key:', { err });
       return json({
         success: false,
         message: 'An unexpected error occurred while rotating the key',

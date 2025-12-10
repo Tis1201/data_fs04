@@ -28,21 +28,20 @@ export const { GET, PUT, DELETE } = createCrudHandlers({
 				where: { id },
 				include: {
 					account: true,
-					deviceProfileAssignments: {
+					assignments: {
 						include: {
 							device: {
 								select: {
 									id: true,
 									name: true,
-									serialNumber: true,
-									online: true
+									connected: true
 								}
 							}
 						}
 					},
 					_count: {
 						select: {
-							deviceProfileAssignments: true
+							assignments: true
 						}
 					}
 				}
@@ -60,14 +59,13 @@ export const { GET, PUT, DELETE } = createCrudHandlers({
 				data: {
 					name: data.name,
 					description: data.description,
-					configuration: data.configuration,
 					updatedAt: new Date()
 				},
 				include: {
 					account: true,
 					_count: {
 						select: {
-							deviceProfileAssignments: true
+							assignments: true
 						}
 					}
 				}
@@ -77,7 +75,7 @@ export const { GET, PUT, DELETE } = createCrudHandlers({
 		delete: async (id, context) => {
 			// Check if profile has assignments
 			const assignmentCount = await prisma.deviceProfileAssignment.count({
-				where: { deviceProfileId: id }
+				where: { profileId: id }
 			});
 
 			if (assignmentCount > 0) {

@@ -1,1 +1,2 @@
-export { EventType, EventData, EventRouter, eventRouter, EventDestination, EventRoute } from './EventRouter';
+export type { EventType, EventData, EventDestination } from './EventRouter';
+export { EventRouter, eventRouter } from './EventRouter';

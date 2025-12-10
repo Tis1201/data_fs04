@@ -31,16 +31,18 @@ export const POST = restrict(
 
             // Validate required fields
             if (!name || !path) {
-                return json(createErrorResponse('Missing required fields', {
-                    details: 'Name and path are required'
-                }), { status: 400 });
+                return json(
+                    createErrorResponse('Missing required fields', 'ERROR', 'Name and path are required'),
+                    { status: 400 }
+                );
             }
 
             // Validate that path is a cloud URL
             if (!path.startsWith('http')) {
-                return json(createErrorResponse('Invalid path', {
-                    details: 'Path must be a valid cloud storage URL'
-                }), { status: 400 });
+                return json(
+                    createErrorResponse('Invalid path', 'ERROR', 'Path must be a valid cloud storage URL'),
+                    { status: 400 }
+                );
             }
 
             // Normalize accountId
@@ -60,9 +62,14 @@ export const POST = restrict(
                         where: { id: normalizedAccountId }
                     });
                     if (!account) {
-                        return json(createErrorResponse('Invalid account', {
-                            details: `The selected account with ID '${normalizedAccountId}' does not exist.`
-                        }), { status: 400 });
+                        return json(
+                            createErrorResponse(
+                                'Invalid account',
+                                'ERROR',
+                                `The selected account with ID '${normalizedAccountId}' does not exist.`
+                            ),
+                            { status: 400 }
+                        );
                     }
                 } else {
                     logger.debug(`Processing cloud resource creation for system account`);
@@ -71,9 +78,14 @@ export const POST = restrict(
                     });
                     if (!account) {
                         logger.error('System account not found in database');
-                        return json(createErrorResponse('System account not found', {
-                            details: 'The system account does not exist. Please run the database seed to create it.'
-                        }), { status: 500 });
+                        return json(
+                            createErrorResponse(
+                                'System account not found',
+                                'ERROR',
+                                'The system account does not exist. Please run the database seed to create it.'
+                            ),
+                            { status: 500 }
+                        );
                     }
                 }
 
@@ -82,9 +94,14 @@ export const POST = restrict(
                 logger.debug(`Using account: ${accountName} (ID: ${normalizedAccountId})`);
             } catch (acctErr) {
                 logger.error(`Error verifying account: ${String(acctErr)}`);
-                return json(createErrorResponse('Error verifying account', {
-                    details: 'Failed to verify the selected account. Please try again.'
-                }), { status: 500 });
+                return json(
+                    createErrorResponse(
+                        'Error verifying account',
+                        'ERROR',
+                        'Failed to verify the selected account. Please try again.'
+                    ),
+                    { status: 500 }
+                );
             }
 
             // Infer type/format from path if missing
@@ -146,9 +163,14 @@ export const POST = restrict(
 
         } catch (err) {
             logger.error(`Error creating cloud resource: ${String(err)}`);
-            return json(createErrorResponse('Failed to create resource', {
-                details: 'An unexpected error occurred while creating the resource.'
-            }), { status: 500 });
+            return json(
+                createErrorResponse(
+                    'Failed to create resource',
+                    'ERROR',
+                    'An unexpected error occurred while creating the resource.'
+                ),
+                { status: 500 }
+            );
         }
     },
     [SystemRole.ADMIN]

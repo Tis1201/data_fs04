@@ -42,7 +42,7 @@ export async function handleZenstackError(options: ErrorHandlerOptions): Promise
   
   // Default error information
   let errorText = defaultMessage;
-  let errorDetails = '';
+  let errorDetails: any = undefined;
   let errorCode = 'SERVER_ERROR';
   let stack: string | undefined = undefined;
   
@@ -107,12 +107,18 @@ export async function handleZenstackError(options: ErrorHandlerOptions): Promise
     errorDetails = error;
   }
   
-  return createErrorResponse(errorText, {
-    details: errorDetails,
-    code: errorCode,
-    requestId,
-    stack
-  });
+  // Build details object with stack if available
+  const combinedDetails = stack ? { message: errorDetails, stack } : errorDetails;
+  
+  // Create error response with proper format
+  const response = createErrorResponse(errorText, errorCode, combinedDetails);
+  
+  // Add requestId to meta if provided
+  if (requestId && response.meta) {
+    response.meta.requestId = requestId;
+  }
+  
+  return response as ApiErrorResponse;
 }
 
 /**
@@ -121,7 +127,7 @@ export async function handleZenstackError(options: ErrorHandlerOptions): Promise
  */
 export function cleanFormData<T extends Record<string, any>>(formData: T): T {
   // Create a deep copy of the form data
-  const cleanedData = { ...formData };
+  const cleanedData = { ...formData } as any;
   
   // If there's a data property (as in SuperForms), clean it separately
   if (cleanedData.data && typeof cleanedData.data === 'object') {
@@ -210,15 +216,15 @@ export async function handleFormError<T extends Record<string, any>>(
   });
   
   // Override the error code if we have a specific one from FormValidationError
-  if (errorCode) {
-    errorResponse.code = errorCode;
+  if (errorCode && errorResponse.error) {
+    errorResponse.error.code = errorCode;
   }
   
   // Return the message with the cleaned form and error response
   return message(
     cleanForm,
     errorResponse,
-    { status: errorStatus }
+    { status: errorStatus as 400 | 401 | 403 | 404 | 409 | 500 }
   );
 }
 
@@ -286,11 +292,11 @@ export async function handleApiError(
   // Return a standardized JSON response
   return json({
     success: false,
-    error: errorResponse.text,
-    details: errorResponse.details || undefined,
-    code: errorResponse.code || undefined,
-    requestId: errorResponse.requestId || undefined,
-    timestamp: errorResponse.timestamp
+    error: errorResponse.error?.message,
+    details: errorResponse.error?.details || undefined,
+    code: errorResponse.error?.code || undefined,
+    requestId: errorResponse.meta?.requestId || undefined,
+    timestamp: errorResponse.meta?.timestamp
   }, { status: errorStatus });
 }
 

@@ -4,12 +4,13 @@ import { logger } from '$lib/server/logger';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
 import type { UserInfo } from '../types/user';
 import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory } from '$lib/server/messaging/interfaces/message';
+import { MessageFactory, type InMessage } from '$lib/server/messaging/interfaces/message';
 import { generateId } from 'lucia';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { logAudit } from '../audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import { sendDeviceRegistrationMessage, createClaimOptions, type ClaimDeviceOptions } from './deviceRegistrationUtils';
+import type { DeviceMeta } from './deviceMeta';
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
 
@@ -36,7 +37,7 @@ export class DefaultDeviceManager {
     /**
      * Register a new device with a PIN code
      */
-    async registerDevice(pin: string, device: DeviceMeta, ttlSeconds: number = 3600): void {
+    async registerDevice(pin: string, device: DeviceMeta, ttlSeconds: number = 3600): Promise<void> {
 
         if (!device.id) {
             device.id = uuidv4();
@@ -104,7 +105,7 @@ export class DefaultDeviceManager {
         // Prepare base device data
         // Use MAC address for device name if available, fallback to device type or ID
         const macAddress = deviceMeta.macAddress || deviceMeta.wifiMac || deviceMeta.lanMac;
-        const deviceName = macAddress ? `device-${macAddress}` : (deviceMeta.name || `Device-${deviceMeta.id.substring(0, 8)}`);
+        const deviceName = macAddress ? `device-${macAddress}` : ((deviceMeta as any).name || `Device-${deviceMeta.id.substring(0, 8)}`);
         
         const baseDeviceData: any = {
             id: deviceMeta.id,
@@ -117,7 +118,7 @@ export class DefaultDeviceManager {
             ...(deviceMeta.macAddress && { macAddress: deviceMeta.macAddress }),
             ...(deviceMeta.wifiMac && { wifiMac: deviceMeta.wifiMac }),
             ...(deviceMeta.lanMac && { lanMac: deviceMeta.lanMac }),
-            ...(deviceMeta.metadata || {})
+            ...((deviceMeta as any).metadata || {})
         };
 
         // Upsert device record
@@ -193,7 +194,7 @@ export class DefaultDeviceManager {
                 name: updatedDevice.name,
                 deviceType: updatedDevice.deviceType,
                 status: updatedDevice.status,
-                ...(deviceMeta.metadata || {})
+                ...((deviceMeta as any).metadata || {})
             });
         }
 
@@ -296,7 +297,7 @@ export class DefaultDeviceManager {
                 scope: `connection:${senderConnectionId}`,
                 protocol: 'websocket',
                 connectionId: senderConnectionId,
-                userInfo: senderInfo,
+                userInfo: senderInfo!,
                 payload: {
                     action: 'claimed',
                     success: true,

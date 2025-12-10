@@ -1,5 +1,4 @@
 import { error } from '@sveltejs/kit';
-import type { Auth } from 'lucia';
 import type { RequestEvent } from '@sveltejs/kit';
 import prisma from '$lib/server/prisma';
 
@@ -12,6 +11,8 @@ export interface ExtractedUserInfoResult {
   authMethod: 'apiKey' | 'session';
   error?: string;
 }
+
+type ValidatedAuth = Awaited<ReturnType<RequestEvent['locals']['auth']['validate']>>;
 
 /**
  * Extracts the API key from a request (query param or header).
@@ -196,8 +197,9 @@ export async function extractUserInfoFromRequest(
     }
     
     // Then try primary account
-    if (!currentAccount && auth.user.primaryAccountId) {
-      currentAccount = memberships.find(m => m.account.id === auth.user.primaryAccountId);
+    const primaryAccountId = (auth.user as any)?.primaryAccountId;
+    if (!currentAccount && primaryAccountId) {
+      currentAccount = memberships.find(m => m.account.id === primaryAccountId);
     }
     
     // Finally fallback to first membership
@@ -244,7 +246,7 @@ export async function extractUserInfoFromRequest(
  * @param throwOnMissing Whether to throw a 401 error if user ID is missing
  * @returns The user ID or undefined if not available
  */
-export function getUserId(auth: Auth | null, throwOnMissing = false): string | undefined {
+export function getUserId(auth: ValidatedAuth | null, throwOnMissing = false): string | undefined {
   const userId = auth?.user?.id;
 
   if (!userId && throwOnMissing) {
@@ -260,7 +262,7 @@ export function getUserId(auth: Auth | null, throwOnMissing = false): string | u
  * @returns The user ID (always returns a string)
  * @throws 401 error if user ID is not available
  */
-export function requireUserId(auth: Auth | null): string {
+export function requireUserId(auth: ValidatedAuth | null): string {
   const userId = getUserId(auth);
 
   if (!userId) {
@@ -286,7 +288,7 @@ export async function validateAndGetUserId(locals: RequestEvent['locals']): Prom
  * @param locals The locals object from a request event
  * @returns The auth object
  */
-export async function validateAuth(locals: RequestEvent['locals']): Promise<Auth> {
+export async function validateAuth(locals: RequestEvent['locals']): Promise<ValidatedAuth> {
   const auth = await locals.auth.validate();
 
   if (!auth) {
@@ -302,7 +304,7 @@ export async function validateAuth(locals: RequestEvent['locals']): Promise<Auth
  * @returns The current account ID (always returns a string)
  * @throws 403 error if current account ID is not available
  */
-export function getCurrentAccountId(auth: Auth | null): string {
+export function getCurrentAccountId(auth: ValidatedAuth | null): string {
   const accountId = auth?.currentAccount?.account?.id;
   
   if (!accountId) {

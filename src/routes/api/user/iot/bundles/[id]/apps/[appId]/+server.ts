@@ -1,12 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
 
 export const DELETE: RequestHandler = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: AuthenticatedEvent) => {
         const { id: bundleId, appId } = params;
 
         try {
@@ -16,12 +16,12 @@ export const DELETE: RequestHandler = restrict(
             });
             
             if (!bundleApp) {
-                return json(createErrorResponse('Bundle app not found', {}), { status: 404 });
+                return json(createErrorResponse('Bundle app not found'), { status: 404 });
             }
             
             // Verify that the bundle app belongs to the specified bundle
             if (bundleApp.bundleId !== bundleId) {
-                return json(createErrorResponse('Bundle app does not belong to this bundle', {}), { status: 400 });
+                return json(createErrorResponse('Bundle app does not belong to this bundle'), { status: 400 });
             }
             
             // Delete the bundle app
@@ -31,10 +31,10 @@ export const DELETE: RequestHandler = restrict(
             
             logger.info(`Removed app from bundle: ${bundleId}, appId: ${appId}`);
             
-            return json(createSuccessResponse('App removed from bundle successfully', {}));
+            return json(createSuccessResponse('App removed from bundle successfully'));
         } catch (err) {
             logger.error(`Error removing app from bundle: ${err instanceof Error ? err.message : String(err)}`);
-            return json(createErrorResponse('Failed to remove app from bundle', {}), { status: 500 });
+            return json(createErrorResponse('Failed to remove app from bundle'), { status: 500 });
         }
     },
     [SystemRole.USER]

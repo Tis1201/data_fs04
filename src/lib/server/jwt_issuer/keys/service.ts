@@ -67,7 +67,7 @@ class JwtKeyService {
       return {
         success: true,
         message: `${options.keyType} key created successfully`,
-        key: newKey,
+        key: newKey as JwtSigningKey,
       };
     } catch (error) {
       console.error('Error creating JWT key:', error);
@@ -132,7 +132,7 @@ class JwtKeyService {
             isActive: true,
             isPrimary: true,
             expiresAt,
-            createdById: options.updatedById,
+            createdById: options.updatedById || existingKey.createdById,
           },
           include: {
             createdBy: {
@@ -148,16 +148,16 @@ class JwtKeyService {
         return {
           success: true,
           message: `${existingKey.keyType} key rotated successfully`,
-          key: newKey,
+          key: newKey as JwtSigningKey,
         };
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error in key rotation:', error);
         return {
           success: false,
           error: {
             message: 'Failed to rotate JWT key',
-            code: error.code || 'KEY_ROTATION_FAILED',
-            details: error.message,
+            code: error?.code || 'KEY_ROTATION_FAILED',
+            details: error?.message,
           },
         };
       }
@@ -178,7 +178,7 @@ class JwtKeyService {
    * Gets the active primary key for a key type
    */
   async getActivePrimaryKey(prisma: PrismaClient, keyType: JwtKeyType): Promise<JwtSigningKey | null> {
-    return prisma.jwtSigningKey.findFirst({
+    const result = await prisma.jwtSigningKey.findFirst({
       where: {
         keyType,
         isActive: true,
@@ -194,6 +194,7 @@ class JwtKeyService {
         },
       },
     });
+    return result as JwtSigningKey | null;
   }
 
   /**
@@ -202,7 +203,7 @@ class JwtKeyService {
   async listKeys(prisma: PrismaClient, keyType?: JwtKeyType): Promise<JwtSigningKey[]> {
     const where = keyType ? { keyType } : {};
     
-    return prisma.jwtSigningKey.findMany({
+    const result = await prisma.jwtSigningKey.findMany({
       where,
       orderBy: [
         { isPrimary: 'desc' },
@@ -219,13 +220,14 @@ class JwtKeyService {
         },
       },
     });
+    return result as JwtSigningKey[];
   }
 
   /**
    * Gets a key by ID
    */
   async getKeyById(prisma: PrismaClient, id: string): Promise<JwtSigningKey | null> {
-    return prisma.jwtSigningKey.findUnique({
+    const result = await prisma.jwtSigningKey.findUnique({
       where: { id },
       include: {
         createdBy: {
@@ -237,13 +239,15 @@ class JwtKeyService {
         },
       },
     });
+    return result as JwtSigningKey | null;
   }
 
   /**
    * Gets a key by keyId
+   * Note: keyId alone is not unique, so this returns the first match
    */
   async getKeyByKeyId(prisma: PrismaClient, keyId: string): Promise<JwtSigningKey | null> {
-    return prisma.jwtSigningKey.findUnique({
+    const result = await prisma.jwtSigningKey.findFirst({
       where: { keyId },
       include: {
         createdBy: {
@@ -255,6 +259,7 @@ class JwtKeyService {
         },
       },
     });
+    return result as JwtSigningKey | null;
   }
 }
 

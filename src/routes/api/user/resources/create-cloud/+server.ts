@@ -31,23 +31,30 @@ export const POST = restrict(
 
             // Validate required fields
             if (!name || !path) {
-                return json(createErrorResponse('Missing required fields', {
-                    details: 'Name and path are required'
-                }), { status: 400 });
+                return json(
+                    createErrorResponse('Missing required fields', 'VALIDATION_ERROR', 'Name and path are required'),
+                    { status: 400 }
+                );
             }
 
             // Validate that path is a cloud URL
             if (!path.startsWith('http')) {
-                return json(createErrorResponse('Invalid path', {
-                    details: 'Path must be a valid cloud storage URL'
-                }), { status: 400 });
+                return json(
+                    createErrorResponse('Invalid path', 'VALIDATION_ERROR', 'Path must be a valid cloud storage URL'),
+                    { status: 400 }
+                );
             }
 
             // Get the current account from auth
             if (!auth.currentAccount || !auth.currentAccount.account) {
-                return json(createErrorResponse('Account not found', {
-                    details: 'No current account selected. Please select an account first.'
-                }), { status: 400 });
+                return json(
+                    createErrorResponse(
+                        'Account not found',
+                        'ACCOUNT_NOT_FOUND',
+                        'No current account selected. Please select an account first.'
+                    ),
+                    { status: 400 }
+                );
             }
             
             const currentAccount = auth.currentAccount.account;
@@ -111,9 +118,14 @@ export const POST = restrict(
 
         } catch (err) {
             logger.error(`Error creating cloud resource: ${String(err)}`);
-            return json(createErrorResponse('Failed to create resource', {
-                details: 'An unexpected error occurred while creating the resource.'
-            }), { status: 500 });
+            return json(
+                createErrorResponse(
+                    'Failed to create resource',
+                    'INTERNAL_ERROR',
+                    'An unexpected error occurred while creating the resource.'
+                ),
+                { status: 500 }
+            );
         }
     },
     [SystemRole.USER]

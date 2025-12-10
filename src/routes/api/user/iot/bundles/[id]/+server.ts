@@ -35,7 +35,7 @@ export const DELETE: RequestHandler = restrict(
     }
 
     // Delete in an interactive transaction in correct order
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: typeof prisma) => {
       await tx.bundleDeviceProgress.deleteMany({ where: { bundleId } });
       await tx.bundleWave.deleteMany({ where: { bundleId } });
       await tx.bundleDevice.deleteMany({ where: { bundleId } });

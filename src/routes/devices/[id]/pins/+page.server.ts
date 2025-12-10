@@ -1,11 +1,16 @@
 import { error } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = restrict(
-  async ({ params, locals, auth }) => {
+  async (event: AuthenticatedLoadEvent) => {
+    const { params, locals, auth } = event;
     const { id: deviceId } = params;
     const { prisma } = locals;
+
+    if (!auth?.user) {
+      throw error(401, 'Unauthorized');
+    }
 
     // Check if device exists and user has access
     const device = await prisma.device.findUnique({

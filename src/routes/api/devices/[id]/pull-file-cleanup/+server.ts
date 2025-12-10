@@ -70,7 +70,8 @@ export const POST: RequestHandler = restrict(
             }
 
             // Check if user has access to this device
-            if (!event.auth?.user) {
+            const user = event.auth?.user;
+            if (!user) {
                 return json({
                     success: false,
                     error: {
@@ -80,10 +81,10 @@ export const POST: RequestHandler = restrict(
                 }, { status: 401 });
             }
 
-            if (event.auth.user.systemRole !== SystemRole.ADMIN) {
-                const isOwner = device.createdBy === event.auth.user.id;
+            if (user.systemRole !== SystemRole.ADMIN) {
+                const isOwner = device.createdBy === user.id;
                 const isAccountMember = device.accountId && device.account?.members?.some(
-                    (member: { userId: string }) => member.userId === event.auth.user.id
+                    (member: { userId: string }) => member.userId === user.id
                 );
 
                 if (!isOwner && !isAccountMember) {

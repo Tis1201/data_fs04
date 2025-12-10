@@ -1,9 +1,9 @@
 import type { RequestHandler } from './$types';
 import { json } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import prisma from '$lib/server/prisma';
 
-export const GET: RequestHandler = restrict(async ({ url, locals, auth }: any) => {
+export const GET: RequestHandler = restrict(async ({ url, locals, auth }: AuthenticatedEvent) => {
   const page = Math.max(1, Number(url.searchParams.get('page') || '1'));
   const perPage = Math.min(50, Math.max(1, Number(url.searchParams.get('per_page') || '10')));
   const sort = (url.searchParams.get('sort') || 'name') as 'name' | 'status' | 'lastUsedAt';
@@ -13,8 +13,8 @@ export const GET: RequestHandler = restrict(async ({ url, locals, auth }: any) =
   const tag = url.searchParams.get('tag');
   const excludeIdsCsv = url.searchParams.get('excludeDeviceIds');
   const includeIdsCsv = url.searchParams.get('includeDeviceIds');
-  const excludeIds = excludeIdsCsv ? excludeIdsCsv.split(',').map((s) => s.trim()).filter(Boolean) : [];
-  const includeIds = includeIdsCsv ? includeIdsCsv.split(',').map((s) => s.trim()).filter(Boolean) : [];
+  const excludeIds = excludeIdsCsv ? excludeIdsCsv.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
+  const includeIds = includeIdsCsv ? includeIdsCsv.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
 
   const where: any = {};
   if (search) {

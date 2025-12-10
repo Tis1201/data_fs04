@@ -5,9 +5,10 @@
  * Provides clean separation of concerns for Device functionality.
  */
 
-import type { InMessage } from '../messaging/interfaces/message';
+import type { InMessage, RoutingMessage } from '../messaging/interfaces/message';
+import { MessageFactory } from '../messaging/interfaces/message';
 import type { Handler } from '../messaging/interfaces/handler';
-import { MessageFactory, MessageValidator, MessageRouter } from '../../types/unified';
+import { MessageValidator } from '../../types/unified';
 import { getLoggingManager } from '../../managers/LoggingManager';
 import { publisher } from '../messaging/core/publisher';
 
@@ -23,7 +24,9 @@ class DeviceHandlerClass implements Handler {
   }
 
   async handle(message: InMessage): Promise<void> {
-    this.logger?.logDevice('handle', message.deviceId || 'unknown', 'Handling Device message', {
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
+    
+    this.logger?.logDevice('handle', deviceId, 'Handling Device message', {
       messageType: message.type,
       payloadType: (message as any)?.payload?.type
     });
@@ -31,12 +34,11 @@ class DeviceHandlerClass implements Handler {
     try {
       // Validate message
       if (!MessageValidator.validate(message)) {
-        this.logger?.logError('device', 'Invalid Device message format', { message });
+        this.logger?.error('device', 'Invalid Device message format', { message });
         throw new Error('Invalid message format');
       }
 
       const deviceMessage = message as any as InMessage & { payload: { type: string; deviceId: string; [key: string]: any } };
-      const deviceId = deviceMessage.payload?.deviceId || deviceMessage.deviceId || 'unknown';
 
       // Handle different Device actions
       switch (deviceMessage.payload?.type) {
@@ -65,12 +67,12 @@ class DeviceHandlerClass implements Handler {
           await this.handleError(deviceMessage);
           break;
         default:
-          this.logger?.logWarn('device', `Unknown Device message type: ${deviceMessage.payload?.type}`);
+          this.logger?.warn('device', `Unknown Device message type: ${deviceMessage.payload?.type}`);
       }
 
-      this.logger?.logDevice('handle', deviceId, 'Device message handled successfully');
+      this.logger?.logDevice('handle-complete', deviceId, 'Device message handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device message', { error, message });
+      this.logger?.error('device', 'Failed to handle Device message', { error, message });
       throw error;
     }
   }
@@ -80,27 +82,13 @@ class DeviceHandlerClass implements Handler {
   // ============================================================================
 
   private async handleClaim(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     this.logger?.logDevice('claim', deviceId, 'Handling Device claim');
 
     try {
-      // Create action log
-      const actionLogId = this.logger?.createActionLog?.(
-        deviceId,
-        'device',
-        message.userInfo.id,
-        'Device claim initiated'
-      );
-
       // Handle device claim logic
       // This would typically update the database
       const claimResult = { success: true, message: 'Device claimed successfully' };
-
-      if (claimResult.success) {
-        this.logger?.updateActionLog?.(actionLogId || '', 'success', 'Device claimed successfully');
-      } else {
-        this.logger?.updateActionLog?.(actionLogId || '', 'failed', 'Device claim failed');
-      }
 
       // Send response
       await this.sendResponse(message, {
@@ -110,35 +98,21 @@ class DeviceHandlerClass implements Handler {
         message: claimResult.message
       });
 
-      this.logger?.logDevice('claim', deviceId, 'Device claim handled successfully');
+      this.logger?.logDevice('claim-complete', deviceId, 'Device claim handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device claim', { error, deviceId });
+      this.logger?.error('device', 'Failed to handle Device claim', { error, deviceId });
       throw error;
     }
   }
 
   private async handleRegister(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     this.logger?.logDevice('register', deviceId, 'Handling Device registration');
 
     try {
-      // Create action log
-      const actionLogId = this.logger?.createActionLog?.(
-        deviceId,
-        'device',
-        message.userInfo.id,
-        'Device registration initiated'
-      );
-
       // Handle device registration logic
       // This would typically create a new device in the database
       const registrationResult = { success: true, message: 'Device registered successfully' };
-
-      if (registrationResult.success) {
-        this.logger?.updateActionLog?.(actionLogId || '', 'success', 'Device registered successfully');
-      } else {
-        this.logger?.updateActionLog?.(actionLogId || '', 'failed', 'Device registration failed');
-      }
 
       // Send response
       await this.sendResponse(message, {
@@ -148,15 +122,15 @@ class DeviceHandlerClass implements Handler {
         message: registrationResult.message
       });
 
-      this.logger?.logDevice('register', deviceId, 'Device registration handled successfully');
+      this.logger?.logDevice('register-complete', deviceId, 'Device registration handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device registration', { error, deviceId });
+      this.logger?.error('device', 'Failed to handle Device registration', { error, deviceId });
       throw error;
     }
   }
 
   private async handleStatus(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     const status = (message as any)?.payload?.status || 'unknown';
     
     this.logger?.logDevice('status', deviceId, 'Handling Device status update', { status });
@@ -175,36 +149,22 @@ class DeviceHandlerClass implements Handler {
         status
       });
 
-      this.logger?.logDevice('status', deviceId, 'Device status handled successfully');
+      this.logger?.logDevice('status-complete', deviceId, 'Device status handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device status', { error, deviceId, status });
+      this.logger?.error('device', 'Failed to handle Device status', { error, deviceId, status });
       throw error;
     }
   }
 
   private async handleUpdateFirmware(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     const firmwareVersion = (message as any)?.payload?.firmwareVersion || 'unknown';
     
     this.logger?.logDevice('updateFirmware', deviceId, 'Handling Device firmware update', { firmwareVersion });
 
     try {
-      // Create action log
-      const actionLogId = this.logger?.createActionLog?.(
-        deviceId,
-        'device',
-        message.userInfo.id,
-        'Device firmware update initiated'
-      );
-
       // Handle firmware update logic
       const updateResult = { success: true, message: 'Firmware update initiated' };
-
-      if (updateResult.success) {
-        this.logger?.updateActionLog?.(actionLogId || '', 'in_progress', 'Firmware update in progress');
-      } else {
-        this.logger?.updateActionLog?.(actionLogId || '', 'failed', 'Firmware update failed');
-      }
 
       // Send response
       await this.sendResponse(message, {
@@ -215,15 +175,15 @@ class DeviceHandlerClass implements Handler {
         firmwareVersion
       });
 
-      this.logger?.logDevice('updateFirmware', deviceId, 'Device firmware update handled successfully');
+      this.logger?.logDevice('updateFirmware-complete', deviceId, 'Device firmware update handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device firmware update', { error, deviceId, firmwareVersion });
+      this.logger?.error('device', 'Failed to handle Device firmware update', { error, deviceId, firmwareVersion });
       throw error;
     }
   }
 
   private async handleBundleStatus(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     const bundleStatus = (message as any)?.payload?.bundleStatus || {};
     
     this.logger?.logDevice('bundleStatus', deviceId, 'Handling Device bundle status', { bundleStatus });
@@ -241,21 +201,21 @@ class DeviceHandlerClass implements Handler {
         bundleStatus
       });
 
-      this.logger?.logDevice('bundleStatus', deviceId, 'Device bundle status handled successfully');
+      this.logger?.logDevice('bundleStatus-complete', deviceId, 'Device bundle status handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device bundle status', { error, deviceId, bundleStatus });
+      this.logger?.error('device', 'Failed to handle Device bundle status', { error, deviceId, bundleStatus });
       throw error;
     }
   }
 
   private async handleGetLogs(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     this.logger?.logDevice('getLogs', deviceId, 'Handling Device get logs');
 
     try {
       // Handle get logs logic
       // This would typically retrieve logs from the database
-      const logs = []; // Mock logs
+      const logs: string[] = []; // Mock logs
       const logsResult = { success: true, message: 'Logs retrieved successfully', logs };
 
       // Send response
@@ -267,15 +227,15 @@ class DeviceHandlerClass implements Handler {
         logs: logsResult.logs
       });
 
-      this.logger?.logDevice('getLogs', deviceId, 'Device get logs handled successfully');
+      this.logger?.logDevice('getLogs-complete', deviceId, 'Device get logs handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device get logs', { error, deviceId });
+      this.logger?.error('device', 'Failed to handle Device get logs', { error, deviceId });
       throw error;
     }
   }
 
   private async handleMessage(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     const messageContent = (message as any)?.payload?.message || '';
     
     this.logger?.logDevice('message', deviceId, 'Handling Device message', { message: messageContent });
@@ -293,28 +253,20 @@ class DeviceHandlerClass implements Handler {
         content: messageContent
       });
 
-      this.logger?.logDevice('message', deviceId, 'Device message handled successfully');
+      this.logger?.logDevice('message-complete', deviceId, 'Device message handled successfully');
     } catch (error) {
-      this.logger?.logError('device', 'Failed to handle Device message', { error, deviceId, message: messageContent });
+      this.logger?.error('device', 'Failed to handle Device message', { error, deviceId, message: messageContent });
       throw error;
     }
   }
 
   private async handleError(message: InMessage): Promise<void> {
-    const deviceId = (message as any)?.payload?.deviceId || message.deviceId || 'unknown';
+    const deviceId = (message as any)?.payload?.deviceId || (message as any)?.deviceId || 'unknown';
     const error = (message as any)?.payload?.error || 'Unknown Device error';
     
-    this.logger?.logError('device', 'Device error received', { error, deviceId });
+    this.logger?.error('device', 'Device error received', { error, deviceId });
 
     try {
-      // Update action log
-      this.logger?.updateActionLog?.(
-        message.requestId || '',
-        'failed',
-        `Device error: ${error}`,
-        error
-      );
-
       // Send error response
       await this.sendResponse(message, {
         action: 'device:error',
@@ -323,35 +275,31 @@ class DeviceHandlerClass implements Handler {
         message: error
       });
 
-      this.logger?.logDevice('error', deviceId, 'Device error handled successfully');
+      this.logger?.logDevice('error-complete', deviceId, 'Device error handled successfully');
     } catch (err) {
-      this.logger?.logError('device', 'Failed to handle Device error', { error: err, deviceId });
+      this.logger?.error('device', 'Failed to handle Device error', { error: err, deviceId });
       throw err;
     }
   }
 
   private async sendResponse(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
-    const scope = MessageRouter.getScope({
-      type: 'device',
-      action: data.action,
-      deviceId,
-      data: {},
-      timestamp: Date.now()
-    } as any);
+    const scope = `subscription:device:${deviceId}`;
 
-    const routingMessage = MessageFactory.createDevice(
-      data.action.replace('device:', '') as any,
-      deviceId,
-      data,
-      {
-        userId: message.userInfo.id,
-        requestId: message.requestId,
-        connectionId: (message as any).connectionId,
-        protocol: (message as any).protocol,
-        scope
-      }
-    );
+    const responseMessage: InMessage = {
+      type: 'device',
+      scope,
+      payload: data,
+      userInfo: message.userInfo,
+      protocol: message.protocol,
+      connectionId: message.connectionId,
+      requestId: message.requestId
+    };
+
+    const routingMessage: RoutingMessage = MessageFactory.toRoutingMessage(responseMessage, {
+      systemGenerated: true,
+      sudo: true
+    });
 
     await publisher.publish(routingMessage);
   }

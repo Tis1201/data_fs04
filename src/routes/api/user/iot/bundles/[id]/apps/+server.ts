@@ -4,7 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
-import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
+import { createSuccessResponse, createErrorResponse, ErrorCodes } from '$lib/types/api';
 
 // Schema for adding an app to a bundle
 const addBundleAppSchema = z.object({
@@ -14,7 +14,7 @@ const addBundleAppSchema = z.object({
 });
 
 export const POST: RequestHandler = restrict(
-    async ({ params, request, locals }) => {
+    async ({ params, request, locals }: any) => {
         const { id: bundleId } = params;
 
         try {
@@ -23,9 +23,14 @@ export const POST: RequestHandler = restrict(
             const result = addBundleAppSchema.safeParse(body);
             
             if (!result.success) {
-                return json(createErrorResponse('Invalid request data', {
-                    errors: result.error.format()
-                }), { status: 400 });
+                return json(
+                    createErrorResponse(
+                        'Invalid request data',
+                        ErrorCodes.INVALID_INPUT,
+                        { errors: result.error.format() }
+                    ),
+                    { status: 400 }
+                );
             }
             
             const { resourceId, order, autoOpen } = result.data;
@@ -33,7 +38,10 @@ export const POST: RequestHandler = restrict(
             // Get authenticated user info for audit fields
             const auth = await locals.auth.validate();
             if (!auth?.user) {
-                return json(createErrorResponse('Authentication required', {}), { status: 401 });
+                return json(
+                    createErrorResponse('Authentication required', ErrorCodes.UNAUTHORIZED),
+                    { status: 401 }
+                );
             }
             
             const userInfo = await locals.prisma.user.findUnique({
@@ -42,7 +50,10 @@ export const POST: RequestHandler = restrict(
             });
             
             if (!userInfo) {
-                return json(createErrorResponse('User not found', {}), { status: 404 });
+                return json(
+                    createErrorResponse('User not found', ErrorCodes.NOT_FOUND),
+                    { status: 404 }
+                );
             }
             
             // Check if bundle exists
@@ -51,12 +62,21 @@ export const POST: RequestHandler = restrict(
             });
             
             if (!bundle) {
-                return json(createErrorResponse('Bundle not found', {}), { status: 404 });
+                return json(
+                    createErrorResponse('Bundle not found', ErrorCodes.NOT_FOUND),
+                    { status: 404 }
+                );
             }
             
             // Enforce DRAFT-only modifications
             if (bundle.status !== 'DRAFT') {
-                return json(createErrorResponse('Bundle is not editable (must be DRAFT)', {}), { status: 403 });
+                return json(
+                    createErrorResponse(
+                        'Bundle is not editable (must be DRAFT)',
+                        ErrorCodes.FORBIDDEN
+                    ),
+                    { status: 403 }
+                );
             }
 
             // Check if resource exists
@@ -65,7 +85,10 @@ export const POST: RequestHandler = restrict(
             });
             
             if (!resource) {
-                return json(createErrorResponse('Resource not found', {}), { status: 404 });
+                return json(
+                    createErrorResponse('Resource not found', ErrorCodes.NOT_FOUND),
+                    { status: 404 }
+                );
             }
             
             // Check if the app is already in the bundle
@@ -77,7 +100,10 @@ export const POST: RequestHandler = restrict(
             });
             
             if (existingApp) {
-                return json(createErrorResponse('App already added to this bundle', {}), { status: 400 });
+                return json(
+                    createErrorResponse('App already added to this bundle', ErrorCodes.CONFLICT),
+                    { status: 400 }
+                );
             }
             
             // Create the bundle app
@@ -99,7 +125,10 @@ export const POST: RequestHandler = restrict(
             }));
         } catch (err) {
             logger.error(`Error adding app to bundle: ${err instanceof Error ? err.message : String(err)}`);
-            return json(createErrorResponse('Failed to add app to bundle', {}), { status: 500 });
+            return json(
+                createErrorResponse('Failed to add app to bundle', ErrorCodes.INTERNAL_ERROR),
+                { status: 500 }
+            );
         }
     },
     [SystemRole.USER]

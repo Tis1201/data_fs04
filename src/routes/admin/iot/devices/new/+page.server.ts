@@ -3,7 +3,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { deviceSchema } from '$lib/schemas/device';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '../../../users/schema';
 import { logger } from '$lib/server/logger';
 import { validateAndGetUserId, validateAuth } from '$lib/server/security/auth-utils';
@@ -21,13 +21,14 @@ const pinSchema = z.object({
 });
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedLoadEvent) => {
         // Initialize the device registration form with the schema and defaults
         const deviceForm = await superValidate(zod(deviceSchema), {
             defaults: {
                 name: '',
                 deviceType: 'OTHER',
-                description: ''
+                description: '',
+                status: 'ACTIVE'
             }
         });
 
@@ -44,7 +45,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     // Action for claiming a device with PIN using Superforms
-    claimDevice: async ({ request, locals }) => {
+    claimDevice: restrict(async ({ request, locals, auth }: AuthenticatedEvent) => {
         // Validate the form data against the schema
         const form = await superValidate(request, zod(pinSchema));
 
@@ -56,8 +57,17 @@ export const actions: Actions = {
         const pin = form.data.pin;
 
         // Get the authenticated user
-        const auth = await locals.auth.validate();
-        const userInfo = auth!.user;
+        if (!auth?.user) {
+            return fail(401, { message: 'Unauthorized' });
+        }
+
+        const userInfo: UserInfo = {
+            id: auth.user.id,
+            email: auth.user.email,
+            name: auth.user.name,
+            systemRole: auth.user.systemRole,
+            source: 'session'
+        };
 
         console.log(`userInfo: ${JSON.stringify(userInfo)}`)
 
@@ -137,10 +147,10 @@ export const actions: Actions = {
             }
         };
 
-    },
+    }, [SystemRole.ADMIN]),
 
     // Action for registering device details after claiming
-    registerDevice: async ({ request, locals }) => {
+    registerDevice: restrict(async ({ request, locals, getClientAddress }: AuthenticatedEvent) => {
         // Validate the form data against the schema
         const form = await superValidate(request, zod(deviceSchema));
 
@@ -154,7 +164,7 @@ export const actions: Actions = {
             const userId = await validateAndGetUserId(locals);
             if (!userId) {
                 // Return a message through Superforms
-                return fail(401, message(form, 'You must be logged in to register a device', { status: 'error' }));
+                return fail(401, message(form, 'You must be logged in to register a device', { status: 401 }));
             }
 
             const { name, deviceType, description, hardwareId, model, manufacturer } = form.data;
@@ -166,7 +176,7 @@ export const actions: Actions = {
 
             if (!existingDevice) {
                 // Business validation error - device not found
-                return fail(404, message(form, 'Device not found. Please claim a device first.', { status: 'error' }));
+                return fail(404, message(form, 'Device not found. Please claim a device first.', { status: 404 }));
             }
 
             try {
@@ -185,19 +195,21 @@ export const actions: Actions = {
 
                 logger.info(`Device updated successfully: ${device.id} by user ${userId}`);
 
+                const ipAddress = locals.requestContext?.ip ?? getClientAddress();
+
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Device',
                     recordId: device.id,
                     oldData: existingDevice,
                     newData: device,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress,
                     prisma: locals.prisma
-                })
+                });
 
                 // Return success with the updated device
-                const successForm = message(form, 'Device registered successfully!', { status: 'success' });
+                const successForm = message(form, 'Device registered successfully!');
 
                 return {
                     form: successForm,
@@ -211,13 +223,13 @@ export const actions: Actions = {
                 };
             } catch (dbError) {
                 // Handle database-specific errors
-                logger.error(`Database error registering device:`, dbError);
+                logger.error(`Database error registering device:`, { dbError });
                 // Return a business validation error through Superforms
-                return fail(500, message(form, 'Failed to update device information. Please try again.', { status: 'error' }));
+                return fail(500, message(form, 'Failed to update device information. Please try again.', { status: 500 }));
             }
         } catch (err) {
-            logger.error('Error registering device:', err);
-            return fail(500, message(form, 'Failed to register device. Please try again.', { status: 'error' }));
+            logger.error('Error registering device:', { err });
+            return fail(500, message(form, 'Failed to register device. Please try again.', { status: 500 }));
         }
-    }
+    }, [SystemRole.ADMIN])
 };

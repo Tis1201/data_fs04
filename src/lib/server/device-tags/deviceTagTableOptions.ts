@@ -17,7 +17,9 @@ const baseDeviceTagTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         description: true,
         createdAt: true,
         updatedAt: true,
-        accountId: true,
+        accountId: true
+    },
+    include: {
         _count: {
             select: {
                 devices: true

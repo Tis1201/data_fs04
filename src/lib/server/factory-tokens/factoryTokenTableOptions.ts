@@ -3,12 +3,12 @@
  * Centralized configuration for factory token list tables
  */
 
-import type { TableOptions } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import type { TableDataOptions } from '$lib/components/ui_components_sveltekit/table/utils/server/tableDataService';
 
 /**
  * Base table options for factory tokens
  */
-export const baseFactoryTokenTableOptions: TableOptions = {
+export const baseFactoryTokenTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     modelName: 'factoryToken',
     // Updated searchableFields to match actual fields in the FactoryToken model
     searchableFields: ['name', 'hardwareModel', 'firmwareVersion', 'batchNumber'],
@@ -31,7 +31,7 @@ export const baseFactoryTokenTableOptions: TableOptions = {
  * Create factory token table options
  * Factory tokens are admin-only, so no ownership filtering needed
  */
-export function createFactoryTokenTableOptions(): TableOptions {
-    return baseFactoryTokenTableOptions;
+export function createFactoryTokenTableOptions(): TableDataOptions {
+    return baseFactoryTokenTableOptions as TableDataOptions;
 }
 

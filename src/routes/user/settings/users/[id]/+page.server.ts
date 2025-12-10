@@ -185,7 +185,7 @@ const resetPasswordHandler: AccountAuthenticatedRouteHandler<any> = async ({
             oldData: null,
             newData: null,
             userId: accountMembership.userId,
-            ipAddress: locals.ipAddress,
+            ipAddress: locals.requestContext?.ip,
             prisma: prisma,
             changeSummary: "Reset password"
         })
@@ -204,9 +204,7 @@ const resetPasswordHandler: AccountAuthenticatedRouteHandler<any> = async ({
         } else {
             return message(
                 form,
-                createErrorResponse('Failed to reset password', { 
-                    details: result.message 
-                }), 
+                createErrorResponse('Failed to reset password', 'ERROR', result.message), 
                 { status: 500 }
             );
         }
@@ -282,7 +280,7 @@ export const actions: Actions = {
                 oldData: user,
                 newData: { name: name.trim(), email: email.trim().toLowerCase()},
                 userId: auth!.user.id,
-                ipAddress: locals.ipAddress,
+                ipAddress: locals.requestContext?.ip,
                 prisma: prisma
             })
 
@@ -300,6 +298,11 @@ export const actions: Actions = {
         async ({ request, params, locals, accountMembership }: AccountAuthenticatedEvent) => {
             try {
                 const { accountId } = accountMembership;
+                const targetUserId = params.id;
+
+                if (!targetUserId) {
+                    return fail(400, { message: 'User ID is required' });
+                }
 
                 // Get form data
                 const data = await request.formData();
@@ -328,8 +331,8 @@ export const actions: Actions = {
                 const membership = await prisma.accountMembership.findUnique({
                     where: {
                         userId_accountId: {
-                            userId: params.id,
-                            accountId: accountId
+                            userId: targetUserId,
+                            accountId
                         },
                         role: { not: 'SYSTEM' }
                     },
@@ -340,8 +343,8 @@ export const actions: Actions = {
                 const updatedMembership = await prisma.accountMembership.update({
                     where: {
                         userId_accountId: {
-                            userId: params.id,
-                            accountId: accountId
+                            userId: targetUserId,
+                            accountId
                         },
                         role: { not: 'SYSTEM' }
                     },
@@ -363,7 +366,7 @@ export const actions: Actions = {
                     oldData: membership,
                     newData: { role: newRole },
                     userId: accountMembership.userId,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: prisma
                 })
 
@@ -488,7 +491,7 @@ export const actions: Actions = {
                     oldData: null,
                     newData: null,
                     userId: accountMembership.userId,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: prisma,
                     changeSummary: "Update password"
                 })

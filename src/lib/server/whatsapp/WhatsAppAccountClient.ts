@@ -57,7 +57,17 @@ export class WhatsAppAccountClient{
         this.session.init();
     }
 
-    private async handle_authenticated({ pushName, phoneNumber }: { pushName?: string | null; phoneNumber?: string | null }) {
+    /**
+     * Lightweight status/info snapshot for the client/session.
+     */
+    public getInfo() {
+        return this.session.getInfo();
+    }
+
+    private async handle_authenticated(data?: { pushName?: string; phoneNumber?: string }) {
+        const pushName = data?.pushName;
+        const phoneNumber = data?.phoneNumber;
+        
         logger.info(`[${this.id}] Session authenticated - User: ${pushName} (${phoneNumber})`);
         
         try {
@@ -111,18 +121,15 @@ export class WhatsAppAccountClient{
             logger.info(`[${this.id}] Authenticated message published successfully`);
             
         } catch (error) {
-            logger.error(`${logContext} Error in handle_authenticated`, {
+            logger.error(`[${this.id}] Error in handle_authenticated`, {
                 error: error instanceof Error ? error.message : String(error),
                 stack: error instanceof Error ? error.stack : undefined,
                 pushName,
                 phoneNumber
             });
             
-            // Emit error to ensure it's not silently swallowed
-            this.emit('error', { 
-                type: 'authentication_message', 
-                error: error instanceof Error ? error.message : 'Unknown error in handle_authenticated'
-            });
+            // Log error to ensure it's not silently swallowed
+            logger.error(`[${this.id}] Authentication message error: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -219,10 +226,11 @@ export class WhatsAppAccountClient{
             }
 
             // Create a clean message object without circular references
+            const messageTimestamp = msg.messageTimestamp ? Number(msg.messageTimestamp) : Date.now() / 1000;
             const messageData = {
                 id: msg.key.id,
                 from: remoteJid,
-                timestamp: msg.messageTimestamp ? new Date(msg.messageTimestamp * 1000).toISOString() : new Date().toISOString(),
+                timestamp: new Date(messageTimestamp * 1000).toISOString(),
                 content: msg.message?.conversation || '[Media message]',
                 clientId: this.id
             };
@@ -249,10 +257,7 @@ export class WhatsAppAccountClient{
             logger.debug(`[${this.id}] Successfully published message: ${msg.key.id}`);
         } catch (error) {
             logger.error(`[${this.id}] Error handling incoming message: ${error}`);
-            this.emit('error', { 
-                type: 'message_handling', 
-                error: error instanceof Error ? error.message : 'Unknown error'
-            });
+            logger.error(`[${this.id}] Message handling error type: message_handling`);
         }
     }
 
@@ -387,9 +392,7 @@ export class WhatsAppAccountClient{
             const result = await this.session.sendMessage(recipientJid, {
                 image: buffer,
                 caption: caption,
-                mimetype: mimeType,
-                // Optional: Add filename if available from URL
-                filename: imageUrl.split('/').pop()?.split('?')[0] || 'image.jpg'
+                mimetype: mimeType
             });
             
             logger.info(`Image sent to ${recipientJid} with ID: ${result.key.id}`);
@@ -446,7 +449,7 @@ export class WhatsAppAccountClient{
                 document: buffer,
                 caption: caption,
                 mimetype: mimeType,
-                filename: filename
+                fileName: filename
             });
             
             logger.info(`Document sent to ${recipientJid} with ID: ${result.key.id}`);

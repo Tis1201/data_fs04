@@ -174,14 +174,14 @@ export class RedisStateManager implements StateManager {
           const bundleData = await (prisma as any).bundle.findMany({
             where: { id: { in: bundleIds } },
             select: { id: true, scheduledAt: true, activePeriodDays: true }
-          });
+          }) as Array<{ id: string; scheduledAt: Date | null; activePeriodDays: number | null }>;
           
           // Batch fetch first wave start times
           const firstWaves = await (prisma as any).bundleWave.findMany({
             where: { bundleId: { in: bundleIds } },
             select: { bundleId: true, startTime: true },
             orderBy: { startTime: 'asc' }
-          });
+          }) as Array<{ bundleId: string; startTime: Date | null }>;
           
           // Group first waves by bundleId (get the earliest startTime for each bundle)
           const firstWaveMap = new Map<string, Date>();
@@ -192,7 +192,7 @@ export class RedisStateManager implements StateManager {
           }
           
           // Create bundle data map
-          const bundleDataMap = new Map(bundleData.map((b: any) => [b.id, b]));
+          const bundleDataMap = new Map(bundleData.map(b => [b.id, b]));
           
           // Check active period for each FAILED/CANCELLED bundle
           for (const { bundleId, state } of failedCancelledBundles) {

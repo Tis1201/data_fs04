@@ -30,19 +30,22 @@ class MessageRouterClass {
    * Route a message to the appropriate handler
    */
   async route(message: InMessage): Promise<void> {
-    this.logger?.logCommunication(message, 'incoming', 'Routing message');
+    this.logger?.info('communication', 'Routing message', { 
+      type: message.type,
+      scope: message.scope
+    });
 
     try {
       // Validate message
       if (!MessageValidator.validate(message)) {
-        this.logger?.logError('routing', 'Invalid message format', { message });
+        this.logger?.error('communication', 'Invalid message format', { message });
         throw new Error('Invalid message format');
       }
 
       // Find appropriate handler
       const handler = this.findHandler(message);
       if (!handler) {
-        this.logger?.logWarn('routing', 'No handler found for message', { 
+        this.logger?.warn('communication', 'No handler found for message', { 
           type: message.type,
           payloadType: (message as any)?.payload?.type
         });
@@ -52,9 +55,12 @@ class MessageRouterClass {
       // Route to handler
       await handler.handle(message);
       
-      this.logger?.logCommunication(message, 'outgoing', 'Message routed successfully');
+      this.logger?.info('communication', 'Message routed successfully', {
+        type: message.type,
+        scope: message.scope
+      });
     } catch (error) {
-      this.logger?.logError('routing', 'Failed to route message', { error, message });
+      this.logger?.error('communication', 'Failed to route message', { error, message });
       throw error;
     }
   }

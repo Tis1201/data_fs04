@@ -53,8 +53,9 @@ export function createDeviceProfileActions(
 
                 // Parse settings from form data
                 let settings = [];
+                const formData = form.data as any;
                 try {
-                    settings = JSON.parse(form.data.settings || '[]');
+                    settings = JSON.parse(formData.settings || '[]');
                 } catch (e) {
                     settings = [];
                 }
@@ -62,9 +63,9 @@ export function createDeviceProfileActions(
                 // Create device profile with settings
                 const profile = await locals.prisma.deviceProfile.create({
                     data: {
-                        name: form.data.name,
-                        description: form.data.description,
-                        isActive: form.data.isActive === 'true', // Convert string to boolean
+                        name: formData.name,
+                        description: formData.description,
+                        isActive: formData.isActive === 'true', // Convert string to boolean
                         accountId: userAccountMembership.accountId,
                         createdBy: auth.user.id,
                         level: 'GLOBAL', // Always create as GLOBAL profile
@@ -149,8 +150,9 @@ export function createDeviceProfileActions(
 
                 // Parse settings from JSON string
                 let settingsArray = [];
+                const formData = form.data as any;
                 try {
-                    settingsArray = JSON.parse(form.data.settings || '[]');
+                    settingsArray = JSON.parse(formData.settings || '[]');
                 } catch (e) {
                     logger.warn(`Error parsing settings JSON: ${e}`);
                     settingsArray = [];
@@ -165,9 +167,9 @@ export function createDeviceProfileActions(
                 const updatedProfile = await locals.prisma.deviceProfile.update({
                     where: { id: profileId },
                     data: {
-                        name: form.data.name,
-                        description: form.data.description,
-                        isActive: form.data.isActive === 'true', // Convert string to boolean
+                        name: formData.name,
+                        description: formData.description,
+                        isActive: formData.isActive === 'true', // Convert string to boolean
                         updatedBy: auth.user.id,
                         settings: {
                             create: settingsArray.map((setting: any, index: number) => ({
@@ -209,7 +211,7 @@ export function createDeviceProfileActions(
 
                         if (deviceProfile?.assignments && deviceProfile.assignments.length > 0) {
                             // Import mapToConfigPayload if needed
-                            const { mapToConfigPayload } = await import('$lib/utils/deviceProfileUtils');
+                            const { mapToConfigPayload } = await import('$lib/utils/mappers/deviceProfileMapper');
                             const config = mapToConfigPayload(deviceProfile as any);
 
                             const response = await fetchFn(`${url.origin}/api/device-profiles/${profileId}/broadcast-config`, {

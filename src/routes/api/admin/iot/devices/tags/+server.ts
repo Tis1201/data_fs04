@@ -9,10 +9,14 @@ export const GET: RequestHandler = async ({ locals }) => {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get all device tags for the user's account
+    if (!auth.currentAccount?.id) {
+      return json({ error: 'No current account selected' }, { status: 400 });
+    }
+
+    // Get all device tags for the current account
     const tags = await locals.prisma.deviceTag.findMany({
       where: {
-        accountId: auth.user.accountId
+        accountId: auth.currentAccount.id
       },
       select: {
         id: true,

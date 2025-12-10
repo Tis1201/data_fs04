@@ -204,8 +204,8 @@ export class WhatsAppHandler implements Handler {
                 
             //     publisher.publish(subscriptionRoutingMessage);
             // }
-        } catch (error) {
-            logger.error(`[WhatsAppHandler] Error handling QR request: ${error.message}`, error);
+        } catch (error: any) {
+            logger.error(`[WhatsAppHandler] Error handling QR request: ${error?.message}`, error);
             
             // Send error response with the same requestId directly to the requesting connection
             const errorMessage: InMessage = {
@@ -219,7 +219,7 @@ export class WhatsAppHandler implements Handler {
                     action: 'error',
                     content: {
                         error: 'Failed to generate QR code',
-                        message: error.message
+                        message: error?.message || 'Unknown error'
                     }
                 }
             };
@@ -266,8 +266,8 @@ export class WhatsAppHandler implements Handler {
             });
             
             publisher.publish(routingMessage);
-        } catch (error) {
-            logger.error(`[WhatsAppHandler] Error handling message: ${error.message}`, error);
+        } catch (error: any) {
+            logger.error(`[WhatsAppHandler] Error handling message: ${error?.message}`, error);
             
             // Send error response with the same requestId
             const errorMessage: InMessage = {
@@ -281,7 +281,7 @@ export class WhatsAppHandler implements Handler {
                     action: 'error',
                     content: {
                         error: 'Failed to process message',
-                        message: error.message
+                        message: error?.message || 'Unknown error'
                     }
                 }
             };
@@ -315,29 +315,52 @@ export class WhatsAppHandler implements Handler {
             await whatsAppAccountManager.cleanupClient(clientId);
             
             // Send success response
-            const response = MessageFactory.createResponse(
-                'whatsapp',
-                { success: true },
-                message,
-                requestId
-            );
+            const responseMessage: InMessage = {
+                id: message.id,
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId,
+                payload: {
+                    action: 'cleanup_client_complete',
+                    content: { success: true }
+                }
+            };
+            
+            const response: RoutingMessage = MessageFactory.toRoutingMessage(responseMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
             
             await publisher.publish(response);
             logger.info(`[WhatsAppHandler] Successfully cleaned up client: ${clientId}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error(`[WhatsAppHandler] Error cleaning up client ${clientId}:`, error);
             
             // Send error response
-            const errorResponse = MessageFactory.createResponse(
-                'whatsapp',
-                { 
-                    success: false,
-                    error: 'Failed to clean up client',
-                    details: error.message
-                },
-                message,
-                requestId
-            );
+            const errorMessage: InMessage = {
+                type: 'whatsapp',
+                scope: message.scope,
+                protocol: message.protocol,
+                connectionId: message.connectionId,
+                userInfo: message.userInfo,
+                requestId: requestId,
+                payload: {
+                    action: 'error',
+                    content: { 
+                        success: false,
+                        error: 'Failed to clean up client',
+                        details: error?.message || 'Unknown error'
+                    }
+                }
+            };
+            
+            const errorResponse: RoutingMessage = MessageFactory.toRoutingMessage(errorMessage, {
+                systemGenerated: true,
+                echoToSender: true
+            });
             
             await publisher.publish(errorResponse);
         }

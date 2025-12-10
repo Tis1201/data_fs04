@@ -67,7 +67,7 @@ export class WebRTCClient {
     console.log('[WebRTCClient] ===== PREPARING TO SEND CONNECT MESSAGE VIA SSE =====');
     
     // Send webrtc:connect via SSE (fire-and-forget, no response needed)
-    sseStore.sendMessageWithoutResponse({
+    sseStore.sendMessageWithoutResponse?.({
       type: 'device',
       scope: 'user:self',
       payload: {
@@ -204,7 +204,7 @@ export class WebRTCClient {
     console.log('[WebRTCClient] Received message:', message);
     console.log('[WebRTCClient] Current peerConnection state:', this.peerConnection?.signalingState);
     console.log('[WebRTCClient] Current dataChannel state:', this.dataChannel?.readyState);
-    const msg_type = message.type;
+    const msg_type = message.type as string;
     console.log('[WebRTCClient] Message type:', msg_type);
     
     try {
@@ -363,7 +363,7 @@ export class WebRTCClient {
           console.log('[WebRTCClient] ICE candidate generated:', event.candidate);
           if (event.candidate) {
             // Send ICE candidate via SSE (fire-and-forget, no response needed)
-            sseStore.sendMessageWithoutResponse({
+            sseStore.sendMessageWithoutResponse?.({
               type: 'device',
               scope: 'user:self',
               payload: {
@@ -502,7 +502,7 @@ export class WebRTCClient {
       console.log('[WebRTCClient] Step 11: Sending answer message via SSE');
       
       // Send webrtc:answer via SSE (fire-and-forget, no response needed)
-      sseStore.sendMessageWithoutResponse({
+      sseStore.sendMessageWithoutResponse?.({
         type: 'device',
         scope: 'user:self',
         payload: {

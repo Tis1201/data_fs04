@@ -1,11 +1,11 @@
-import { json } from '@sveltejs/kit';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { publisher } from '$lib/server/messaging/core/publisher';
 
 // POST endpoint to send a test message
 export const POST = restrict(
-	async ({ request, auth }) => {
+	async ({ request, auth }: any) => {
 		try {
 			const data = await request.json();
 			const { type, scope, payload } = data;
@@ -28,10 +28,11 @@ export const POST = restrict(
 			await publisher.publish(message);
 			
 			return json({ success: true, message: 'Message sent successfully' });
-		} catch (err) {
+		} catch (err: unknown) {
 			console.error('Error sending test message:', err);
-			return json({ success: false, error: err.message }, { status: 500 });
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			return json({ success: false, error: message }, { status: 500 });
 		}
 	},
 	[SystemRole.ADMIN]
-);
+ ) satisfies RequestHandler;

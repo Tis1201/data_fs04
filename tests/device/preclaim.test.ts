@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DeviceManager } from '$lib/server/device/deviceManager';
-import { pinSharedStore } from '$lib/server/device/deviceSharedStore';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { logger } from '$lib/server/logger';
 import { publisher } from '$lib/server/messaging/core/publisher';
@@ -8,25 +7,49 @@ import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 
 describe('Device Preclaim Flow', () => {
     const prisma = getEnhancedPrisma({ id: 'test', systemRole: 'ADMIN' });
+    let testAccountId: string;
+    let testSetId: string;
     
     beforeEach(async () => {
         vi.resetAllMocks();
-        await pinSharedStore.clear();
+        
+        // Create a test account
+        const account = await prisma.account.create({
+            data: {
+                name: 'Test Account',
+                slug: `test-account-${Date.now()}`
+            }
+        });
+        testAccountId = account.id;
+        
+        // Create a preclaim set
+        const set = await prisma.preclaimSet.create({
+            data: {
+                name: 'Test Set',
+                accountId: testAccountId,
+                createdBy: 'test-user'
+            }
+        });
+        testSetId = set.id;
     });
     
     afterEach(async () => {
         await prisma.device.deleteMany();
-        await prisma.preclaim.deleteMany();
+        await prisma.preclaimDevice.deleteMany();
+        await prisma.preclaimSet.deleteMany();
+        await prisma.account.deleteMany();
     });
     
     it('should successfully claim device with valid preclaim', async () => {
-        // Setup preclaim
-        const preclaim = await prisma.preclaim.create({
+        // Setup preclaim device
+        const preclaimDevice = await prisma.preclaimDevice.create({
             data: {
                 id: 'preclaim-123',
-                macAddress: '00:11:22:33:44:55',
+                macId: '00:11:22:33:44:55',
+                accountId: testAccountId,
+                setId: testSetId,
+                status: 'PENDING',
                 claimedBy: 'user-123',
-                accountId: 'account-123',
                 expiresAt: new Date(Date.now() + 3600 * 1000)
             }
         });
@@ -45,34 +68,35 @@ describe('Device Preclaim Flow', () => {
         
         // Claim device (simulating preclaim flow)
         const device = await DeviceManager.claimDevice(pin, {
-            userId: preclaim.claimedBy,
-            accountId: preclaim.accountId,
-            preclaimId: preclaim.id
+            userId: preclaimDevice.claimedBy!,
+            accountId: preclaimDevice.accountId,
+            preclaimId: preclaimDevice.id
         });
         
         // Verify
         expect(device).toBeDefined();
         expect(device.id).toBe(deviceMeta.id);
-        expect(device.preclaimId).toBe(preclaim.id);
-        expect(device.claimedBy).toBe(preclaim.claimedBy);
-        expect(device.accountId).toBe(preclaim.accountId);
+        expect(device.claimedBy).toBe(preclaimDevice.claimedBy);
+        expect(device.accountId).toBe(preclaimDevice.accountId);
         
         // Verify preclaim was used
-        const updatedPreclaim = await prisma.preclaim.findUnique({
-            where: { id: preclaim.id }
+        const updatedPreclaim = await prisma.preclaimDevice.findUnique({
+            where: { id: preclaimDevice.id }
         });
         expect(updatedPreclaim?.claimedAt).toBeDefined();
         expect(updatedPreclaim?.deviceId).toBe(deviceMeta.id);
     });
     
     it('should fail with expired preclaim', async () => {
-        // Setup expired preclaim
-        const preclaim = await prisma.preclaim.create({
+        // Setup expired preclaim device
+        const preclaimDevice = await prisma.preclaimDevice.create({
             data: {
                 id: 'preclaim-expired',
-                macAddress: '00:11:22:33:44:55',
+                macId: '00:11:22:33:44:55',
+                accountId: testAccountId,
+                setId: testSetId,
+                status: 'PENDING',
                 claimedBy: 'user-123',
-                accountId: 'account-123',
                 expiresAt: new Date(Date.now() - 3600 * 1000) // expired
             }
         });
@@ -89,9 +113,9 @@ describe('Device Preclaim Flow', () => {
         // Attempt claim
         await expect(
             DeviceManager.claimDevice(pin, {
-                userId: preclaim.claimedBy,
-                accountId: preclaim.accountId,
-                preclaimId: preclaim.id
+                userId: preclaimDevice.claimedBy!,
+                accountId: preclaimDevice.accountId,
+                preclaimId: preclaimDevice.id
             })
         ).rejects.toThrow('Preclaim expired');
     });

@@ -10,8 +10,9 @@ export const GET = restrict(
 			const messageTraces = AuditLogger.getTraces();
 			return json({ success: true, messageTraces });
 		} catch (err) {
-			console.error('Error fetching message traces:', err);
-			return json({ success: false, error: err.message }, { status: 500 });
+			const errorMessage = err instanceof Error ? err.message : String(err);
+			console.error('Error fetching message traces:', errorMessage);
+			return json({ success: false, error: errorMessage }, { status: 500 });
 		}
 	},
 	[SystemRole.ADMIN]

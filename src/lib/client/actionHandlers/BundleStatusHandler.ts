@@ -1,5 +1,6 @@
 import { ProgressActionHandler } from './ProgressActionHandler';
 import type { MessageData, ActionHandlerParams } from './types';
+import type { DeviceMessageEntity } from '$lib/entities/DeviceMessageEntity';
 
 /**
  * Handler for bundle status updates
@@ -11,15 +12,17 @@ export class BundleStatusHandler extends ProgressActionHandler {
   }
 
   handle(evtType: string, entity: DeviceMessageEntity): void {
+    const data = (entity?.payload || {}) as MessageData;
+
     // Handle unified status update messages from API responses
     if (evtType === 'device:statusUpdate' && data?.action === 'bundleStatus') {
-      this.handleUnifiedStatus(evtType, data, 'bundle_status');
+      this.handleUnifiedStatus(entity);
       return;
     }
 
     // Handle progress update messages from device
     if (evtType === 'device:progressUpdate' && data?.action === 'bundleStatus') {
-      this.handleProgressUpdate(evtType, data, 'bundle_status');
+      this.handleBundleProgressUpdate(entity);
       return;
     }
 
@@ -30,7 +33,9 @@ export class BundleStatusHandler extends ProgressActionHandler {
   /**
    * Handle unified status update messages for bundle status
    */
-  protected handleUnifiedStatus(evtType: string, data: MessageData, actionType: string): void {
+  protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
+    const data = (entity?.payload || {}) as MessageData;
+    const actionType = 'bundle_status';
     // Data structure: { action, status, message, logId, progress, timestamp, waveId, devicesTotal, devicesCompleted, devicesFailed } directly in data
     const status = data.status;
     const message = data.message || `${actionType} ${status}`;
@@ -75,7 +80,9 @@ export class BundleStatusHandler extends ProgressActionHandler {
   /**
    * Handle progress update messages for bundle status
    */
-  private handleProgressUpdate(evtType: string, data: MessageData, actionType: string): void {
+  private handleBundleProgressUpdate(entity: DeviceMessageEntity): void {
+    const data = (entity?.payload || {}) as MessageData;
+    const actionType = 'bundle_status';
     // Data structure: { action, progress, message, logId, timestamp, waveId, devicesTotal, devicesCompleted, devicesFailed } directly in data
     const progress = data.progress;
     const message = data.message || `${actionType} progress: ${progress}%`;

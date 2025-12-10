@@ -1,27 +1,40 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
+import { z } from 'zod';
 import { emailSettingsSchema } from '../../email/schema';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { createSuccessResponse } from '$lib/types/api';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
+type EmailSettingsFormData = z.infer<typeof emailSettingsSchema>;
+
 export const actions: Actions = {
     updateEmail: restrict(
-        async ({ params, locals, request }) => {
-            const { id } = params;
+        async ({ params, locals, request, auth }: AuthenticatedEvent) => {
+            const id = params.id;
+
+            if (!id) {
+                return fail(400, { error: 'Email provider ID is required' });
+            }
             
             // Validate form data
-            const form = await superValidate(request, zod(emailSettingsSchema));
+            const form = await superValidate<EmailSettingsFormData>(request, zod(emailSettingsSchema));
             
             if (!form.valid) {
                 return fail(400, { form });
             }
+
+            if (!auth?.user) {
+                return fail(401, { error: 'Unauthorized' });
+            }
+
+            const userId = auth!.user.id;
             
             // Prisma client is available in locals.prisma
             
@@ -43,7 +56,6 @@ export const actions: Actions = {
                     }, { status: 400 });
                 }
 
-                // Create an update object based on the email type
                 const { data } = form;
                 const updateData: any = {
                     name: data.name,
@@ -52,28 +64,19 @@ export const actions: Actions = {
                     fromName: data.fromName
                 };
                 
-                // Type-specific fields
-                switch (existingEmail.type) {
-                    case 'smtp':
-                        updateData.smtpHost = data.host;
-                        updateData.smtpPort = data.port;
-                        updateData.smtpUser = data.username;
-                        // Only update password if provided
-                        if (data.password?.trim()) {
-                            updateData.smtpPass = data.password;
-                        }
-                        updateData.smtpSecure = data.secure;
-                        updateData.smtpAuth = true; // Default to true for auth
-                        break;
-                        
-                    case 'resend':
-                        // Only update API key if provided
-                        if (data.apiKey?.trim()) {
-                            updateData.apiKey = data.apiKey;
-                        }
-                        break;
-                        
-                    // No AWS SES case needed
+                if (data.type === 'smtp') {
+                    updateData.smtpHost = data.host;
+                    updateData.smtpPort = data.port;
+                    updateData.smtpUser = data.username;
+                    if (data.password?.trim()) {
+                        updateData.smtpPass = data.password;
+                    }
+                    updateData.smtpSecure = data.secure;
+                    updateData.smtpAuth = true;
+                } else {
+                    if (data.apiKey?.trim()) {
+                        updateData.apiKey = data.apiKey;
+                    }
                 }
 
                 // Update the email settings
@@ -91,8 +94,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: existingEmail,
                     newData: result,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: locals.prisma
                 })
 
@@ -111,12 +114,21 @@ export const actions: Actions = {
     ),
     
     deleteEmail: restrict(
-        async ({ params, locals }) => {
-            const { id } = params;
+        async ({ params, locals, auth }: AuthenticatedEvent) => {
+            const id = params.id;
+
+            if (!id) {
+                return fail(400, { error: 'Email provider ID is required' });
+            }
             
             // Prisma client is available in locals.prisma
             
             try {
+                if (!auth?.user) {
+                    return fail(401, { error: 'Unauthorized' });
+                }
+                const userId = auth!.user.id;
+
                 // Check if the email settings exist
                 const emailSettings = await locals.prisma.emailServiceProvider.findUnique({
                     where: { id }
@@ -139,8 +151,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: emailSettings,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress: locals.requestContext?.ip,
                     prisma: locals.prisma
                 })
                 
@@ -160,7 +172,7 @@ export const actions: Actions = {
 };
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async ({ params, locals }: AuthenticatedLoadEvent) => {
         const { id } = params;
 
         try {
@@ -171,34 +183,34 @@ export const load = restrict(
             });
             
             if (!emailSettings) {
-                throw error(404, {
-                    message: 'Email settings not found',
-                    code: 'EMAIL_SETTINGS_NOT_FOUND'
-                });
+                throw error(404, 'Email settings not found');
             }
             
             // Create a form based on the schema with existing data
-            let formData: any = {
-                type: emailSettings.type,
-                name: emailSettings.name,
-                description: emailSettings.description || '',
-                fromEmail: emailSettings.fromEmail || '',
-                fromName: emailSettings.fromName || ''
-            };
-            
-            // Add type-specific fields
+            const baseDescription = (emailSettings as { description?: string | null }).description ?? '';
+            let formData: EmailSettingsFormData;
+
             if (emailSettings.type === 'smtp') {
                 formData = {
-                    ...formData,
+                    type: 'smtp',
+                    name: emailSettings.name,
+                    description: baseDescription,
+                    fromEmail: emailSettings.fromEmail || '',
+                    fromName: emailSettings.fromName || '',
                     host: emailSettings.smtpHost || '',
                     port: emailSettings.smtpPort || 0,
                     username: emailSettings.smtpUser || '',
                     password: '', // Don't prefill password
                     secure: emailSettings.smtpSecure || false
                 };
-            } else if (emailSettings.type === 'resend') {
+            } else {
                 formData = {
-                    ...formData,
+                    type: 'resend',
+                    name: emailSettings.name,
+                    description: baseDescription,
+                    fromEmail: emailSettings.fromEmail || '',
+                    fromName: emailSettings.fromName || '',
+                    apiEndpoint: (emailSettings as { apiEndpoint?: string | null }).apiEndpoint || '',
                     apiKey: '' // Don't prefill API key
                 };
             }
@@ -206,7 +218,11 @@ export const load = restrict(
             const form = await superValidate(formData, zod(emailSettingsSchema));
             
             // Remove sensitive information from the response
-            const { password, secretAccessKey, apiKey, ...rest } = emailSettings;
+            const { password: _password, secretAccessKey: _secretAccessKey, apiKey: _apiKey, ...rest } = emailSettings as typeof emailSettings & {
+                password?: string;
+                secretAccessKey?: string;
+                apiKey?: string;
+            };
             
             return {
                 form,
@@ -218,10 +234,7 @@ export const load = restrict(
             };
         } catch (err) {
             logger.error(`Error loading email settings ${id}: ${err}`);
-            throw error(500, {
-                message: 'Failed to load email settings',
-                code: 'EMAIL_SETTINGS_LOAD_ERROR'
-            });
+            throw error(500, 'Failed to load email settings');
         }
     },
     [SystemRole.ADMIN]

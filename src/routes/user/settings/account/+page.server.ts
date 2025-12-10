@@ -269,7 +269,7 @@ export const actions: Actions = {
      * Update account/company information
      */
     updateAccount: restrictAccountRole(
-        async ({ request, auth, accountMembership }: AccountAuthenticatedEvent) => {
+        async ({ request, auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
             const { accountId } = accountMembership;
 
             const form = await superValidate(request, zod(userAccountSchema));
@@ -323,7 +323,7 @@ export const actions: Actions = {
                     oldData: account,
                     newData: updatedAccount,
                     userId: auth!.user.id,
-                    ipAddress: auth?.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: prisma
                 })
 
@@ -376,7 +376,7 @@ export const actions: Actions = {
      * Update password
      */
     updatePassword: restrictAccountRole(
-        async ({ request, auth }: AccountAuthenticatedEvent) => {
+        async ({ request, auth, locals }: AccountAuthenticatedEvent) => {
             const form = await superValidate(request, zod(passwordSchema));
             if (!form.valid) {
                 return fail(400, { form });
@@ -420,7 +420,7 @@ export const actions: Actions = {
                     oldData: null,
                     newData: null,
                     userId: auth!.user.id,
-                    ipAddress: auth?.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: prisma,
                     changeSummary: "Update password"
                 })
@@ -444,7 +444,7 @@ export const actions: Actions = {
      * Sign out from a specific session
      */
     signOutSession: restrictAccountRole(
-        async ({ request, auth }: AccountAuthenticatedEvent) => {
+        async ({ request, auth, locals }: AccountAuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const sessionId = formData.get('sessionId')?.toString();
@@ -487,7 +487,7 @@ export const actions: Actions = {
                     oldData: sessionToDelete,
                     newData: null,
                     userId: auth!.user.id,
-                    ipAddress: auth?.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: prisma,
                     changeSummary: "Signout session"
                 })
@@ -505,7 +505,7 @@ export const actions: Actions = {
      * Create company - following admin accounts pattern
      */
     createCompany: restrictAccountRole(
-        async ({ request, auth, accountMembership }: AccountAuthenticatedEvent) => {
+        async ({ request, auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
             const { accountId } = accountMembership;
 
             const form = await superValidate(request, zod(companyCreateSchema));
@@ -570,7 +570,7 @@ export const actions: Actions = {
                     oldData: null,
                     newData: company,
                     userId: auth!.user.id,
-                    ipAddress: auth?.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: prisma
                 })
 
@@ -594,7 +594,7 @@ export const actions: Actions = {
      * Remove company - following admin accounts pattern
      */
     removeCompany: restrictAccountRole(
-        async ({ request, auth, accountMembership }: AccountAuthenticatedEvent) => {
+        async ({ request, auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
             const { accountId } = accountMembership;
 
             const form = await superValidate(request, zod(relationshipSchema));
@@ -663,7 +663,7 @@ export const actions: Actions = {
                     oldData: company,
                     newData: null,
                     userId: auth!.user.id,
-                    ipAddress: auth?.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: prisma
                 })
 

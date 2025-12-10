@@ -14,18 +14,12 @@ import { generateDownloadUrl, getStorageConfig, parseGCloudUrl, isGCloudUrl } fr
 export const GET: RequestHandler = async ({ params, locals, request }) => {
     // Check if user is authenticated
     if (!locals.user) {
-        throw error(401, {
-            message: 'Authentication required',
-            code: 'UNAUTHORIZED'
-        });
+        throw error(401, 'Authentication required');
     }
     
     // Check if user has required role
     if (!locals.user.systemRole || locals.user.systemRole !== SystemRole.USER && locals.user.systemRole !== SystemRole.ADMIN) {
-        throw error(403, {
-            message: 'Insufficient permissions',
-            code: 'FORBIDDEN'
-        });
+        throw error(403, 'Insufficient permissions');
     }
         const { id } = params;
         
@@ -50,10 +44,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
             
             // If resource doesn't exist, return a 404 error
             if (!resource) {
-                throw error(404, {
-                    message: 'Resource not found',
-                    code: 'RESOURCE_NOT_FOUND'
-                });
+                throw error(404, 'Resource not found');
             }
             
             // Check if the user has access to this resource
@@ -76,10 +67,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 logger.info(`User is admin: ${isAdmin}`);
                 
                 if (!isAdmin) {
-                    throw error(403, {
-                        message: 'You do not have permission to access this resource',
-                        code: 'FORBIDDEN'
-                    });
+                    throw error(403, 'You do not have permission to access this resource');
                 }
             }
             
@@ -161,11 +149,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 
                 if (!fileExists) {
                     logger.error(`File not found at ${fullPath}`);
-                    throw error(404, {
-                        message: 'File not found',
-                        code: 'FILE_NOT_FOUND',
-                        details: `The requested file '${resource.name}' does not exist on the server.`
-                    });
+                    throw error(404, 'File not found');
                 }
                 
                 logger.info(`Redirecting to static path: ${staticPath}`);
@@ -181,10 +165,7 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
             
             // If we couldn't determine a path, return an error
             logger.warn(`Could not determine proper path for resource: ${resource.id}, path: ${resource.path || 'undefined'}`);
-            throw error(404, {
-                message: `Resource file not found: ${resource.path || 'No path provided'}`,
-                code: 'FILE_NOT_FOUND'
-            });
+            throw error(404, `Resource file not found: ${resource.path || 'No path provided'}`);
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : String(err);
             logger.error(`Error serving resource ${id}: ${errorMessage}`);
@@ -195,9 +176,6 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
             }
             
             // Otherwise, wrap it in a 500 error
-            throw error(500, {
-                message: 'Failed to serve resource',
-                code: 'RESOURCE_SERVE_ERROR'
-            });
+            throw error(500, 'Failed to serve resource');
         }
 };

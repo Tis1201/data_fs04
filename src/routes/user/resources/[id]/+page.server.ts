@@ -1,6 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
@@ -11,19 +11,30 @@ import { resourceSchema } from '../../../admin/iot/resources/new/resource';
 import { deleteFileFromCloudStorage } from '$lib/server/storage';
 import { createErrorResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
+import { z } from 'zod';
+
+const resourceSchemaWithTarget = resourceSchema.extend({
+    target: z.string().optional().nullable().default('')
+});
 
 // Define actions for this route
 export const actions: Actions = {
     // Action to update a resource
     update: restrict(
-        async ({ request, params, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { request, params, locals } = event;
+
+            if (!locals.user) {
+                throw error(401, 'Unauthorized');
+            }
             const { id } = params;
+            if (!id) {
+                throw error(400, 'Missing resource id');
+            }
             let existingResource;
             
             // Validate the form data
-            const form = await superValidate(request, zod(resourceSchema), {
-                dataType: 'json'
-            });
+            const form = await superValidate(request, zod(resourceSchemaWithTarget));
 
             // Check if the form is valid
             if (!form.valid) {
@@ -39,9 +50,11 @@ export const actions: Actions = {
                 if (!existingResource) {
                     return message(
                         form,
-                        createErrorResponse('Resource not found', {
-                            details: 'The resource you are trying to update does not exist.'
-                        })
+                        createErrorResponse(
+                            'Resource not found',
+                            'RESOURCE_NOT_FOUND',
+                            { details: 'The resource you are trying to update does not exist.' }
+                        )
                     );
                 }
 
@@ -59,9 +72,14 @@ export const actions: Actions = {
                 if (!isCreator && !accountMembership) {
                     return message(
                         form,
-                        createErrorResponse('Permission denied', {
-                            details: 'You do not have permission to update this resource. You must be the creator or an account admin.'
-                        })
+                        createErrorResponse(
+                            'Permission denied',
+                            'FORBIDDEN',
+                            {
+                                details:
+                                    'You do not have permission to update this resource. You must be the creator or an account admin.'
+                            }
+                        )
                     );
                 }
 
@@ -72,7 +90,7 @@ export const actions: Actions = {
                         name: form.data.name,
                         description: form.data.description,
                         type: form.data.type,
-                        target: form.data.target,
+                        target: form.data.target || undefined,
                         version: form.data.version,
                         releaseType: form.data.releaseType,
                         format: form.data.format,
@@ -94,7 +112,7 @@ export const actions: Actions = {
                     oldData: existingResource,
                     newData: updatedResource,
                     userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
                 });
 
@@ -104,7 +122,7 @@ export const actions: Actions = {
                     data: [{ success: 1 }, true]
                 };
             } catch (err) {
-                logger.error(`Error updating resource ${id}:`, err);
+                logger.error(`Error updating resource ${id}:`, err as Record<string, any>);
                 return handleFormError({
                     error: err,
                     form,
@@ -120,8 +138,16 @@ export const actions: Actions = {
 
     // Action to delete a resource
     deleteResource: restrict(
-        async ({ params, locals }) => {
+        async (event: AuthenticatedEvent) => {
+            const { params, locals } = event;
+
+            if (!locals.user) {
+                throw error(401, 'Unauthorized');
+            }
             const { id } = params;
+            if (!id) {
+                throw error(400, 'Missing resource id');
+            }
             
             try {
                 // Check if the resource exists and the user has permission to delete it
@@ -180,7 +206,7 @@ export const actions: Actions = {
                     oldData: resource,
                     newData: null,
                     userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
                 })
                 
@@ -190,7 +216,7 @@ export const actions: Actions = {
                     message: 'Resource deleted successfully'
                 };
             } catch (err) {
-                logger.error(`Error deleting resource ${id}:`, err);
+                logger.error(`Error deleting resource ${id}:`, err as Record<string, any>);
                 return fail(500, {
                     success: false,
                     message: 'Failed to delete resource'
@@ -202,8 +228,16 @@ export const actions: Actions = {
 };
 
 export const load = restrict(
-    async ({ params, locals }) => {
+    async (event: AuthenticatedLoadEvent) => {
+        const { params, locals } = event;
+
+        if (!locals.user) {
+            throw error(401, 'Unauthorized');
+        }
         const { id } = params;
+        if (!id) {
+            throw error(400, 'Missing resource id');
+        }
         
         try {
             // Fetch the resource by ID
@@ -234,10 +268,7 @@ export const load = restrict(
             
             // If resource doesn't exist or user doesn't have access, throw a 404 error
             if (!resource) {
-                throw error(404, {
-                    message: 'Resource not found',
-                    code: 'RESOURCE_NOT_FOUND'
-                });
+                throw error(404, 'Resource not found');
             }
             
             // Check if the user has access to this resource
@@ -251,23 +282,17 @@ export const load = restrict(
             });
             
             if (!hasAccess) {
-                throw error(403, {
-                    message: 'You do not have permission to view this resource',
-                    code: 'FORBIDDEN'
-                });
+                throw error(403, 'You do not have permission to view this resource');
             }
 
-            const form = await superValidate(zod(resourceSchema), {
-                id: 'resource-form',
-                dataType: 'json'
-            });
+            const form = await superValidate(zod(resourceSchemaWithTarget));
 
             // Populate form with existing resource data
             form.data = {
                 name: resource.name,
                 description: resource.description || '',
                 type: resource.type,
-                target: resource.target,
+                target: resource.target || '',
                 version: resource.version || '1.0.0',
                 versionCode: resource.versionCode ?? null,
                 signature: resource.signature ?? null,
@@ -293,11 +318,8 @@ export const load = restrict(
                 }
             };
         } catch (err) {
-            logger.error(`Error loading resource ${id}:${err}`,);
-            throw error(500, {
-                message: 'Failed to load resource',
-                code: 'RESOURCE_LOAD_ERROR'
-            });
+            logger.error(`Error loading resource ${id}:${err}`);
+            throw error(500, 'Failed to load resource');
         }
     },
     [SystemRole.USER]

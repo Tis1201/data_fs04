@@ -18,7 +18,6 @@ export const GET: RequestHandler = async ({ params, locals }) => {
         // Get enhanced prisma client with admin privileges
         const prisma = getEnhancedPrisma({
             id: auth.user.id,
-            rolesString: auth.user.rolesString,
             systemRole: auth.user.systemRole
         });
         

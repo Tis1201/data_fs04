@@ -78,7 +78,7 @@ export class ProgressActionHandler extends BaseActionHandler {
   /**
    * Handle unified status update messages
    */
-  protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
+  protected handleUnifiedStatus(entity: any): void {
     // Extract data from entity payload
     const { action, status, message, logId, progress, durationMs } = entity.payload;
 
@@ -106,7 +106,7 @@ export class ProgressActionHandler extends BaseActionHandler {
   /**
    * Handle progress update messages from device
    */
-  private handleProgressUpdate(entity: DeviceMessageEntity): void {
+  private handleProgressUpdate(entity: any): void {
     // Extract data from entity payload
     const { action, progress, message, logId } = entity.payload;
 

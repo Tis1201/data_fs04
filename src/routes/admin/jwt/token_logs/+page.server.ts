@@ -1,9 +1,10 @@
-import { error, fail } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedLoadEvent, AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
@@ -11,8 +12,20 @@ import { handleZenstackError, handleFormError } from '$lib/server/errors/errorHa
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
+const idSchema = z.object({
+    id: z.string().min(1, 'Token log ID is required')
+});
+
+const clearSchema = z.object({
+    olderThan: z
+        .string()
+        .min(1)
+        .transform((val) => parseInt(val, 10))
+        .pipe(z.number().int().positive())
+});
+
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Get query parameters for filtering, sorting, and pagination
             const search = url.searchParams.get('search') || '';
@@ -185,12 +198,12 @@ export const load = restrict(
             ]);
             
             // Format the distribution data
-            const tokenTypeStats = tokenTypeDistribution.map(item => ({
+            const tokenTypeStats = tokenTypeDistribution.map((item) => ({
                 type: item.tokenType,
                 count: item._count.id
             }));
             
-            const actionTypeStats = actionDistribution.map(item => ({
+            const actionTypeStats = actionDistribution.map((item) => ({
                 type: item.action,
                 count: item._count.id
             }));
@@ -250,7 +263,7 @@ export const load = restrict(
                 prisma: locals.prisma,
                 requestId: locals.requestId
             });
-            throw error(500, errorResponse.text, { details: errorResponse });
+            throw error(500, errorResponse.error.message);
         }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
@@ -258,14 +271,14 @@ export const load = restrict(
 
 export const actions: Actions = {
     deleteLog: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
             const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                id: id || ''
-            };
+            const form = await superValidate(formData, zod(idSchema));
+            const id = form.data.id;
+
+            if (!auth) {
+                throw error(401, 'Unauthorized');
+            }
 
             if (!id) {
                 return message(form, createErrorResponse('Token log ID is required'), { status: 400 });
@@ -277,6 +290,8 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Token log deleted: ${id}`);
+                const userId = locals.user?.id ?? auth.user.id;
+                const ipAddress = (locals as any)?.ipAddress ?? 'unknown';
 
                 await logAudit({
                     actionType: AuditActionType.DELETE,
@@ -284,8 +299,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: tokenUsageLog,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress,
                     prisma: locals.prisma
                 })
 
@@ -308,18 +323,16 @@ export const actions: Actions = {
     ),
     
     clearLogs: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
             const formData = await request.formData();
-            const olderThan = formData.get('olderThan')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                olderThan: olderThan || '30'
-            };
+            const form = await superValidate(formData, zod(clearSchema));
+            const days = form.data.olderThan;
+
+            if (!auth) {
+                throw error(401, 'Unauthorized');
+            }
 
             try {
-                // Calculate the date threshold
-                const days = parseInt(olderThan || '30');
                 const threshold = new Date();
                 threshold.setDate(threshold.getDate() - days);
 
@@ -343,15 +356,15 @@ export const actions: Actions = {
                 logger.info(`Cleared ${result.count} token logs older than ${days} days`);
                 
                 await Promise.all(
-                    tokenUsageLogs.map(log =>
+                    tokenUsageLogs.map((log) =>
                         logAudit({
                             actionType: AuditActionType.DELETE,
                             tableName: 'TokenUsageLog',
                             recordId: log.id,
                             oldData: log,
                             newData: null,
-                            userId: locals.user.id,
-                            ipAddress: locals.ipAddress,
+                            userId: locals.user?.id ?? auth.user.id,
+                            ipAddress: (locals as any)?.ipAddress ?? 'unknown',
                             prisma: locals.prisma
                         })
                     )

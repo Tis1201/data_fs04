@@ -79,7 +79,7 @@ export interface ActionLogEntry {
 // LOGGING MANAGER CLASS
 // ============================================================================
 
-class LoggingManagerClass {
+export class LoggingManagerClass {
   private config: LoggingConfig;
   private logs: LogEntry[] = [];
   private actionLogs: ActionLogEntry[] = [];

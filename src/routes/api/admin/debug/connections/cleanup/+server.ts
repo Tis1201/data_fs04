@@ -1,12 +1,12 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { logger } from '$lib/server/logger';
 
-export const POST: RequestHandler = restrict(async ({ auth }) => {
+export const POST: RequestHandler = restrict(async ({ auth }: AuthenticatedEvent) => {
   try {
     const results = {
       connections: {
@@ -38,7 +38,7 @@ export const POST: RequestHandler = restrict(async ({ auth }) => {
     // Remove stale connections
     for (const conn of staleConnections) {
       try {
-        ConnectionManager.unregisterConnection(conn.id);
+        ConnectionManager.unregisterConnection(conn.id || '');
         results.connections.removed++;
       } catch (error) {
         logger.warn(`[Cleanup] Failed to remove stale connection ${conn.id}: ${error}`);

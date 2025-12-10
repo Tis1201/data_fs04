@@ -7,7 +7,6 @@
  */
 export function createTableProps<T = any>(
     data: {
-        [recordsKey: string]: T[];
         meta?: {
             currentPage?: number;
             itemsPerPage?: number;
@@ -18,6 +17,7 @@ export function createTableProps<T = any>(
             field?: string;
             order?: string;
         };
+        [key: string]: any;
     },
     options: {
         recordsKey?: string;

@@ -1,15 +1,16 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 // Removed sseService import - using publisher instead
 import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
+import type { UserInfo } from '$lib/server/types/user';
 
 export const POST: RequestHandler = restrict(
-  async ({ params, locals }) => {
+  async ({ params, locals }: AuthenticatedEvent) => {
     const { id: bundleId, waveId } = params as { id: string; waveId: string };
     try {
       // Auth context
@@ -78,7 +79,13 @@ export const POST: RequestHandler = restrict(
             'device:actionRequest',
             `subscription:device:${deviceId}`,
             command,
-            { id: auth.user.id, name: auth.user.name },
+            {
+              id: auth.user.id,
+              email: auth.user.email,
+              name: auth.user.name,
+              systemRole: auth.user.systemRole,
+              source: 'session'
+            } satisfies UserInfo,
             { echoToSender: false }
           );
           await publisher.publish(routing);

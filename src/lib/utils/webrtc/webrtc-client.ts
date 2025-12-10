@@ -63,7 +63,8 @@ export class WebRTCClient {
                     console.log('[WebRTC] Processing message:', message);
                     
                     // Handle the message based on its type
-                    switch (message.type) {
+                    // Cast to string to allow compatibility cases not in WebRTCMessageType
+                    switch (message.type as string) {
                         case 'offer':
                             this.handleOffer(message);
                             break;
@@ -178,9 +179,17 @@ export class WebRTCClient {
                     const connectionState = this.peerConnection?.connectionState;
                     console.log(`[WebRTC] Connection state changed to: ${connectionState}`);
                     
+                    // Map RTCPeerConnectionState to our expected types
+                    let status: 'disconnected' | 'connected' | 'error' = 'disconnected';
+                    if (connectionState === 'connected') {
+                        status = 'connected';
+                    } else if (connectionState === 'failed' || connectionState === 'closed') {
+                        status = 'error';
+                    }
+                    
                     webRTCStore.update(state => ({
                         ...state,
-                        connectionStatus: connectionState
+                        connectionStatus: status
                     }));
                     
                     if (connectionState === 'connected') {
@@ -210,7 +219,7 @@ export class WebRTCClient {
                 webRTCStore.update(state => ({
                     ...state,
                     peerConnection: this.peerConnection,
-                    connectionStatus: 'connecting'
+                    connectionStatus: 'disconnected' as const
                 }));
             }
 
@@ -229,10 +238,12 @@ export class WebRTCClient {
             this.peerConnection.setRemoteDescription(offerDesc)
                 .then(() => {
                     console.log('[WebRTC] Creating answer...');
+                    if (!this.peerConnection) throw new Error('Peer connection lost');
                     return this.peerConnection.createAnswer();
                 })
                 .then(answer => {
                     console.log('[WebRTC] Setting local description for answer');
+                    if (!this.peerConnection) throw new Error('Peer connection lost');
                     return this.peerConnection.setLocalDescription(answer);
                 })
                 .then(() => {
@@ -240,24 +251,27 @@ export class WebRTCClient {
                     const currentRoomState = get(roomStore);
                     const roomId = currentRoomState?.roomId;
                     // Always include the current roomId from roomStore
+                    if (!this.peerConnection?.localDescription) throw new Error('No local description');
                     socketStore.send('webrtc', {
                         type: 'answer',
                         roomId,
                         sdp: this.peerConnection.localDescription.sdp
                     });
                 })
-                .catch(error => {
-                    console.error('[WebRTC] Error handling offer:', error);
+                .catch((error: unknown) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error('[WebRTC] Error handling offer:', errorMessage);
                     webRTCStore.update(state => ({
                         ...state,
-                        error: `Error handling offer: ${error.message}`
+                        error: `Error handling offer: ${errorMessage}`
                     }));
                 });
         } catch (error) {
-            console.error('[WebRTC] Exception in handleOffer:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[WebRTC] Exception in handleOffer:', errorMessage);
             webRTCStore.update(state => ({
                 ...state,
-                error: `Exception in handleOffer: ${error.message}`
+                error: `Exception in handleOffer: ${errorMessage}`
             }));
         }
     }
@@ -304,18 +318,20 @@ export class WebRTCClient {
                         connectionStatus: 'connected'
                     }));
                 })
-                .catch(error => {
-                    console.error('[WebRTC] Error handling answer:', error);
+                .catch((error: unknown) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error('[WebRTC] Error handling answer:', errorMessage);
                     webRTCStore.update(state => ({
                         ...state,
-                        error: `Error handling answer: ${error.message}`
+                        error: `Error handling answer: ${errorMessage}`
                     }));
                 });
         } catch (error) {
-            console.error('[WebRTC] Exception in handleAnswer:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[WebRTC] Exception in handleAnswer:', errorMessage);
             webRTCStore.update(state => ({
                 ...state,
-                error: `Exception in handleAnswer: ${error.message}`
+                error: `Exception in handleAnswer: ${errorMessage}`
             }));
         }
     }
@@ -343,18 +359,20 @@ export class WebRTCClient {
                 .then(() => {
                     console.log('[WebRTC] Added ICE candidate successfully');
                 })
-                .catch(error => {
-                    console.error('[WebRTC] Error adding ICE candidate:', error);
+                .catch((error: unknown) => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error('[WebRTC] Error adding ICE candidate:', errorMessage);
                     webRTCStore.update(state => ({
                         ...state,
-                        error: `Error adding ICE candidate: ${error.message}`
+                        error: `Error adding ICE candidate: ${errorMessage}`
                     }));
                 });
         } catch (error) {
-            console.error('[WebRTC] Exception adding ICE candidate:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('[WebRTC] Exception adding ICE candidate:', errorMessage);
             webRTCStore.update(state => ({
                 ...state,
-                error: `Exception adding ICE candidate: ${error.message}`
+                error: `Exception adding ICE candidate: ${errorMessage}`
             }));
         }
     }
@@ -507,9 +525,9 @@ export function initWebRTCClient(config?: WebRTCClientConfig) {
 }
 
 // Create proper Svelte stores
-const _webrtcEvents = writable([]);
-const _webrtcStatus = writable({});
-const _videoStream = writable(null);
+const _webrtcEvents = writable<any[]>([]);
+const _webrtcStatus = writable<any>({});
+const _videoStream = writable<MediaStream | null>(null);
 
 // Track the last message to avoid duplicates
 let lastMessageKey = '';
@@ -524,7 +542,7 @@ webRTCStore.subscribe(state => {
         const messageKey = `${state.latestMessage.type}-${state.latestMessage.timestamp || new Date().toISOString()}`;
         if (messageKey !== lastMessageKey) {
             lastMessageKey = messageKey;
-            _webrtcEvents.update(events => [...events, state.latestMessage]);
+            _webrtcEvents.update(events => [...events, state.latestMessage!]);
         }
     }
 });

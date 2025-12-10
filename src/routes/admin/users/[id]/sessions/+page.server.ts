@@ -1,7 +1,7 @@
 import type { PageServerLoad } from './$types';
 import type { Actions } from './$types';
 import { error, fail } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
@@ -25,7 +25,7 @@ const table_options = {
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ params, url, locals }) => {
+    async ({ params, url, locals }: AuthenticatedLoadEvent) => {
         const userId = params.id;
         
         // Get user data
@@ -84,7 +84,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     revokeSession: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const userId = params.id;
             const formData = await request.formData();
             const sessionId = formData.get('id')?.toString();
@@ -115,20 +115,27 @@ export const actions: Actions = {
                 
                 logger.info('Session revoked successfully', { sessionId });
 
+                const actorUserId = auth?.user?.id;
+                if (!actorUserId) {
+                    throw error(401, 'Unauthorized');
+                }
+
+                const ipAddress = locals.requestContext?.ip ?? getClientAddress();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Session',
                     recordId: sessionId,
                     oldData: session,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: actorUserId,
+                    ipAddress,
                     prisma: locals.prisma
-                })
+                });
 
                 return { success: true, message: 'Session revoked successfully' };
             } catch (err) {
-                logger.error('Error revoking session:', err);
+                logger.error('Error revoking session:', { err });
                 return fail(500, { error: 'Failed to revoke session' });
             }
         },
@@ -137,7 +144,7 @@ export const actions: Actions = {
 
     // Add delete action that RecordDeleteDialog expects (same as revokeSession)
     delete: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
             const userId = params.id;
             const formData = await request.formData();
             const sessionId = formData.get('id')?.toString();
@@ -168,20 +175,27 @@ export const actions: Actions = {
                 
                 logger.info('Session deleted successfully', { sessionId });
 
+                const actorUserId = auth?.user?.id;
+                if (!actorUserId) {
+                    throw error(401, 'Unauthorized');
+                }
+
+                const ipAddress = locals.requestContext?.ip ?? getClientAddress();
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Session',
                     recordId: sessionId,
                     oldData: session,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: actorUserId,
+                    ipAddress,
                     prisma: locals.prisma
-                })
+                });
 
                 return { success: true, message: 'Session deleted successfully' };
             } catch (err) {
-                logger.error('Error deleting session:', err);
+                logger.error('Error deleting session:', { err });
                 return fail(500, { error: 'Failed to delete session' });
             }
         },

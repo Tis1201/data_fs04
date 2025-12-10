@@ -109,7 +109,8 @@ export class FileStateManager implements StateManager {
         }
         
         // Create bundle data map
-        const bundleDataMap = new Map(bundleData.map((b: any) => [b.id, b]));
+        type BundleData = { id: string; scheduledAt: Date | null; activePeriodDays: number | null };
+        const bundleDataMap = new Map<string, BundleData>(bundleData.map((b: any) => [b.id, b]));
         
         // Check active period for each FAILED/CANCELLED bundle
         for (const { bundleId, state } of failedCancelledBundles) {

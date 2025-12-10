@@ -9,7 +9,7 @@ import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 
 export const POST: RequestHandler = restrict(
-  async ({ params, locals }) => {
+  async ({ params, locals }: any) => {
     const { id: bundleId, waveId } = params as { id: string; waveId: string };
     try {
       // Auth context
@@ -78,7 +78,13 @@ export const POST: RequestHandler = restrict(
             'device:actionRequest',
             `subscription:device:${deviceId}`,
             command,
-            { id: auth.user.id, name: auth.user.name },
+            {
+              id: auth.user.id,
+              email: auth.user.email,
+              name: auth.user.name,
+              systemRole: auth.user.systemRole,
+              source: 'session'
+            },
             { echoToSender: false }
           );
           await publisher.publish(routing);

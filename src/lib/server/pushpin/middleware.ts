@@ -36,10 +36,11 @@ let messageRelay: MessageRelay | null = null;
  ***************************************************************************************/
 if (!building && redis) {
     try {
+        const redisClient = redis; // Capture for closure
         const redisService = {
-            client: redis,
+            client: redisClient,
             publish: async (channel: string, message: string): Promise<number> => {
-                return redis.publish(channel, message);
+                return redisClient.publish(channel, message);
             }
         } as any;
         
@@ -139,6 +140,11 @@ async function publish(
 async function subscribeToDeviceStatusChange(
     redisService: ReturnType<typeof getRedisService>
 ): Promise<void> {
+    if (!redisService) {
+        logger.error('[Pushpin] Cannot subscribe: Redis service not available');
+        return;
+    }
+    
     const CHANNEL = 'device_status_changes';
     logger.info(`[Pushpin] Subscribing to "${CHANNEL}"`);
 
@@ -191,6 +197,11 @@ async function subscribeToDeviceStatusChange(
 async function loadOnlineDevices(
     redisService: ReturnType<typeof getRedisService>
 ): Promise<void> {
+    if (!redisService) {
+        logger.error('[Pushpin] Cannot load online devices: Redis service not available');
+        return;
+    }
+    
     logger.info('[Pushpin] Loading online devices from Redis');
     const keys = await redisService.client.keys('device:*:status');
 

@@ -44,7 +44,12 @@ export async function auth_device(
 
     logger.info(`Device ${device.id} (${device.name || 'unnamed'}) connected via API key, owned by: ${device.user.name}`);
 
-    const userInfo = await userInfoByUserId(device.user.id, locals.prisma);
+    const userInfo = await userInfoByUserId(device.user.id);
+    
+    if (!userInfo) {
+        logger.error(`Could not retrieve user info for user ID: ${device.user.id}`);
+        throw json({ error: 'User not found', code: 'USER_NOT_FOUND' }, { status: 404 });
+    }
     
     // Add debugging to check device object structure
     logger.debug(`Device object structure: ${JSON.stringify({

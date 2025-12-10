@@ -4,15 +4,19 @@ import { superValidate, message } from 'sveltekit-superforms/server';
 import { preclaimSetEditSchema } from '../schema';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
-  async ({ params, locals }) => {
+  async (event: AuthenticatedLoadEvent) => {
+    const { params, locals } = event;
     const id = params.id;
+    if (!id) {
+      throw error(400, 'Pre-claim set id is required');
+    }
     try {
       const preclaimSet = await locals.prisma.preclaimSet.findUnique({
         where: { id },
@@ -80,7 +84,7 @@ export const load = restrict(
 
       return { form, preclaimSet, profileOptions };
     } catch (e) {
-      logger.error('Error loading pre-claim set for edit:', e);
+      logger.error('Error loading pre-claim set for edit', { error: e });
       throw error(500, 'Failed to load pre-claim set');
     }
   },
@@ -89,8 +93,12 @@ export const load = restrict(
 
 export const actions: Actions = {
   save: restrict(
-    async ({ request, params, locals }) => {
+    async (event: AuthenticatedEvent) => {
+      const { request, params, locals } = event;
       const id = params.id;
+      if (!id) {
+        return fail(400, { form: await superValidate(request, zod(preclaimSetEditSchema)), error: 'Pre-claim set id is required' });
+      }
       const form = await superValidate(request, zod(preclaimSetEditSchema));
       logger.debug(`Preclaim set edit form data: ${JSON.stringify(form)}`);
 
@@ -124,6 +132,10 @@ export const actions: Actions = {
           data: updateData
         });
 
+        if (!locals.user) {
+          return fail(401, { form, error: 'Unauthorized' });
+        }
+
         await logAudit({
           actionType: AuditActionType.UPDATE,
           tableName: 'PreclaimSet',
@@ -131,7 +143,7 @@ export const actions: Actions = {
           oldData: existing,
           newData: updated,
           userId: locals.user.id,
-          ipAddress: locals.ipAddress,
+          ipAddress: (locals as any)?.ipAddress,
           prisma: locals.prisma
         });
 
@@ -143,7 +155,7 @@ export const actions: Actions = {
           })
         );
       } catch (e) {
-        logger.error('Error updating pre-claim set:', e);
+        logger.error('Error updating pre-claim set', { error: e });
         return fail(500, { form, error: 'Failed to update pre-claim set' });
       }
     },
@@ -151,7 +163,8 @@ export const actions: Actions = {
   ),
 
   cancel: restrict(
-    async ({ params }) => {
+    async (event: AuthenticatedEvent) => {
+      const { params } = event;
       throw redirect(303, `/admin/iot/preclaims/${params.id}`);
     },
     [SystemRole.ADMIN]

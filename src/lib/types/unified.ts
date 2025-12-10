@@ -229,7 +229,7 @@ export class MessageFactory {
     action: WebRTCAction,
     deviceId: string,
     data: WebRTCData,
-    options: Partial<BaseMessage> = {}
+    options: Partial<Omit<BaseMessage, 'type'>> = {}
   ): WebRTCMessage {
     return {
       id: this.generateId(),
@@ -246,7 +246,7 @@ export class MessageFactory {
     action: TerminalAction,
     deviceId: string,
     data: TerminalData,
-    options: Partial<BaseMessage> = {}
+    options: Partial<Omit<BaseMessage, 'type'>> = {}
   ): TerminalMessage {
     return {
       id: this.generateId(),
@@ -263,7 +263,7 @@ export class MessageFactory {
     action: RDPAction,
     deviceId: string,
     data: RDPData,
-    options: Partial<BaseMessage> = {}
+    options: Partial<Omit<BaseMessage, 'type'>> = {}
   ): RDPMessage {
     return {
       id: this.generateId(),
@@ -280,7 +280,7 @@ export class MessageFactory {
     action: DeviceAction,
     deviceId: string,
     data: DeviceData,
-    options: Partial<BaseMessage> = {}
+    options: Partial<Omit<BaseMessage, 'type'>> = {}
   ): DeviceMessage {
     return {
       id: this.generateId(),
@@ -297,7 +297,7 @@ export class MessageFactory {
     action: SystemAction,
     deviceId: string,
     data: SystemData,
-    options: Partial<BaseMessage> = {}
+    options: Partial<Omit<BaseMessage, 'type'>> = {}
   ): SystemMessage {
     return {
       id: this.generateId(),
@@ -313,7 +313,7 @@ export class MessageFactory {
   static createError(
     deviceId: string,
     data: ErrorData,
-    options: Partial<BaseMessage> = {}
+    options: Partial<Omit<BaseMessage, 'type'>> = {}
   ): ErrorMessage {
     return {
       id: this.generateId(),

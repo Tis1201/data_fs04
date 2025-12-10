@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrictDevice } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
-import jwt from 'jsonwebtoken';
+import jwt, { type Algorithm } from 'jsonwebtoken';
 
 /**
  * Returns a JWT for an authenticated device.
@@ -34,8 +34,22 @@ export const GET: RequestHandler = restrictDevice(
             ), { status: 500 });
         }
 
+        if (!signingKey.privateKey) {
+            logger.error('Signing key is missing private key material');
+            return json(
+                createErrorResponse(
+                    'Signing key misconfigured',
+                    {
+                        details: 'Primary signing key does not include privateKey'
+                    }
+                ),
+                { status: 500 }
+            );
+        }
+
        
         try{
+            const algorithm: Algorithm = (signingKey.algorithm as Algorithm | null) ?? 'HS256';
             const token = jwt.sign(
                 {
                     deviceId: device.id,
@@ -46,7 +60,7 @@ export const GET: RequestHandler = restrictDevice(
                 },
                 signingKey.privateKey, // or .secret if using HMAC
                 {
-                    algorithm: signingKey.algorithm || 'HS256', // depends on your DB model
+                    algorithm, // depends on your DB model
                     expiresIn: '1h',
                     issuer: 'fs04',
                     audience: 'https://fs04.datarealities.com', // Added audience claim

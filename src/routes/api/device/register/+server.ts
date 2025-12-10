@@ -226,17 +226,21 @@ export const GET: RequestHandler = async ({ locals, request }: any) => {
                             });
 
                             // Apply device profile if assigned to preclaim set
-                            try {
-                                const profileService = new PreclaimProfileService(locals.prisma);
-                                await profileService.applyToDevice(
-                                    deviceId,
-                                    preclaim.preclaim.setId,
-                                    resolvedClaimUserId
-                                    // No delay needed for SSE mode
-                                );
-                            } catch (profileError: any) {
-                                logger.error(`Failed to apply profile to claimed device ${deviceId}:`, profileError);
-                                // Don't fail the claim if profile application fails
+                            if (resolvedClaimUserId) {
+                                try {
+                                    const profileService = new PreclaimProfileService(locals.prisma);
+                                    await profileService.applyToDevice(
+                                        deviceId,
+                                        preclaim.preclaim.setId,
+                                        resolvedClaimUserId
+                                        // No delay needed for SSE mode
+                                    );
+                                } catch (profileError: any) {
+                                    logger.error(`Failed to apply profile to claimed device ${deviceId}:`, profileError);
+                                    // Don't fail the claim if profile application fails
+                                }
+                            } else {
+                                logger.warn(`Skipped profile application; no resolvedClaimUserId for device ${deviceId}`);
                             }
 
                             // Send registration message using shared utility with the actual API key

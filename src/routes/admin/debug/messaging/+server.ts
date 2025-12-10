@@ -1,8 +1,7 @@
-import { json } from '@sveltejs/kit';
+import { json, type RequestHandler } from '@sveltejs/kit';
 import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
-import { restrict } from '$lib/server/security/guards';
-import pkg from '@prisma/client';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 
 /**
@@ -10,12 +9,12 @@ import { SystemRole } from '$lib/types/roles';
  * Used for AJAX refreshes of the messaging debug UI
  */
 export const GET = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedEvent) => {
         // Get all connections
         const connections = await ConnectionManager.getAllConnectionMetas();
         
         // Group connections by user
-        const userConnections = {};
+        const userConnections: Record<string, typeof connections> = {};
         connections.forEach(conn => {
             const userId = conn.userInfo?.id || 'anonymous';
             if (!userConnections[userId]) {
@@ -28,7 +27,7 @@ export const GET = restrict(
         const subscriptions = await subscriptionRegistry.getAll();
         
         // Group subscriptions by key
-        const keySubscriptions = {};
+        const keySubscriptions: Record<string, typeof subscriptions> = {};
         subscriptions.forEach(sub => {
             const key = sub.key;
             if (!keySubscriptions[key]) {

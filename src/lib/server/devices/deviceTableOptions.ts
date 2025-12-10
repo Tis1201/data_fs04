@@ -28,6 +28,9 @@ const baseDeviceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         createdAt: true,
         status: true,
         osVersion: true,
+        tags: true
+    },
+    include: {
         tags: {
             select: {
                 id: true,

@@ -125,6 +125,26 @@ export class EventRouter extends EventEmitter {
     return true;      
   }
 
+  /**
+   * Send event to multiple clients
+   */
+  private sendToClients(clients: ExtendedWebSocket[], event: EventData): void {
+    const message = {
+      type: event.type,
+      data: { message: event.payload }
+    };
+
+    clients.forEach((client) => {
+      try {
+        if (client.readyState === 1) { // WebSocket.OPEN
+          client.send(JSON.stringify(message));
+        }
+      } catch (err) {
+        logger.error('[EventRouter] Failed to send to client:', err);
+      }
+    });
+  }
+
 
   /**
    * Helper to emit an event easily

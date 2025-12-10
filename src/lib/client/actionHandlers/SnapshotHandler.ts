@@ -9,10 +9,10 @@ export class SnapshotHandler extends BaseActionHandler {
     super(params);
   }
 
-  handle(evtType: string, entity: DeviceMessageEntity): void {
+  handle(evtType: string, entity: any): void {
     // Handle snapshot status message
-    if (evtType === 'device:snapshotStatus' || data?.type === 'device:snapshotStatus') {
-      this.handleSnapshotStatus(evtType, data);
+    if (evtType === 'device:snapshotStatus' || entity?.type === 'device:snapshotStatus') {
+      this.handleSnapshotStatus(evtType, entity);
       return;
     }
   }

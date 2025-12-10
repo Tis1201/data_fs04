@@ -1,5 +1,5 @@
 // src/lib/server/messaging/stores/memorySharedStore.ts
-import type { SharedStore } from "../interfaces/sharedStore";
+import type { SharedStore } from "../messaging/interfaces/sharedStore";
 
 /**
  * A generic in-memory set store for storing multiple values per key.

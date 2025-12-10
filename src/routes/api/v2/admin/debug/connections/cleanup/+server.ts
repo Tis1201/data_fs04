@@ -41,7 +41,7 @@ export const POST: RequestHandler = unifiedEndpoint(
 		// Remove stale connections
 		for (const conn of staleConnections) {
 			try {
-				ConnectionManager.unregisterConnection(conn.id);
+				ConnectionManager.unregisterConnection(conn.id || '');
 				results.connections.removed++;
 			} catch (error) {
 				logger.warn(`[Cleanup] Failed to remove stale connection ${conn.id}: ${error}`);

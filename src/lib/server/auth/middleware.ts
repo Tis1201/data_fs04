@@ -97,7 +97,7 @@ export const authMiddleware: Handle = async ({ event, resolve }) => {
                 user, 
                 session, 
                 memberships,
-                currentAccount
+                currentAccount: currentAccount ?? null
             };
         },
         

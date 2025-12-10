@@ -1,9 +1,10 @@
-import { error, fail } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedLoadEvent, AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createErrorResponse, createSuccessResponse } from '$lib/types/api';
@@ -11,8 +12,20 @@ import { handleZenstackError, handleFormError } from '$lib/server/errors/errorHa
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
+const idSchema = z.object({
+    id: z.string().min(1, 'Refresh token ID is required')
+});
+
+const userIdSchema = z.object({
+    userId: z.string().min(1, 'User ID is required')
+});
+
+const accountIdSchema = z.object({
+    accountId: z.string().min(1, 'Account ID is required')
+});
+
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Get query parameters for filtering, sorting, and pagination
             const search = url.searchParams.get('search') || '';
@@ -143,7 +156,7 @@ export const load = restrict(
                 prisma: locals.prisma,
                 requestId: locals.requestId
             });
-            throw error(500, errorResponse.text, { details: errorResponse });
+            throw error(500, errorResponse.error.message);
         }
     },
     [SystemRole.ADMIN] // Only allow admin role to access this route
@@ -151,14 +164,14 @@ export const load = restrict(
 
 export const actions: Actions = {
     revokeToken: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
             const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                id: id || ''
-            };
+            const form = await superValidate(formData, zod(idSchema));
+            const id = form.data.id;
+
+            if (!auth) {
+                throw error(401, 'Unauthorized');
+            }
 
             if (!id) {
                 return message(form, createErrorResponse('Refresh token ID is required'), { status: 400 });
@@ -190,6 +203,8 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Refresh token revoked: ${id}`);
+                const userId = locals.user?.id ?? auth.user.id;
+                const ipAddress = (locals as any)?.ipAddress ?? 'unknown';
 
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
@@ -197,8 +212,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: token,
                     newData: revokedToken,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress,
                     prisma: locals.prisma
                 })
 
@@ -221,14 +236,14 @@ export const actions: Actions = {
     ),
     
     deleteToken: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
             const formData = await request.formData();
-            const id = formData.get('id')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                id: id || ''
-            };
+            const form = await superValidate(formData, zod(idSchema));
+            const id = form.data.id;
+
+            if (!auth) {
+                throw error(401, 'Unauthorized');
+            }
 
             if (!id) {
                 return message(form, createErrorResponse('Refresh token ID is required'), { status: 400 });
@@ -240,6 +255,8 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Refresh token deleted: ${id}`);
+                const userId = locals.user?.id ?? auth.user.id;
+                const ipAddress = (locals as any)?.ipAddress ?? 'unknown';
 
                 await logAudit({
                     actionType: AuditActionType.DELETE,
@@ -247,8 +264,8 @@ export const actions: Actions = {
                     recordId: id,
                     oldData: token,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId,
+                    ipAddress,
                     prisma: locals.prisma
                 })
 
@@ -271,14 +288,14 @@ export const actions: Actions = {
     ),
     
     revokeAllForUser: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
             const formData = await request.formData();
-            const userId = formData.get('userId')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                userId: userId || ''
-            };
+            const form = await superValidate(formData, zod(userIdSchema));
+            const userId = form.data.userId;
+
+            if (!auth) {
+                throw error(401, 'Unauthorized');
+            }
 
             if (!userId) {
                 return message(form, createErrorResponse('User ID is required'), { status: 400 });
@@ -305,6 +322,8 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Revoked ${result.count} refresh tokens for user: ${userId}`);
+                const userIdForAudit = locals.user?.id ?? auth.user.id;
+                const ipAddress = (locals as any)?.ipAddress ?? 'unknown';
 
                 await Promise.all(
                     refreshTokens.map(token =>
@@ -314,8 +333,8 @@ export const actions: Actions = {
                             recordId: token.id,
                             oldData: { isRevoked: false, revokedAt: null },
                             newData: { isRevoked: true, revokedAt: new Date() },
-                            userId: locals.user.id,
-                            ipAddress: locals.ipAddress,
+                            userId: userIdForAudit,
+                            ipAddress,
                             prisma: locals.prisma
                         })
                     )
@@ -340,14 +359,14 @@ export const actions: Actions = {
     ),
     
     revokeAllForAccount: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
             const formData = await request.formData();
-            const accountId = formData.get('accountId')?.toString();
-            
-            // Create a form object for consistent handling
-            const form = {
-                accountId: accountId || ''
-            };
+            const form = await superValidate(formData, zod(accountIdSchema));
+            const accountId = form.data.accountId;
+
+            if (!auth) {
+                throw error(401, 'Unauthorized');
+            }
 
             if (!accountId) {
                 return message(form, createErrorResponse('Account ID is required'), { status: 400 });
@@ -374,6 +393,8 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Revoked ${result.count} refresh tokens for account: ${accountId}`);
+                const userIdForAudit = locals.user?.id ?? auth.user.id;
+                const ipAddress = (locals as any)?.ipAddress ?? 'unknown';
 
                 await Promise.all(
                     refreshTokens.map(token =>
@@ -383,8 +404,8 @@ export const actions: Actions = {
                             recordId: token.id,
                             oldData: { isRevoked: false, revokedAt: null },
                             newData: { isRevoked: true, revokedAt: new Date() },
-                            userId: locals.user.id,
-                            ipAddress: locals.ipAddress,
+                            userId: userIdForAudit,
+                            ipAddress,
                             prisma: locals.prisma
                         })
                     )

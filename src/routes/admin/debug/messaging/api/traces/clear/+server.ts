@@ -11,7 +11,8 @@ export const POST = restrict(
 			return json({ success: true, message: 'Message traces cleared' });
 		} catch (err) {
 			console.error('Error clearing message traces:', err);
-			return json({ success: false, error: err.message }, { status: 500 });
+			const message = err instanceof Error ? err.message : 'Unknown error';
+			return json({ success: false, error: message }, { status: 500 });
 		}
 	},
 	[SystemRole.ADMIN]

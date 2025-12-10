@@ -24,7 +24,7 @@ export async function loadDeviceProfileList(
                 where: { userId: options.userId },
                 select: { accountId: true }
             });
-            accountIds = userAccountMemberships.map(m => m.accountId);
+            accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
         }
 
         // Create table options with optional ownership filtering

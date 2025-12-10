@@ -78,9 +78,11 @@ export const actions: Actions = {
                         });
                         return message(
                             errorForm,
-                            createErrorResponse('Invalid file format', {
-                                details: 'Only .zip, .cpk, and .apk files are allowed'
-                            })
+                            createErrorResponse(
+                                'Invalid file format',
+                                'VALIDATION_ERROR',
+                                { details: 'Only .zip, .cpk, and .apk files are allowed' }
+                            )
                         );
                     }
                     
@@ -180,9 +182,11 @@ export const actions: Actions = {
                         if (!account) {
                             return message(
                                 form,
-                                createErrorResponse('Invalid account', {
-                                    details: `The selected account with ID '${accountId}' does not exist.`
-                                })
+                                createErrorResponse(
+                                    'Invalid account',
+                                    'INVALID_ACCOUNT',
+                                    { details: `The selected account with ID '${accountId}' does not exist.` }
+                                )
                             );
                         }
                     } else {
@@ -194,9 +198,13 @@ export const actions: Actions = {
                             logger.error('System account not found in database');
                             return message(
                                 form,
-                                createErrorResponse('System account not found', {
-                                    details: 'The system account does not exist. Please run the database seed to create it.'
-                                })
+                                createErrorResponse(
+                                    'System account not found',
+                                    'SYSTEM_ACCOUNT_NOT_FOUND',
+                                    {
+                                        details: 'The system account does not exist. Please run the database seed to create it.'
+                                    }
+                                )
                             );
                         }
                     }
@@ -208,9 +216,11 @@ export const actions: Actions = {
                     logger.error(`Error verifying account: ${String(acctErr)}`);
                     return message(
                         form,
-                        createErrorResponse('Error verifying account', {
-                            details: 'Failed to verify the selected account. Please try again.'
-                        })
+                        createErrorResponse(
+                            'Error verifying account',
+                            'ACCOUNT_VERIFY_ERROR',
+                            { details: 'Failed to verify the selected account. Please try again.' }
+                        )
                     );
                 }
 
@@ -261,9 +271,11 @@ export const actions: Actions = {
                             logger.warn('Uploaded file has zero size; aborting.');
                             return message(
                                 form,
-                                createErrorResponse('Empty file', {
-                                    details: 'The uploaded file is empty (0 bytes). Please re-upload a valid file.'
-                                })
+                                createErrorResponse(
+                                    'Empty file',
+                                    'EMPTY_FILE',
+                                    { details: 'The uploaded file is empty (0 bytes). Please re-upload a valid file.' }
+                                )
                             );
                         }
 
@@ -285,9 +297,11 @@ export const actions: Actions = {
                             logger.error(`File upload failed: ${uploadError}`);
                             return message(
                                 form,
-                                createErrorResponse('File upload failed', {
-                                    details: 'Failed to upload file to storage. Please try again.'
-                                })
+                                createErrorResponse(
+                                    'File upload failed',
+                                    'FILE_UPLOAD_FAILED',
+                                    { details: 'Failed to upload file to storage. Please try again.' }
+                                )
                             );
                         }
                         

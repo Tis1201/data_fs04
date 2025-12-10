@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
@@ -62,7 +62,7 @@ export const GET: RequestHandler = restrict(
             });
             
         } catch (error) {
-            logger.error(`[FileDownload] Error serving file ${filename}:`, error);
+            logger.error(`[FileDownload] Error serving file ${filename}:`, error as Record<string, unknown>);
             return json({
                 success: false,
                 error: 'Failed to serve file'

@@ -41,7 +41,7 @@ export const POST: RequestHandler = restrict(async ({ params, request, locals, a
     }
   });
 
-  await Promise.all(assignments.map(async assignment => {
+  await Promise.all(assignments.map(async (assignment: { deviceId: string }) => {
     await subscriptionRegistry.addSubscription(
       `subscription:device:${assignment.deviceId}`,
       `subscriber:connection:${connectionId}`

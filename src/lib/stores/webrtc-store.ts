@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import { sseStore } from './sse-store';
+import type { WebRTCMessageType } from '$lib/server/webrtc/WebrtcSignalingUtils';
 
 export interface WebRTCMessage {
     type: WebRTCMessageType;

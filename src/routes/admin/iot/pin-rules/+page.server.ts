@@ -1,3 +1,4 @@
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -13,6 +14,10 @@ export const load = restrict(
     async ({ url, locals, depends, auth }: AuthenticatedLoadEvent) => {
         // Add depends call for cache invalidation
         depends('app:pin-rules');
+
+        if (!auth) {
+            throw redirect(302, '/admin/iot/pin-rules');
+        }
         
         const result = await loadPinRuleList(locals, url);
         
@@ -29,5 +34,13 @@ export const load = restrict(
  * Per structural standard: thin wrapper using shared actions factory
  */
 export const actions: Actions = {
-    ...createPinRuleActions()
+    deletePinRule: restrict(
+        async ({ request, locals, auth }: AuthenticatedEvent) => {
+            if (!auth) {
+                throw new Error('Unauthorized');
+            }
+            return createPinRuleActions().deletePinRule({ request, locals, auth });
+        },
+        [SystemRole.ADMIN]
+    )
 };

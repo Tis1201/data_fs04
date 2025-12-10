@@ -11,25 +11,42 @@ const generateKeyPairAsync = promisify(generateKeyPair);
  * @returns Promise that resolves to a JWT key pair
  */
 export async function generateJwtKeyPair(algorithm: 'RS256' | 'ES256' = 'RS256'): Promise<JwtKeyPair> {
-  const keyType = algorithm === 'RS256' ? 'rsa' : 'ec';
-  const options = {
-    modulusLength: algorithm === 'RS256' ? 2048 : undefined,
-    namedCurve: algorithm === 'ES256' ? 'prime256v1' : undefined,
-    publicKeyEncoding: {
-      type: 'spki',
-      format: 'pem' as const,
-    },
-    privateKeyEncoding: {
-      type: 'pkcs8',
-      format: 'pem' as const,
-    },
-  };
+  let publicKey: string;
+  let privateKey: string;
 
-  const { publicKey, privateKey } = await generateKeyPairAsync(keyType, options);
+  if (algorithm === 'RS256') {
+    const result = await generateKeyPairAsync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: {
+        type: 'spki',
+        format: 'pem' as const,
+      },
+      privateKeyEncoding: {
+        type: 'pkcs8',
+        format: 'pem' as const,
+      },
+    });
+    publicKey = result.publicKey.toString();
+    privateKey = result.privateKey.toString();
+  } else {
+    const result = await generateKeyPairAsync('ec', {
+      namedCurve: 'prime256v1',
+      publicKeyEncoding: {
+        type: 'spki',
+        format: 'pem' as const,
+      },
+      privateKeyEncoding: {
+        type: 'pkcs8',
+        format: 'pem' as const,
+      },
+    });
+    publicKey = result.publicKey.toString();
+    privateKey = result.privateKey.toString();
+  }
   
   return {
-    publicKey: publicKey.toString(),
-    privateKey: privateKey.toString(),
+    publicKey,
+    privateKey,
     keyId: randomUUID(),
     algorithm,
   };

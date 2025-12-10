@@ -7,6 +7,11 @@ type WSClient = WebSocket & {
     sessionId?: string;
 };
 
+// Extend global type to include our custom property
+declare global {
+    var __WS_CLIENTS_MAP__: Map<string, WSClient> | undefined;
+}
+
 // Use global tracking if available, otherwise create a new Map
 let clients: Map<string, WSClient>;
 

@@ -1,6 +1,5 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestEvent, RequestHandler } from '@sveltejs/kit';
-import type { PageServerLoad } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByApiKey, userInfoByUserId } from '$lib/server/security/auth-utils';
@@ -174,7 +173,16 @@ export async function restrict_device(
     hasId: 'id' in device
   });
 
-  const userInfo: UserInfo = await userInfoByUserId(device.user.id);
+  const userInfo = await userInfoByUserId(device.user.id);
+
+  if (!userInfo) {
+    logger.warn(`Could not find user info for device owner: ${device.user.id}`);
+    return {
+      error: 'Device owner not found',
+      code: 'DEVICE_OWNER_NOT_FOUND',
+      response: json({ error: 'Device owner not found', code: 'DEVICE_OWNER_NOT_FOUND' }, { status: 500 })
+    };
+  }
 
   return { device, userInfo };
 }
@@ -335,7 +343,7 @@ export function restrictAccountRole<T>(
     if (accountIdSource === 'cookie') {
       currentAccountId = event.cookies.get(cookieName) || null;
     } else if (accountIdSource === 'params') {
-      currentAccountId = event.params[paramName] || null;
+      currentAccountId = (event.params as Record<string, string>)[paramName] || null;
     }
 
     if (!currentAccountId) {

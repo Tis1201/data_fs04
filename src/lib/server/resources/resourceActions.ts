@@ -42,9 +42,7 @@ export function createResourceActions(options?: {
             const { resourceSchema } = await import('../../../routes/admin/iot/resources/new/resource');
 
             // Validate the form data
-            const form = await superValidate(request, zod(resourceSchema), {
-                dataType: 'json'
-            });
+            const form = await superValidate(request, zod(resourceSchema));
 
             // Check if the form is valid
             if (!form.valid) {
@@ -72,9 +70,11 @@ export function createResourceActions(options?: {
                     if (!account) {
                         return message(
                             form,
-                            createErrorResponse('Invalid account', {
-                                details: `The selected account with ID '${accountId}' does not exist.`
-                            })
+                            createErrorResponse(
+                                'Invalid account',
+                                'INVALID_ACCOUNT',
+                                `The selected account with ID '${accountId}' does not exist.`
+                            )
                         );
                     }
                 } else {
@@ -87,9 +87,11 @@ export function createResourceActions(options?: {
                         logger.error('System account not found in database');
                         return message(
                             form,
-                            createErrorResponse('System account not found', {
-                                details: 'The system account does not exist. Please run the database seed to create it.'
-                            })
+                            createErrorResponse(
+                                'System account not found',
+                                'SYSTEM_ACCOUNT_NOT_FOUND',
+                                'The system account does not exist. Please run the database seed to create it.'
+                            )
                         );
                     }
                 }
@@ -101,9 +103,11 @@ export function createResourceActions(options?: {
                 logger.error(`Error verifying account: ${JSON.stringify(err)}`);
                 return message(
                     form,
-                    createErrorResponse('Error verifying account', {
-                        details: 'Failed to verify the selected account. Please try again.'
-                    })
+                    createErrorResponse(
+                        'Error verifying account',
+                        'ACCOUNT_VERIFICATION_ERROR',
+                        'Failed to verify the selected account. Please try again.'
+                    )
                 );
             }
 
@@ -116,9 +120,11 @@ export function createResourceActions(options?: {
                 if (!existingResource) {
                     return message(
                         form,
-                        createErrorResponse('Resource not found', {
-                            details: 'The resource you are trying to update does not exist.'
-                        })
+                        createErrorResponse(
+                            'Resource not found',
+                            'RESOURCE_NOT_FOUND',
+                            'The resource you are trying to update does not exist.'
+                        )
                     );
                 }
 
@@ -164,7 +170,7 @@ export function createResourceActions(options?: {
                     error: err,
                     form,
                     prisma: locals.prisma,
-                    accountId,
+                    accountId: accountId ?? undefined,
                     defaultMessage: 'Failed to update resource. Please try again.',
                     action: 'admin resource update'
                 });

@@ -5,7 +5,9 @@ export const createWhatsAppAccountSchema = z.object({
         .min(1, 'Description is required')
         .max(255, 'Description must be less than 255 characters'),
     client_id: z.string()
-        .min(1, 'Client ID is required')
+        .min(1, 'Client ID is required'),
+    phoneNumber: z.string().optional(),
+    name: z.string().optional()
 });
 
 export type CreateWhatsAppAccountSchema = typeof createWhatsAppAccountSchema;

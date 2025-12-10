@@ -4,8 +4,9 @@ import { logger } from '$lib/server/logger';
 import { MessageFactory, type InMessage, type RoutingMessage } from '$lib/server/messaging/interfaces/message';
 import { userInfoByUserId } from '$lib/server/security/auth-utils';
 import { publisher } from '$lib/server/messaging/core/publisher';
+import type { RequestHandler } from './$types';
 
-export const POST = async ({ request, params, locals }) => {
+export const POST: RequestHandler = async ({ request, params, locals }) => {
     const { prisma } = locals;
     // Extract the postfix from the URL path
     const postfix = params.slug;
@@ -16,7 +17,7 @@ export const POST = async ({ request, params, locals }) => {
     }
 
     // Check if the webhook endpoint exists in the database
-    const webhookEndpoint = await prisma.WebhookEndPoint.findFirst({
+    const webhookEndpoint = await prisma.webhookEndPoint.findFirst({
         where: {
             postfix,
             status: 'ACTIVE' // Only process webhooks for active endpoints
@@ -87,7 +88,7 @@ export const POST = async ({ request, params, locals }) => {
         // };
 
         // // Update the lastUsedAt timestamp for the webhook
-        // await prisma.WebhookEndPoint.update({
+        // await prisma.webhookEndPoint.update({
         //     where: { id: webhookEndpoint.id },
         //     data: { lastUsedAt: new Date() }
         // });

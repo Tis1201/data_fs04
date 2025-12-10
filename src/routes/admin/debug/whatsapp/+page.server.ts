@@ -22,8 +22,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     // Get prisma client with admin privileges
     const prisma = getEnhancedPrisma({
-        id: session.user.userId,
-        rolesString: session.user.rolesString,
+        id: session.user.id,
         systemRole: session.user.systemRole
     });
 
@@ -66,8 +65,7 @@ export const actions: Actions = {
 
         // Get prisma client with admin privileges
         const prisma = getEnhancedPrisma({
-            id: session.user.userId,
-            rolesString: session.user.rolesString,
+            id: session.user.id,
             systemRole: session.user.systemRole
         });
 
@@ -142,13 +140,16 @@ export const actions: Actions = {
             }
             
             // Return the real-time status
+            const { connectionStatus, user } = clientInfo;
+            const contact = user as { name?: string; id?: string } | undefined;
+
             return {
                 success: true,
                 clientInfo: {
                     id: clientId,
-                    state: clientInfo.state,
-                    pushName: clientInfo.pushName,
-                    phoneNumber: clientInfo.phoneNumber
+                    state: connectionStatus ?? 'unknown',
+                    pushName: contact?.name ?? null,
+                    phoneNumber: contact?.id ?? null
                 }
             };
         } catch (error) {

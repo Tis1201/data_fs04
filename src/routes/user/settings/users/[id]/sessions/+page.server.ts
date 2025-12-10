@@ -2,6 +2,7 @@ import type { PageServerLoad } from './$types';
 import type { Actions } from './$types';
 import { error, fail } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
+import type { AuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma'; // Raw Prisma client
@@ -9,7 +10,7 @@ import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 export const load: PageServerLoad = restrict(
-    async ({ params, url, locals, cookies }) => {
+    async ({ params, url, locals, cookies }: AuthenticatedEvent) => {
         const userId = params.id;
         
         // Get current account ID from cookie
@@ -120,7 +121,7 @@ export const load: PageServerLoad = restrict(
 
 export const actions: Actions = {
     revokeSession: restrict(
-        async ({ request, params, locals, cookies }) => {
+        async ({ request, params, locals, cookies, getClientAddress }: AuthenticatedEvent) => {
             const userId = params.id;
             const formData = await request.formData();
             const sessionId = formData.get('id')?.toString();
@@ -182,7 +183,7 @@ export const actions: Actions = {
                     oldData: session,
                     newData: null,
                     userId: auth.user.id,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: getClientAddress(),
                     prisma: prisma
                 })
 
@@ -197,7 +198,7 @@ export const actions: Actions = {
 
     // Add delete action that RecordDeleteDialog expects
     delete: restrict(
-        async ({ request, params, locals, cookies }) => {
+        async ({ request, params, locals, cookies, getClientAddress }: AuthenticatedEvent) => {
             // Just call the same logic as revokeSession
             const userId = params.id;
             const formData = await request.formData();
@@ -260,7 +261,7 @@ export const actions: Actions = {
                     oldData: session,
                     newData: null,
                     userId: auth.user.id,
-                    ipAddress: locals.ipAddress,
+                    ipAddress: getClientAddress(),
                     prisma: prisma
                 })
 

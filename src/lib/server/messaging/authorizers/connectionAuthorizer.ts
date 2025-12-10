@@ -29,15 +29,9 @@ export const connectionAuthorizer: Authorizer = {
       return true;
     }
 
-    // Check if sudo is set, if yes, allow
-    // The sudo property is passed from the message to bypass normal authorization checks
-    if (sudo === true) {
-      logger.debug(`[ConnectionAuthorizer] Sudo mode enabled for message, allowing access to ${scope}`);
-      return true;
-    }
-    
-    // Also check for string 'true' for compatibility
-    if (sudo === 'true') {
+    // Check if sudo is set (boolean or string) to bypass authorization
+    const sudoEnabled = sudo === true || String(sudo) === 'true';
+    if (sudoEnabled) {
       logger.debug(`[ConnectionAuthorizer] Sudo mode enabled (string value) for message, allowing access to ${scope}`);
       return true;
     }

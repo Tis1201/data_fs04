@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
@@ -14,8 +14,12 @@ const addBundleAppSchema = z.object({
 });
 
 export const POST: RequestHandler = restrict(
-    async ({ params, request, locals }) => {
-        const { id: bundleId } = params;
+    async ({ params, request, locals }: AuthenticatedEvent) => {
+        const { id: bundleId } = params as { id: string };
+
+        if (!bundleId) {
+            return json(createErrorResponse('Bundle ID is required', 'VALIDATION_ERROR'), { status: 400 });
+        }
 
         try {
             // Parse and validate the request body
@@ -23,9 +27,14 @@ export const POST: RequestHandler = restrict(
             const result = addBundleAppSchema.safeParse(body);
             
             if (!result.success) {
-                return json(createErrorResponse('Invalid request data', {
-                    errors: result.error.format()
-                }), { status: 400 });
+                return json(
+                    createErrorResponse(
+                        'Invalid request data',
+                        'VALIDATION_ERROR',
+                        result.error.format()
+                    ),
+                    { status: 400 }
+                );
             }
             
             const { resourceId, order, autoOpen } = result.data;
@@ -33,7 +42,7 @@ export const POST: RequestHandler = restrict(
             // Get authenticated user info for audit fields
             const auth = await locals.auth.validate();
             if (!auth?.user) {
-                return json(createErrorResponse('Authentication required', {}), { status: 401 });
+                return json(createErrorResponse('Authentication required', 'UNAUTHORIZED'), { status: 401 });
             }
             
             const userInfo = await locals.prisma.user.findUnique({
@@ -42,7 +51,7 @@ export const POST: RequestHandler = restrict(
             });
             
             if (!userInfo) {
-                return json(createErrorResponse('User not found', {}), { status: 404 });
+                return json(createErrorResponse('User not found', 'NOT_FOUND'), { status: 404 });
             }
             
             // Check if bundle exists
@@ -51,12 +60,12 @@ export const POST: RequestHandler = restrict(
             });
             
             if (!bundle) {
-                return json(createErrorResponse('Bundle not found', {}), { status: 404 });
+                return json(createErrorResponse('Bundle not found', 'NOT_FOUND'), { status: 404 });
             }
             
             // Enforce DRAFT-only modifications
             if (bundle.status !== 'DRAFT') {
-                return json(createErrorResponse('Bundle is not editable (must be DRAFT)', {}), { status: 403 });
+                return json(createErrorResponse('Bundle is not editable (must be DRAFT)', 'FORBIDDEN'), { status: 403 });
             }
 
             // Check if resource exists
@@ -65,7 +74,7 @@ export const POST: RequestHandler = restrict(
             });
             
             if (!resource) {
-                return json(createErrorResponse('Resource not found', {}), { status: 404 });
+                return json(createErrorResponse('Resource not found', 'NOT_FOUND'), { status: 404 });
             }
             
             // Check if the app is already in the bundle
@@ -77,7 +86,7 @@ export const POST: RequestHandler = restrict(
             });
             
             if (existingApp) {
-                return json(createErrorResponse('App already added to this bundle', {}), { status: 400 });
+                return json(createErrorResponse('App already added to this bundle', 'CONFLICT'), { status: 409 });
             }
             
             // Create the bundle app
@@ -94,12 +103,22 @@ export const POST: RequestHandler = restrict(
             
             logger.info(`Added app to bundle: ${bundleId}, resourceId: ${resourceId}`);
             
-            return json(createSuccessResponse('App added to bundle successfully', {
-                bundleApp
-            }));
+            return json(
+                createSuccessResponse({
+                    message: 'App added to bundle successfully',
+                    bundleApp
+                })
+            );
         } catch (err) {
             logger.error(`Error adding app to bundle: ${err instanceof Error ? err.message : String(err)}`);
-            return json(createErrorResponse('Failed to add app to bundle', {}), { status: 500 });
+            return json(
+                createErrorResponse(
+                    'Failed to add app to bundle',
+                    'INTERNAL_ERROR',
+                    err instanceof Error ? err.message : String(err)
+                ),
+                { status: 500 }
+            );
         }
     },
     [SystemRole.ADMIN]

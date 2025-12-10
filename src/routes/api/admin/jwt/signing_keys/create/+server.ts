@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { createKey } from '../../../../../admin/jwt/signing_keys/service';
@@ -14,7 +14,7 @@ const createKeySchema = z.object({
 });
 
 export const POST = restrict(
-  async ({ request, locals }) => {
+  async ({ request, locals }: AuthenticatedEvent) => {
     logger.info('Create JWT signing key API called');
     
     try {
@@ -60,23 +60,25 @@ export const POST = restrict(
         }, { status: 500 });
       }
       
+      const key = keyResult.key!;
+      
       return json({
         success: true,
         message: `${keyType.toLowerCase()} key created successfully`,
         key: {
-          id: keyResult.key.id,
-          keyType: keyResult.key.keyType,
-          algorithm: keyResult.key.algorithm,
-          isActive: keyResult.key.isActive,
-          isPrimary: keyResult.key.isPrimary,
-          createdAt: keyResult.key.createdAt,
-          updatedAt: keyResult.key.updatedAt,
-          rotatedAt: keyResult.key.rotatedAt,
-          expiresAt: keyResult.key.expiresAt
+          id: key.id,
+          keyType: key.keyType,
+          algorithm: key.algorithm,
+          isActive: key.isActive,
+          isPrimary: key.isPrimary,
+          createdAt: key.createdAt,
+          updatedAt: key.updatedAt,
+          rotatedAt: key.rotatedAt,
+          expiresAt: key.expiresAt
         }
       });
     } catch (err) {
-      logger.error('Error creating JWT signing key:', err);
+      logger.error('Error creating JWT signing key:', { error: err });
       return json({
         success: false,
         message: 'An unexpected error occurred while creating the key',

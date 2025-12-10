@@ -57,7 +57,7 @@ export function sendToParticipant(
   socketId: string,
   msg: any
 ) {
-  const ws = wsManager.getClient(socketId);
+  const ws = wsManager.getClientBySocketId(socketId);
   if (ws) {
     ws.send(JSON.stringify(msg));
   }
@@ -71,7 +71,11 @@ export type WebRTCMessageType =
   | 'ice-candidate'
   | 'data-channel-open'
   | 'data-channel-close'
-  | 'data-channel-message';
+  | 'data-channel-message'
+  | 'webrtc:offer'
+  | 'webrtc:answer'
+  | 'webrtc:ice-candidate'
+  | 'webrtc:connect';
 
 export const WEBRTC_MESSAGE_TYPES: WebRTCMessageType[] = [
   'offer',
@@ -125,7 +129,7 @@ export function handleWebRTCMessage(
       return;
     }
     // Check by userId and socketId for best practice
-    const isParticipant = room.hasParticipant(sender.userId) || room.hasParticipant(sender.socketId);
+    const isParticipant = (sender.userId && room.hasParticipant(sender.userId)) || room.hasParticipant(sender.socketId);
     if (!isParticipant) {
       console.warn(`[WebRTC] Sender ${senderId} (userId: ${sender.userId}) is not a participant of room ${roomId}. Message rejected.`);
       return;

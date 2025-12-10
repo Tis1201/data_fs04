@@ -40,7 +40,7 @@ const baseResourceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
                 id: true,
                 name: true
             }
-        }
+        } as any
     }
 };
 

@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import type { ClientMessage } from './types/messages';
+import type { ClientMessage } from '$lib/types/messages';
 import { generateRequestId } from "$lib/utils/ApiUtils";
     
 
@@ -195,7 +195,7 @@ const createSocketStore = () => {
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
       const error = new Error(`Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached`);
       console.error('[WebSocket]', error.message);
-      set(state => ({
+      update(state => ({
         ...state,
         status: 'CLOSED',
         error
@@ -220,7 +220,7 @@ const createSocketStore = () => {
     const statusMessage = `Reconnecting in ${Math.round(delay/1000)}s... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
     console.log(`[WebSocket] ${statusMessage}`);
     
-    set(state => ({
+    update(state => ({
       ...state,
       status: 'RECONNECTING',
       error: new Error(statusMessage)
@@ -375,9 +375,8 @@ const createSocketStore = () => {
           // resolve that promise and do not dispatch further.
           const rid = (message.payload as any)?.requestId as string | undefined;
           if (rid && pendingRequests[rid]) {
-            const { resolve, timer, timeout } = pendingRequests[rid];
+            const { resolve, timer } = pendingRequests[rid];
             clearTimeout(timer);
-            clearTimeout(timeout);
             delete pendingRequests[rid];
             return resolve(message.payload);
           }
@@ -565,7 +564,7 @@ const createSocketStore = () => {
       if (!socket || socket.readyState === WebSocket.CLOSED) {
         console.log('[WebSocket] Socket closed, attempting reconnect...');
         // Force a reconnect, then retry after 1 second
-        connect('');
+        connect();
         setTimeout(() => send(eventOrMessage, data), 1000);
       }
       console.log("[WebSocket] Cannot send - socket not open");

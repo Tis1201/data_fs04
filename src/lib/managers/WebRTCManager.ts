@@ -10,9 +10,9 @@ import { writable, type Writable } from 'svelte/store';
 import type { 
   WebRTCMessage, 
   WebRTCAction, 
-  WebRTCData,
-  MessageFactory 
+  WebRTCData
 } from '../types/unified';
+import { MessageFactory } from '../types/unified';
 import { getLoggingManager } from './LoggingManager';
 
 // ============================================================================
@@ -62,15 +62,15 @@ class WebRTCManagerClass {
   private isDestroyed = false;
 
   constructor(config: WebRTCConfig) {
+    const defaultIceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    
     this.config = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }
-      ],
       iceCandidatePoolSize: 10,
       bundlePolicy: 'balanced',
       rtcpMuxPolicy: 'require',
       iceTransportPolicy: 'all',
-      ...config
+      ...config,
+      iceServers: config.iceServers && config.iceServers.length > 0 ? config.iceServers : defaultIceServers
     };
 
     this.state = writable({
@@ -93,7 +93,9 @@ class WebRTCManagerClass {
   /**
    * Subscribe to state changes
    */
-  subscribe = this.state.subscribe;
+  get subscribe() {
+    return this.state.subscribe;
+  }
 
   /**
    * Set event handlers
@@ -132,7 +134,7 @@ class WebRTCManagerClass {
       this.logger?.logWebRTC('connect', deviceId, 'WebRTC connection initiated successfully');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger?.logError('webrtc', 'WebRTC connection failed', { error: errorMessage, deviceId });
+      this.logger?.error('webrtc', 'WebRTC connection failed', { error: errorMessage, deviceId });
       this.updateState({ 
         connectionStatus: 'failed', 
         error: errorMessage 
@@ -172,7 +174,7 @@ class WebRTCManagerClass {
 
       this.logger?.logWebRTC('disconnect', 'unknown', 'WebRTC disconnected successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'WebRTC disconnect error', { error });
+      this.logger?.error('webrtc', 'WebRTC disconnect error', { error });
     }
   }
 
@@ -199,7 +201,7 @@ class WebRTCManagerClass {
           await this.handleError(message);
           break;
         default:
-          this.logger?.logWarn('webrtc', `Unknown WebRTC action: ${message.action}`);
+          this.logger?.warn('webrtc', `Unknown WebRTC action: ${message.action}`);
       }
 
       // Call message handler
@@ -207,7 +209,7 @@ class WebRTCManagerClass {
         this.eventHandlers.onMessage(message);
       }
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle WebRTC message', { error, message });
+      this.logger?.error('webrtc', 'Failed to handle WebRTC message', { error, message });
       throw error;
     }
   }
@@ -304,7 +306,7 @@ class WebRTCManagerClass {
       this.updateState({ stats });
       return stats;
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to get stats', { error });
+      this.logger?.error('webrtc', 'Failed to get stats', { error });
       return null;
     }
   }
@@ -435,12 +437,12 @@ class WebRTCManagerClass {
           // Handle RDP video data
         }
       } catch (error) {
-        this.logger?.logError('webrtc', 'Failed to parse data channel message', { error, data: event.data });
+        this.logger?.error('webrtc', 'Failed to parse data channel message', { error, data: event.data });
       }
     };
 
     this.dataChannel.onerror = (error) => {
-      this.logger?.logError('webrtc', 'Data channel error', { error });
+      this.logger?.error('webrtc', 'Data channel error', { error });
       this.updateState({ error: 'Data channel error' });
     };
 
@@ -475,7 +477,7 @@ class WebRTCManagerClass {
 
       this.logger?.logWebRTC('handle-offer', message.deviceId, 'WebRTC offer handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle offer', { error, deviceId: message.deviceId });
+      this.logger?.error('webrtc', 'Failed to handle offer', { error, deviceId: message.deviceId });
       throw error;
     }
   }
@@ -496,7 +498,7 @@ class WebRTCManagerClass {
       await this.peerConnection.setRemoteDescription(answer);
       this.logger?.logWebRTC('handle-answer', message.deviceId, 'WebRTC answer handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle answer', { error, deviceId: message.deviceId });
+      this.logger?.error('webrtc', 'Failed to handle answer', { error, deviceId: message.deviceId });
       throw error;
     }
   }
@@ -512,13 +514,13 @@ class WebRTCManagerClass {
       await this.peerConnection.addIceCandidate(message.data.candidate);
       this.logger?.logWebRTC('handle-ice-candidate', message.deviceId, 'ICE candidate handled successfully');
     } catch (error) {
-      this.logger?.logError('webrtc', 'Failed to handle ICE candidate', { error, deviceId: message.deviceId });
+      this.logger?.error('webrtc', 'Failed to handle ICE candidate', { error, deviceId: message.deviceId });
       throw error;
     }
   }
 
   private async handleError(message: WebRTCMessage): Promise<void> {
-    this.logger?.logError('webrtc', 'WebRTC error received', { 
+    this.logger?.error('webrtc', 'WebRTC error received', { 
       error: message.data.error,
       deviceId: message.deviceId 
     });

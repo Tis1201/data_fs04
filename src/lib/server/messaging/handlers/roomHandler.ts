@@ -270,10 +270,14 @@ async function sendErrorResponse(
     },
     SystemUser,
     {
-      echoToSender: true,
-      requestId
+      echoToSender: true
     }
   );
+
+  // Set requestId if provided
+  if (requestId) {
+    errorMessage.requestId = requestId;
+  }
 
   await publisher.publish(errorMessage);
 }

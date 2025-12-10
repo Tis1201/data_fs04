@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { initializeStateManager, getStateManager } from '$lib/server/state/stateManagerFactory';
@@ -7,7 +8,7 @@ import { initializeStateManager, getStateManager } from '$lib/server/state/state
 export const DELETE: RequestHandler = restrict(
   async ({ params, locals }: any) => {
     const { id: bundleId } = params as { id: string };
-    const prisma = locals.prisma as any;
+    const prisma = locals.prisma as PrismaClient;
 
     // Fetch bundle
     const bundle = await prisma.bundle.findUnique({ where: { id: bundleId } });
@@ -36,7 +37,7 @@ export const DELETE: RequestHandler = restrict(
     }
 
     // Delete in an interactive transaction in correct order
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.bundleDeviceProgress.deleteMany({ where: { bundleId } });
       await tx.bundleWave.deleteMany({ where: { bundleId } });
       await tx.bundleDevice.deleteMany({ where: { bundleId } });

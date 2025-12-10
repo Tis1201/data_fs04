@@ -111,10 +111,7 @@ export async function loadPinRuleDetail(
         }
 
         if (!pinRule) {
-            throw error(404, {
-                message: 'Pin rule not found',
-                code: 'PIN_RULE_NOT_FOUND'
-            });
+            throw error(404, 'Pin rule not found');
         }
 
         return {

@@ -125,10 +125,10 @@ export class Room {
    * Get all participants in the room
    */
   getParticipants(): RoomParticipant[] {
-    // Always include both userId and socketId for each participant, set socketId to null if missing
+    // Always include both userId and socketId for each participant
     return Array.from(this.participants.values()).map(p => ({
       userId: p.userId,
-      socketId: p.socketId ?? null,
+      socketId: p.socketId,
       isAdmin: p.isAdmin,
       joinedAt: p.joinedAt,
       lastActive: p.lastActive,
@@ -147,7 +147,7 @@ export class Room {
    * Check if the room is full
    */
   isFull(): boolean {
-    return this.config.maxParticipants && this.participants.size >= this.config.maxParticipants;
+    return !!(this.config.maxParticipants && this.participants.size >= this.config.maxParticipants);
   }
 
   /**
@@ -360,7 +360,7 @@ export class Room {
       lastActivity: this.lastActivity,
       createdAt: this.createdAt,
       metadata: this.config.metadata || {},
-      admins: this.getAdmins().map(p => p.socketId),
+      admins: this.getAdmins().map(p => p.socketId).filter((id): id is string => id !== undefined),
       createdBy: this.createdBy,
       participants: this.getParticipants()
     };
@@ -382,7 +382,7 @@ export class Room {
       lastActivity: this.lastActivity,
       createdAt: this.createdAt,
       metadata: this.config.metadata || {},
-      admins: this.getAdmins().map(p => p.socketId),
+      admins: this.getAdmins().map(p => p.socketId).filter((id): id is string => id !== undefined),
       createdBy: this.createdBy,
       participants: this.getParticipants()
     };

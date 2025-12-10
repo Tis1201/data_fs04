@@ -1,3 +1,4 @@
+import { fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -24,5 +25,24 @@ export const load = restrict(
  * Per structural standard: thin wrapper using shared actions factory
  */
 export const actions: Actions = {
-    ...createResourceActions()
+    update: restrict(
+        async (event: AuthenticatedEvent) => {
+            const id = event.params.id;
+            if (!id) {
+                return fail(400, { error: 'Resource ID is required' });
+            }
+            return createResourceActions().update({ ...event, params: { ...event.params, id } });
+        },
+        [SystemRole.ADMIN]
+    ),
+    delete: restrict(
+        async (event: AuthenticatedEvent) => {
+            const id = event.params.id;
+            if (!id) {
+                return fail(400, { error: 'Resource ID is required' });
+            }
+            return createResourceActions().delete({ ...event, params: { ...event.params, id } });
+        },
+        [SystemRole.ADMIN]
+    )
 };

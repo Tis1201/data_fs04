@@ -8,7 +8,7 @@ import { Resend } from 'resend';
  */
 export class ResendProvider implements IEmailProvider {
     private provider: EmailServiceProvider;
-    private apiKey: string;
+    private apiKey!: string;
 
     constructor(provider: EmailServiceProvider) {
         this.provider = provider;
@@ -21,14 +21,17 @@ export class ResendProvider implements IEmailProvider {
     private initConfig(): void {
         try {
             // Get API key directly from the provider
-            this.apiKey = this.provider.apiKey;
+            const apiKey = this.provider.apiKey;
             
-            if (!this.apiKey) {
+            if (!apiKey) {
                 throw new Error('Resend API key is required');
             }
+            
+            this.apiKey = apiKey;
         } catch (error) {
-            logger.error(`Failed to initialize Resend config: ${error.message}`, { error });
-            throw new Error(`Failed to initialize Resend config: ${error.message}`);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            logger.error(`Failed to initialize Resend config: ${errorMessage}`, { error });
+            throw new Error(`Failed to initialize Resend config: ${errorMessage}`);
         }
     }
 
@@ -65,7 +68,7 @@ export class ResendProvider implements IEmailProvider {
                 text: options.text,
                 cc: options.cc,
                 bcc: options.bcc,
-                reply_to: options.replyTo,
+                replyTo: options.replyTo,
                 attachments: options.attachments?.map(attachment => ({
                     filename: attachment.filename,
                     content: attachment.content
@@ -73,16 +76,18 @@ export class ResendProvider implements IEmailProvider {
             });
             
             // Log success and return result
-            logger.info(`Email sent successfully via Resend with ID: ${result.id}`);
+            const messageId = result.data?.id || 'unknown';
+            logger.info(`Email sent successfully via Resend with ID: ${messageId}`);
             return {
                 success: true,
-                messageId: result.id
+                messageId
             };
         } catch (error) {
-            logger.error(`Resend email error: ${error.message}`, { error });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            logger.error(`Resend email error: ${errorMessage}`, { error });
             return {
                 success: false,
-                error
+                error: error instanceof Error ? error : new Error(String(error))
             };
         }
     }
