@@ -1,183 +1,108 @@
-/**
- * Unified Bundle Devices API (v2)
- * 
- * This endpoint replaces:
- * - /api/admin/iot/bundles/[id]/devices
- * - /api/user/iot/bundles/[id]/devices
- * 
- * Manages devices assigned to a bundle.
- */
-
-import { unifiedEndpoint, requireResourceAccess } from '$lib/server/api/unifiedEndpoint';
-import { successResponse, errorResponse, ErrorCodes } from '$lib/types/api';
-import prisma from '$lib/server/prisma';
-
-/**
- * GET /api/v2/bundles/[id]/devices
- * List devices assigned to bundle
- */
-export const GET = unifiedEndpoint(
-	async ({ context, params }) => {
-		const bundleId = params.id;
-		
-		// Check bundle access
-		const bundle = await prisma.bundle.findUnique({
-			where: { id: bundleId },
-			select: { id: true, accountId: true, createdBy: true }
-		});
-		
-		if (!bundle) {
-			throw Object.assign(
-				new Error('Bundle not found'),
-				{ status: 404, code: ErrorCodes.NOT_FOUND }
-			);
-		}
-		
-		requireResourceAccess(context, {
-			accountId: bundle.accountId || undefined,
-			createdBy: bundle.createdBy
-		});
-		
-		// Get bundle devices
-		const bundleDevices = await prisma.bundleDevice.findMany({
-			where: { bundleId },
-			orderBy: { createdAt: 'asc' }
-		});
-		
-		// Get device info separately
-		const deviceIds = bundleDevices.map(bd => bd.deviceId);
-		const devices = await prisma.device.findMany({
-			where: { id: { in: deviceIds } },
-			select: {
-				id: true,
-				name: true,
-				model: true,
-				connected: true
-			}
-		});
-		
-		// Combine bundle devices with device info
-		const devicesMap = new Map(devices.map(d => [d.id, d]));
-		const bundleDevicesWithInfo = bundleDevices.map(bd => ({
-			...bd,
-			device: devicesMap.get(bd.deviceId) || null
-		}));
-		
-		return successResponse(
-			bundleDevicesWithInfo,
-			{ requestId: context.requestId }
-		);
-	},
-	{ permission: 'bundle.view' }
-);
+import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import { successResponse } from '$lib/types/api';
+import { ErrorCodes } from '$lib/types/api';
+import { logger } from '$lib/server/logger';
 
 /**
  * POST /api/v2/bundles/[id]/devices
- * Assign devices to bundle
+ * Add a device to a bundle
+ * 
+ * Body:
+ * - deviceId: string (required) - Device ID to add
+ * - status: string (optional, default: 'PENDING') - Initial status
+ * 
+ * Restrictions:
+ * - Bundle must be in DRAFT status
+ * - Device must exist
+ * - Device cannot already be in the bundle
  */
 export const POST = unifiedEndpoint(
-	async ({ context, params, event }) => {
-		const bundleId = params.id;
-		const data = await event.request.json();
-		const deviceIds = data.deviceIds as string[];
-		
-		if (!Array.isArray(deviceIds) || deviceIds.length === 0) {
-			throw Object.assign(
-				new Error('deviceIds array is required'),
-				{ status: 400, code: ErrorCodes.INVALID_INPUT }
-			);
-		}
-		
-		// Check bundle access
-		const bundle = await prisma.bundle.findUnique({
-			where: { id: bundleId },
-			select: {
-				id: true,
-				accountId: true,
-				createdBy: true,
-				status: true
-			}
-		});
-		
-		if (!bundle) {
-			throw Object.assign(
-				new Error('Bundle not found'),
-				{ status: 404, code: ErrorCodes.NOT_FOUND }
-			);
-		}
-		
-		requireResourceAccess(context, {
-			accountId: bundle.accountId || undefined,
-			createdBy: bundle.createdBy
-		});
-		
-		// Can only add devices to DRAFT bundles
-		if (bundle.status !== 'DRAFT') {
-			throw Object.assign(
-				new Error('Can only add devices to DRAFT bundles'),
-				{ status: 409, code: ErrorCodes.CONFLICT }
-			);
-		}
-		
-		// Verify devices exist and user has access
-		const devices = await prisma.device.findMany({
-			where: {
-				id: { in: deviceIds },
-				...(context.session.user.systemRole !== 'ADMIN' && {
-					accountId: context.account?.id
-				})
-			},
-			select: { id: true, name: true, model: true, connected: true }
-		});
-		
-		if (devices.length !== deviceIds.length) {
-			throw Object.assign(
-				new Error('Some devices not found or access denied'),
-				{ status: 404, code: ErrorCodes.NOT_FOUND }
-			);
-		}
-		
-		// Add devices to bundle (ignore conflicts for idempotency)
-		const createData = deviceIds.map(deviceId => ({
-			bundleId,
-			deviceId,
-			createdBy: context.session.user.id,
-			updatedBy: context.session.user.id
-		}));
-		
-		await prisma.bundleDevice.createMany({
-			data: createData,
-			skipDuplicates: true
-		});
-		
-		// Get updated list
-		const bundleDevices = await prisma.bundleDevice.findMany({
-			where: { bundleId }
-		});
-		
-		// Combine with device info
-		const allDeviceIds = bundleDevices.map(bd => bd.deviceId);
-		const allDevices = await prisma.device.findMany({
-			where: { id: { in: allDeviceIds } },
-			select: {
-				id: true,
-				name: true,
-				model: true,
-				connected: true
-			}
-		});
-		
-		const devicesMap = new Map(allDevices.map(d => [d.id, d]));
-		const bundleDevicesWithInfo = bundleDevices.map(bd => ({
-			...bd,
-			device: devicesMap.get(bd.deviceId) || null
-		}));
-		
-		return successResponse(
-			{ added: devices.length, total: bundleDevicesWithInfo.length, devices: bundleDevicesWithInfo },
-			{ requestId: context.requestId }
-		);
-	},
-	{ permission: 'bundle.edit' }
-);
+  async ({ context, params, event }) => {
+    const { prisma, session } = context;
+    const { id: bundleId } = params;
+    const { deviceId, status = 'PENDING' } = await event.request.json();
 
+    // Validate input
+    if (!deviceId) {
+      throw Object.assign(
+        new Error('Device ID is required'),
+        { status: 400, code: ErrorCodes.INVALID_INPUT }
+      );
+    }
+
+    // Check if bundle exists
+    const bundle = await prisma.bundle.findUnique({
+      where: { id: bundleId }
+    });
+
+    if (!bundle) {
+      throw Object.assign(
+        new Error('Bundle not found'),
+        { status: 404, code: ErrorCodes.NOT_FOUND }
+      );
+    }
+
+    // Enforce DRAFT-only modifications
+    if (bundle.status !== 'DRAFT') {
+      throw Object.assign(
+        new Error('Bundle is not editable (must be DRAFT)'),
+        { status: 403, code: ErrorCodes.FORBIDDEN }
+      );
+    }
+
+    // Check if device exists
+    const device = await prisma.device.findUnique({
+      where: { id: deviceId }
+    });
+
+    if (!device) {
+      throw Object.assign(
+        new Error('Device not found'),
+        { status: 404, code: ErrorCodes.NOT_FOUND }
+      );
+    }
+
+    // Check if device is already in bundle
+    const existingBundleDevice = await prisma.bundleDevice.findUnique({
+      where: {
+        bundleId_deviceId: {
+          bundleId,
+          deviceId
+        }
+      }
+    });
+
+    if (existingBundleDevice) {
+      throw Object.assign(
+        new Error('Device is already in this bundle'),
+        { status: 409, code: ErrorCodes.CONFLICT }
+      );
+    }
+
+    // Add device to bundle
+    const bundleDevice = await prisma.bundleDevice.create({
+      data: {
+        bundleId,
+        deviceId,
+        status,
+        createdBy: session.user.id,
+        updatedBy: session.user.id
+      },
+      select: {
+        id: true,
+        bundleId: true,
+        deviceId: true,
+        status: true,
+        createdAt: true
+      }
+    });
+
+    logger.info(`Device ${deviceId} added to bundle ${bundleId} by user ${session.user.id}`);
+
+    return successResponse(
+      { bundleDevice },
+      { message: 'Device added to bundle successfully' }
+    );
+  },
+  { permission: 'bundle.edit' }
+);

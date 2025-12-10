@@ -20,7 +20,7 @@ const mappingKeys: Record<string, string[]> = {
 };
 
 export function mapToConfigPayload(
-  deviceProfile: DeviceProfile & { settings: DeviceProfileSetting[] }
+  deviceProfile: Partial<DeviceProfile> & { settings: DeviceProfileSetting[] }
 ) {
   const settings = deviceProfile.settings;
   const config: Record<string, any> = Object.fromEntries(

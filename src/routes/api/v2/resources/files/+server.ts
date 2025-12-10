@@ -1,87 +1,131 @@
-/**
- * Unified Resource Files API (v2)
- * 
- * This endpoint lists file resources (filtered by type=FILE).
- * Works for both admin and user roles with appropriate permission checks.
- */
-
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import { successResponse } from '$lib/types/api';
+import { ErrorCodes } from '$lib/types/api';
+import { logger } from '$lib/server/logger';
+
+const SORT_FIELDS = new Set(['createdAt', 'name', 'version', 'size']);
+
+function parseCsvList(param: string | null): string[] | undefined {
+  if (!param) return undefined;
+  const values = param
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v.length > 0);
+  return values.length ? values : undefined;
+}
 
 /**
  * GET /api/v2/resources/files
- * List file resources
+ * List file resources (excluding apps and firmware) with pagination and filtering
  * 
  * Query params:
- * - page: page number
- * - pageSize: items per page
+ * - search: string - Search in name, description, packageName
+ * - formats: string (CSV) - Filter by specific formats
+ * - page: number - Page number (default: 1)
+ * - pageSize: number - Items per page (default: 20, max: 100)
+ * - sort: string - Sort field (createdAt, name, version, size)
+ * - order: string - Sort order (asc, desc)
  * 
- * - Admin: sees all file resources
- * - User: sees only file resources in their account
+ * Admin: See all file resources
+ * User: See only resources from their accounts
+ * 
+ * Excludes: apk, ipa, exe, msi, deb, rpm, dmg, pkg, app, firmware
  */
 export const GET = unifiedEndpoint(
-	async ({ context, event }) => {
-		const url = event.url;
-		const page = parseInt(url.searchParams.get('page') || '1');
-		const pageSize = Math.min(
-			parseInt(url.searchParams.get('pageSize') || '20'),
-			100
-		);
-		const isAdmin = context.session.user.systemRole === 'ADMIN';
+  async ({ context, event }) => {
+    const { prisma, session } = context;
+    const url = event.url;
 
-		// Build where clause - admins see all, users see only their own
-		const whereClause: any = {
-			type: 'FILE'
-		};
+    // Parse query parameters
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '20')));
+    const search = url.searchParams.get('search')?.trim() || '';
+    const sortField = url.searchParams.get('sort') || 'createdAt';
+    const sortOrder = url.searchParams.get('order') === 'asc' ? 'asc' : 'desc';
+    const formats = parseCsvList(url.searchParams.get('formats'));
 
-		// Non-admins can only see files they created
-		if (!isAdmin) {
-			whereClause.createdBy = context.session.user.id;
-		}
+    // Validate sort field
+    if (!SORT_FIELDS.has(sortField)) {
+      throw Object.assign(
+        new Error('Invalid sort field'),
+        { status: 400, code: ErrorCodes.INVALID_INPUT }
+      );
+    }
 
-		const skip = (page - 1) * pageSize;
+    // Build where clause
+    const where: any = {
+      // Only include file resources (not apps or firmware)
+      format: {
+        notIn: ['apk', 'ipa', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'app', 'firmware']
+      }
+    };
 
-		const [items, total] = await Promise.all([
-			context.prisma.resource.findMany({
-				where: whereClause,
-				skip,
-				take: pageSize,
-				select: {
-					id: true,
-					name: true,
-					description: true,
-					packageName: true,
-					format: true,
-					version: true,
-					releaseType: true,
-					size: true,
-					createdAt: true,
-					updatedAt: true
-				},
-				orderBy: {
-					createdAt: 'desc'
-				}
-			}),
-			context.prisma.resource.count({
-				where: whereClause
-			})
-		]);
+    // Add search filter
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { packageName: { contains: search, mode: 'insensitive' } }
+      ];
+    }
 
-		return {
-			success: true,
-			data: {
-				items,
-				total,
-				page,
-				pageSize,
-				totalPages: Math.ceil(total / pageSize)
-			},
-			meta: {
-				timestamp: new Date().toISOString(),
-				requestId: context.requestId
-			}
-		};
-	}
-	// No specific permission needed - filters by createdBy for users
-	// Admin sees all, user sees only their own uploaded resources
+    // Add format filter
+    if (formats) {
+      where.format = { in: formats };
+    }
+
+    // Role-based account filtering
+    if (session.user.systemRole !== 'ADMIN') {
+      const memberships = await prisma.accountMembership.findMany({
+        where: { userId: session.user.id },
+        select: { accountId: true }
+      });
+      const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
+      // If no accounts, force empty result set
+      where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
+    }
+
+    // Calculate pagination
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    // Get total count
+    const totalCount = await prisma.resource.count({ where });
+
+    // Fetch resources
+    const items = await prisma.resource.findMany({
+      where,
+      orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }],
+      skip,
+      take,
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        version: true,
+        format: true,
+        packageName: true,
+        size: true,
+        path: true,
+        createdAt: true
+      }
+    });
+
+    const totalPages = Math.ceil(totalCount / pageSize);
+
+    logger.info(`[FilesAPI] Found ${items.length} file resources (page ${page}/${totalPages})`);
+
+    return successResponse({
+      items,
+      meta: {
+        page,
+        pageSize,
+        totalCount,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1
+      }
+    });
+  },
+  { permission: 'resource.view' }
 );
-

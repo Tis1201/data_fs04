@@ -1,192 +1,113 @@
-/**
- * Unified Bundle Apps API (v2)
- * 
- * This endpoint replaces:
- * - /api/admin/iot/bundles/[id]/apps
- * - /api/user/iot/bundles/[id]/apps
- * 
- * Manages apps assigned to a bundle.
- */
+import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import { successResponse } from '$lib/types/api';
+import { ErrorCodes } from '$lib/types/api';
+import { logger } from '$lib/server/logger';
+import { z } from 'zod';
 
-import { unifiedEndpoint, requireResourceAccess } from '$lib/server/api/unifiedEndpoint';
-import { successResponse, errorResponse, ErrorCodes } from '$lib/types/api';
-import prisma from '$lib/server/prisma';
-
-/**
- * GET /api/v2/bundles/[id]/apps
- * List apps assigned to bundle
- */
-export const GET = unifiedEndpoint(
-	async ({ context, params }) => {
-		const bundleId = params.id;
-		
-		// Check bundle access
-		const bundle = await prisma.bundle.findUnique({
-			where: { id: bundleId },
-			select: { id: true, accountId: true, createdBy: true }
-		});
-		
-		if (!bundle) {
-			throw Object.assign(
-				new Error('Bundle not found'),
-				{ status: 404, code: ErrorCodes.NOT_FOUND }
-			);
-		}
-		
-		requireResourceAccess(context, {
-			accountId: bundle.accountId ?? undefined,
-			createdBy: bundle.createdBy
-		});
-		
-		// Get bundle apps with resource info
-		const bundleApps = await prisma.bundleApp.findMany({
-			where: { bundleId },
-			include: {
-				resource: {
-					select: {
-						id: true,
-						name: true,
-						packageName: true,
-						version: true,
-						type: true,
-						format: true,
-						size: true,
-						path: true
-					}
-				}
-			},
-			orderBy: { order: 'asc' }
-		});
-		
-		return successResponse(
-			bundleApps,
-			{ requestId: context.requestId }
-		);
-	},
-	{ permission: 'bundle.view' }
-);
+// Schema for adding an app to a bundle
+const addBundleAppSchema = z.object({
+  resourceId: z.string().min(1, 'Resource ID is required'),
+  order: z.number().int().positive('Order must be a positive integer'),
+  autoOpen: z.boolean().default(false)
+});
 
 /**
  * POST /api/v2/bundles/[id]/apps
- * Add app to bundle
+ * Add an app (resource) to a bundle
+ * 
+ * Body:
+ * - resourceId: string (required) - Resource ID to add
+ * - order: number (required) - Display order (positive integer)
+ * - autoOpen: boolean (optional, default: false) - Auto-open on device
+ * 
+ * Restrictions:
+ * - Bundle must be in DRAFT status
+ * - Resource must exist
+ * - App cannot already be in the bundle
  */
 export const POST = unifiedEndpoint(
-	async ({ context, params, event }) => {
-		const bundleId = params.id;
-		const data = await event.request.json();
-		const { resourceId, order } = data;
-		
-		if (!resourceId) {
-			throw Object.assign(
-				new Error('resourceId is required'),
-				{ status: 400, code: ErrorCodes.INVALID_INPUT }
-			);
-		}
-		
-		// Check bundle access
-		const bundle = await prisma.bundle.findUnique({
-			where: { id: bundleId },
-			select: {
-				id: true,
-				accountId: true,
-				createdBy: true,
-				status: true
-			}
-		});
-		
-		if (!bundle) {
-			throw Object.assign(
-				new Error('Bundle not found'),
-				{ status: 404, code: ErrorCodes.NOT_FOUND }
-			);
-		}
-		
-		requireResourceAccess(context, {
-			accountId: bundle.accountId ?? undefined,
-			createdBy: bundle.createdBy
-		});
-		
-		// Can only add apps to DRAFT bundles
-		if (bundle.status !== 'DRAFT') {
-			throw Object.assign(
-				new Error('Can only add apps to DRAFT bundles'),
-				{ status: 409, code: ErrorCodes.CONFLICT }
-			);
-		}
-		
-		// Verify resource exists and is an app
-		const resource = await prisma.resource.findUnique({
-			where: { id: resourceId },
-			select: {
-				id: true,
-				type: true,
-				accountId: true
-			}
-		});
-		
-		if (!resource) {
-			throw Object.assign(
-				new Error('Resource not found'),
-				{ status: 404, code: ErrorCodes.NOT_FOUND }
-			);
-		}
-		
-		if (resource.type !== 'APP') {
-			throw Object.assign(
-				new Error('Resource must be an app'),
-				{ status: 400, code: ErrorCodes.INVALID_INPUT }
-			);
-		}
-		
-		// Check resource access (can use if owned or public)
-		const canUseResource = context.session.user.systemRole === 'ADMIN' ||
-		                       resource.accountId === context.account?.id;
-		
-		if (!canUseResource) {
-			throw Object.assign(
-				new Error('Access denied to this resource'),
-				{ status: 403, code: ErrorCodes.FORBIDDEN }
-			);
-		}
-		
-		// Determine order
-		let appOrder = order;
-		if (appOrder === undefined || appOrder === null) {
-			// Get max order and add 1
-			const maxOrder = await prisma.bundleApp.findFirst({
-				where: { bundleId },
-				orderBy: { order: 'desc' },
-				select: { order: true }
-			});
-			appOrder = (maxOrder?.order || 0) + 1;
-		}
-		
-		// Add app to bundle
-		const bundleApp = await prisma.bundleApp.create({
-			data: {
-				bundleId,
-				resourceId,
-				order: appOrder,
-				createdBy: context.session.user.id,
-				updatedBy: context.session.user.id
-			},
-			include: {
-				resource: {
-					select: {
-						id: true,
-						name: true,
-						packageName: true,
-						version: true
-					}
-				}
-			}
-		});
-		
-		return successResponse(
-			bundleApp,
-			{ requestId: context.requestId }
-		);
-	},
-	{ permission: 'bundle.edit' }
-);
+  async ({ context, params, event }) => {
+    const { prisma, session } = context;
+    const { id: bundleId } = params;
 
+    // Parse and validate the request body
+    const body = await event.request.json();
+    const result = addBundleAppSchema.safeParse(body);
+
+    if (!result.success) {
+      throw Object.assign(
+        new Error('Invalid request data'),
+        { status: 400, code: ErrorCodes.INVALID_INPUT, details: result.error.format() }
+      );
+    }
+
+    const { resourceId, order, autoOpen } = result.data;
+
+    // Check if bundle exists
+    const bundle = await prisma.bundle.findUnique({
+      where: { id: bundleId }
+    });
+
+    if (!bundle) {
+      throw Object.assign(
+        new Error('Bundle not found'),
+        { status: 404, code: ErrorCodes.NOT_FOUND }
+      );
+    }
+
+    // Enforce DRAFT-only modifications
+    if (bundle.status !== 'DRAFT') {
+      throw Object.assign(
+        new Error('Bundle is not editable (must be DRAFT)'),
+        { status: 403, code: ErrorCodes.FORBIDDEN }
+      );
+    }
+
+    // Check if resource exists
+    const resource = await prisma.resource.findUnique({
+      where: { id: resourceId }
+    });
+
+    if (!resource) {
+      throw Object.assign(
+        new Error('Resource not found'),
+        { status: 404, code: ErrorCodes.NOT_FOUND }
+      );
+    }
+
+    // Check if the app is already in the bundle
+    const existingApp = await prisma.bundleApp.findFirst({
+      where: {
+        bundleId,
+        resourceId
+      }
+    });
+
+    if (existingApp) {
+      throw Object.assign(
+        new Error('App already added to this bundle'),
+        { status: 409, code: ErrorCodes.CONFLICT }
+      );
+    }
+
+    // Create the bundle app
+    const bundleApp = await prisma.bundleApp.create({
+      data: {
+        bundleId,
+        resourceId,
+        order,
+        autoOpen,
+        createdBy: session.user.id,
+        updatedBy: session.user.id
+      }
+    });
+
+    logger.info(`Added app to bundle: ${bundleId}, resourceId: ${resourceId}`);
+
+    return successResponse(
+      { bundleApp },
+      { message: 'App added to bundle successfully' }
+    );
+  },
+  { permission: 'bundle.edit' }
+);

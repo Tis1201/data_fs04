@@ -148,7 +148,7 @@
         isSubmitting = true;
 
         try {
-            const response = await fetch(`/api/pin-rules/${rule.id}`, {
+            const response = await fetch(`/api/v2/pin-rules/${rule.id}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
@@ -185,7 +185,7 @@
     async function handleDelete() {
         deleting = true;
         try {
-            const res = await fetch(`/api/pin-rules/${rule.id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/v2/pin-rules/${rule.id}`, { method: 'DELETE' });
             const result = await res.json();
             if (result.success) {
                 toast.success('Pin rule deleted');

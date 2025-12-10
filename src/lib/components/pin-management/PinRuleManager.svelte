@@ -89,7 +89,7 @@
       if (searchTerm) params.append('search', searchTerm);
       if (filterType) params.append('ruleType', filterType);
 
-      const response = await fetch(`/api/pin-rules?${params.toString()}`);
+      const response = await fetch(`/api/v2/pin-rules?${params.toString()}`);
       const result = await response.json();
 
       if (result.success) {
@@ -159,7 +159,7 @@
         ruleType: mode === 'admin' ? 'admin_custom' : 'user_custom'
       };
 
-      const response = await fetch('/api/pin-rules', {
+      const response = await fetch('/api/v2/pin-rules', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -197,7 +197,7 @@
         ruleType: editingRule.ruleType
       };
 
-      const response = await fetch(`/api/pin-rules/${editingRule.id}`, {
+      const response = await fetch(`/api/v2/pin-rules/${editingRule.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
@@ -239,7 +239,7 @@
     }
 
     try {
-      const response = await fetch(`/api/pin-rules/${rule.id}`, {
+      const response = await fetch(`/api/v2/pin-rules/${rule.id}`, {
         method: 'DELETE'
       });
 

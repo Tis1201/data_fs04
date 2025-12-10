@@ -1,154 +1,226 @@
-/**
- * Unified Resource Apps API (v2)
- * 
- * This endpoint lists app resources with unique packageNames (grouped).
- * Works for both admin and user roles with appropriate permission checks.
- * 
- * Matches the behavior of /api/apps/available for backward compatibility.
- */
-
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
-import type { RequestHandler } from '@sveltejs/kit';
+import { successResponse } from '$lib/types/api';
+import { ErrorCodes } from '$lib/types/api';
+import { logger } from '$lib/server/logger';
+
+// Allowed app formats (server-enforced)
+const ALLOWED_FORMATS = new Set(['apk', 'ipa', 'app', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'cpk']);
+
+// Allowed sort fields mapping to DB columns
+const SORT_FIELDS = new Set(['createdAt', 'name', 'version', 'size']);
+
+function parseCsvList(param: string | null): string[] | undefined {
+  if (!param) return undefined;
+  const values = param
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter((v) => v.length > 0);
+  return values.length ? values : undefined;
+}
 
 /**
  * GET /api/v2/resources/apps
- * List app resources (grouped by packageName)
+ * List app resources (APK, IPA, etc.) with pagination and filtering
  * 
  * Query params:
- * - page: page number
- * - pageSize: items per page
- * - search: search term (searches packageName and name)
- * - excludePackages: comma-separated list of package names to exclude (for pin rule editing)
+ * - search: string - Search in name, description, packageName
+ * - format: string (CSV) - Filter by formats (apk,ipa,exe,etc.)
+ * - version: string - Filter by version
+ * - ruleId: string - Exclude packages already in this pin rule
+ * - excludePackages: string (CSV) - Exclude specific packages
+ * - createdAfter: string (ISO date) - Filter by creation date
+ * - createdBefore: string (ISO date) - Filter by creation date
+ * - page: number - Page number (default: 1)
+ * - pageSize: number - Items per page (default: 20, max: 100)
+ * - sort: string - Sort field (createdAt, name, version, size)
+ * - order: string - Sort order (asc, desc)
  * 
- * - Admin: sees all app resources
- * - User: sees only app resources they created (createdBy)
+ * Admin: See all app resources
+ * User: See only resources from their accounts
  * 
- * Returns:
- * - Unique packageNames (deduplicated)
- * - App name for each packageName
+ * Returns distinct packages by packageName
  */
-export const GET: RequestHandler = unifiedEndpoint(
-	async ({ context, event }) => {
-		const url = event.url;
-		const search = url.searchParams.get('search') || '';
-		const excludePackagesParam = url.searchParams.get('excludePackages') || '';
-		const excludePackages = excludePackagesParam ? excludePackagesParam.split(',').filter(Boolean) : [];
-		const page = parseInt(url.searchParams.get('page') || '1');
-		const pageSize = Math.min(
-			parseInt(url.searchParams.get('pageSize') || '20'),
-			100 // Max page size
-		);
+export const GET = unifiedEndpoint(
+  async ({ context, event }) => {
+    const { prisma, session } = context;
+    const url = event.url;
 
-		// Determine if user is admin
-		const isAdmin = context.session.user.systemRole === 'ADMIN';
+    // Parse query parameters
+    const search = url.searchParams.get('search');
+    const formatFilter = parseCsvList(url.searchParams.get('format'));
+    const versionFilter = url.searchParams.get('version');
+    const ruleId = url.searchParams.get('ruleId');
+    const excludePackagesCsv = url.searchParams.get('excludePackages');
+    const excludePackages = excludePackagesCsv
+      ? excludePackagesCsv.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    const createdAfter = url.searchParams.get('createdAfter');
+    const createdBefore = url.searchParams.get('createdBefore');
+    const pageParam = url.searchParams.get('page');
+    const pageSizeParam = url.searchParams.get('pageSize');
+    const sortParam = url.searchParams.get('sort') || 'createdAt';
+    const orderParam = (url.searchParams.get('order') || 'desc').toLowerCase();
 
-		// Build where clause - admins see all apps, users see only their own
-		const whereClause: any = {
-			packageName: { not: null }
-		};
+    // Validate pagination
+    const page = Math.max(1, Number.isFinite(Number(pageParam)) ? Number(pageParam) : 1);
+    const pageSizeRaw = Number.isFinite(Number(pageSizeParam)) ? Number(pageSizeParam) : 20;
+    const pageSize = Math.min(Math.max(1, pageSizeRaw), 100);
 
-		// Exclude already selected packages (for pin rule editing)
-		if (excludePackages.length > 0) {
-			whereClause.packageName = {
-				...whereClause.packageName,
-				notIn: excludePackages
-			};
-		}
+    // Validate sort
+    const sortField = SORT_FIELDS.has(sortParam) ? sortParam : 'createdAt';
+    const sortOrder: 'asc' | 'desc' = orderParam === 'asc' ? 'asc' : 'desc';
 
-		// Add search filter if provided
-		if (search) {
-			whereClause.OR = [
-				{ packageName: { contains: search, mode: 'insensitive' } },
-				{ name: { contains: search, mode: 'insensitive' } }
-			];
-		}
+    // Validate format filter
+    if (formatFilter && formatFilter.some((f) => !ALLOWED_FORMATS.has(f))) {
+      throw Object.assign(
+        new Error('Invalid format filter'),
+        { status: 400, code: ErrorCodes.INVALID_INPUT }
+      );
+    }
 
-		// Non-admins can only see apps they created
-		if (!isAdmin) {
-			whereClause.createdBy = context.session.user.id;
-		}
+    // Validate date filters
+    const createdAfterDate = createdAfter ? new Date(createdAfter) : undefined;
+    const createdBeforeDate = createdBefore ? new Date(createdBefore) : undefined;
+    if (
+      (createdAfter && isNaN(createdAfterDate!.getTime())) ||
+      (createdBefore && isNaN(createdBeforeDate!.getTime()))
+    ) {
+      throw Object.assign(
+        new Error('Invalid date filter'),
+        { status: 400, code: ErrorCodes.INVALID_INPUT }
+      );
+    }
 
-		// Get unique packageNames with groupBy
-		const uniquePackages = await context.prisma.resource.groupBy({
-			by: ['packageName'],
-			where: whereClause,
-			orderBy: {
-				packageName: 'asc'
-			},
-			_count: {
-				packageName: true
-			}
-		});
+    // Build where clause
+    const where: any = {};
 
-		const total = uniquePackages.length;
-		const offset = (page - 1) * pageSize;
-		const paginatedPackages = uniquePackages.slice(offset, offset + pageSize);
+    // Format filter
+    if (formatFilter && formatFilter.length) {
+      where.format = { in: formatFilter };
+    } else {
+      where.format = { in: Array.from(ALLOWED_FORMATS) };
+    }
 
-	// For each unique packageName, get one representative resource to get the name
-	const packageNames = paginatedPackages.map((p: any) => p.packageName).filter(Boolean);
-	
-	// Build where clause for second query - don't reapply excludePackages filter
-	// (already filtered in groupBy above)
-	const detailsWhereClause: any = {
-		packageName: { in: packageNames }
-	};
-	
-	// Add search filter if provided
-	if (search) {
-		detailsWhereClause.OR = [
-			{ packageName: { contains: search, mode: 'insensitive' } },
-			{ name: { contains: search, mode: 'insensitive' } }
-		];
-	}
-	
-	// Non-admins can only see apps they created
-	if (!isAdmin) {
-		detailsWhereClause.createdBy = context.session.user.id;
-	}
-	
-	const resourceDetails = await context.prisma.resource.findMany({
-		where: detailsWhereClause,
-		distinct: ['packageName'],
-		select: {
-			id: true,
-			packageName: true,
-			name: true,
-			format: true,
-			version: true,
-			releaseType: true,
-			createdAt: true
-		},
-		orderBy: {
-			packageName: 'asc'
-		}
-	});
+    // Version filter
+    if (versionFilter) {
+      where.version = versionFilter;
+    }
 
-		const items = resourceDetails.map((r: any) => ({
-			id: r.id,
-			packageName: r.packageName,
-			name: r.name ?? r.packageName,
-			format: r.format,
-			version: r.version,
-			releaseType: r.releaseType,
-			createdAt: r.createdAt
-		}));
+    // Date filters
+    if (createdAfterDate || createdBeforeDate) {
+      where.createdAt = {};
+      if (createdAfterDate) where.createdAt.gt = createdAfterDate;
+      if (createdBeforeDate) where.createdAt.lt = createdBeforeDate;
+    }
 
-		return {
-			success: true,
-			data: {
-				items,
-				total,
-				page,
-				pageSize,
-				totalPages: Math.ceil(total / pageSize)
-			},
-			meta: {
-				timestamp: new Date().toISOString(),
-				requestId: context.requestId
-			}
-		};
-	}
-	// No specific permission needed - filters by createdBy for users
-	// Admin sees all, user sees only their own uploaded resources
+    // Search filter
+    if (search && search.trim().length) {
+      const q = search.trim();
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { packageName: { contains: q, mode: 'insensitive' } }
+      ];
+    }
+
+    // Exclude packages from rule if provided
+    if (ruleId) {
+      const rule = await prisma.pinRule.findUnique({
+        where: { id: ruleId },
+        select: { apps: true }
+      });
+      const rulePkgs = (rule?.apps ?? []).filter(Boolean);
+      if (rulePkgs.length) {
+        if (!where.NOT) where.NOT = [] as any;
+        (where.NOT as any[]).push({ packageName: { in: rulePkgs } });
+      }
+    }
+
+    // Exclude specific packages
+    if (excludePackages.length) {
+      if (!where.NOT) where.NOT = [] as any;
+      (where.NOT as any[]).push({ packageName: { in: excludePackages } });
+    }
+
+    // Exclude null package names
+    if (!where.NOT) where.NOT = [] as any;
+    (where.NOT as any[]).push({ packageName: null });
+
+    // Role-based account filtering
+    if (session.user.systemRole !== 'ADMIN') {
+      const memberships = await prisma.accountMembership.findMany({
+        where: { userId: session.user.id },
+        select: { accountId: true }
+      });
+      const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
+      // If no accounts, force empty result set
+      where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
+    }
+
+    // Pagination
+    const skip = (page - 1) * pageSize;
+    const take = pageSize;
+
+    logger.info(`[AppsAPI] Query params:`, {
+      search,
+      formatFilter,
+      versionFilter,
+      createdAfter,
+      createdBefore,
+      page,
+      pageSize,
+      sortField,
+      sortOrder,
+      role: session.user.systemRole
+    });
+
+    // Count total (distinct by packageName)
+    const grouped = await prisma.resource.groupBy({
+      by: ['packageName'],
+      where,
+      _count: { _all: true }
+    });
+    const totalItems = grouped.length;
+
+    logger.info(`[AppsAPI] Total items found: ${totalItems}`);
+
+    // Fetch items (distinct by packageName)
+    const items = await prisma.resource.findMany({
+      where,
+      distinct: ['packageName'],
+      orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }], // stable tie-breaker
+      skip,
+      take,
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        version: true,
+        format: true,
+        packageName: true,
+        size: true,
+        path: true,
+        createdAt: true
+      }
+    });
+
+    logger.info(`[AppsAPI] Items returned: ${items.length}`);
+
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const hasNext = page < totalPages;
+
+    return successResponse({
+      items,
+      meta: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+        hasNext,
+        sort: sortField,
+        order: sortOrder
+      }
+    });
+  },
+  { permission: 'resource.view' }
 );
-

@@ -143,7 +143,7 @@ export class DeviceAPI {
     }
 
     async getOperationStatus(deviceId: string, operationId: string): Promise<APIResponse> {
-        return this.makeRequest(`/api/devices/${deviceId}/operations/${operationId}`);
+        return this.makeRequest(`/api/v2/devices/${deviceId}/operations/${operationId}`);
     }
 
     async getDeviceLogs(deviceId: string, format: 'json' | 'zip' = 'json', limit?: number): Promise<APIResponse> {

@@ -149,7 +149,7 @@ export const actions: Actions = {
                 const config = mapToConfigPayload(deviceProfile as any);
 
                 try {
-                    const response = await fetch(`/api/device-profiles/${profileId}/broadcast-config`, {
+                    const response = await fetch(`/api/v2/device-profiles/${profileId}/broadcast-config`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -202,7 +202,7 @@ export const actions: Actions = {
                     for (const device of assignedDevices) {
                         try {
                             // Call the device assignment endpoint to send the reapply message
-                            await fetch(`/api/device-profiles/${profileId}/assign`, {
+                            await fetch(`/api/v2/device-profiles/${profileId}/assign`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',

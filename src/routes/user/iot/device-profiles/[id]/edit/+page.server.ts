@@ -149,7 +149,7 @@ export const actions: Actions = {
                 const config = mapToConfigPayload(deviceProfile as any);
 
                 try {
-                    const response = await fetch(`/api/device-profiles/${profileId}/broadcast-config`, {
+                    const response = await fetch(`/api/v2/device-profiles/${profileId}/broadcast-config`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',

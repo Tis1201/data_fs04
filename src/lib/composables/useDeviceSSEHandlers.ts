@@ -46,7 +46,7 @@ export function useDeviceSSEHandlers(
     async function handleGetLogsDownload(logId: string, objectPath: string) {
         try {
             const downloadResponse = await fetch(
-                `/api/devices/${deviceId}/pull-file-download-url?logId=${logId}`,
+                `/api/v2/devices/${deviceId}/pull-file-download-url?logId=${logId}`,
                 { 
                     credentials: 'include',
                     method: 'GET'
@@ -97,7 +97,7 @@ export function useDeviceSSEHandlers(
     async function handlePullFileDownload(logId: string, objectPath: string) {
         try {
             const downloadResponse = await fetch(
-                `/api/devices/${deviceId}/pull-file-download-url?logId=${logId}`,
+                `/api/v2/devices/${deviceId}/pull-file-download-url?logId=${logId}`,
                 { 
                     credentials: 'include',
                     method: 'GET'
@@ -267,7 +267,7 @@ export function useDeviceSSEHandlers(
                             // Try to get objectPath from the action log and trigger download
                             (async () => {
                                 try {
-                                    const response = await fetch(`/api/devices/${deviceId}/pull-file-download-url?logId=${payload.logId}`, {
+                                    const response = await fetch(`/api/v2/devices/${deviceId}/pull-file-download-url?logId=${payload.logId}`, {
                                         credentials: 'include',
                                         method: 'GET'
                                     });
@@ -363,7 +363,7 @@ export function useDeviceSSEHandlers(
                             });
                             (async () => {
                                 try {
-                                    const response = await fetch(`/api/devices/${deviceId}/pull-file-download-url?logId=${payload.logId}`, {
+                                    const response = await fetch(`/api/v2/devices/${deviceId}/pull-file-download-url?logId=${payload.logId}`, {
                                         credentials: 'include',
                                         method: 'GET'
                                     });

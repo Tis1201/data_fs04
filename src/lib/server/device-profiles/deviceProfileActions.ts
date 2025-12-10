@@ -214,7 +214,7 @@ export function createDeviceProfileActions(
                             const { mapToConfigPayload } = await import('$lib/utils/mappers/deviceProfileMapper');
                             const config = mapToConfigPayload(deviceProfile as any);
 
-                            const response = await fetchFn(`${url.origin}/api/device-profiles/${profileId}/broadcast-config`, {
+                            const response = await fetchFn(`${url.origin}/api/v2/device-profiles/${profileId}/broadcast-config`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',

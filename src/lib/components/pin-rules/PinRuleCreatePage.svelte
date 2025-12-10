@@ -76,7 +76,7 @@
         isSubmitting = true;
 
         try {
-            const response = await fetch('/api/pin-rules', {
+            const response = await fetch('/api/v2/pin-rules', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
