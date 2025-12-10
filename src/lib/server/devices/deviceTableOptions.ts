@@ -15,21 +15,6 @@ const baseDeviceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         'types': { field: 'deviceType', operator: 'in' },
         'statuses': { field: 'status', operator: 'in' }
     },
-    select: {
-        id: true,
-        name: true,
-        connected: true,
-        deviceType: true,
-        hardwareId: true,
-        manufacturer: true,
-        macAddress: true,
-        wifiMac: true,
-        lanMac: true,
-        createdAt: true,
-        status: true,
-        osVersion: true,
-        tags: true
-    },
     include: {
         tags: {
             select: {

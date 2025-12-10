@@ -11,14 +11,6 @@ const baseDeviceTagTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
-    select: {
-        id: true,
-        name: true,
-        description: true,
-        createdAt: true,
-        updatedAt: true,
-        accountId: true
-    },
     include: {
         _count: {
             select: {
