@@ -123,14 +123,9 @@ definitions:
               git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
             else
               echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
+              exit 1
             fi
           - git submodule sync --recursive
-          - |
-            if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
-              git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
-                https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/codethings_dev/ui_components_sveltekit.git
-              git submodule sync --recursive
-            fi
           - git submodule update --init --recursive
           - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
           - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
