@@ -38,10 +38,10 @@ x-deploy-gke-shared: &deploy_gke_shared |
   
   # Set WIF credentials based on environment
   if [ "${TARGET_ENV}" = "production" ]; then
-    WIF_AUDIENCE="//iam.googleapis.com/projects/924078269021/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider"
+    WIF_AUDIENCE="//iam.googleapis.com/projects/924078269021/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider-datarealities"
     SERVICE_ACCOUNT="fs04-builder@dr-iot-prd.iam.gserviceaccount.com"
   else
-    WIF_AUDIENCE="//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider"
+    WIF_AUDIENCE="//iam.googleapis.com/projects/289769328627/locations/global/workloadIdentityPools/bitbucket-pool/providers/bitbucket-provider-datarealities"
     SERVICE_ACCOUNT="fs04-builder@cs-poc-vlkpvg5seziflnwq2ni7x3l.iam.gserviceaccount.com"
   fi
   
