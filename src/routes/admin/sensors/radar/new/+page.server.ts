@@ -37,7 +37,16 @@ export const load = restrict(
                 select: {
                     id: true,
                     name: true,
-                    hardwareId: true
+                    hardwareId: true,
+                    status: true,
+                    connected: true,
+                    accountId: true,
+                    account: {
+                        select: {
+                            id: true,
+                            name: true
+                        }
+                    }
                 },
                 orderBy: {
                     name: 'asc'

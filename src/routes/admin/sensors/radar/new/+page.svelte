@@ -2,9 +2,11 @@
     import { goto } from "$app/navigation";
     import { superForm } from 'sveltekit-superforms/client';
     import { zod } from 'sveltekit-superforms/adapters';
-    import { ArrowLeft, Save, Radio } from "lucide-svelte";
+    import { ArrowLeft, Save, Radio, AlertCircle, CheckCircle2, Wifi, WifiOff } from "lucide-svelte";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
+    import { Alert, AlertDescription } from "$lib/components/ui/alert";
+    import { Badge } from "$lib/components/ui/badge";
     
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
@@ -50,6 +52,25 @@
         { value: "INACTIVE", label: "Inactive" },
         { value: "MAINTENANCE", label: "Maintenance" }
     ];
+    
+    let selectedDevice: any = null;
+    
+    $: if ($form.deviceId) {
+        selectedDevice = data.devices.find(d => d.id === $form.deviceId);
+        if (selectedDevice) {
+            if (selectedDevice.account) {
+                $form.accountId = selectedDevice.accountId;
+            }
+            if (selectedDevice.hardwareId && !$form.serialNumber) {
+                $form.serialNumber = selectedDevice.hardwareId;
+            }
+            if (selectedDevice.name && !$form.name) {
+                $form.name = `${selectedDevice.name} - Radar`;
+            }
+        }
+    } else {
+        selectedDevice = null;
+    }
 </script>
 
 <AdminPageLayout
@@ -92,9 +113,69 @@
         delayed={$delayed}
     >
         <AdminCard
-            title="Sensor Information"
-            description="Register a new radar sensor in the system"
+            title="Select Device"
+            description="Choose the device with the radar sensor"
             icon={Radio}
+            compact={true}
+        >
+            <div class="space-y-4">
+                <FormField 
+                    id="deviceId" 
+                    label="Device" 
+                    error={$errors.deviceId}
+                    required={true}
+                    helpText="Select the device that has the radar sensor hardware"
+                >
+                    <EnhancedSelect
+                        id="deviceId"
+                        name="deviceId"
+                        bind:value={$form.deviceId}
+                        placeholder="Select a device..."
+                        options={data.devices.map(device => ({
+                            value: device.id,
+                            label: `${device.name}${device.hardwareId ? ` (${device.hardwareId})` : ''}`
+                        }))}
+                        {...getSelectProps($errors, 'deviceId', isLoading)}
+                    />
+                </FormField>
+                
+                {#if selectedDevice}
+                    <div class="rounded-lg border bg-muted/50 p-4 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                {#if selectedDevice.connected}
+                                    <Wifi class="h-4 w-4 text-green-600" />
+                                    <span class="text-sm font-medium text-green-600">Online</span>
+                                {:else}
+                                    <WifiOff class="h-4 w-4 text-gray-400" />
+                                    <span class="text-sm font-medium text-gray-400">Offline</span>
+                                {/if}
+                            </div>
+                            <Badge variant="outline">{selectedDevice.status}</Badge>
+                        </div>
+                        
+                        <div class="text-sm text-muted-foreground">
+                            <p><span class="font-medium">Account:</span> {selectedDevice.account?.name || 'N/A'}</p>
+                            {#if selectedDevice.hardwareId}
+                                <p><span class="font-medium">Hardware ID:</span> {selectedDevice.hardwareId}</p>
+                            {/if}
+                        </div>
+                        
+                        <Alert>
+                            <AlertCircle class="h-4 w-4" />
+                            <AlertDescription>
+                                Make sure the radar sensor app is installed and configured on this device before registration.
+                            </AlertDescription>
+                        </Alert>
+                    </div>
+                {/if}
+            </div>
+        </AdminCard>
+        
+        {#if selectedDevice}
+        <AdminCard
+            title="Sensor Details"
+            description="Configure the radar sensor settings"
             compact={true}
         >
             <div class="space-y-6">
@@ -104,7 +185,6 @@
                         label="Sensor Name" 
                         error={$errors.name}
                         required={true}
-                        helpText="Enter a descriptive name for the sensor"
                     >
                         <Input
                             id="name"
@@ -121,54 +201,14 @@
                         label="Serial Number" 
                         error={$errors.serialNumber}
                         required={true}
-                        helpText="Unique serial number from the device"
                     >
                         <Input
                             id="serialNumber"
                             name="serialNumber"
                             type="text"
                             bind:value={$form.serialNumber}
-                            placeholder="e.g., RDR-2024-001"
+                            placeholder="Auto-filled from device"
                             {...getFieldProps($errors, 'serialNumber', isLoading)}
-                        />
-                    </FormField>
-                </FormRow>
-                
-                <FormRow columns={2}>
-                    <FormField 
-                        id="accountId" 
-                        label="Account" 
-                        error={$errors.accountId}
-                        required={true}
-                        helpText="Select the account that owns this sensor"
-                    >
-                        <EnhancedSelect
-                            id="accountId"
-                            name="accountId"
-                            bind:value={$form.accountId}
-                            placeholder="Select an account"
-                            options={data.accounts.map(account => ({
-                                value: account.id,
-                                label: account.name
-                            }))}
-                            {...getSelectProps($errors, 'accountId', isLoading)}
-                        />
-                    </FormField>
-                    
-                    <FormField 
-                        id="status" 
-                        label="Status" 
-                        error={$errors.status}
-                        required={true}
-                        helpText="Current operational status"
-                    >
-                        <EnhancedSelect
-                            id="status"
-                            name="status"
-                            bind:value={$form.status}
-                            placeholder="Select status"
-                            options={statusOptions}
-                            {...getSelectProps($errors, 'status', isLoading)}
                         />
                     </FormField>
                 </FormRow>
@@ -178,7 +218,6 @@
                         id="location" 
                         label="Location" 
                         error={$errors.location}
-                        helpText="Physical location of the sensor"
                     >
                         <Input
                             id="location"
@@ -191,50 +230,18 @@
                     </FormField>
                     
                     <FormField 
-                        id="firmware" 
-                        label="Firmware Version" 
-                        error={$errors.firmware}
-                        helpText="Current firmware version"
-                    >
-                        <Input
-                            id="firmware"
-                            name="firmware"
-                            type="text"
-                            bind:value={$form.firmware}
-                            placeholder="e.g., v1.2.3"
-                            {...getFieldProps($errors, 'firmware', isLoading)}
-                        />
-                    </FormField>
-                </FormRow>
-            </div>
-        </AdminCard>
-        
-        <AdminCard
-            title="Device Linking"
-            description="Optionally link this sensor to an existing device"
-            compact={true}
-        >
-            <div class="space-y-6">
-                <FormRow columns={1}>
-                    <FormField 
-                        id="deviceId" 
-                        label="Linked Device" 
-                        error={$errors.deviceId}
-                        helpText="Select a device to link with this sensor (optional)"
+                        id="status" 
+                        label="Status" 
+                        error={$errors.status}
+                        required={true}
                     >
                         <EnhancedSelect
-                            id="deviceId"
-                            name="deviceId"
-                            bind:value={$form.deviceId}
-                            placeholder="Select a device (optional)"
-                            options={[
-                                { value: "", label: "No device linked" },
-                                ...data.devices.map(device => ({
-                                    value: device.id,
-                                    label: `${device.name}${device.hardwareId ? ` (${device.hardwareId})` : ''}`
-                                }))
-                            ]}
-                            {...getSelectProps($errors, 'deviceId', isLoading)}
+                            id="status"
+                            name="status"
+                            bind:value={$form.status}
+                            placeholder="Select status"
+                            options={statusOptions}
+                            {...getSelectProps($errors, 'status', isLoading)}
                         />
                     </FormField>
                 </FormRow>
@@ -244,22 +251,25 @@
                         id="description" 
                         label="Description" 
                         error={$errors.description}
-                        helpText="Additional notes about this sensor"
                     >
                         <Textarea
                             id="description"
                             name="description"
                             bind:value={$form.description}
-                            placeholder="Enter sensor description"
-                            rows="3"
+                            placeholder="Additional notes about this sensor"
+                            rows="2"
                             class="w-full {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
                             disabled={isLoading}
                             aria-invalid={$errors.description ? true : undefined}
                         />
                     </FormField>
                 </FormRow>
+                
+                <input type="hidden" name="accountId" bind:value={$form.accountId} />
+                <input type="hidden" name="firmware" bind:value={$form.firmware} />
             </div>
         </AdminCard>
+        {/if}
     </FormContainer>
     </div>
 </AdminPageLayout>
