@@ -120,7 +120,7 @@
 
   const accountOptions = data.accounts.map((account: any) => ({
     value: account.id,
-    label: account.name
+    label: account.name,
   }));
 
   const statusOptions = [
@@ -194,6 +194,7 @@
     : 1;
 
   // Visual editor state - initialized from data but mutable
+  // User Requirement: Default Arena at -4,0 to 4,4
   let editorArena = data.radarSensor.trackingArea
     ? {
         startX: data.radarSensor.trackingArea.startX,
@@ -201,16 +202,22 @@
         endX: data.radarSensor.trackingArea.endX,
         endY: data.radarSensor.trackingArea.endY,
       }
-    : null;
+    : {
+        startX: -4,
+        startY: 0,
+        endX: 4,
+        endY: 4,
+      };
 
-  let editorZones = data.radarSensor.trackingArea?.zones?.map((z: any) => ({
-    id: z.id,
-    name: z.name,
-    startX: z.startX,
-    startY: z.startY,
-    endX: z.endX,
-    endY: z.endY
-  })) || [];
+  let editorZones =
+    data.radarSensor.trackingArea?.zones?.map((z: any) => ({
+      id: z.id,
+      name: z.name,
+      startX: z.startX,
+      startY: z.startY,
+      endX: z.endX,
+      endY: z.endY,
+    })) || [];
 
   function handleArenaChange(
     event: CustomEvent<{
@@ -247,6 +254,10 @@
     editorZones = event.detail;
     console.log("Zones updated:", event.detail);
   }
+  function handleSave() {
+    const form = document.querySelector('form[action="?/updateSensor"]');
+    if (form) (form as HTMLFormElement).requestSubmit();
+  }
 </script>
 
 <div class="w-full space-y-6">
@@ -270,10 +281,7 @@
       {
         label: "Save",
         icon: Save,
-        onClick: () => {
-          const form = document.querySelector('form[action="?/updateSensor"]');
-          if (form) (form as HTMLFormElement).requestSubmit();
-        }
+        onClick: handleSave,
       },
     ]}
     loading={$submitting}
@@ -497,7 +505,7 @@
                       type="number"
                       step="0.1"
                       bind:value={$trackingAreaForm.startX}
-                      placeholder="e.g., -5.0"
+                      placeholder="-4.0"
                     />
                   </FormField>
 
@@ -532,7 +540,7 @@
                       type="number"
                       step="0.1"
                       bind:value={$trackingAreaForm.endX}
-                      placeholder="e.g., 10.0"
+                      placeholder="4.0"
                     />
                   </FormField>
 
