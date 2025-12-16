@@ -1,0 +1,33 @@
+# Database Connection
+DATABASE_URL="postgresql://webapp:admin0823@host.docker.internal:5432/fs04_web?schema=public"
+
+# MQTT Broker (Core Connection)
+# Use host.docker.internal for local docker run, or service name/IP in k8s
+MQTT_BROKER_URL="ws://host.docker.internal:8083/mqtt"
+
+# Worker Identity & Auth
+# MQTT_WORKER_CLIENT_ID="server:fs04-worker_custom"  # Optional: defaults to random suffix
+# MQTT_WORKER_USERNAME="server:fs04-worker"          # Optional: defaults to server:fs04-worker
+MQTT_SERVER_USERNAME="USER_SERVER"                   # Fallback auth if minting fails
+MQTT_SERVER_PASSWORD="password"                      # Fallback auth if minting fails
+MQTT_SHARED_GROUP="server"                           # Subscription group (default: server)
+
+# MQTT Connection Tuning
+# MQTT_WORKER_PATH="/mqtt"                           # WebSocket path
+# MQTT_WORKER_KEEPALIVE="60"
+# MQTT_WORKER_CLEAN_SESSION="true"
+# MQTT_WORKER_QOS="0"
+# MQTT_WORKER_BASE_RECONNECT_MS="2000"
+# MQTT_WORKER_MAX_RECONNECT_MS="60000"
+
+# EMQX Management API (for kicking clients etc)
+EMQX_URL="http://host.docker.internal:18083"
+EMQX_API_KEY="your_api_key"
+EMQX_API_SECRET="your_api_secret"
+
+# IoT Core Service (for minting credentials)
+IOT_CORE_BASE_URL="http://host.docker.internal:5174"
+
+# Logging & Runtime
+LOG_LEVEL="debug"
+NODE_ENV="production"

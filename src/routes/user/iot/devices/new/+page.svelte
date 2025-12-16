@@ -10,7 +10,8 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { sseStore } from "$lib/stores/sse-store";
+  import { callUserRpc } from "$lib/client/mqtt/userRpc";
+  import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   
@@ -36,62 +37,33 @@
   
   let claimedDevice: any = null;
   
-  // Function to handle device claim via SSE
+  // Function to handle device claim via MQTT (replacing SSE request)
   async function handleDeviceClaim() {
     if (!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming') return;
     
-    // Use SSE request to claim device instead of form submission
+    // Use MQTT RPC to start claim flow instead of form submission
     deviceStore.setClaimStatus('claiming');
     
     try {
-      const responsePayload = await sseStore.sendRequest(
-        {
-          type: 'device',
-          scope: 'user:self',
-          payload: { 
-            action: 'claim',
-            pin: $form.pin 
-          }
-        },
-        5000, // 5 second timeout
-        'device_claim'
-      );
-      
-      console.log('[DEVICE_FORM] Claim request sent successfully:', responsePayload);
-      
-      // Check for error in the response payload
-      if (responsePayload?.success === false || responsePayload?.payload?.success === false) {
-        // Handle error case from SSE response
-        const errorDetails = responsePayload?.payload || responsePayload;
-        deviceStore.setClaimStatus('failed', errorDetails.details || errorDetails.error || 'Verification failed');
-        toast.error(errorDetails.error || 'Verification Failed');
-        return;
+      const response = await callUserRpc<{
+        flowId?: string;
+        result: { factoryDeviceId: string };
+      }>('device.claim', { pin: $form.pin }, { timeoutMs: 5000 });
+
+      console.log('[DEVICE_FORM] MQTT claim RPC completed:', response);
+
+      const flowId = response?.flowId;
+      if (!flowId) {
+        throw new Error('Missing flowId in claim response');
       }
 
-      // If we have device data in the response, update the UI
-      const device = responsePayload?.device || responsePayload?.payload?.device;
-      if (device) {
-        claimedDevice = {
-          id: device.id,
-          name: device.name,
-          deviceType: device.deviceType,
-          status: device.status || 'ACTIVE'
-        };
-        
-        deviceStore.updateDevice({
-          deviceId: device.id,
-          name: device.name,
-          deviceType: device.deviceType,
-          status: device.status,
-          claimStatus: 'claimed'
-        });
-        
-        toast.success('Device claimed successfully!');
-      } else {
-        // No device data in response, but success
-        deviceStore.setClaimStatus('claimed');
-        toast.success('Device claimed successfully!');
-      }
+      toast.success('Device claim initiated, waiting for confirmation...');
+
+      const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
+
+      deviceStore.setClaimStatus('claimed');
+      toast.success('Device claimed successfully!');
+      goto(`/user/iot/devices/${confirmation.deviceId}`);
     } catch (error) {
       console.error('[DEVICE_FORM] Claim request failed:', error);
       deviceStore.setClaimStatus('failed', error instanceof Error ? error.message : 'Request failed');
@@ -101,15 +73,6 @@
 
   // If the device is claimed while we're on this page, update the claimedDevice variable
   onMount(() => {
-    // Establish SSE connection for device claim requests
-    try {
-      console.debug('[UserDeviceClaim] Connecting SSE to /api/sse ...');
-      sseStore.connect(`/api/sse`, { withCredentials: true });
-      console.log('[UserDeviceClaim] SSE connect initiated');
-    } catch (e) {
-      console.warn('[UserDeviceClaim] SSE connect failed (may already be connected):', e);
-    }
-
     const unsubscribe = deviceStore.subscribe(state => {
       if (state.claimStatus === 'claimed' && state.deviceId) {
         claimedDevice = {

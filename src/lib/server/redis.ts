@@ -20,30 +20,37 @@ function createRedisClient(): Redis | null {
         logger.info('Redis client not created because USE_PUSHPIN is not set to true');
         return null;
     }
-    
+
     // Use specific Redis configuration from .env if available
+    const connectionUrl = process.env.REDIS_URL;
     const host = process.env.REDIS_HOST || 'localhost';
     const port = parseInt(process.env.REDIS_PORT || '6379', 10);
     const password = process.env.REDIS_PASSWORD;
-    
-    logger.info(`Creating Redis client for ${host}:${port}`);
-    
-    const client = new Redis({
-        host,
-        port,
-        password: password || undefined,
+
+    logger.info(connectionUrl ? `Creating Redis client from URL` : `Creating Redis client for ${host}:${port}`);
+
+    const options: Redis.RedisOptions = {
         maxRetriesPerRequest: 3,
         retryStrategy(times) {
             const delay = Math.min(times * 50, 2000);
             return delay;
         }
-    });
+    };
+
+    const client = connectionUrl
+        ? new Redis(connectionUrl, options)
+        : new Redis({
+            host,
+            port,
+            password: password || undefined,
+            ...options
+        });
 
     // Error handling
     client.on('error', (err) => {
-        logger.error(`Redis client error: ${err.message}`, { 
-            error: err.message, 
-            stack: err.stack 
+        logger.error(`Redis client error: ${err.message}`, {
+            error: err.message,
+            stack: err.stack
         });
     });
 

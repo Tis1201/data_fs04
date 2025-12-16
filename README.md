@@ -182,39 +182,6 @@ async function pingDevice() {
 }
 ```
 
-### Example: Taking a Screenshot
-
-```typescript
-async function takeScreenshot(deviceId: string) {
-  try {
-    const response = await socketStore.sendRequest(
-      {
-        type: 'device',
-        scope: `subscription:device:${deviceId}`,
-        payload: {
-          action: 'message',
-          type: 'screenshot:request',
-          deviceId: deviceId,
-          quality: 80
-        }
-      },
-      10000, // 10 second timeout for screenshot
-      'screenshot' // Request ID prefix
-    );
-
-    if (response?.image) {
-      // Handle the base64-encoded image
-      const imageUrl = `data:image/jpeg;base64,${response.image}`;
-      return imageUrl;
-    }
-    throw new Error('No image data received');
-  } catch (error) {
-    console.error('Screenshot failed:', error);
-    throw error;
-  }
-}
-```
-
 ### Error Handling
 
 The `sendRequest` method will reject with an error in these cases:

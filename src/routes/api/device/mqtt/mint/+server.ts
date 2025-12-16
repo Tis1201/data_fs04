@@ -1,57 +1,71 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrictDevice } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import jwt, { type Algorithm } from 'jsonwebtoken';
+import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
-export const POST: RequestHandler = restrictDevice(async ({ locals, device, userInfo }) => {
-  logger.info(`[MqttMintAPI] Received request for device: ${String(userInfo.id)}`);
+export const POST: RequestHandler = restrictDevice(async ({ device }) => {
+  logger.info(`[DeviceMqttMintAPI] Received MQTT mint request for device: ${String(device.id)}`);
 
-  const signingKey = await locals.prisma.jwtSigningKey.findFirst({
-    where: {
-      keyType: 'LINK',
-      isPrimary: true,
-      isActive: true
-    }
-  });
-
-  if (!signingKey) {
-    logger.error('No active signing key found');
+  const brokerUrl = getMqttBrokerUrl();
+  if (!brokerUrl) {
+    logger.error('[DeviceMqttMintAPI] MQTT_BROKER_URL is not configured');
     return json(
-      createErrorResponse('No active signing key found', {
-        details: 'Missing signing key'
+      createErrorResponse('MQTT broker URL is not configured', {
+        details: 'Set MQTT_BROKER_URL in the server environment'
       }),
       { status: 500 }
     );
   }
 
   try {
-    const algorithm = (signingKey.algorithm ?? 'HS256') as Algorithm;
+    const mqttUsername = `device:${device.id}`;
 
-    const token = jwt.sign(
-      {
-        deviceId: device.id,
-        accountId: device.accountId,
-        userId: userInfo.id,
-        deviceName: device.name
-      },
-      signingKey.privateKey,
-      {
-        algorithm,
-        expiresIn: '1h',
-        issuer: 'fs04',
-        audience: 'https://fs04.datarealities.com',
-        subject: device.id,
-        keyid: signingKey.id
-      }
+    const mintData = await mintIoTCoreCredentials({
+      username: mqttUsername,
+      pubTopics: [
+        `device/${mqttUsername}/replies`,
+        `device/${mqttUsername}/requests`,
+        `device/${mqttUsername}/loopback`,
+        `device/${mqttUsername}/heartbeat`
+      ],
+      subTopics: [
+        `device/${mqttUsername}/response`,
+        `device/${mqttUsername}/notifications`,
+        `device/${mqttUsername}/loopback`,
+        `device/${mqttUsername}/heartbeat`
+      ]
+    });
+
+    if (!mintData) {
+      return json(
+        createErrorResponse('Failed to mint MQTT credentials from IoT Core', {
+          details: 'See server logs for IoT Core mint failure details'
+        }),
+        { status: 502 }
+      );
+    }
+
+    const { token, clientId, username } = mintData;
+
+    logger.info(
+      `[DeviceMqttMintAPI] Minted MQTT credential via IoT Core for device ${device.id} (clientId=${clientId})`
     );
 
-    return json(createSuccessResponse({
-      jwt: token
-    }));
+    const effectiveUsername = username ?? mqttUsername;
+
+    const payload = buildMqttMintPayload({
+      brokerUrl,
+      clientId,
+      token,
+      username: effectiveUsername,
+      includeLegacyMqttUsername: true
+    });
+
+    return json(createSuccessResponse(payload));
   } catch (err) {
-    logger.error(`[MqttMintAPI] Error: ${String(err)}`);
-    return json({ success: false, error: 'Internal server error' }, { status: 500 });
+    logger.error(`[DeviceMqttMintAPI] Error: ${String(err)}`);
+    return json(createErrorResponse('Internal server error'), { status: 500 });
   }
 });

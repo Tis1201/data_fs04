@@ -10,7 +10,8 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { sseStore } from "$lib/stores/sse-store";
+  import { callUserRpc } from "$lib/client/mqtt/userRpc";
+  import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
 
@@ -36,62 +37,33 @@
 
   let claimedDevice: any = null;
 
-  // Function to handle device claim via SSE
+  // Function to handle device claim via MQTT
   async function handleDeviceClaim() {
     if (!$form.pin || $form.pin.length < 6 || $deviceStore.claimStatus === 'claiming') return;
 
-    // Use SSE request to claim device instead of form submission
+    // Use MQTT RPC to start claim flow instead of form submission
     deviceStore.setClaimStatus('claiming');
 
     try {
-      const responsePayload = await sseStore.sendRequest(
-              {
-                type: 'device',
-                scope: 'user:self',
-                payload: {
-                  action: 'claim',
-                  pin: $form.pin
-                }
-              },
-              5000, // 5 second timeout
-              'device_claim'
-      );
+      const response = await callUserRpc<{
+        flowId?: string;
+        result: { factoryDeviceId: string };
+      }>('device.claim', { pin: $form.pin }, { timeoutMs: 5000 });
 
-      console.log('[DEVICE_FORM] Claim request sent successfully:', responsePayload);
+      console.log('[ADMIN_DEVICE_FORM] MQTT claim RPC completed:', response);
 
-      // Check for error in the response payload
-      if (responsePayload?.success === false || responsePayload?.payload?.success === false) {
-        // Handle error case from SSE response
-        const errorDetails = responsePayload?.payload || responsePayload;
-        deviceStore.setClaimStatus('failed', errorDetails.details || errorDetails.error || 'Verification failed');
-        toast.error(errorDetails.error || 'Verification Failed');
-        return;
+      const flowId = response?.flowId;
+      if (!flowId) {
+        throw new Error('Missing flowId in claim response');
       }
 
-      // If we have device data in the response, update the UI
-      const device = responsePayload?.device || responsePayload?.payload?.device;
-      if (device) {
-        claimedDevice = {
-          id: device.id,
-          name: device.name,
-          deviceType: device.deviceType,
-          status: device.status || 'ACTIVE'
-        };
+      toast.success('Device claim initiated, waiting for confirmation...');
 
-        deviceStore.updateDevice({
-          deviceId: device.id,
-          name: device.name,
-          deviceType: device.deviceType,
-          status: device.status,
-          claimStatus: 'claimed'
-        });
+      const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
 
-        toast.success('Device claimed successfully!');
-      } else {
-        // No device data in response, but success
-        deviceStore.setClaimStatus('claimed');
-        toast.success('Device claimed successfully!');
-      }
+      deviceStore.setClaimStatus('claimed');
+      toast.success('Device claimed successfully!');
+      goto(`/admin/iot/devices/${confirmation.deviceId}`);
     } catch (error) {
       console.error('[DEVICE_FORM] Claim request failed:', error);
       deviceStore.setClaimStatus('failed', error instanceof Error ? error.message : 'Request failed');
@@ -101,9 +73,6 @@
 
   // If the device is claimed while we're on this page, update the claimedDevice variable
   onMount(() => {
-    // Establish SSE connection for device communication
-    sseStore.connect('/api/sse');
-    
     const unsubscribe = deviceStore.subscribe(state => {
       if (state.claimStatus === 'claimed' && state.deviceId) {
         claimedDevice = {
@@ -117,8 +86,7 @@
 
     return () => {
       unsubscribe();
-      // Disconnect SSE and reset device store when component is destroyed
-      sseStore.disconnect();
+      // Reset device store when component is destroyed
       deviceStore.reset();
     };
   });

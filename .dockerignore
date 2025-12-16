@@ -7,7 +7,7 @@ npm-debug.log
 
 # Build output
 # Allow prebuilt app bundle so Docker can skip memory-heavy build step
-!build/**
+build
 .svelte-kit
 **/.svelte-kit
 **/.vercel

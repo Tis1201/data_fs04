@@ -1,0 +1,28 @@
+import type mqtt from 'mqtt';
+
+/********************************************************************************************
+ * Contract for the worker-owned transport used by MQTT helpers.
+ ********************************************************************************************/
+export interface MqttTransport {
+    publish: (topic: string, payload: string | Buffer, options?: mqtt.IClientPublishOptions) => Promise<void>;
+}
+
+let activeTransport: MqttTransport | null = null;
+
+/********************************************************************************************
+ * Register the concrete transport (called once after MQTT client connects).
+ ********************************************************************************************/
+export function registerMqttTransport(transport: MqttTransport): void {
+    activeTransport = transport;
+}
+
+/********************************************************************************************
+ * Retrieve the active transport; errors if the worker is not connected yet.
+ ********************************************************************************************/
+export function getMqttTransport(): MqttTransport {
+    if (!activeTransport) {
+        throw new Error('MQTT transport has not been registered. Ensure the worker has started.');
+    }
+
+    return activeTransport;
+}

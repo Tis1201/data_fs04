@@ -34,6 +34,7 @@ export default defineConfig({
 	},
 	optimizeDeps: {
 		include: [
+			'mqtt',
 			'@xterm/xterm',
 			'@battlefieldduck/xterm-svelte',
 			'@xterm/addon-fit',
