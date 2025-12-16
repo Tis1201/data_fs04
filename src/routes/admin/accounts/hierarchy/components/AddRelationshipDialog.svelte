@@ -6,7 +6,7 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Building2, Crown, Handshake, Eye, Calendar } from "lucide-svelte";
     import { createEventDispatcher } from "svelte";
-    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableSelect.svelte";
+    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableFormSelect.svelte";
 
     type Account = {
         id: string;

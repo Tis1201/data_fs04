@@ -25,6 +25,7 @@ registerWebHandlers(adminPrisma);
 const brokerUrl = process.env.MQTT_BROKER_URL;
 
 export function startMqttListener(): void {
+  logger.info('[MQTT Transport] Worker starting up...');
   if (started) {
     logger.info('[MQTT Transport] Service already running');
     return;
