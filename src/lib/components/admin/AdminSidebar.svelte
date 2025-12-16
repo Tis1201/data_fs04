@@ -62,7 +62,9 @@
         FileCog,
         Pin,
 
-        Book
+        Book,
+        
+        Radio
 
     } from "lucide-svelte";
 
@@ -104,6 +106,14 @@
                 { href: "/admin/iot/bundles", label: "Bundles", icon: PackagePlus},
                 { href: "/admin/iot/preclaims", label: "Preclaims", icon: ShieldPlus },
                 { href: "/admin/iot/pin-rules", label: "Pin Rules", icon: Pin }
+            ]
+        },
+        { 
+            label: "Sensors", 
+            icon: Radio, 
+            initialExpanded: false,
+            subItems: [
+                { href: "/admin/sensors/radar", label: "Radar", icon: Radio },
             ]
         },
         { 
