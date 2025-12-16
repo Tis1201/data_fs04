@@ -74,33 +74,8 @@ x-deploy-gke-shared: &deploy_gke_shared |
   fi
   gcloud container clusters get-credentials "${TARGET_GKE_CLUSTER_NAME}" "${LOCATION_FLAG}" "${TARGET_GKE_CLUSTER_LOCATION}" --project "${TARGET_GCP_PROJECT}"
   echo "Using ${IMAGE_URI_COMMIT} for ${TARGET_ENV} deployment"
-  
-  # Replace image tag in manifests with actual image URI
-  # Create temporary directory for processed manifests
-  mkdir -p /tmp/k8s-manifests
-  
-  # Process and deploy main deployment
-  echo "Deploying main application..."
-  sed "s|registry.gitlab.com/fs040/web:\${IMAGE_TAG:-latest}|${IMAGE_URI_COMMIT}|g" k8s/deployment-main.yaml > /tmp/k8s-manifests/deployment-main.yaml
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f /tmp/k8s-manifests/deployment-main.yaml
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/fs04-web --timeout=5m || echo "Rollout status check failed, but deployment may still be in progress"
-  
-  # Process and deploy bundle worker
-  echo "Deploying bundle worker..."
-  sed "s|registry.gitlab.com/fs040/web:\${IMAGE_TAG:-latest}|${IMAGE_URI_COMMIT}|g" k8s/deployment-bundle.yaml > /tmp/k8s-manifests/deployment-bundle.yaml
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f /tmp/k8s-manifests/deployment-bundle.yaml
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/fs04-web-bundle --timeout=5m || echo "Rollout status check failed, but deployment may still be in progress"
-  
-  # Process and deploy cleanup cronjob
-  echo "Deploying cleanup cronjob..."
-  sed "s|registry.gitlab.com/fs040/web:\${IMAGE_TAG:-latest}|${IMAGE_URI_COMMIT}|g" k8s/cronjob-cleanup.yaml > /tmp/k8s-manifests/cronjob-cleanup.yaml
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f /tmp/k8s-manifests/cronjob-cleanup.yaml
-  
-  # Deploy service (idempotent, safe to run multiple times)
-  echo "Deploying service..."
-  kubectl --namespace "${TARGET_K8S_NAMESPACE}" apply -f k8s/service-main.yaml
-  
-  echo "Deployment complete for ${TARGET_ENV}"
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" set image deployment/"${TARGET_K8S_DEPLOYMENT}" "${TARGET_K8S_CONTAINER}"="${IMAGE_URI_COMMIT}"
+  kubectl --namespace "${TARGET_K8S_NAMESPACE}" rollout status deployment/"${TARGET_K8S_DEPLOYMENT}"
 
 definitions:
   services:
@@ -118,14 +93,22 @@ definitions:
           - set -euo pipefail
           - echo "Ensuring submodule HTTPS auth is configured"
           - |
-            if [ -n "${BITBUCKET_SUBMODULE_USER:-}" ] && [ -n "${BITBUCKET_SUBMODULE_APP_PASSWORD:-}" ]; then
-              git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "git@bitbucket.org:"
-              git config --global url."https://${BITBUCKET_SUBMODULE_USER}:${BITBUCKET_SUBMODULE_APP_PASSWORD}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
+            if [ -n "${BITBUCKET_SUBMODULE_API_TOKEN:-}" ]; then
+              # API tokens use x-token-auth as username
+              git config --global url."https://x-token-auth:${BITBUCKET_SUBMODULE_API_TOKEN}@bitbucket.org/".insteadOf "git@bitbucket.org:"
+              git config --global url."https://x-token-auth:${BITBUCKET_SUBMODULE_API_TOKEN}@bitbucket.org/".insteadOf "ssh://git@bitbucket.org/"
             else
-              echo "WARNING: BITBUCKET_SUBMODULE_USER/APP_PASSWORD not set. SSH-based submodule auth will likely fail."
+              echo "WARNING: BITBUCKET_SUBMODULE_API_TOKEN not set. SSH-based submodule auth will likely fail."
               exit 1
             fi
           - git submodule sync --recursive
+          - |
+            if [ -n "${BITBUCKET_SUBMODULE_API_TOKEN:-}" ]; then
+              # Update .gitmodules with HTTPS URL using API token
+              git config -f .gitmodules submodule.src/lib/components/ui_components_sveltekit.url \
+                https://x-token-auth:${BITBUCKET_SUBMODULE_API_TOKEN}@bitbucket.org/datarealities/ui_components_sveltekit.git
+              git submodule sync --recursive
+            fi
           - git submodule update --init --recursive
           - export GITLAB_USERNAME="${GITLAB_BITBUCKET_PIPELINE_TOKEN_USERNAME:-${GITLAB_USER:-}}"
           - export GITLAB_PASSWORD="${GITLAB_BITBUCKET_PIPELINE_TOKEN:-${GITLAB_TOKEN:-}}"
@@ -155,12 +138,6 @@ definitions:
           - echo "Pushing Docker image ${IMAGE_URI_VERSION}"
           - docker push "${IMAGE_URI_VERSION}"
           - echo "Docker image pushed successfully"
-          - echo "Verifying Kubernetes manifests exist..."
-          - test -d k8s || { echo "k8s/ directory not found"; exit 1; }
-          - test -f k8s/deployment-main.yaml || { echo "k8s/deployment-main.yaml not found"; exit 1; }
-          - test -f k8s/deployment-bundle.yaml || { echo "k8s/deployment-bundle.yaml not found"; exit 1; }
-          - test -f k8s/cronjob-cleanup.yaml || { echo "k8s/cronjob-cleanup.yaml not found"; exit 1; }
-          - echo "Kubernetes manifests verified"
     - step: &access_gke_dev
         name: Deploy image to dev GKE
         oidc: true
