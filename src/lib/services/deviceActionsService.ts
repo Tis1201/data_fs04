@@ -1,6 +1,12 @@
 import { toast } from 'svelte-sonner';
-import { sseStore } from '$lib/stores/sse-store';
 import type { Writable } from 'svelte/store';
+import { callUserRpc } from '$lib/client/mqtt/userRpc';
+import { waitForScreenshotResult } from '$lib/client/mqtt/screenshotFlow';
+import {
+    refreshDevice as mqttRefreshDevice,
+    rebootDevice as mqttRebootDevice,
+    getDeviceLogs as mqttGetDeviceLogs
+} from '$lib/client/mqtt/deviceActions';
 
 export interface DeviceActionCallbacks {
     onSuccess?: (action: string, message?: string) => void;
@@ -23,7 +29,7 @@ export class DeviceActionsService {
     ) {}
 
     /**
-     * Retrieve snapshot/screenshot from device
+     * Retrieve snapshot/screenshot from device via MQTT
      */
     async retrieveSnapshot(
         screenshotData: { 
@@ -42,38 +48,25 @@ export class DeviceActionsService {
         const tempId = this.callbacks.addActionLog?.('snapshot', 'Taking screenshot…', 'in_progress');
 
         try {
-            const responsePayload = await sseStore.sendRequest(
-                {
-                    type: 'device',
-                    scope: `subscription:device:${this.deviceId}`,
-                    payload: {
-                        action: 'message',
-                        type: 'screenshot:request',
-                        deviceId: this.deviceId,
-                        quality: 80
-                    }
-                },
-                120000,
-                'screenshot'
+            const rpcResult = await callUserRpc<{
+                flowId?: string;
+                result: { deviceId: string };
+            }>(
+                'device.screenshot',
+                { deviceId: this.deviceId },
+                { timeoutMs: 60000 }
             );
 
-            const payloadType = responsePayload?.payload?.type;
-            if (payloadType === 'screenshot:error') {
-                const errMsg = responsePayload?.payload?.error || 'Device reported screenshot error';
-                throw new Error(errMsg);
+            const flowId = rpcResult?.flowId;
+            if (!flowId) {
+                throw new Error('Missing flowId in screenshot response');
             }
 
-            const imageData = responsePayload?.image
-                || responsePayload?.payload?.image
-                || responsePayload?.data?.image;
-            const format = responsePayload?.format
-                || responsePayload?.payload?.format
-                || responsePayload?.data?.format
-                || 'jpeg';
+            const screenshot = await waitForScreenshotResult(flowId, this.deviceId, { timeoutMs: 60000 });
 
-            if (imageData) {
-                screenshotData.data.set(imageData);
-                screenshotData.format.set(format);
+            if (screenshot.data) {
+                screenshotData.data.set(screenshot.data);
+                screenshotData.format.set(screenshot.format || 'jpeg');
                 screenshotOpen.set(true);
 
                 this.actionStatus.set({ action: "snapshot", status: "success", message: "Screenshot captured" });
@@ -89,7 +82,7 @@ export class DeviceActionsService {
                 message: error instanceof Error ? error.message : "Failed to capture screenshot"
             });
             toast.error("Failed to capture device screenshot");
-            console.error("Error capturing screenshot:", error);
+            console.error("Error capturing screenshot via MQTT:", error);
             this.callbacks.updateActionLog?.(tempId || null, 'failed', error instanceof Error ? error.message : 'Failed to capture screenshot');
         } finally {
             this.isLoading.set(false);
@@ -97,7 +90,7 @@ export class DeviceActionsService {
     }
 
     /**
-     * Restart/refresh device
+     * Restart/refresh device via MQTT
      */
     async restartDevice(): Promise<void> {
         this.isLoading.set(true);
@@ -109,22 +102,20 @@ export class DeviceActionsService {
         const tempId = this.callbacks.addActionLog?.('refresh', 'Sending refresh command…', 'in_progress');
 
         try {
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ action: 'refresh' })
-            });
+            const result = await mqttRefreshDevice(
+                { deviceId: this.deviceId },
+                { timeoutMs: 30000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to refresh device: ${response.statusText}`);
+            if (result.operationId) {
+                // Update temp log with real operation ID
+                const logs = this.callbacks.addActionLog?.('refresh', 'Refresh initiated…', 'in_progress', result.operationId);
             }
 
             this.actionStatus.set({
                 action: "refresh",
                 status: "success",
-                message: "Refresh command sent",
+                message: result.message || "Refresh command sent",
             });
             toast.success("Device refresh initiated");
         } catch (error) {
@@ -142,7 +133,7 @@ export class DeviceActionsService {
     }
 
     /**
-     * Reboot device
+     * Reboot device via MQTT
      */
     async rebootDevice(): Promise<void> {
         this.isLoading.set(true);
@@ -154,22 +145,20 @@ export class DeviceActionsService {
         const tempId = this.callbacks.addActionLog?.('reboot', 'Sending reboot command…', 'in_progress');
 
         try {
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ action: 'reboot' })
-            });
+            const result = await mqttRebootDevice(
+                { deviceId: this.deviceId },
+                { timeoutMs: 30000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to reboot device: ${response.statusText}`);
+            if (result.operationId) {
+                // Update temp log with real operation ID
+                this.callbacks.addActionLog?.('reboot', 'Reboot initiated…', 'in_progress', result.operationId);
             }
 
             this.actionStatus.set({
                 action: "reboot",
                 status: "success",
-                message: "Reboot command sent",
+                message: result.message || "Reboot command sent",
             });
             toast.success("Device reboot initiated");
         } catch (error) {
@@ -187,7 +176,7 @@ export class DeviceActionsService {
     }
 
     /**
-     * View/download device logs
+     * View/download device logs via MQTT
      */
     async viewLogs(): Promise<void> {
         this.isLoading.set(true);
@@ -198,32 +187,19 @@ export class DeviceActionsService {
         });
 
         try {
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'getLogs',
-                    format: 'zip'
-                })
-            });
+            const result = await mqttGetDeviceLogs(
+                { deviceId: this.deviceId, format: 'zip' },
+                { timeoutMs: 60000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to get logs: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
-                this.callbacks.addActionLog?.('getLogs', 'Logs request initiated…', 'in_progress', realLogId);
+            if (result.operationId) {
+                this.callbacks.addActionLog?.('getLogs', 'Logs request initiated…', 'in_progress', result.operationId);
             }
 
             this.actionStatus.set({
                 action: "logs",
                 status: "success",
-                message: "Logs request initiated",
+                message: result.message || "Logs request initiated",
             });
             toast.success("Logs request initiated");
         } catch (error) {

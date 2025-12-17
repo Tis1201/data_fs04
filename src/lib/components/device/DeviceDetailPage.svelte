@@ -16,6 +16,8 @@
     import { sseStore } from "$lib/stores/sse-store";
     import { onMount, onDestroy } from 'svelte';
     import { useDeviceDetail } from "$lib/composables/useDeviceDetail";
+    import { useDeviceMqttStatus } from "$lib/composables/useDeviceMqttStatus";
+    import { mqttClient } from "$lib/client/mqtt/mqttClient";
     import { browser } from "$app/environment";
 
     interface Props {
@@ -237,130 +239,69 @@
         onSelectPullFile(id);
     }
 
-    // SSE subscription management
-    let unsubConnectionLight: (() => void) | null = null;
-    let lastSubscribedConnectionId: string | null = null;
+    // MQTT status subscription
+    const { subscribe: subscribeMqttStatus } = useDeviceMqttStatus();
+    let mqttStatusUnsubscribe: (() => void) | null = null;
 
-    // Function to subscribe to device channel
-    async function subscribeToDeviceChannel(connId: string) {
-        if (connId === lastSubscribedConnectionId) {
-            return;
-        }
-        
-        try {
-            const response = await fetch(`/api/sse/subscribe/device/${device.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: connId })
-            });
-            
-            if (response.ok) {
-                lastSubscribedConnectionId = connId;
-            }
-        } catch (err) {
-            console.warn('[DeviceDetailPage] Subscribe failed:', err);
-        }
-    }
+    // Track last status to deduplicate notifications (prevent multiple toasts for same status)
+    let lastNotificationStatus: { connected: boolean; timestamp: string } | null = null;
 
     onMount(() => {
         if (!browser) return;
 
-        // Check if SSE is already connected and subscribe immediately
-        if (sseStore.connectionId && sseStore.isConnected) {
-            subscribeToDeviceChannel(sseStore.connectionId);
-        }
-        
-        // Listen for future connection events
-        sseStore.on('connected', (msg: any) => {
-            const connId = msg?.data?.connectionId;
-            if (connId) {
-                subscribeToDeviceChannel(connId);
-            }
-        });
-
-        // Setup SSE handlers using composable
-        setupSSEHandlers();
-
-        // Lightweight connection status updates
-        unsubConnectionLight = sseStore.on('*', (msg: any) => {
-            try {
-                const evt = msg?.data ?? msg;
-                const evtType = evt?.type || msg?.event || evt?.payload?.type;
-                
-                // Handle data updates
-                if (evtType === 'device:dataUpdate') {
-                    const updatedData = evt.payload?.updatedData;
-                    if (updatedData && updatedData.deviceInfo) {
-                        deviceInformation = updatedData.deviceInfo;
-                    }
-                }
-                
-                // Normalize payloads
-                let normalized;
-                if (evt?.payload?.action === 'device:connection' || evt?.payload?.action === 'device:disconnection') {
-                    normalized = { ...evt.payload, type: evt.payload.action };
-                } else if (evt?.type === 'device:connection' || evt?.type === 'device:disconnection') {
-                    normalized = {
-                        type: evt.type,
-                        deviceId: evt.payload?.deviceId,
-                        connected: evt.payload?.connected,
-                        connectedAt: evt.payload?.connectedAt,
-                        disconnectedAt: evt.payload?.disconnectedAt,
-                        timestamp: evt.payload?.timestamp,
-                        reason: evt.payload?.reason
-                    };
-                } else {
-                    normalized = evt;
-                }
-
-                const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
-                const isDisconnectionEvent = (evtType === 'device:disconnection') || (normalized?.type === 'device:disconnection');
-                
-                if (!isConnectionEvent && !isDisconnectionEvent) {
+        // Subscribe to device status updates via MQTT
+        // Note: MQTT client connection is handled globally by AuthStateHandler
+        mqttStatusUnsubscribe = subscribeMqttStatus((update) => {
+                if (update.deviceId !== device.id) {
                     return;
                 }
 
-                const c = normalized;
-                const cDeviceId = c?.deviceId;
+                // Check if this is a duplicate notification (same status and timestamp)
+                const isDuplicate = lastNotificationStatus && 
+                    lastNotificationStatus.connected === update.connected && 
+                    lastNotificationStatus.timestamp === update.timestamp;
                 
-                if (!cDeviceId || cDeviceId !== device.id) {
+                if (isDuplicate) {
                     return;
                 }
 
-                const connected = c?.connected ?? false;
-                const connectedAt = c?.connectedAt;
-                const disconnectedAt = c?.disconnectedAt;
+                // Update tracking
+                lastNotificationStatus = {
+                    connected: update.connected,
+                    timestamp: update.timestamp || new Date().toISOString()
+                };
+
+                const prev = { connected: !!device.connected };
                 
-                // Reassign the whole object to trigger reactive updates
+                // Update device state reactively
                 device = {
                     ...device,
-                    connected: !!connected,
-                    connectedAt: connected ? (connectedAt ?? device.connectedAt) : device.connectedAt,
-                    disconnectedAt: !connected ? (disconnectedAt ?? device.disconnectedAt) : device.disconnectedAt
+                    connected: update.connected,
+                    connectedAt: update.connected ? (update.timestamp ?? device.connectedAt) : device.connectedAt,
+                    disconnectedAt: !update.connected ? (update.timestamp ?? device.disconnectedAt) : device.disconnectedAt
                 };
-            } catch (e) {
-                console.warn('[DeviceDetailPage:SSE] Error processing message', e);
-            }
-        });
+
+                // Only show toast if the status actually changed from the previous device state
+                if (prev.connected !== update.connected) {
+                    const statusText = update.connected ? 'connected' : 'disconnected';
+                    toast.info(`Device ${statusText}`, {
+                        description: update.deviceName || device.name,
+                        duration: 3000
+                    });
+                }
+            });
+
+        // Setup SSE handlers for other events (action updates, data updates, etc.)
+        // Note: Connection status is now handled via MQTT above
+        setupSSEHandlers();
     });
 
     onDestroy(() => {
         cleanupDeviceDetail();
         
-        if (unsubConnectionLight) {
-            try { unsubConnectionLight(); } catch {}
-            unsubConnectionLight = null;
-        }
-        
-        // Unsubscribe from device channel
-        if (browser && sseStore.connectionId) {
-            fetch(`/api/sse/unsubscribe/device/${device.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: sseStore.connectionId })
-            }).catch(err => console.warn('Unsubscribe failed:', err));
+        if (mqttStatusUnsubscribe) {
+            try { mqttStatusUnsubscribe(); } catch {}
+            mqttStatusUnsubscribe = null;
         }
     });
 </script>

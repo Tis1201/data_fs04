@@ -17,7 +17,11 @@ let cachedSigningKey: { key: JwtSigningKey; expiresAt: number } | null = null;
 export const DeviceNotificationType = {
     Claim: 'claim',
     Screenshot: 'device.screenshot',
-    Reset: 'device.reset'   
+    Reset: 'device.reset',
+    ActionRequest: 'device:actionRequest',
+    Terminal: 'device:terminal',
+    RDP: 'device:rdp',
+    WebRTC: 'device:webrtc'
 } as const;
 
 export const NotificationType = {

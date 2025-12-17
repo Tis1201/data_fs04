@@ -17,18 +17,17 @@ export class ProgressActionHandler extends BaseActionHandler {
   }
 
   handle(evtType: string, entity: any): void {
-    // Extract action from entity payload
-    const action = entity?.payload?.action;
-    console.log(`[${this.actionType}Handler] Processing message:`, { evtType, action, actionType: this.actionType });
+    // Extract action from entity (check both entity.action and entity.payload.action for compatibility)
+    const action = entity?.action || entity?.payload?.action;
+    console.log(`[${this.actionType}Handler] Processing message:`, { evtType, action, actionType: this.actionType, entityAction: entity?.action, payloadAction: entity?.payload?.action });
     
     // Handle unified status update messages from API responses
-    // Check both the original action and mapped action type
-    const isMatchingAction = action === this.actionType || 
-                            (evtType === 'device:statusUpdate' && this.isActionMatch(action));
+    // Check both the original action and mapped action type (for both status and progress updates)
+    const isMatchingAction = action === this.actionType || this.isActionMatch(action);
     
     console.log(`[${this.actionType}Handler] Action matching:`, { 
       directMatch: action === this.actionType, 
-      mappedMatch: evtType === 'device:statusUpdate' && this.isActionMatch(action),
+      mappedMatch: this.isActionMatch(action),
       isMatchingAction 
     });
     
@@ -79,8 +78,13 @@ export class ProgressActionHandler extends BaseActionHandler {
    * Handle unified status update messages
    */
   protected handleUnifiedStatus(entity: any): void {
-    // Extract data from entity payload
-    const { action, status, message, logId, progress, durationMs } = entity.payload;
+    // Extract data from entity (check both entity and entity.payload for compatibility)
+    const action = entity.action || entity.payload?.action;
+    const status = entity.status || entity.payload?.status;
+    const message = entity.message || entity.payload?.message;
+    const logId = entity.logId || entity.payload?.logId;
+    const progress = entity.progress ?? entity.payload?.progress;
+    const durationMs = entity.durationMs || entity.payload?.durationMs;
 
     console.log(`[${this.actionType}Handler] Unified status update:`, { action, status, message, logId, progress, durationMs });
 
@@ -107,8 +111,11 @@ export class ProgressActionHandler extends BaseActionHandler {
    * Handle progress update messages from device
    */
   private handleProgressUpdate(entity: any): void {
-    // Extract data from entity payload
-    const { action, progress, message, logId } = entity.payload;
+    // Extract data from entity (check both entity and entity.payload for compatibility)
+    const action = entity.action || entity.payload?.action;
+    const progress = entity.progress ?? entity.payload?.progress;
+    const message = entity.message || entity.payload?.message;
+    const logId = entity.logId || entity.payload?.logId;
 
     console.log(`[${this.actionType}Handler] Progress update:`, { action, progress, message, logId });
 

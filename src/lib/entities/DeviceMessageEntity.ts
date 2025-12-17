@@ -103,10 +103,25 @@ export class MessageEntityMapper {
     // Duration (server-calculated)
     entity.durationMs = payload.durationMs || message.durationMs;
     
-    // Additional payload data
-    if (payload) {
-      entity.payload = { ...entity.payload, ...payload };
-    }
+    // Object path (for file operations like getLogs, pullFile)
+    const objectPath = payload.objectPath || message.objectPath;
+    console.log('[MessageEntityMapper] Extracting objectPath:', { 
+      fromPayload: payload.objectPath, 
+      fromMessage: message.objectPath, 
+      final: objectPath 
+    });
+    
+    // Additional payload data - merge everything into entity.payload
+    entity.payload = { 
+      ...entity.payload, 
+      ...payload,
+      // Ensure objectPath is included if it exists (check both payload and message)
+      ...(objectPath ? { objectPath } : {}),
+      // Also include any other top-level properties from message that might be useful
+      ...(message.deviceId ? { deviceId: message.deviceId } : {})
+    };
+    
+    console.log('[MessageEntityMapper] Final entity.payload after extraction:', entity.payload);
   }
 
   /**

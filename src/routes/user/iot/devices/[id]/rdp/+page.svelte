@@ -8,9 +8,10 @@
 	import { WebRTCClient } from '$lib/webrtc/WebRTCClient';
 	import { webRTCStore } from "$lib/stores/webrtc-store";
 	import { deviceStore } from "$lib/stores/device-store";
-	import { sseStore } from "$lib/stores/sse-store";
     import { AdminPageLayout, AdminCard } from "$lib/components/admin";
     import RDPVideo from "$lib/webrtc/RDPVideo.svelte";
+	import { createRDPMqttClient, type RDPMqttClient } from '$lib/client/mqtt/rdpFlow';
+	import { mqttClient } from '$lib/client/mqtt/mqttClient';
 
 	/****************************************************************************
 	 * 
@@ -29,6 +30,9 @@
 
 	// WebRTC client
 	let webrtcClient: WebRTCClient | undefined;
+	
+	// MQTT RDP client
+	let rdpMqttClient: RDPMqttClient | undefined;
 	
     // Video rendered by shared component
 
@@ -124,7 +128,15 @@
 			console.log('WebRTC store update:', store);
 		});
 
-		// Subscribe to device store for WebRTC signaling messages
+		// Subscribe to MQTT WebRTC messages
+		mqttClient.onNotification('device:webrtc', async (payload: any) => {
+			console.log('[RDP] Received WebRTC message via MQTT:', payload);
+			if (webrtcClient) {
+				await webrtcClient.handleWebRTCMessage(payload);
+			}
+		});
+		
+		// Subscribe to device store for WebRTC signaling messages (legacy)
 		unsubscribeDevice = deviceStore.subscribe(async (state) => {
 			// Process new WebRTC messages
 			if (state.latestWebRTCMessage && 
@@ -136,54 +148,50 @@
 		});
 	}
 
-	// Request RDP stream via SSE (control message)
-	function requestRDP() {
-		console.log('[RDP] Requesting RDP stream via SSE');
+	// Request RDP stream via MQTT
+	async function requestRDP() {
+		console.log('[RDP] Requesting RDP stream via MQTT');
 		
-		// Ensure SSE connection is established
-		if (!$sseStore.isConnected) {
-			console.log('[RDP] SSE not connected, connecting...');
-			sseStore.connect('/api/sse', { withCredentials: true });
+		// Create MQTT RDP client if not exists
+		if (!rdpMqttClient) {
+			rdpMqttClient = createRDPMqttClient(deviceId as string);
+			
+			// Set up status callback
+			rdpMqttClient.onStatus((status, data) => {
+				console.log('[RDP] RDP status update:', status, data);
+			});
+			
+			// Set up error callback
+			rdpMqttClient.onError((error) => {
+				console.error('[RDP] RDP error:', error);
+			});
 		}
 
-		// Send RDP start request via SSE
-		sseStore.sendRequest({
-			type: 'rdp',
-			scope: 'user:self',
-			payload: {
-				type: 'rdp:start',
-				deviceId: deviceId,
-				options: {
-					frameRate: 60,
-					quality: 80,
-					captureMode: 'screen'
-				}
-			}
-		}).then(() => {
-			console.log('[RDP] RDP start request sent via SSE');
-		}).catch(error => {
+		// Send RDP start request via MQTT
+		try {
+			await rdpMqttClient.start({
+				frameRate: 60,
+				quality: 80,
+				captureMode: 'screen'
+			});
+			console.log('[RDP] RDP start request sent via MQTT');
+		} catch (error) {
 			console.error('[RDP] Failed to send RDP start request:', error);
-		});
+		}
 		
 		// Also set up a fallback retry in case the first request fails
-		setTimeout(() => {
-			if (connected && !$webRTCStore.videoStream) {
+		setTimeout(async () => {
+			if (connected && !$webRTCStore.videoStream && rdpMqttClient) {
 				console.log('[RDP] Retrying RDP start request...');
-				sseStore.sendRequest({
-					type: 'rdp',
-					scope: 'user:self',
-					payload: {
-						type: 'rdp:start',
-						deviceId: deviceId,
-						options: {
-							frameRate: 60,
-							quality: 80,
-							captureMode: 'test'
-						}
-					}
-				}).catch(error => {
+				try {
+					await rdpMqttClient.start({
+						frameRate: 60,
+						quality: 80,
+						captureMode: 'test'
+					});
+				} catch (error) {
 					console.error('[RDP] Failed to retry RDP start request:', error);
-				});
+				}
 			}
 		}, 3000);
 	}
@@ -191,26 +199,19 @@
     // Monitor for video stream availability
     $: {
         // WebRTC store updated
-        if (browser) {
-            setTimeout(() => {
+        if (browser && rdpMqttClient) {
+            setTimeout(async () => {
                 if ($webRTCStore.connectionStatus !== 'connected' && !$webRTCStore.videoStream) {
-                    console.log('No video received, requesting again via SSE...');
-                    // Use SSE instead of WebRTC data channel (per migration plan)
-                    sseStore.sendRequest({
-                        type: 'rdp',
-                        scope: 'user:self',
-                        payload: {
-                            type: 'rdp:start',
-                            deviceId: deviceId,
-                            options: {
-                                frameRate: 60,
-                                quality: 80,
-                                captureMode: 'test'
-                            }
-                        }
-                    }).catch(error => {
+                    console.log('No video received, requesting again via MQTT...');
+                    try {
+                        await rdpMqttClient.start({
+                            frameRate: 60,
+                            quality: 80,
+                            captureMode: 'test'
+                        });
+                    } catch (error) {
                         console.error('[RDP] Failed to retry RDP start request:', error);
-                    });
+                    }
                 }
             }, 5000);
         }
@@ -274,25 +275,17 @@
 	}
 
 	function handleMouseClick(event: MouseEvent) {
-		if (!connected) return;
+		if (!connected || !rdpMqttClient) return;
 		
 		const { x, y } = getVideoCoordinates(event);
-		console.log('[RDP] Sending mouse click via SSE:', { button: 'left', x, y });
+		console.log('[RDP] Sending mouse click via MQTT:', { button: 'left', x, y });
 		
-		// Send mouse click to device via SSE
-		sseStore.sendRequest({
-			type: 'rdp',
-			scope: 'user:self',
-			payload: {
-				type: 'rdp:mouse',
-				deviceId: deviceId,
-				mouse: {
-					action: 'click',
-					button: 'left',
-					x: x,
-					y: y
-				}
-			}
+		// Send mouse click to device via MQTT
+		rdpMqttClient.sendControl('rdp:mouse', {
+			action: 'click',
+			button: 'left',
+			x: x,
+			y: y
 		}).catch(error => {
 			console.error('[RDP] Failed to send mouse click:', error);
 		});
@@ -301,32 +294,24 @@
 	}
 
 	function handleRightClick(event: MouseEvent) {
-		if (!connected) return;
+		if (!connected || !rdpMqttClient) return;
 		
 		const { x, y } = getVideoCoordinates(event);
-		console.log('[RDP] Sending right click via SSE:', { button: 'right', x, y });
+		console.log('[RDP] Sending right click via MQTT:', { button: 'right', x, y });
 		
-		// Send right click to device via SSE
-		sseStore.sendRequest({
-			type: 'rdp',
-			scope: 'user:self',
-			payload: {
-				type: 'rdp:mouse',
-				deviceId: deviceId,
-				mouse: {
-					action: 'click',
-					button: 'right',
-					x: x,
-					y: y
-				}
-			}
+		// Send right click to device via MQTT
+		rdpMqttClient.sendControl('rdp:mouse', {
+			action: 'click',
+			button: 'right',
+			x: x,
+			y: y
 		}).catch(error => {
 			console.error('[RDP] Failed to send right click:', error);
 		});
 	}
 
 	function handleMouseMove(event: MouseEvent) {
-		if (!connected) return;
+		if (!connected || !rdpMqttClient) return;
 		
 		// Throttle mouse move events to avoid flooding
 		if (Date.now() - lastMouseMoveTime < 50) return; // 20 FPS max
@@ -334,19 +319,11 @@
 		
 		const { x, y } = getVideoCoordinates(event);
 		
-		// Send mouse move to device via SSE (no requestId needed for frequent events)
-		sseStore.sendRequest({
-			type: 'rdp',
-			scope: 'user:self',
-			payload: {
-				type: 'rdp:mouse',
-				deviceId: deviceId,
-				mouse: {
-					action: 'move',
-					x: x,
-					y: y
-				}
-			}
+		// Send mouse move to device via MQTT
+		rdpMqttClient.sendControl('rdp:mouse', {
+			action: 'move',
+			x: x,
+			y: y
 		}).catch(error => {
 			// Silently fail for mouse moves to avoid console spam
 			console.debug('[RDP] Failed to send mouse move:', error);
@@ -354,7 +331,7 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (!connected) return;
+		if (!connected || !rdpMqttClient) return;
 		
 		// Prevent default browser behavior for most keys
 		if (!['F12', 'F5'].includes(event.key)) {
@@ -368,28 +345,20 @@
 		if (event.shiftKey) modifiers.push('shift');
 		if (event.metaKey) modifiers.push('meta');
 		
-		console.log('[RDP] Sending key press via SSE:', { key: event.key, modifiers });
+		console.log('[RDP] Sending key press via MQTT:', { key: event.key, modifiers });
 		
-		// Send key press to device via SSE
-		sseStore.sendRequest({
-			type: 'rdp',
-			scope: 'user:self',
-			payload: {
-				type: 'rdp:keyboard',
-				deviceId: deviceId,
-				keyboard: {
-					key: event.key,
-					modifiers: modifiers,
-					action: 'keydown'
-				}
-			}
+		// Send key press to device via MQTT
+		rdpMqttClient.sendControl('rdp:keyboard', {
+			key: event.key,
+			modifiers: modifiers,
+			action: 'keydown'
 		}).catch(error => {
 			console.error('[RDP] Failed to send key press:', error);
 		});
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
-		if (!webrtcClient || !connected) return;
+		if (!connected || !rdpMqttClient) return;
 		
 		// Key up sent
 		
@@ -398,28 +367,20 @@
 	}
 
 	function handleMouseWheel(event: WheelEvent) {
-		if (!connected) return;
+		if (!connected || !rdpMqttClient) return;
 		
 		event.preventDefault();
 		
 		const direction = event.deltaY > 0 ? 'down' : 'up';
 		const amount = Math.abs(Math.round(event.deltaY / 10)); // Normalize scroll amount
 		
-		console.log('[RDP] Sending mouse scroll via SSE:', { direction, amount });
+		console.log('[RDP] Sending mouse scroll via MQTT:', { direction, amount });
 		
-		// Send scroll to device via SSE
-		sseStore.sendRequest({
-			type: 'rdp',
-			scope: 'user:self',
-			payload: {
-				type: 'rdp:mouse',
-				deviceId: deviceId,
-				mouse: {
-					action: 'scroll',
-					direction: direction,
-					amount: amount
-				}
-			}
+		// Send scroll to device via MQTT
+		rdpMqttClient.sendControl('rdp:mouse', {
+			action: 'scroll',
+			direction: direction,
+			amount: amount
 		}).catch(error => {
 			console.error('[RDP] Failed to send mouse scroll:', error);
 		});
@@ -428,46 +389,6 @@
 	// Set up interval and initialize on mount
 	onMount(() => {
 		if (browser) {
-			// Ensure SSE connection is established for RDP control/input
-			if (!$sseStore.isConnected) {
-				console.log('[RDP] Connecting to SSE...');
-				sseStore.connect('/api/sse', { withCredentials: true });
-			}
-
-			// Subscribe to device updates so we can receive RDP messages
-			let lastSubscribedConnectionId: string | null = null;
-			const subscribeToDevice = () => {
-				const connId = sseStore.connectionId;
-				if (!connId || connId === lastSubscribedConnectionId) {
-					return;
-				}
-				console.log('[RDP] Subscribing to device channel:', { deviceId, connId });
-				fetch(`/api/sse/subscribe/device/${deviceId}`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					credentials: 'include',
-					body: JSON.stringify({ connectionId: connId })
-				}).then(() => {
-					lastSubscribedConnectionId = connId;
-					console.log('[RDP] Successfully subscribed to device channel');
-				}).catch((err) => {
-					console.warn('[RDP] Failed to subscribe to device channel:', err);
-				});
-			};
-
-			// Subscribe immediately if connectionId is available
-			if (sseStore.connectionId) {
-				subscribeToDevice();
-			}
-
-			// Also subscribe when connection is established
-			sseStore.on('connected', (msg: any) => {
-				const connId = msg?.data?.connectionId || sseStore.connectionId;
-				if (connId && connId !== lastSubscribedConnectionId) {
-					subscribeToDevice();
-				}
-			});
-
 			// Initialize WebRTC client for video streaming
 			initWebRTC();
 			
@@ -489,21 +410,23 @@
 			pingInterval = null;
 		}
 		
-		// Send RDP stop command via SSE
-		if (connected) {
+		// Send RDP stop command via MQTT and cleanup
+		if (connected && rdpMqttClient) {
 			try {
-				sseStore.sendRequest({
-					type: 'rdp',
-					scope: 'user:self',
-					payload: {
-						type: 'rdp:stop',
-						deviceId: deviceId
-					}
-				}).catch(error => {
+				rdpMqttClient.stop().catch(error => {
 					console.error('[RDP] Failed to send stop command:', error);
 				});
 			} catch (error) {
 				console.warn('[RDP] Error sending stop command:', error);
+			}
+		}
+		
+		// Cleanup MQTT RDP client
+		if (rdpMqttClient) {
+			try {
+				rdpMqttClient.cleanup();
+			} catch (error) {
+				console.log('MQTT RDP cleanup error:', error);
 			}
 		}
 

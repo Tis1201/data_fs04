@@ -1,7 +1,6 @@
 import { Storage } from '@google-cloud/storage';
 import { GoogleAuth, Impersonated } from 'google-auth-library';
 import { logger } from '$lib/server/logger';
-import { env } from '$env/dynamic/private';
 import { join, dirname, basename } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
@@ -40,10 +39,10 @@ export interface FileMetadata {
  * Get storage configuration from environment variables
  */
 export function getStorageConfig(): StorageConfig {
-    const storageMode = (env.STORAGE as StorageMode) || 'LOCAL';
-    const bucket = env.GCLOUD_BUCKET;
-    const targetServiceAccount = env.GCLOUD_TARGET_SA;
-    const projectId = env.GCLOUD_PROJECT_ID || 'cs-poc-vlkpvg5seziflnwq2ni7x3l';
+    const storageMode = (process.env.STORAGE as StorageMode) || 'LOCAL';
+    const bucket = process.env.GCLOUD_BUCKET;
+    const targetServiceAccount = process.env.GCLOUD_TARGET_SA;
+    const projectId = process.env.GCLOUD_PROJECT_ID || 'cs-poc-vlkpvg5seziflnwq2ni7x3l';
 
     return {
         mode: storageMode,

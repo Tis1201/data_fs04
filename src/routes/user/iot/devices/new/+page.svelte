@@ -62,7 +62,10 @@
       const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
 
       deviceStore.setClaimStatus('claimed');
-      toast.success('Device claimed successfully!');
+      toast.success('Device claimed successfully! Redirecting...');
+      
+      // Wait 5 seconds for device to reconnect with device credentials before redirecting
+      await new Promise(resolve => setTimeout(resolve, 5000));
       goto(`/user/iot/devices/${confirmation.deviceId}`);
     } catch (error) {
       console.error('[DEVICE_FORM] Claim request failed:', error);

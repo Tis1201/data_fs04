@@ -59,7 +59,7 @@ export class StreamActionHandler extends BaseActionHandler {
       entity
     });
 
-    if (status === 'complete') {
+    if (status === 'complete' || status === 'success') {
       // Use server-calculated duration instead of calculating locally
       this.handleSuccess({ 
         action: actionType, 
@@ -74,7 +74,7 @@ export class StreamActionHandler extends BaseActionHandler {
       // Handle progress updates
       this.handleProgress(progress, message || `${actionType} progress: ${progress}%`, logId);
     } else {
-      // Handle general status updates
+      // Handle general status updates (in_progress, etc.)
       this.handleProgress(0, message || `${actionType} in progress`, logId);
     }
   }
@@ -116,9 +116,190 @@ export class PushFileHandler extends StreamActionHandler {
 export class LogsHandler extends StreamActionHandler {
   private fileChunks: Map<string, Uint8Array[]> = new Map();
   private fileMetadata: Map<string, { fileName: string; totalSize: number }> = new Map();
+  private static readonly DOWNLOAD_STORAGE_KEY = 'fs04_logs_downloads'; // Session storage key for tracking downloads
 
   constructor(params: any) {
     super(params, 'logs');
+  }
+
+  /**
+   * Check if a download has already been triggered for this logId
+   */
+  private isDownloadTriggered(logId: string): boolean {
+    if (typeof sessionStorage === 'undefined') return false;
+    try {
+      const stored = sessionStorage.getItem(LogsHandler.DOWNLOAD_STORAGE_KEY);
+      if (!stored) return false;
+      const downloads = JSON.parse(stored) as Record<string, number>;
+      const isTriggered = !!downloads[logId];
+      console.log(`[logsHandler] Checking if download triggered:`, { logId, isTriggered, allDownloads: Object.keys(downloads) });
+      return isTriggered;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Mark a download as triggered
+   */
+  private markDownloadTriggered(logId: string): void {
+    if (typeof sessionStorage === 'undefined') return;
+    try {
+      const stored = sessionStorage.getItem(LogsHandler.DOWNLOAD_STORAGE_KEY);
+      const downloads: Record<string, number> = stored ? JSON.parse(stored) : {};
+      
+      downloads[logId] = Date.now();
+      
+      // Keep only last 50 logIds to prevent storage bloat
+      const keys = Object.keys(downloads).sort((a, b) => downloads[b] - downloads[a]);
+      if (keys.length > 50) {
+        for (let i = 50; i < keys.length; i++) {
+          delete downloads[keys[i]];
+        }
+      }
+      
+      sessionStorage.setItem(LogsHandler.DOWNLOAD_STORAGE_KEY, JSON.stringify(downloads));
+      console.log(`[logsHandler] sessionStorage updated:`, { logId, timestamp: downloads[logId], allDownloads: Object.keys(downloads) });
+    } catch (error) {
+      console.warn('[logsHandler] Failed to mark download in sessionStorage:', error);
+    }
+  }
+
+  /**
+   * Clear download triggered flag (for retry on error)
+   */
+  private clearDownloadTriggered(logId: string): void {
+    if (typeof sessionStorage === 'undefined') return;
+    try {
+      const stored = sessionStorage.getItem(LogsHandler.DOWNLOAD_STORAGE_KEY);
+      if (stored) {
+        const downloads = JSON.parse(stored) as Record<string, number>;
+        delete downloads[logId];
+        sessionStorage.setItem(LogsHandler.DOWNLOAD_STORAGE_KEY, JSON.stringify(downloads));
+        console.log(`[logsHandler] Cleared download flag for:`, logId);
+      }
+    } catch (error) {
+      console.warn('[logsHandler] Failed to clear download from sessionStorage:', error);
+    }
+  }
+
+  /**
+   * Override handleUnifiedStatus to trigger download when objectPath is present
+   */
+  protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
+    const { action, status, message, logId, progress, durationMs } = entity;
+    const payload = entity.payload ?? {};
+    const objectPath = (payload as any)?.objectPath;
+
+    console.log(`[logsHandler] Unified status update:`, { 
+      action, 
+      status, 
+      message, 
+      logId, 
+      progress,
+      durationMs,
+      objectPath,
+      entity
+    });
+
+    if (status === 'complete' || status === 'success') {
+      // If objectPath is present, trigger download from GCloud
+      // Use sessionStorage to prevent multiple downloads for the same logId (persists across page reloads)
+      if (objectPath && logId) {
+        // Check and mark synchronously BEFORE any async operations
+        if (this.isDownloadTriggered(logId)) {
+          console.log(`[logsHandler] Download already triggered for logId: ${logId}, skipping duplicate`);
+        } else {
+          console.log(`[logsHandler] Success with objectPath, triggering download:`, { logId, objectPath });
+          // Mark immediately (synchronously) to prevent race conditions
+          this.markDownloadTriggered(logId);
+          console.log(`[logsHandler] Marked download as triggered in sessionStorage:`, logId);
+          
+          // Trigger download immediately (not in setTimeout to avoid race conditions)
+          this.triggerLogsDownload(logId, objectPath).catch((error) => {
+            console.error('[logsHandler] Download failed, allowing retry:', error);
+            // On error, remove from storage to allow retry
+            this.clearDownloadTriggered(logId);
+          });
+        }
+      }
+      
+      // Use server-calculated duration instead of calculating locally
+      this.handleSuccess({ 
+        action: 'logs', 
+        status, 
+        message: message || `Logs completed`, 
+        logId, 
+        durationMs,
+        objectPath
+      }, logId);
+    } else if (status === 'failed' || status === 'fail') {
+      this.handleError(message || `Logs failed`, logId);
+    } else if (progress !== undefined) {
+      // Handle progress updates
+      this.handleProgress(progress, message || `Logs progress: ${progress}%`, logId);
+    } else {
+      // Handle general status updates (in_progress, etc.)
+      this.handleProgress(0, message || `Logs in progress`, logId);
+    }
+  }
+
+  /**
+   * Trigger download of logs file from GCloud
+   * Creates a hidden anchor and clicks it - browser handles the rest
+   */
+  private async triggerLogsDownload(logId: string, objectPath: string): Promise<void> {
+    try {
+      console.log(`[logsHandler] Fetching download URL for logs:`, { logId, objectPath, deviceId: this.deviceId });
+      
+      const downloadResponse = await fetch(
+        `/api/v2/devices/${this.deviceId}/pull-file-download-url?logId=${logId}`,
+        { 
+          credentials: 'include',
+          method: 'GET'
+        }
+      );
+      
+      if (!downloadResponse.ok) {
+        const errorText = await downloadResponse.text();
+        throw new Error(`Failed to get download URL: ${downloadResponse.status} ${errorText}`);
+      }
+      
+      const response = await downloadResponse.json();
+      // API response is wrapped in { success: true, data: { downloadUrl, fileName, ... } }
+      const data = response.data || response;
+      const downloadUrl = data.downloadUrl;
+      
+      console.log(`[logsHandler] Download URL received:`, { downloadUrl, response });
+      
+      if (!downloadUrl) {
+        throw new Error(`Download URL is missing from API response: ${JSON.stringify(response)}`);
+      }
+      
+      // Create hidden anchor and click it
+      // Note: GCS presigned URLs already have Content-Disposition header, so we DON'T need download attribute
+      // Using download attribute with cross-origin URLs can cause double downloads!
+      console.log(`[logsHandler] Triggering download via anchor click`);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.target = '_blank'; // Open in new tab to prevent navigation
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      console.log(`[logsHandler] Logs download triggered`);
+    } catch (error) {
+      console.error('[logsHandler] Error triggering logs download:', error);
+    }
+  }
+
+  /**
+   * Extract filename from objectPath
+   */
+  private extractFileNameFromPath(objectPath: string): string {
+    const parts = objectPath.split('/');
+    return parts[parts.length - 1] || `logs_${Date.now()}.zip`;
   }
 
   handle(evtType: string, data: MessageData): void {
@@ -130,6 +311,13 @@ export class LogsHandler extends StreamActionHandler {
     if (!entity) {
       console.log(`[logsHandler] Failed to map message to entity:`, { evtType, data });
       return;
+    }
+
+    // Store raw data for access to objectPath if not in entity
+    const rawData = typeof data === 'object' ? data : {};
+    const objectPathFromRaw = (rawData as any)?.objectPath;
+    if (objectPathFromRaw && !entity.payload?.objectPath) {
+      entity.payload = { ...entity.payload, objectPath: objectPathFromRaw };
     }
 
     console.log(`[logsHandler] MAPPED ENTITY:`, entity);

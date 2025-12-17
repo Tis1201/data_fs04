@@ -1,7 +1,7 @@
 // Centralized WebRTCClient used by both admin and user routes
 // Moved from route-specific implementations to avoid duplication.
 
-import { sseStore } from "$lib/stores/sse-store";
+import { mqttClient } from "$lib/client/mqtt/mqttClient";
 import { webRTCStore } from "$lib/stores/webrtc-store";
 import type { WebRTCMessage } from "$lib/stores/webrtc-store";
 
@@ -47,10 +47,10 @@ export class WebRTCClient {
     };
   }
 
-  connect() {
+  async connect() {
     console.log('[WebRTCClient] ===== INITIATING CONNECTION =====');
     console.log('[WebRTCClient] Device ID:', this.deviceId);
-    console.log('[WebRTCClient] SSE store available:', !!sseStore);
+    console.log('[WebRTCClient] MQTT client available:', !!mqttClient);
     
     // Clean up any existing connection before connecting
     if (this.peerConnection || this.dataChannel) {
@@ -58,29 +58,18 @@ export class WebRTCClient {
       this.cleanup();
     }
     
-    // Ensure SSE connection is established
-    if (!sseStore.isConnected) {
-      console.log('[WebRTCClient] SSE not connected, connecting...');
-      sseStore.connect('/api/sse', { withCredentials: true });
-    }
+    console.log('[WebRTCClient] ===== PREPARING TO SEND CONNECT MESSAGE VIA MQTT =====');
     
-    console.log('[WebRTCClient] ===== PREPARING TO SEND CONNECT MESSAGE VIA SSE =====');
-    
-    // Send webrtc:connect via SSE (fire-and-forget, no response needed)
-    sseStore.sendMessageWithoutResponse?.({
-      type: 'device',
-      scope: 'user:self',
-      payload: {
-        action: 'message',
-        type: 'webrtc:connect',
+    try {
+      // Send webrtc:connect via MQTT
+      await mqttClient.request('webrtc.connect', {
         deviceId: this.deviceId
-      }
-    }).then(() => {
-      console.log('[WebRTCClient] ✅ webrtc:connect sent via SSE successfully');
-    }).catch(error => {
-      console.error('[WebRTCClient] ❌ Error sending webrtc:connect via SSE:', error);
+      });
+      console.log('[WebRTCClient] ✅ webrtc:connect sent via MQTT successfully');
+    } catch (error) {
+      console.error('[WebRTCClient] ❌ Error sending webrtc:connect via MQTT:', error);
       console.error('[WebRTCClient] Error stack:', error instanceof Error ? error.stack : 'No stack');
-    });
+    }
   }
 
   setTerminalCallback(cb: TerminalOutputCallback) {
@@ -204,23 +193,27 @@ export class WebRTCClient {
     console.log('[WebRTCClient] Received message:', message);
     console.log('[WebRTCClient] Current peerConnection state:', this.peerConnection?.signalingState);
     console.log('[WebRTCClient] Current dataChannel state:', this.dataChannel?.readyState);
-    const msg_type = message.type as string;
+    
+    // Extract the actual WebRTC message from payload (MQTT format)
+    const webrtcPayload = (message as any).payload || message;
+    const msg_type = webrtcPayload.type as string;
     console.log('[WebRTCClient] Message type:', msg_type);
+    console.log('[WebRTCClient] WebRTC payload:', webrtcPayload);
     
     try {
       switch (msg_type) {
         case 'webrtc:offer':
           console.log('[WebRTCClient] Processing webrtc:offer - will create answer');
-          await this.handleOffer(message);
+          await this.handleOffer(webrtcPayload);
           console.log('[WebRTCClient] handleOffer completed');
           break;
         case 'webrtc:answer':
           console.log('[WebRTCClient] Processing webrtc:answer');
-          await this.handleAnswer(message);
+          await this.handleAnswer(webrtcPayload);
           break;
         case 'webrtc:ice-candidate':
           console.log('[WebRTCClient] Processing webrtc:ice-candidate');
-          await this.handleIceCandidate(message);
+          await this.handleIceCandidate(webrtcPayload);
           break;
         default:
           console.log('[WebRTCClient] Unknown message type:', msg_type);
@@ -362,19 +355,13 @@ export class WebRTCClient {
         this.peerConnection.onicecandidate = (event) => {
           console.log('[WebRTCClient] ICE candidate generated:', event.candidate);
           if (event.candidate) {
-            // Send ICE candidate via SSE (fire-and-forget, no response needed)
-            sseStore.sendMessageWithoutResponse?.({
-              type: 'device',
-              scope: 'user:self',
-              payload: {
-                action: 'message',
-                type: 'webrtc:ice-candidate',
-                deviceId: this.deviceId,
-                candidate: event.candidate.toJSON()
-              }
+            // Send ICE candidate via MQTT (fire-and-forget, no response needed)
+            mqttClient.request('webrtc.icecandidate', {
+              deviceId: this.deviceId,
+              candidate: event.candidate.toJSON()
             }).catch(error => {
               // Silently fail for ICE candidates to avoid console spam
-              console.debug('[WebRTCClient] Failed to send ICE candidate via SSE:', error);
+              console.debug('[WebRTCClient] Failed to send ICE candidate via MQTT:', error);
             });
           } else {
             console.log('[WebRTCClient] ICE candidate gathering complete');
@@ -499,23 +486,21 @@ export class WebRTCClient {
       await this.peerConnection.setLocalDescription(answer);
       console.log('[WebRTCClient] Step 10: Local description set successfully, signalingState:', this.peerConnection.signalingState);
       
-      console.log('[WebRTCClient] Step 11: Sending answer message via SSE');
+      console.log('[WebRTCClient] Step 11: Sending answer message via MQTT');
       
-      // Send webrtc:answer via SSE (fire-and-forget, no response needed)
-      sseStore.sendMessageWithoutResponse?.({
-        type: 'device',
-        scope: 'user:self',
-        payload: {
-          action: 'message',
-          type: 'webrtc:answer',
+      // Send webrtc:answer via MQTT
+      try {
+        await mqttClient.request('webrtc.answer', {
           deviceId: this.deviceId,
-          sdp: this.peerConnection.localDescription?.sdp
-        }
-      }).then(() => {
-        console.log('[WebRTCClient] Step 12: Answer sent successfully via SSE!');
-      }).catch(error => {
-        console.error('[WebRTCClient] Failed to send answer via SSE:', error);
-      });
+          answer: {
+            type: 'answer' as RTCSdpType,
+            sdp: this.peerConnection.localDescription?.sdp
+          }
+        });
+        console.log('[WebRTCClient] Step 12: Answer sent successfully via MQTT!');
+      } catch (error) {
+        console.error('[WebRTCClient] Failed to send answer via MQTT:', error);
+      }
     } catch (error: any) {
       console.error('[WebRTCClient] CRITICAL ERROR in handleOffer:', error);
       console.error('[WebRTCClient] Error stack:', error.stack);

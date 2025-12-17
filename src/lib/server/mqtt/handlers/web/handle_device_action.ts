@@ -1,0 +1,457 @@
+import crypto from 'node:crypto';
+import { logger } from '$lib/server/logger';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
+import type { RpcHandlerArgs, RpcResponse } from '../index';
+import { checkDeviceAccess } from './access_checker';
+import { ActionLogger } from '$lib/server/action-logger';
+import { getStorageConfig, generatePresignedUrl, generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+
+interface DeviceActionParams {
+    deviceId: string;
+    [key: string]: any;
+}
+
+interface DeviceActionResult {
+    success: boolean;
+    operationId: string;
+    deviceId: string;
+    message: string;
+}
+
+/**
+ * Generic device action handler that creates action logs and sends notifications
+ */
+async function executeDeviceAction(
+    actionType: string,
+    notificationType: DeviceNotificationType,
+    params: DeviceActionParams,
+    { prisma, sub }: RpcHandlerArgs,
+    additionalParams: Record<string, any> = {}
+): Promise<RpcResponse<DeviceActionResult>> {
+    const { deviceId } = await checkDeviceAccess({ prisma, sub, deviceId: params.deviceId });
+
+    logger.info(`[Web${actionType}] User ${sub} requesting ${actionType} for device ${deviceId}`);
+
+    if (!sub) {
+        throw new Error('Missing subject for web client');
+    }
+
+    // Extract user ID from subject (format: "user:userId:accountId")
+    const userId = sub.split(':')[1];
+    if (!userId) {
+        throw new Error('Invalid subject format, cannot extract user ID');
+    }
+
+    // Create action log
+    const normalizedActionType = actionType.toLowerCase().replace(/\s/g, '_');
+    const actionLog = await ActionLogger.createInitiated({
+        deviceId,
+        actionType: normalizedActionType as any, // Type is validated by ActionLogger
+        initiatedBy: userId,
+        protocol: 'mqtt',
+        metadata: {
+            ...params,
+            ...additionalParams,
+            source: 'mqtt_rpc'
+        },
+        initialMessage: `${actionType} initiated via MQTT RPC`
+    });
+
+    const flowId = crypto.randomUUID();
+
+    // Send notification to device
+    await sendNotificationWithTicket({
+        prisma,
+        sub,
+        recipient: `device:${deviceId}`,
+        type: notificationType,
+        flowId,
+        params: {
+            operationId: actionLog.id,
+            ...params,
+            ...additionalParams
+        },
+        expiresIn: '30m'
+    });
+
+    logger.info(
+        `[Web${actionType}] Dispatched ${actionType} action for device ${deviceId}, operation=${actionLog.id}`
+    );
+
+    return {
+        flowId,
+        result: {
+            success: true,
+            operationId: actionLog.id,
+            deviceId,
+            message: `${actionType} initiated successfully`
+        }
+    };
+}
+
+/**
+ * Handle device refresh action
+ */
+export async function handleRefreshDevice(
+    params: DeviceActionParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    return executeDeviceAction(
+        'Refresh',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        { action: 'refresh' }
+    );
+}
+
+/**
+ * Handle device reboot action
+ */
+export async function handleRebootDevice(
+    params: DeviceActionParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    return executeDeviceAction(
+        'Reboot',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        { action: 'reboot' }
+    );
+}
+
+/**
+ * Handle firmware update action
+ */
+export interface UpdateFirmwareParams extends DeviceActionParams {
+    firmwareVersion: string;
+    resourceId: string;
+}
+
+export async function handleUpdateFirmware(
+    params: UpdateFirmwareParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    if (!params.firmwareVersion || !params.resourceId) {
+        throw new Error('firmwareVersion and resourceId are required');
+    }
+
+    return executeDeviceAction(
+        'Firmware Update',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        {
+            action: 'updateFirmware',
+            firmwareVersion: params.firmwareVersion,
+            resourceId: params.resourceId
+        }
+    );
+}
+
+/**
+ * Handle app installation action
+ */
+export interface InstallAppParams extends DeviceActionParams {
+    packageName: string;
+    resourceId: string;
+}
+
+export async function handleInstallApp(
+    params: InstallAppParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    if (!params.packageName || !params.resourceId) {
+        throw new Error('packageName and resourceId are required');
+    }
+
+    const { prisma } = args;
+    const { resourceId } = params;
+
+    // Fetch resource from database
+    const resource = await prisma.resource.findUnique({
+        where: { id: resourceId },
+        select: {
+            id: true,
+            name: true,
+            path: true,
+            size: true,
+            type: true,
+            packageName: true
+        }
+    });
+
+    if (!resource) {
+        throw new Error('Resource not found');
+    }
+
+    if (!resource.path) {
+        throw new Error('Resource has no file path');
+    }
+
+    // Generate signed download URL for the app file
+    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
+    
+    if (!result) {
+        throw new Error('Failed to generate download URL for resource');
+    }
+
+    logger.info(`[WebInstall App] Generated signed download URL`, {
+        resourceId,
+        resourceName: resource.name,
+        packageName: params.packageName,
+        packageSize: resource.size,
+        signedDownloadUrl: result.downloadUrl
+    });
+
+    return executeDeviceAction(
+        'Install App',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        {
+            action: 'installApp',
+            packageName: params.packageName,
+            resourceId: params.resourceId,
+            downloadUrl: result.downloadUrl,
+            packageSize: resource.size
+        }
+    );
+}
+
+/**
+ * Handle file pull action (from device to server)
+ */
+export interface PullFileParams extends DeviceActionParams {
+    sourcePath: string;
+    destinationPath: string;
+}
+
+export async function handlePullFile(
+    params: PullFileParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    if (!params.sourcePath || !params.destinationPath) {
+        throw new Error('sourcePath and destinationPath are required');
+    }
+
+    const { deviceId, sourcePath } = params;
+    
+    // Extract filename from sourcePath
+    const fileName = sourcePath ? sourcePath.split('/').pop() || 'file' : 'file';
+    
+    // Generate file path in GCloud: devices/{deviceId}/pull-files/{timestamp}/{fileName}
+    const timestamp = Date.now();
+    const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
+    
+    const storageConfig = getStorageConfig();
+    if (!storageConfig.bucket) {
+        throw new Error('GCloud bucket not configured');
+    }
+    
+    logger.info(`[WebPull File] Generating presigned upload URL`, {
+        mode: storageConfig.mode,
+        bucket: storageConfig.bucket,
+        objectPath
+    });
+    
+    let presignedUrlResult;
+    
+    // Use the appropriate method based on storage mode
+    if (storageConfig.mode === 'LOCAL_CLOUD') {
+        if (!storageConfig.targetServiceAccount) {
+            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
+        }
+        presignedUrlResult = await generatePresignedUrlLocalCloud(
+            storageConfig.bucket,
+            objectPath,
+            'application/octet-stream',
+            storageConfig.targetServiceAccount,
+            3600 // 1 hour expiration
+        );
+    } else if (storageConfig.mode === 'GCLOUD') {
+        presignedUrlResult = await generatePresignedUrlGCloud(
+            storageConfig.bucket,
+            objectPath,
+            'application/octet-stream',
+            3600 // 1 hour expiration
+        );
+    } else {
+        // For LOCAL mode, use the generic function which handles it
+        presignedUrlResult = await generatePresignedUrl(
+            objectPath,
+            'application/octet-stream',
+            3600
+        );
+    }
+    
+    logger.info(`[WebPull File] Upload URL generated successfully`, {
+        objectPath: presignedUrlResult.objectPath,
+        bucket: presignedUrlResult.bucket
+    });
+
+    return executeDeviceAction(
+        'Pull File',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        {
+            action: 'pullFile',
+            sourcePath: params.sourcePath,
+            destinationPath: params.destinationPath,
+            uploadUrl: presignedUrlResult.url,
+            objectPath: presignedUrlResult.objectPath
+        }
+    );
+}
+
+/**
+ * Handle file push action (from server to device)
+ */
+export interface PushFileParams extends DeviceActionParams {
+    sourcePath: string;
+    destinationPath: string;
+    resourceId: string;
+}
+
+export async function handlePushFile(
+    params: PushFileParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    if (!params.sourcePath || !params.destinationPath || !params.resourceId) {
+        throw new Error('sourcePath, destinationPath, and resourceId are required');
+    }
+
+    const { prisma } = args;
+    const { resourceId } = params;
+
+    // Fetch resource from database
+    const resource = await prisma.resource.findUnique({
+        where: { id: resourceId },
+        select: {
+            id: true,
+            name: true,
+            path: true,
+            size: true,
+            type: true
+        }
+    });
+
+    if (!resource) {
+        throw new Error('Resource not found');
+    }
+
+    if (!resource.path) {
+        throw new Error('Resource has no file path');
+    }
+
+    // Generate signed download URL for the file
+    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
+    
+    if (!result) {
+        throw new Error('Failed to generate download URL for resource');
+    }
+
+    logger.info(`[WebPush File] Generated signed download URL`, {
+        resourceId,
+        resourceName: resource.name,
+        resourceSize: resource.size,
+        signedDownloadUrl: result.downloadUrl
+    });
+
+    return executeDeviceAction(
+        'Push File',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        {
+            action: 'pushFile',
+            sourcePath: result.downloadUrl,
+            destinationPath: params.destinationPath,
+            resourceId: params.resourceId
+        }
+    );
+}
+
+/**
+ * Handle get logs action
+ */
+export interface GetLogsParams extends DeviceActionParams {
+    format?: 'zip' | 'text';
+}
+
+export async function handleGetLogs(
+    params: GetLogsParams,
+    args: RpcHandlerArgs
+): Promise<RpcResponse<DeviceActionResult>> {
+    const { deviceId } = params;
+    const format = params.format || 'zip';
+    
+    // Generate presigned upload URL for GCloud
+    const timestamp = Date.now();
+    const fileName = `device_logs_${timestamp}.${format === 'zip' ? 'zip' : 'txt'}`;
+    const objectPath = `devices/${deviceId}/logs/${timestamp}/${fileName}`;
+    
+    const storageConfig = getStorageConfig();
+    if (!storageConfig.bucket) {
+        throw new Error('GCloud bucket not configured');
+    }
+    
+    logger.info(`[WebGet Logs] Generating presigned upload URL for getLogs`, {
+        mode: storageConfig.mode,
+        bucket: storageConfig.bucket,
+        objectPath,
+        format
+    });
+    
+    let presignedUrlResult;
+    
+    // Use the appropriate method based on storage mode
+    if (storageConfig.mode === 'LOCAL_CLOUD') {
+        if (!storageConfig.targetServiceAccount) {
+            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
+        }
+        presignedUrlResult = await generatePresignedUrlLocalCloud(
+            storageConfig.bucket,
+            objectPath,
+            format === 'zip' ? 'application/zip' : 'text/plain',
+            storageConfig.targetServiceAccount,
+            3600 // 1 hour expiration
+        );
+    } else if (storageConfig.mode === 'GCLOUD') {
+        presignedUrlResult = await generatePresignedUrlGCloud(
+            storageConfig.bucket,
+            objectPath,
+            format === 'zip' ? 'application/zip' : 'text/plain',
+            3600 // 1 hour expiration
+        );
+    } else {
+        // For LOCAL mode, use the generic function which handles it
+        presignedUrlResult = await generatePresignedUrl(
+            objectPath,
+            format === 'zip' ? 'application/zip' : 'text/plain',
+            3600
+        );
+    }
+    
+    logger.info(`[WebGet Logs] Upload URL generated successfully`, {
+        objectPath: presignedUrlResult.objectPath,
+        bucket: presignedUrlResult.bucket,
+        mode: storageConfig.mode
+    });
+    
+    return executeDeviceAction(
+        'Get Logs',
+        DeviceNotificationType.ActionRequest,
+        params,
+        args,
+        {
+            action: 'getLogs',
+            format: format,
+            uploadUrl: presignedUrlResult.url,
+            objectPath: presignedUrlResult.objectPath
+        }
+    );
+}
+

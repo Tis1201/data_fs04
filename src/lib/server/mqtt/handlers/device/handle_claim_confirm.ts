@@ -17,6 +17,12 @@ interface DeviceClaimConfirmParams {
         hostname?: string | null;
         pin?: string | null;
         senderId?: string | null;
+        networkInfo?: {
+            mac?: string | null;
+            hostname?: string | null;
+            localIp?: string | null;
+            publicIp?: string | null;
+        };
         // allow extra fields without typing them all now
         [key: string]: unknown;
     };
@@ -26,7 +32,9 @@ interface DeviceClaimConfirmParams {
 export async function handleClaimConfirm(
     params: DeviceClaimConfirmParams,
     { topic, sub, prisma }: RpcHandlerArgs
-): Promise<RpcResponse<{ status: string; deviceId: string; apiKey: string; accountId: string | null }>> {
+): Promise<{ status: string; deviceId: string; apiKey: string; accountId: string | null }> {
+    const handlerStartTime = Date.now();
+    logger.info(`[DeviceClaimConfirm] Handler started at ${new Date().toISOString()}`);
 
     const { ticket, deviceInfo} = params;
 
@@ -92,12 +100,44 @@ export async function handleClaimConfirm(
 
     const now = new Date();
     const preclaimDeviceId = ctx.params?.preclaimDeviceId as string | undefined;
+    
+    // Extract MAC address from deviceInfo
+    const networkMac = deviceInfo?.networkInfo?.mac;
+    const macAddress = typeof networkMac === 'string' && networkMac ? networkMac : null;
+    // Use MAC as wifiMac if available (can be differentiated later if needed)
+    const wifiMac = macAddress;
+    
+    // Check if device with same MAC address is already claimed (following Pushpin flow)
+    if (macAddress) {
+        const existingDevice = await prisma.device.findFirst({
+            where: {
+                OR: [
+                    { macAddress: macAddress },
+                    { wifiMac: macAddress }
+                ],
+                claimedAt: { not: null } // Only check claimed devices
+            },
+            select: {
+                id: true,
+                name: true,
+                claimedBy: true,
+                accountId: true
+            }
+        });
+        
+        if (existingDevice) {
+            logger.warn(
+                `[DeviceClaimConfirm] Device with MAC ${macAddress} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
+            );
+            throw new Error(`Device with MAC address ${macAddress} is already claimed`);
+        }
+    }
+    
     const apiKey = generateId(128);
-    const nameFromHost =
-        deviceInfo && typeof deviceInfo.hostname === 'string' && deviceInfo.hostname
-            ? deviceInfo.hostname
-            : undefined;
-    const deviceName = nameFromHost ?? `Device ${factoryDeviceId.slice(0, 8)}`;
+    
+    // Device name format: "device - MAC-address" (e.g., "device - 82:B4:D5:BF:10:EB")
+    // Always use MAC address for device name; fallback to generic name if MAC is missing
+    const deviceName = macAddress ? `device - ${macAddress}` : 'device - unknown';
 
     const createdDevice = await prisma.$transaction(async (tx) => {
         const created = await tx.device.create({
@@ -115,18 +155,42 @@ export async function handleClaimConfirm(
                     deviceInfo && typeof deviceInfo.osVersion === 'string'
                         ? deviceInfo.osVersion
                         : null,
+                macAddress: macAddress,
+                wifiMac: wifiMac,
                 apiKey,
                 apiKeyCreatedAt: now,
                 claimedAt: now
             }
         });
 
+        // Only set hardwareFingerprint if:
+        // 1. It's not already set on this factory device
+        // 2. No other factory device already has this MAC as hardwareFingerprint
+        let hardwareFingerprintToSet = factoryDevice.hardwareFingerprint;
+        if (!hardwareFingerprintToSet && macAddress) {
+            // Check if another factory device already has this MAC as hardwareFingerprint
+            const existingFactoryDevice = await tx.factoryDevice.findFirst({
+                where: {
+                    hardwareFingerprint: macAddress,
+                    id: { not: factoryDevice.id }
+                },
+                select: { id: true }
+            });
+            
+            // Only set it if no other factory device has it
+            if (!existingFactoryDevice) {
+                hardwareFingerprintToSet = macAddress;
+            }
+        }
+
         await tx.factoryDevice.update({
             where: { id: factoryDevice.id },
             data: {
                 claimedAt: now,
                 claimedDeviceId: created.id,
-                accountId: account?.id ?? factoryDevice.accountId ?? null
+                accountId: account?.id ?? factoryDevice.accountId ?? null,
+                // Update hardwareFingerprint with MAC address if safe to do so
+                hardwareFingerprint: hardwareFingerprintToSet
             }
         });
 
@@ -209,12 +273,14 @@ export async function handleClaimConfirm(
         });
 
     // Return device credentials and account context to the device; a separate flow can notify the user.
+    // Note: The result will be wrapped by the RPC handler in index.ts, so return the inner object directly
+    const handlerDuration = Date.now() - handlerStartTime;
+    logger.info(`[DeviceClaimConfirm] Handler completed in ${handlerDuration}ms, returning result at ${new Date().toISOString()}`);
+    
     return {
-        result: {
             status: 'ok',
             deviceId: createdDevice.id,
             apiKey,
             accountId: account?.id ?? null
-        }
     };
 }

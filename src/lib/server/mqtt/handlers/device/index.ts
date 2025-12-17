@@ -18,7 +18,7 @@ export function registerDeviceHandlers(prisma: PrismaClient): void {
                 const b = Number(params?.b) || 0;
                 return { sum: a + b };
             },
-            'get.pin': async (params, args) => handleGetPin(args),
+            'get.pin': async (params, args) => handleGetPin({ ...args, params }),
             'device.claim.confirm': async (params, args) => handleClaimConfirm(params, args)
         },
         prisma

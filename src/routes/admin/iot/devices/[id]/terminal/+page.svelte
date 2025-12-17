@@ -12,7 +12,7 @@
 	import { browser } from "$app/environment";
 	import { ArrowLeft, Terminal as TerminalIcon } from "lucide-svelte";
 	import { Button } from "$lib/components/ui/button";
-	import { sseStore } from "$lib/stores/sse-store";
+	import { TerminalMqttClient } from "$lib/client/mqtt/terminalFlow";
 	import TerminalContainer from "$lib/components/ui_components_sveltekit/terminal/TerminalContainer.svelte";
 	import { AdminPageLayout, AdminCard } from "$lib/components/admin";
     
@@ -32,7 +32,7 @@
 	// Track resources for cleanup
 	let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 	let fitAddon: any;
-	let unsubscribeTerminalOutput: (() => void) | undefined;
+	let terminalClient: TerminalMqttClient | null = null;
 	let unsubscribeDevice: (() => void) | undefined;
 
 	
@@ -93,133 +93,97 @@
 
 	/****************************************************************************
 	 * 
-	 * Init Device Connection (SSE-based)
+	 * Init Device Connection (MQTT-based)
 	 * 
 	 ****************************************************************************/
-	function initDevice(terminal: Terminal) {
-		terminal.write(`\r\nConnecting to device terminal...\r\n`);
+	async function initDevice(terminal: Terminal) {
+		terminal.write(`\r\nConnecting to device terminal via MQTT...\r\n`);
 
-		// Ensure SSE connection is established
-		if (!$sseStore.isConnected) {
-			console.log('[Terminal] SSE not connected, connecting...');
-			sseStore.connect();
-		}
+		try {
+			// Create MQTT terminal client
+			terminalClient = new TerminalMqttClient(deviceId);
 
-		// Send terminal connect message
-		sendTerminalConnect();
-
-		// Send terminal dimensions when ready
-		if (terminalInstance && fitAddon) {
-			try {
-				const dimensions = fitAddon.proposeDimensions();
-				if (dimensions) {
-					sendTerminalResize(dimensions.rows, dimensions.cols);
+			// Set up output handler
+			terminalClient.onOutput((output) => {
+				if (terminalInstance) {
+					terminalInstance.write(output);
 				}
-			} catch (error) {
-				console.error("Error sending terminal dimensions:", error);
-			}
+			});
+
+			// Set up error handler
+			terminalClient.onError((error) => {
+				console.error('[Terminal] Error:', error);
+				if (terminalInstance) {
+					terminalInstance.write(`\r\n\x1b[1;31mError: ${error}\x1b[0m\r\n`);
+				}
+			});
+
+			// Set up connected handler
+			terminalClient.onConnected(() => {
+				console.log('[Terminal] Terminal connected');
+			});
+
+			// Set up disconnected handler
+			terminalClient.onDisconnected(() => {
+				console.log('[Terminal] Terminal disconnected');
+				if (terminalInstance) {
+					terminalInstance.write("\r\n\x1b[1;31mTerminal disconnected\x1b[0m\r\n");
+				}
+				connected = false;
+			});
+
+			// Connect with terminal dimensions
+			const dimensions = fitAddon?.proposeDimensions();
+			await terminalClient.connect(
+				dimensions?.rows || 24,
+				dimensions?.cols || 80
+			);
+
+			// Send a carriage return to bring the terminal prompt into view
+			setTimeout(() => {
+				if (terminalClient) {
+					terminalClient.sendInput('\r');
+				}
+			}, 500);
+
+			connecting = false;
+			connected = true;
+			terminal.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
+		} catch (error) {
+			console.error('[Terminal] Connection failed:', error);
+			terminal.write(`\r\n\x1b[1;31mConnection failed: ${error}\x1b[0m\r\n`);
+			connecting = false;
+			connected = false;
 		}
-
-		// Send a carriage return to bring the terminal prompt into view
-		setTimeout(() => {
-			sendTerminalInput('\r');
-		}, 500);
-
-		connecting = false;
-		connected = true;
-		terminal.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
 	}
 
 	/****************************************************************************
 	 * 
-	 * Send Terminal Messages via SSE
+	 * Send Terminal Messages via MQTT
 	 * 
 	 ****************************************************************************/
-	function sendTerminalConnect() {
-		sseStore.sendRequest({
-			type: 'terminal',
-			scope: 'user:self',
-			payload: {
-				type: 'terminal:connect',
-				deviceId: deviceId
-			}
-		}).catch(error => {
-			console.error('[Terminal] Failed to send connect message:', error);
-			if (terminalInstance) {
-				terminalInstance.write("\r\n\x1b[1;31mError: Failed to connect to terminal\x1b[0m\r\n");
-			}
-		});
-	}
-
 	function sendTerminalInput(input: string) {
+		if (!terminalClient) {
+			console.error('[Terminal] Terminal client not initialized');
+			return;
+		}
+
 		// Process input - handle line endings consistently
 		let processedInput = input;
 		if (processedInput === '\r\n' || processedInput === '\n') {
 			processedInput = '\r';
 		}
 
-		sseStore.sendRequest({
-			type: 'terminal',
-			scope: 'user:self',
-			payload: {
-				type: 'terminal:input',
-				deviceId: deviceId,
-				input: processedInput
-			}
-		}).catch(error => {
-			console.error('[Terminal] Failed to send input:', error);
-		});
+		terminalClient.sendInput(processedInput);
 	}
 
 	function sendTerminalResize(rows: number, cols: number) {
-		sseStore.sendRequest({
-			type: 'terminal',
-			scope: 'user:self',
-			payload: {
-				type: 'terminal:resize',
-				deviceId: deviceId,
-				rows: rows,
-				cols: cols
-			}
-		}).catch(error => {
-			console.error('[Terminal] Failed to send resize:', error);
-		});
-	}
-
-	/****************************************************************************
-	 * 
-	 * Handle Terminal Output from SSE
-	 * 
-	 ****************************************************************************/
-	function handleTerminalOutput(message: any) {
-		if (!terminalInstance || !message) {
+		if (!terminalClient) {
+			console.error('[Terminal] Terminal client not initialized');
 			return;
 		}
 
-		// Extract data from message - handle both direct payload and nested payload structures
-		const rawData = message.data || message.payload || message;
-		const data = rawData.payload || rawData; // Support nested payload structure
-		const deviceIdFromMessage = data.deviceId || rawData.deviceId || data.device_id || rawData.device_id;
-		
-		// Only process messages for this specific device
-		if (deviceIdFromMessage && deviceIdFromMessage !== deviceId) {
-			return;
-		}
-
-		// Handle terminal output
-		if (data.type === 'terminal:output' || rawData.type === 'terminal:output' || message.event === 'terminal:output') {
-			// Check multiple possible locations for output
-			const output = data.output || rawData.output || data.data || rawData.data || '';
-			if (output) {
-				console.log('[Terminal] Writing output to terminal:', output.substring(0, 100));
-				terminalInstance.write(output);
-			} else {
-				console.warn('[Terminal] Received terminal:output message but no output found:', { data, rawData, message });
-			}
-		} else if (data.type === 'terminal:error' || rawData.type === 'terminal:error' || message.event === 'terminal:error') {
-			const error = data.error || rawData.error || data.message || rawData.message || 'Unknown error';
-			terminalInstance.write(`\r\n\x1b[1;31mError: ${error}\x1b[0m\r\n`);
-		}
+		terminalClient.resize(rows, cols);
 	}
 	
 	
@@ -232,56 +196,9 @@
 		// Only run browser-specific code in the browser environment
 		if (!browser) return;
 		
-		console.log('[Terminal] onMount - Initializing SSE-based terminal');
-		
-		// Ensure SSE connection is established
-		if (!$sseStore.isConnected) {
-			console.log('[Terminal] Connecting to SSE...');
-			sseStore.connect();
-		}
+		console.log('[Terminal] onMount - Initializing MQTT-based terminal');
 
-		// Subscribe to device updates so we can receive terminal output
-		// This is required for terminal output messages to reach the UI
-		let lastSubscribedConnectionId: string | null = null;
-		const subscribeToDevice = () => {
-			const connId = sseStore.connectionId;
-			if (!connId || connId === lastSubscribedConnectionId) {
-				return;
-			}
-			console.log('[Terminal] Subscribing to device channel for terminal output:', { deviceId, connId });
-			fetch(`/api/sse/subscribe/device/${deviceId}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				credentials: 'include',
-				body: JSON.stringify({ connectionId: connId })
-			}).then(() => {
-				lastSubscribedConnectionId = connId;
-				console.log('[Terminal] Successfully subscribed to device channel');
-			}).catch((err) => {
-				console.warn('[Terminal] Failed to subscribe to device channel:', err);
-			});
-		};
-
-		// Subscribe immediately if connectionId is available
-		if (sseStore.connectionId) {
-			subscribeToDevice();
-		}
-
-		// Also subscribe when connection is established
-		sseStore.on('connected', (msg: any) => {
-			const connId = msg?.data?.connectionId || sseStore.connectionId;
-			if (connId && connId !== lastSubscribedConnectionId) {
-				subscribeToDevice();
-			}
-		});
-
-		// Subscribe to terminal output events via SSE
-		unsubscribeTerminalOutput = sseStore.on('terminal:output', (message) => {
-			console.log('[Terminal] Received terminal:output via SSE:', message);
-			handleTerminalOutput(message);
-		});
-
-		// Also listen for device:statusUpdate to handle device offline
+		// Listen for device status updates to handle device offline
 		unsubscribeDevice = deviceStore.subscribe(state => {
 			if (terminalInstance && state.deviceId === deviceId) {
 				if (state.status === 'offline') {
@@ -289,6 +206,11 @@
 						"\r\n\x1b[1;31mDevice disconnected. Terminal session ended.\x1b[0m\r\n"
 					);
 					connected = false;
+					
+					// Disconnect terminal client if device goes offline
+					if (terminalClient) {
+						terminalClient.disconnect();
+					}
 				}
 			}
 		});
@@ -307,25 +229,14 @@
 		// Skip cleanup in SSR
 		if (!browser) return;
 		
-		// Send disconnect message
-		if (connected) {
-			sseStore.sendRequest({
-				type: 'terminal',
-				scope: 'user:self',
-				payload: {
-					type: 'terminal:disconnect',
-					deviceId: deviceId
-				}
-			}).catch(error => {
-				console.error('[Terminal] Failed to send disconnect message:', error);
-			});
+		// Disconnect MQTT terminal client
+		if (terminalClient) {
+			console.log('[Terminal] Disconnecting terminal client');
+			terminalClient.disconnect();
+			terminalClient = null;
 		}
 		
-		// Unsubscribe from stores
-		if (unsubscribeTerminalOutput) {
-			unsubscribeTerminalOutput();
-		}
-		
+		// Unsubscribe from device store
 		if (unsubscribeDevice) {
 			unsubscribeDevice();
 		}

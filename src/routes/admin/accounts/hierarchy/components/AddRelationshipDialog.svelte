@@ -6,7 +6,7 @@
     import { Badge } from "$lib/components/ui/badge";
     import { Building2, Crown, Handshake, Eye, Calendar } from "lucide-svelte";
     import { createEventDispatcher } from "svelte";
-    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableSelect.svelte";
+    import SearchableSelect from "$lib/components/ui_components_sveltekit/form/SearchableFormSelect.svelte";
 
     type Account = {
         id: string;
@@ -142,7 +142,6 @@
                         searchPlaceholder="Search parent accounts..."
                         options={availableParentAccounts}
                         debounceMs={200}
-                        minSearchLength={1}
                         noResultsText="No parent accounts found"
                         disabled={loading}
                     />
@@ -157,7 +156,6 @@
                         searchPlaceholder="Search child accounts..."
                         options={availableChildAccounts}
                         debounceMs={200}
-                        minSearchLength={1}
                         noResultsText="No child accounts found"
                         disabled={loading}
                     />

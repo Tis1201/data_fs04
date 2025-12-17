@@ -110,6 +110,7 @@ class UserMqttClient {
       await this.openMqttConnection();
     } catch (err) {
       const error = err instanceof Error ? err : new Error('MQTT connect failed');
+      console.error('[MQTT Client] Connection failed:', error);
       this.setStatus('error', error);
       this.scheduleReconnect();
     }
@@ -196,6 +197,8 @@ class UserMqttClient {
     }
     set.add(handler);
 
+    console.log('[MQTT Client] Registered notification handler for type:', key, 'Total handlers:', set.size);
+
     return () => {
       const current = this.notificationHandlers.get(key);
       if (!current) return;
@@ -203,6 +206,7 @@ class UserMqttClient {
       if (current.size === 0) {
         this.notificationHandlers.delete(key);
       }
+      console.log('[MQTT Client] Unregistered notification handler for type:', key);
     };
   }
 
@@ -227,9 +231,13 @@ class UserMqttClient {
       throw new Error(`Mint failed: ${res.status} ${res.statusText}`);
     }
 
-    const data = await res.json();
+    const response = await res.json();
+
+    // Unwrap the API response: {success: true, data: {...}}
+    const data = response.success ? response.data : response;
 
     if (!data || !data.brokerUrl || !data.clientId || !data.username || !data.jwt) {
+      console.error('[MQTT Client] Mint response missing fields:', data);
       throw new Error('Mint response missing required fields');
     }
 
@@ -258,7 +266,14 @@ class UserMqttClient {
     const { brokerUrl, clientId, username, jwt } = this.mintResult;
     this.subject = username;
 
-    const mqtt = await import('mqtt');
+    const mqttModule = await import('mqtt');
+
+    // Try different import styles
+    const connectFn = mqttModule.connect || mqttModule.default?.connect || (mqttModule.default as any);
+    if (typeof connectFn !== 'function') {
+      console.error('[MQTT Client] Could not find connect function in mqtt module');
+      throw new Error('MQTT library did not export connect function');
+    }
 
     const options: IClientOptions = {
       clientId,
@@ -268,10 +283,11 @@ class UserMqttClient {
       reconnectPeriod: 0
     };
 
-    const client = mqtt.connect(brokerUrl, options);
+    const client = connectFn(brokerUrl, options);
     this.client = client;
 
     client.on('connect', () => {
+      console.debug('[MQTT Client] Connected to broker');
       this.reconnectAttempts = 0;
       this.setStatus('connected', null);
       this.subscribeTopics();
@@ -295,6 +311,7 @@ class UserMqttClient {
     });
 
     client.on('error', (err: Error) => {
+      console.error('[MQTT Client] Error:', err);
       this.setStatus('error', err);
       try {
         client.end(true);
@@ -310,9 +327,14 @@ class UserMqttClient {
     const base = `user/${this.subject}`;
     const topics = [`${base}/response`, `${base}/notifications`];
 
+    console.debug('[MQTT Client] Subscribing to topics:', topics);
+
     this.client.subscribe(topics, { qos: 1 }, (err) => {
       if (err) {
+        console.error('[MQTT Client] Subscription error:', err);
         this.setStatus('error', err);
+      } else {
+        console.debug('[MQTT Client] Successfully subscribed');
       }
     });
   }
@@ -322,9 +344,12 @@ class UserMqttClient {
     try {
       const text = new TextDecoder().decode(payload);
       data = JSON.parse(text);
-    } catch {
+    } catch (err) {
+      console.warn('[MQTT Client] Failed to parse message:', err);
       return;
     }
+
+    console.log('[MQTT Client] Received message:', { topic, data });
 
     const isResponse = topic.endsWith('/response');
     const isNotification = topic.endsWith('/notifications');
@@ -345,18 +370,43 @@ class UserMqttClient {
     }
 
     if (isNotification) {
-      const type = data?.type || data?.payload?.type || '*';
-      const payloadData = data?.payload ?? data;
+      // Decode JWT ticket if present
+      let type = data?.type || data?.payload?.type;
+      let payloadData = data?.payload ?? data;
+
+      if (data?.ticket && !type) {
+        try {
+          // Decode JWT ticket (just parse the payload, don't verify signature in client)
+          const parts = data.ticket.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(atob(parts[1]));
+            // Use params.type if available (the actual event type), otherwise fall back to payload.type
+            type = payload.params?.type || payload.type || '*';
+            payloadData = payload.params || {};
+            console.log('[MQTT Client] Decoded notification ticket:', { type, payloadData });
+          }
+        } catch (err) {
+          console.warn('[MQTT Client] Failed to decode notification ticket:', err);
+          type = '*';
+        }
+      }
+
+      if (!type) {
+        type = '*';
+      }
+
+      console.log('[MQTT Client] Processing notification:', { type, payloadData });
 
       const handlers = this.notificationHandlers.get(type);
       const wildcard = this.notificationHandlers.get('*');
 
       if (handlers) {
+        console.log('[MQTT Client] Handlers found:', { typeHandlers: handlers.size, wildcardHandlers: wildcard?.size || 0 });
         for (const handler of handlers) {
           try {
             handler(payloadData);
-          } catch {
-            // ignore
+          } catch (err) {
+            console.error('[MQTT Client] Handler error:', err);
           }
         }
       }
@@ -365,8 +415,8 @@ class UserMqttClient {
         for (const handler of wildcard) {
           try {
             handler(payloadData);
-          } catch {
-            // ignore
+          } catch (err) {
+            console.error('[MQTT Client] Wildcard handler error:', err);
           }
         }
       }

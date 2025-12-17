@@ -52,7 +52,7 @@ export class SimpleActionHandler extends BaseActionHandler {
       entity
     });
 
-    if (status === 'complete') {
+    if (status === 'complete' || status === 'success') {
       // Use server-calculated duration instead of calculating locally
       this.handleSuccess({ 
         action: actionType, 
@@ -64,7 +64,7 @@ export class SimpleActionHandler extends BaseActionHandler {
     } else if (status === 'failed' || status === 'fail') {
       this.handleError(message || `${actionType} failed`, logId);
     } else {
-      // Handle progress updates
+      // Handle progress updates (in_progress, etc.)
       this.handleProgress(0, message || `${actionType} in progress`, logId);
     }
   }

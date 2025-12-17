@@ -31,7 +31,7 @@ const MAX_RECONNECT_MS = Number(process.env.MQTT_WORKER_MAX_RECONNECT_MS ?? '600
 const connectionOptions: IClientOptions = {
     protocolVersion: 5,
     clean: process.env.MQTT_WORKER_CLEAN_SESSION !== 'false',
-    keepalive: Number(process.env.MQTT_WORKER_KEEPALIVE ?? '60'),
+    keepalive: Number(process.env.MQTT_WORKER_KEEPALIVE ?? '10'),
     reconnectPeriod: 0,
     clientId: process.env.MQTT_WORKER_CLIENT_ID ?? defaultClientId,
     username: process.env.MQTT_SERVER_USERNAME,
@@ -317,12 +317,20 @@ export async function publishMqttMessage(
             }
 
             return new Promise<void>((resolve, reject) => {
-                client!.publish(topic, payload, options, (err) => {
+                const payloadStr = typeof payload === 'string' ? payload : payload.toString();
+                logger.info(`[MQTT Transport] Publishing message to ${topic} (qos=${options.qos ?? 0}, payloadLength=${payloadStr.length}, connected=${client?.connected ?? false})`);
+                if (!client || !client.connected) {
+                    const err = new Error(`MQTT client not connected. connected=${client?.connected ?? false}`);
+                    logger.error(`[MQTT Transport] Cannot publish: ${err.message}`);
+                    reject(err);
+                    return;
+                }
+                client.publish(topic, payload, options, (err) => {
                     if (err) {
                         logger.error(`[MQTT Transport] Failed to publish on ${topic}: ${err.message}`);
                         reject(err);
                     } else {
-                        logger.debug(`[MQTT Transport] Published message on ${topic}`);
+                        logger.info(`[MQTT Transport] Published message on ${topic} (qos=${options.qos ?? 0}, payloadLength=${payloadStr.length}) - callback called`);
                         resolve();
                     }
                 });

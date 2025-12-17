@@ -1,4 +1,5 @@
 import { sseStore as defaultSseStore } from '$lib/stores/sse-store';
+import { mqttClient } from './mqtt/mqttClient';
 import { ActionHandlerManager } from './actionHandlers/ActionHandlerManager';
 import type { ActionLog } from './actionHandlers/types';
 
@@ -169,11 +170,42 @@ export function subscribeDeviceDetailEvents(
     actionHandlerManager.handle(evtType, fullMessage);
   });
 
+  // Also subscribe to MQTT notifications for device actions
+  const unsubscribeMqttStatus = mqttClient.onNotification('device:statusUpdate', (payload: any) => {
+    console.log('[deviceDetailRealtime] Received device:statusUpdate:', payload);
+    
+    // Convert MQTT notification to ActionHandlerManager format
+    const fullMessage = {
+      type: 'device:statusUpdate',
+      ...payload
+    };
+    
+    actionHandlerManager.handle('device:statusUpdate', fullMessage);
+  });
+
+  const unsubscribeMqttProgress = mqttClient.onNotification('device:progressUpdate', (payload: any) => {
+    console.log('[deviceDetailRealtime] Received device:progressUpdate:', payload);
+    
+    // Convert MQTT notification to ActionHandlerManager format
+    const fullMessage = {
+      type: 'device:progressUpdate',
+      ...payload
+    };
+    
+    actionHandlerManager.handle('device:progressUpdate', fullMessage);
+  });
+
   return () => {
     try { 
       unsubscribe(); 
     } catch (e) {
-      // Error unsubscribing
+      // Error unsubscribing from SSE
+    }
+    try {
+      unsubscribeMqttStatus();
+      unsubscribeMqttProgress();
+    } catch (e) {
+      // Error unsubscribing from MQTT
     }
   };
 }

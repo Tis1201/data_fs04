@@ -2,6 +2,7 @@
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
     import { sseStore } from '$lib/stores/sse-store';
+    import { mqttClient } from '$lib/client/mqtt/mqttClient';
     import { browser } from '$app/environment';
     
     // Track the previous authentication state and route
@@ -36,6 +37,9 @@
                 sseStore.setAuthEnabled?.(false);
                 sseStore.disconnect();
                 sseStore.resetForNewUser();
+                // Disconnect MQTT client
+                mqttClient.setAuthState('unauthenticated');
+                mqttClient.disconnect(true);
             } catch (err) {
                 console.error('[AuthStateHandler] Error force closing connections:', err);
             }
@@ -59,6 +63,11 @@
                         sseStore.connect('/api/sse');
                     }, 50);
                 }
+                // Connect MQTT client
+                mqttClient.setAuthState('authenticated');
+                mqttClient.connect().catch(err => {
+                    console.warn('[AuthStateHandler] MQTT connect failed:', err);
+                });
             }, 100);
         }
         // If auth state changed from logged in to logged out
@@ -68,6 +77,9 @@
             try {
                 sseStore.setAuthEnabled?.(false);
                 sseStore.disconnect();
+                // Disconnect MQTT client
+                mqttClient.setAuthState('unauthenticated');
+                mqttClient.disconnect(true);
             } catch (err) {
                 console.warn('[AuthStateHandler] Error disconnecting stores:', err);
             }
@@ -94,6 +106,11 @@
                     sseStore.connect('/api/sse');
                 }, 50);
             }
+            // Check MQTT connection
+            mqttClient.setAuthState('authenticated');
+            mqttClient.connect().catch(err => {
+                console.warn('[AuthStateHandler] MQTT connect failed:', err);
+            });
         }
         // If we're authenticated but connections are not open
         else if (isAuthenticated) {
@@ -105,6 +122,11 @@
                     sseStore.connect('/api/sse');
                 }, 50);
             }
+            // Check MQTT connection (connect() already checks if connected)
+            mqttClient.setAuthState('authenticated');
+            mqttClient.connect().catch(err => {
+                console.warn('[AuthStateHandler] MQTT connect failed:', err);
+            });
         }
         // If we're not authenticated but connections are open
         else if (!isAuthenticated) {
@@ -115,6 +137,10 @@
                     console.log('[AuthStateHandler] Force closing SSE connection');
                     sseStore.disconnect();
                 }
+                
+                // Disconnect MQTT client
+                mqttClient.setAuthState('unauthenticated');
+                mqttClient.disconnect(true);
                 
                 // Additional cleanup to ensure no lingering connections
                 if (sseStore.resetForNewUser) {
@@ -156,6 +182,12 @@
                     sseStore.connect('/api/sse');
                 }, 50);
             }
+            
+            // Initialize MQTT client for authenticated user
+            mqttClient.setAuthState('authenticated');
+            mqttClient.connect().catch(err => {
+                console.warn('[AuthStateHandler] MQTT connect failed:', err);
+            });
         }
         
         // Clear initialization flag after connections are established

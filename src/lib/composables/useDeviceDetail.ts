@@ -5,6 +5,12 @@ import { sseStore } from '$lib/stores/sse-store';
 import { subscribeDeviceDetailEvents } from '$lib/client/actionHandlers';
 import { DeviceActionsService } from '$lib/services/deviceActionsService';
 import { useDeviceSSEHandlers } from './useDeviceSSEHandlers';
+import {
+    updateFirmware as mqttUpdateFirmware,
+    installApp as mqttInstallApp,
+    pushFile as mqttPushFile,
+    pullFile as mqttPullFile
+} from '$lib/client/mqtt/deviceActions';
 
 export interface UseDeviceDetailOptions {
     deviceId: string;
@@ -309,31 +315,23 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             ...currentLogs
         ].slice(0, MAX_ACTION_LOGS));
 
+        isLoading.set(true);
+
         try {
-            const response = await fetch(`/api/devices/${deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'updateFirmware',
+            const result = await mqttUpdateFirmware(
+                {
+                    deviceId: device.get().id,
                     firmwareVersion: fw.version ?? '1.0.0',
                     resourceId: fw.id
-                })
-            });
+                },
+                { timeoutMs: 60000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to update firmware: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
+            if (result.operationId) {
                 const logs = actionLogs.get();
                 const logIndex = logs.findIndex(log => log.id === tempId);
                 if (logIndex !== -1) {
-                    logs[logIndex].id = realLogId;
+                    logs[logIndex].id = result.operationId;
                     actionLogs.set([...logs]);
                 }
             }
@@ -341,7 +339,7 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             actionStatus.set({
                 action: 'firmware',
                 status: 'success',
-                message: 'Firmware update initiated',
+                message: result.message || 'Firmware update initiated',
             });
             toast.success('Firmware update initiated');
             showFirmwareModal.set(false);
@@ -426,30 +424,20 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 ...currentLogs
             ]);
 
-            const response = await fetch(`/api/devices/${deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'installApp',
+            const result = await mqttInstallApp(
+                {
+                    deviceId: device.get().id,
                     packageName: app.packageName ?? 'unknown',
                     resourceId: app.id
-                })
-            });
+                },
+                { timeoutMs: 60000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to install app: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
+            if (result.operationId) {
                 const logs = actionLogs.get();
                 const logIndex = logs.findIndex(log => log.id === tempId);
                 if (logIndex !== -1) {
-                    logs[logIndex].id = realLogId;
+                    logs[logIndex].id = result.operationId;
                     actionLogs.set([...logs]);
                 }
             }
@@ -457,7 +445,7 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             actionStatus.set({
                 action: 'installApp',
                 status: 'success',
-                message: 'App installation initiated',
+                message: result.message || 'App installation initiated',
             });
             toast.success('App installation initiated');
             showInstallAppModal.set(false);
@@ -520,34 +508,24 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 message: 'Initiating file push...'
             });
 
-            const response = await fetch(`/api/devices/${deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'pushFile',
+            const result = await mqttPushFile(
+                {
+                    deviceId: device.get().id,
                     sourcePath: file.path,
                     destinationPath: pullFileDestinationPath.get().trim(),
                     resourceId: file.id
-                })
-            });
+                },
+                { timeoutMs: 60000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to push file: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
-                addActionLogRow('pushFile', 'File push initiated…', 'in_progress', realLogId);
+            if (result.operationId) {
+                addActionLogRow('pushFile', 'File push initiated…', 'in_progress', result.operationId);
             }
 
             actionStatus.set({
                 action: 'pushFile',
                 status: 'success',
-                message: 'File push initiated',
+                message: result.message || 'File push initiated',
             });
             toast.success('File push initiated');
             showPullFileModal.set(false);
@@ -585,33 +563,23 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
         });
 
         try {
-            const response = await fetch(`/api/devices/${deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'pullFile',
+            const result = await mqttPullFile(
+                {
+                    deviceId: device.get().id,
                     sourcePath: pushFileSourcePath.get().trim(),
                     destinationPath: pushFileSourcePath.get().trim()
-                })
-            });
+                },
+                { timeoutMs: 60000 }
+            );
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to pull file: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
-                addActionLogRow('pullFile', 'File pull initiated…', 'in_progress', realLogId);
+            if (result.operationId) {
+                addActionLogRow('pullFile', 'File pull initiated…', 'in_progress', result.operationId);
             }
 
             actionStatus.set({
                 action: 'pullFile',
                 status: 'success',
-                message: 'File pull initiated',
+                message: result.message || 'File pull initiated',
             });
             toast.success('File pull initiated');
             showPushFileModal.set(false);

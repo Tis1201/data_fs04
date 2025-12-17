@@ -8,8 +8,8 @@ const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
 /********************************************************************************************
  * Device-side RPC handler: issues fresh factory registration PINs.
  ********************************************************************************************/
-export async function handleGetPin(args: { topic: string; prisma: PrismaClient }): Promise<{ pin: string }> {
-    const { topic, prisma } = args;
+export async function handleGetPin(args: { topic: string; prisma: PrismaClient; params?: Record<string, any> }): Promise<{ pin: string }> {
+    const { topic, prisma, params } = args;
 
     logger.info(`[DeviceGetPin] Handling get.pin RPC for topic ${topic}`);
 
@@ -38,6 +38,59 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient }
 
     if (!factoryDevice) {
         throw new Error('Factory device not found');
+    }
+
+    // Extract MAC address from params (device sends it in get.pin request)
+    const macAddress = params?.macAddress || params?.networkInfo?.mac || null;
+
+    // Check if device with same MAC address is already claimed (if MAC is provided)
+    if (macAddress) {
+        const existingDevice = await prisma.device.findFirst({
+            where: {
+                claimedAt: { not: null },
+                OR: [
+                    { macAddress: macAddress },
+                    { wifiMac: macAddress }
+                ]
+            },
+            select: {
+                id: true,
+                name: true,
+                claimedBy: true,
+                accountId: true
+            }
+        });
+
+        if (existingDevice) {
+            logger.warn(
+                `[DeviceGetPin] Device with MAC address ${macAddress} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
+            );
+            throw new Error(
+                `Device is already claimed. Please reconnect using device credentials (deviceId: ${existingDevice.id})`
+            );
+        }
+    }
+
+    // Check if this factory device is already claimed
+    if (factoryDevice.claimedDeviceId) {
+        const claimedDevice = await prisma.device.findUnique({
+            where: { id: factoryDevice.claimedDeviceId },
+            select: {
+                id: true,
+                name: true,
+                claimedBy: true,
+                accountId: true
+            }
+        });
+
+        if (claimedDevice) {
+            logger.warn(
+                `[DeviceGetPin] Factory device ${factoryDeviceId} is already claimed: deviceId=${claimedDevice.id}, claimedBy=${claimedDevice.claimedBy}, accountId=${claimedDevice.accountId ?? 'n/a'}`
+            );
+            throw new Error(
+                `Device is already claimed. Please reconnect using device credentials (deviceId: ${claimedDevice.id})`
+            );
+        }
     }
 
     // Optional: check for pre-claim mappings based on hardware fingerprint.

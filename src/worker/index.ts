@@ -44,12 +44,23 @@ export function startMqttListener(): void {
         throw new Error('MQTT transport is not connected. Ensure startMqttTransport() has run.');
       }
 
+      const payloadStr = typeof payload === 'string' ? payload : payload.toString();
+      logger.info(`[MQTT Transport] Publishing message to ${topic} (qos=${options.qos ?? 0}, payloadLength=${payloadStr.length}, connected=${client.connected})`);
+      
+      if (!client.connected) {
+        const err = new Error(`MQTT client not connected. connected=${client.connected}`);
+        logger.error(`[MQTT Transport] Cannot publish: ${err.message}`);
+        throw err;
+      }
+
       await new Promise<void>((resolve, reject) => {
         client!.publish(topic, payload, options, (err) => {
           if (err) {
+            logger.error(`[MQTT Transport] Failed to publish on ${topic}: ${err.message}`);
             reject(err);
             return;
           }
+          logger.info(`[MQTT Transport] Published message on ${topic} (qos=${options.qos ?? 0}, payloadLength=${payloadStr.length}) - publish callback called`);
           resolve();
         });
       });

@@ -6,10 +6,192 @@ export class FileOperationHandler extends StreamActionHandler {
   private operationType: 'push' | 'pull';
   private fileChunks: Map<string, Uint8Array[]> = new Map();
   private fileMetadata: Map<string, { fileName: string; totalSize: number }> = new Map();
+  private static readonly DOWNLOAD_STORAGE_KEY = 'fs04_pullfile_downloads'; // Session storage key for tracking downloads
 
   constructor(params: ActionHandlerParams, operationType: 'push' | 'pull') {
     super(params, 'file_operation');
     this.operationType = operationType;
+  }
+
+  /**
+   * Check if a download has already been triggered for this logId
+   */
+  private isDownloadTriggered(logId: string): boolean {
+    if (typeof sessionStorage === 'undefined') return false;
+    try {
+      const stored = sessionStorage.getItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY);
+      if (!stored) return false;
+      const downloads = JSON.parse(stored) as Record<string, number>;
+      const isTriggered = !!downloads[logId];
+      console.log(`[${this.operationType}FileHandler] Checking if download triggered:`, { logId, isTriggered, allDownloads: Object.keys(downloads) });
+      return isTriggered;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Mark a download as triggered
+   */
+  private markDownloadTriggered(logId: string): void {
+    if (typeof sessionStorage === 'undefined') return;
+    try {
+      const stored = sessionStorage.getItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY);
+      const downloads: Record<string, number> = stored ? JSON.parse(stored) : {};
+      
+      downloads[logId] = Date.now();
+      
+      // Keep only last 50 logIds to prevent storage bloat
+      const keys = Object.keys(downloads).sort((a, b) => downloads[b] - downloads[a]);
+      if (keys.length > 50) {
+        for (let i = 50; i < keys.length; i++) {
+          delete downloads[keys[i]];
+        }
+      }
+      
+      sessionStorage.setItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY, JSON.stringify(downloads));
+      console.log(`[${this.operationType}FileHandler] sessionStorage updated:`, { logId, timestamp: downloads[logId], allDownloads: Object.keys(downloads) });
+    } catch (error) {
+      console.warn(`[${this.operationType}FileHandler] Failed to mark download in sessionStorage:`, error);
+    }
+  }
+
+  /**
+   * Clear download triggered flag (for retry on error)
+   */
+  private clearDownloadTriggered(logId: string): void {
+    if (typeof sessionStorage === 'undefined') return;
+    try {
+      const stored = sessionStorage.getItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY);
+      if (stored) {
+        const downloads = JSON.parse(stored) as Record<string, number>;
+        delete downloads[logId];
+        sessionStorage.setItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY, JSON.stringify(downloads));
+        console.log(`[${this.operationType}FileHandler] Cleared download flag for:`, logId);
+      }
+    } catch (error) {
+      console.warn(`[${this.operationType}FileHandler] Failed to clear download from sessionStorage:`, error);
+    }
+  }
+
+  /**
+   * Override handleUnifiedStatus to trigger download for pullFile when objectPath is present
+   */
+  protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
+    const { action, status, message, logId, progress, durationMs } = entity;
+    const payload = entity.payload ?? {};
+    const objectPath = (payload as any)?.objectPath;
+
+    console.log(`[${this.operationType}FileHandler] Unified status update:`, { 
+      action, 
+      status, 
+      message, 
+      logId, 
+      progress,
+      durationMs,
+      objectPath,
+      entity
+    });
+
+    if (status === 'complete' || status === 'success') {
+      // For pullFile operations, if objectPath is present, trigger download from GCloud
+      // Use sessionStorage to prevent multiple downloads for the same logId (persists across page reloads)
+      if (this.operationType === 'pull' && objectPath && logId) {
+        // Check and mark synchronously BEFORE any async operations
+        if (this.isDownloadTriggered(logId)) {
+          console.log(`[${this.operationType}FileHandler] Download already triggered for logId: ${logId}, skipping duplicate`);
+        } else {
+          console.log(`[${this.operationType}FileHandler] Success with objectPath, triggering download:`, { logId, objectPath });
+          // Mark immediately (synchronously) to prevent race conditions
+          this.markDownloadTriggered(logId);
+          console.log(`[${this.operationType}FileHandler] Marked download as triggered in sessionStorage:`, logId);
+          
+          // Trigger download immediately (not in setTimeout to avoid race conditions)
+          this.triggerPullFileDownload(logId, objectPath).catch((error) => {
+            console.error(`[${this.operationType}FileHandler] Download failed, allowing retry:`, error);
+            // On error, remove from storage to allow retry
+            this.clearDownloadTriggered(logId);
+          });
+        }
+      }
+      
+      // Use server-calculated duration instead of calculating locally
+      this.handleSuccess({ 
+        action: this.operationType === 'pull' ? 'pull_file' : 'push_file', 
+        status, 
+        message: message || `${this.operationType}File completed`, 
+        logId, 
+        durationMs,
+        objectPath
+      }, logId);
+    } else if (status === 'failed' || status === 'fail') {
+      this.handleError(message || `${this.operationType}File failed`, logId);
+    } else if (progress !== undefined) {
+      // Handle progress updates
+      this.handleProgress(progress, message || `${this.operationType}File progress: ${progress}%`, logId);
+    } else {
+      // Handle general status updates (in_progress, etc.)
+      this.handleProgress(0, message || `${this.operationType}File in progress`, logId);
+    }
+  }
+
+  /**
+   * Trigger download of pulled file from GCloud
+   * Creates a hidden anchor and clicks it - browser handles the rest
+   */
+  private async triggerPullFileDownload(logId: string, objectPath: string): Promise<void> {
+    try {
+      console.log(`[${this.operationType}FileHandler] Fetching download URL for pulled file:`, { logId, objectPath, deviceId: this.deviceId });
+      
+      const downloadResponse = await fetch(
+        `/api/v2/devices/${this.deviceId}/pull-file-download-url?logId=${logId}`,
+        { 
+          credentials: 'include',
+          method: 'GET'
+        }
+      );
+      
+      if (!downloadResponse.ok) {
+        const errorText = await downloadResponse.text();
+        throw new Error(`Failed to get download URL: ${downloadResponse.status} ${errorText}`);
+      }
+      
+      const response = await downloadResponse.json();
+      // API response is wrapped in { success: true, data: { downloadUrl, fileName, ... } }
+      const data = response.data || response;
+      const downloadUrl = data.downloadUrl;
+      const fileName = data.fileName || this.extractFileNameFromPath(objectPath);
+      
+      console.log(`[${this.operationType}FileHandler] Download URL received:`, { downloadUrl, fileName, response });
+      
+      if (!downloadUrl) {
+        throw new Error(`Download URL is missing from API response: ${JSON.stringify(response)}`);
+      }
+      
+      // Create hidden anchor and click it
+      // Note: GCS presigned URLs already have Content-Disposition header, so we DON'T need download attribute
+      // Using download attribute with cross-origin URLs can cause double downloads!
+      console.log(`[${this.operationType}FileHandler] Triggering download via anchor click`);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.target = '_blank'; // Open in new tab to prevent navigation
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      console.log(`[${this.operationType}FileHandler] Pull file download triggered`);
+    } catch (error) {
+      console.error(`[${this.operationType}FileHandler] Error triggering pull file download:`, error);
+    }
+  }
+
+  /**
+   * Extract filename from objectPath
+   */
+  private extractFileNameFromPath(objectPath: string): string {
+    const parts = objectPath.split('/');
+    return parts[parts.length - 1] || `file_${Date.now()}`;
   }
 
   handle(evtType: string, entity: DeviceMessageEntity): void {
