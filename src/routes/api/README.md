@@ -33,7 +33,6 @@ api/
 │   ├── jwt/
 │   ├── message/
 │   ├── mqtt/
-│   ├── pushpin/
 │   └── resources/
 ├── device-profiles/  # Device profile management
 ├── devices/          # Device management (user/admin)
@@ -41,12 +40,12 @@ api/
 ├── files/            # File serving
 ├── health/           # Health check endpoints
 ├── licenses/         # License management
-├── listen/           # Listener SSE endpoints
+├── listen/           # (DEPRECATED - Removed) Listener SSE endpoints - migrated to MQTT
 ├── pin-rules/        # PIN rule management
 ├── redis-example/    # Example/utility endpoints
 ├── resources/        # Resource management (general)
 ├── resources-jwt/    # JWT-authenticated resources
-├── sse/              # Server-Sent Events
+├── sse/              # (DEPRECATED - Removed) Server-Sent Events - migrated to MQTT
 ├── storage/          # Storage configuration
 ├── test/             # Test endpoints
 ├── upload/           # File upload endpoints
@@ -603,7 +602,7 @@ export const DELETE = restrict(
 
 - This structure follows SvelteKit conventions
 - Most endpoints use the `restrict()` or `restrictJWT()` guards
-- SSE endpoints use custom connection management
+- Real-time communication now uses MQTT (SSE endpoints have been removed)
 - Webhook endpoints use dynamic slug routing
 
 ---

@@ -5,86 +5,84 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
-import { MessageFactory } from '$lib/server/messaging/interfaces/message';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { SystemUser } from '$lib/server/messaging/interfaces/message';
-import { getMessageRelay } from '$lib/server/pushpin/middleware';
+import { queueNotification } from '$lib/server/mqtt/core/queue';
+import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
+import * as crypto from 'node:crypto';
 import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
 import { generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
 import { isGCloudUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
 import path from 'path';
 
-// Define action types and their configurations (NEW UNIFIED FLOW)
 const ACTION_CONFIGS = {
     reboot: {
         actionType: 'reboot',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 2 * 60 * 1000, // 2 minutes
         requiredFields: []
     },
     restart: {
         actionType: 'restart',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 1 * 60 * 1000, // 1 minute
         requiredFields: []
     },
     refresh: {
         actionType: 'refresh',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 1 * 60 * 1000, // 1 minute
         requiredFields: []
     },
     installApp: {
         actionType: 'install_app',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: TimeoutConfig.DEVICE_ACTION,
         requiredFields: ['packageName']
     },
     pushFile: {
         actionType: 'push_file',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: TimeoutConfig.DEVICE_ACTION + (5 * 60 * 1000), // 15 minutes (10 + 5)
         requiredFields: ['sourcePath', 'destinationPath']
     },
     pullFile: {
         actionType: 'pull_file',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: TimeoutConfig.DEVICE_ACTION,
         requiredFields: ['sourcePath', 'destinationPath']
     },
     updateFirmware: {
         actionType: 'update_firmware',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 30 * 60 * 1000, // 30 minutes
         requiredFields: ['firmwareVersion']
     },
     getLogs: {
         actionType: 'get_logs',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: TimeoutConfig.DEVICE_ACTION,
         requiredFields: ['format']
     },
     screenshot: {
         actionType: 'screenshot',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 2 * 60 * 1000, // 2 minutes
         requiredFields: []
     },
     uninstall: {
         actionType: 'uninstall_app',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 5 * 60 * 1000, // 5 minutes
         requiredFields: ['packageName']
     },
     restartApp: {
         actionType: 'restart_app',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 2 * 60 * 1000, // 2 minutes
         requiredFields: ['packageName']
     },
     config: {
         actionType: 'config_app',
-        sseAction: 'device:actionRequest', // UNIFIED MESSAGE TYPE
+        mqttAction: 'device:actionRequest', 
         timeout: 3 * 60 * 1000, // 3 minutes
         requiredFields: ['packageName']
     }
@@ -688,9 +686,7 @@ export const POST: RequestHandler = restrict(
                 storedMetadata: created.metadata
             });
 
-            const messageRelay = getMessageRelay();
-            
-            // Prepare message payload
+            // Prepare message payload for MQTT
             const messagePayload: any = {
                 action,
                 deviceId,
@@ -708,35 +704,34 @@ export const POST: RequestHandler = restrict(
                 messagePayload.contentType = uploadUrlData.contentType;
             }
             
-            if (!messageRelay) {
-                logger.error(`[UnifiedActionAPI] MessageRelay not initialized - falling back to publisher system`);
-                // Fallback to old publisher system for backward compatibility
-                const routingMessage = MessageFactory.createSystemMessage(
-                    actionConfig.sseAction,
-                    `subscription:device:${deviceId}`,
-                    messagePayload,
-                    SystemUser,
-                    { echoToSender: false }
-                );
-                await publisher.publish(routingMessage);
-            } else {
-                // Use Redis Pub/Sub for scalable device messaging
-                const message = {
-                    type: actionConfig.sseAction,
-                    payload: messagePayload,
-                    timestamp: new Date().toISOString()
-                };
-                
-                logger.info(`[UnifiedActionAPI] Publishing message to device via Redis Pub/Sub...`, { 
-                    action: actionConfig.sseAction, 
-                    deviceId,
-                    payload: { action, deviceId, logId: created.id, hasUploadUrl: !!uploadUrlData }
-                });
-
-                await messageRelay.publishToDevice(deviceId, message);
-                
-                logger.info(`[UnifiedActionAPI] Message published successfully via Redis Pub/Sub`);
+            // Get accountId for MQTT topic (use device accountId or user's current account)
+            const userAccountId = device.accountId || event.auth?.currentAccount?.account.id || null;
+            
+            if (!userAccountId) {
+                logger.warn(`[UnifiedActionAPI] No accountId available for MQTT topic, using device accountId from device object`);
             }
+            
+            // Queue MQTT notification for worker to send to device
+            const flowId = crypto.randomUUID();
+            
+            logger.info(`[UnifiedActionAPI] Queueing MQTT notification for device...`, { 
+                action, 
+                deviceId,
+                logId: created.id,
+                hasUploadUrl: !!uploadUrlData,
+                accountId: userAccountId
+            });
+
+            await queueNotification({
+                sub: `user:${user.id}:${userAccountId || 'system'}`,
+                recipient: `device:${deviceId}`,
+                type: DeviceNotificationType.ActionRequest,
+                flowId,
+                params: messagePayload,
+                expiresIn: '30m'
+            });
+            
+            logger.info(`[UnifiedActionAPI] MQTT notification queued successfully`);
 
             // Set up timeout
             setTimeout(async () => {

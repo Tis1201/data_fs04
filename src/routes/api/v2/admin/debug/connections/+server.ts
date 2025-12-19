@@ -7,7 +7,7 @@ import { logger } from '$lib/server/logger';
 /**
  * GET /api/v2/admin/debug/connections
  * Get connection and subscription statistics (Admin only)
- * Provides debugging information about active SSE connections
+ * Provides debugging information about active MQTT/WebSocket connections
  */
 export const GET: RequestHandler = unifiedEndpoint(
 	async () => {

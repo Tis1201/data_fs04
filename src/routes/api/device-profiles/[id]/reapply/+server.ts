@@ -6,9 +6,8 @@ import { logger } from '$lib/server/logger';
 import { ActionLogger } from '$lib/server/action-logger';
 import prisma from '$lib/server/prisma';
 import { z } from 'zod';
-import { MessageFactory } from '$lib/server/messaging/interfaces/message';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { SystemUser } from '$lib/server/messaging/interfaces/message';
+import { queueNotification } from '$lib/server/mqtt/core/queue';
+import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
 // Validation schema for reapply request
@@ -134,7 +133,7 @@ export const POST: RequestHandler = restrict(
                 }
             });
 
-            // Send reapply messages to each device
+            // Send reapply messages to each device via MQTT
             const results = [];
             for (const deviceId of validatedData.deviceIds) {
                 const requestId = crypto.randomUUID();
@@ -158,43 +157,49 @@ export const POST: RequestHandler = restrict(
 
                     logId = actionLog.id; // Use the database-generated ID
                     
-                    logger.info(`ActionLog created for device ${deviceId} (reapply)`, {
+                    logger.info(`[Reapply Profile] ActionLog created for device ${deviceId}`, {
                         deviceId,
                         profileId,
                         logId: logId,
                         requestId: requestId
                     });
                 } catch (logError) {
-                    logger.error(`Error creating ActionLog: ${String(logError)}`);
+                    logger.error(`[Reapply Profile] Error creating ActionLog: ${String(logError)}`);
                     // Continue with reapply even if log creation fails
                 }
 
                 try {
-                    // Create routing message for device
-                    const routingMessage = MessageFactory.createSystemMessage(
-                        'device:actionRequest',
-                        `subscription:device:${deviceId}`,
-                        {
+                    const flowId = crypto.randomUUID();
+                    
+                    // Use the authenticated user's current accountId for the notification topic
+                    // This ensures the UI receives the update on the correct account's topic
+                    // IMPORTANT: Must match the same logic as /api/user/mqtt/mint
+                    const userAccountId = auth?.currentAccount?.account.id || deviceProfile.accountId;
+                    
+                    // Queue MQTT notification for worker to send to device
+                    await queueNotification({
+                        sub: `user:${auth?.user?.id}:${userAccountId}`,
+                        recipient: `device:${deviceId}`,
+                        type: DeviceNotificationType.ActionRequest,
+                        flowId,
+                        params: {
                             action: 'applyProfile',
                             deviceId: deviceId,
-                            logId: logId, // Use the ActionLog ID
-                            requestId: logId, // Keep requestId same as logId for consistency
+                            logId: logId,
+                            requestId: logId,
                             profileId: profileId,
+                            profileName: deviceProfile.name,
                             config,
-                            message: 'Profile reapplication requested',
-                            sentAt: new Date().toISOString()
+                            message: 'Profile reapplication requested'
                         },
-                        SystemUser,
-                        { echoToSender: false }
-                    );
-
-                    await publisher.publish(routingMessage);
+                        expiresIn: '5m'
+                    });
                     
-                    logger.info(`[Reapply Profile] Message sent to device ${deviceId}`, {
+                    logger.info(`[Reapply Profile] MQTT message queued for device ${deviceId}`, {
                         deviceId,
                         profileId,
                         logId,
-                        messageId: routingMessage.id
+                        flowId
                     });
 
                     // Set timeout to mark as FAILED if no response in 3 minutes
@@ -217,37 +222,39 @@ export const POST: RequestHandler = restrict(
                                     }
                                 });
                                 
-                                logger.warn(`Profile reapplication timed out for device ${deviceId}`, {
+                                logger.warn(`[Reapply Profile] Profile reapplication timed out for device ${deviceId}`, {
                                     deviceId,
                                     profileId,
                                     status: 'FAILED'
                                 });
 
-                                // Send real-time notification to UI about timeout
+                                // Send real-time notification to UI about timeout via MQTT
                                 try {
-                                    const timeoutMessage = MessageFactory.createSystemMessage(
-                                        'device:profileUpdate',
-                                        `subscription:device:${deviceId}`,
-                                        {
+                                    const timeoutFlowId = crypto.randomUUID();
+                                    const timeoutAccountId = auth?.currentAccount?.account.id || deviceProfile.accountId;
+                                    
+                                    await queueNotification({
+                                        sub: `user:${auth?.user?.id}:${timeoutAccountId}`,
+                                        recipient: `user:${auth?.user?.id}:${timeoutAccountId}`,
+                                        type: DeviceNotificationType.StatusUpdate,
+                                        flowId: timeoutFlowId,
+                                        params: {
                                             action: 'applyProfile',
                                             deviceId: deviceId,
                                             status: 'failed',
                                             profileId: profileId,
-                                            message: 'Profile reapplication timed out after 3 minutes',
-                                            sentAt: new Date().toISOString()
+                                            message: 'Profile reapplication timed out after 3 minutes'
                                         },
-                                        SystemUser,
-                                        { echoToSender: false }
-                                    );
-
-                                    await publisher.publish(timeoutMessage);
-                                    logger.info(`Timeout notification sent for device ${deviceId}`);
-                                } catch (sseError) {
-                                    logger.error(`Error sending timeout notification: ${String(sseError)}`);
+                                        expiresIn: '5m'
+                                    });
+                                    
+                                    logger.info(`[Reapply Profile] Timeout notification queued for device ${deviceId}`);
+                                } catch (mqttError) {
+                                    logger.error(`[Reapply Profile] Error queuing timeout notification: ${String(mqttError)}`);
                                 }
                             }
                         } catch (timeoutError) {
-                            logger.error(`Error updating timeout status: ${String(timeoutError)}`);
+                            logger.error(`[Reapply Profile] Error updating timeout status: ${String(timeoutError)}`);
                         }
                     }, 3 * 60 * 1000); // 3 minutes timeout
 

@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
+import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 

@@ -97,7 +97,7 @@ export const GET = unifiedEndpoint(
 			})
 		]);
 
-		// Fetch real-time presence from Redis (pushpin-tracker)
+		// Fetch real-time presence from Redis (MQTT presence tracker)
 		const deviceIds = devices.map((d: { id: string }) => d.id);
 		const presenceMap = await areDevicesOnline(deviceIds);
 		const devicesWithPresence = devices.map((device: typeof devices[number]) => ({

@@ -285,8 +285,8 @@ export const PUT = unifiedEndpoint(
                     );
 
                     await publisher.publish(timeoutMessage);
-                  } catch (sseError) {
-                    logger.error(`Error sending auto-reapply timeout notification: ${String(sseError)}`);
+                  } catch (notificationError) {
+                    logger.error(`Error sending auto-reapply timeout notification: ${String(notificationError)}`);
                   }
                 }
               } catch (timeoutError) {

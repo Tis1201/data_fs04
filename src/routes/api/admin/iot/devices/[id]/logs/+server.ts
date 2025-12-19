@@ -1,11 +1,19 @@
 import type { RequestHandler } from './$types';
-import { json } from '@sveltejs/kit';
+import { json, redirect } from '@sveltejs/kit';
 import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { sseStore } from '$lib/stores/sse-store';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 
+/**
+ * @deprecated This endpoint is deprecated. Use /api/devices/[id]/actions with action='getLogs' instead.
+ * 
+ * This endpoint redirects to the unified action API which uses MQTT queue.
+ * The new flow:
+ * 1. Device uploads logs to storage via presigned URL
+ * 2. Action log tracks the progress
+ * 3. Download URL is available in the action log response
+ */
 export const GET: RequestHandler = restrict(
     async (event: AuthenticatedEvent) => {
         const { params } = event;
@@ -16,52 +24,20 @@ export const GET: RequestHandler = restrict(
                 return json({ error: 'Device ID is required' }, { status: 400 });
             }
 
-            // Request logs from the device via SSE
-            const responsePayload = await sseStore.sendRequest(
-                {
-                    type: 'device',
-                    scope: `subscription:device:${deviceId}`,
-                    payload: {
-                        action: 'getLogs',
-                        deviceId: deviceId,
-                        format: 'zip' // Request logs as zip file
-                    }
-                },
-                /* timeoutMs = */ 30000, // Allow more time for file generation
-                /* requestIdPrefix = */ 'logs'
-            );
-
-            if (!responsePayload?.logsData) {
-                return json({ error: 'No logs data received from device' }, { status: 404 });
-            }
-
-            // The device should return logsData as base64 encoded zip file
-            const zipData = responsePayload.logsData;
-            const zipBuffer = Buffer.from(zipData, 'base64');
-
-            // Create a readable stream from the buffer
-            const stream = new ReadableStream({
-                start(controller) {
-                    controller.enqueue(zipBuffer);
-                    controller.close();
-                }
-            });
-
-            // Return the zip file as a stream
-            return new Response(stream, {
-                status: 200,
-                headers: {
-                    'Content-Type': 'application/zip',
-                    'Content-Disposition': `attachment; filename="device-${deviceId}-logs-${new Date().toISOString().split('T')[0]}.zip"`,
-                    'Content-Length': zipBuffer.length.toString(),
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0'
-                }
-            });
+            // Redirect to unified action API
+            // The unified action API uses MQTT queue and returns action log with download URL
+            logger.warn(`[DeviceLogs] Legacy endpoint called - redirecting to unified action API for device ${deviceId}`);
+            
+            // Redirect to the unified action API endpoint
+            // The client should use POST /api/devices/[id]/actions with { action: 'getLogs', format: 'zip' }
+            return json({
+                error: 'This endpoint is deprecated',
+                message: 'Please use POST /api/devices/[id]/actions with action="getLogs"',
+                redirect: `/api/devices/${deviceId}/actions`
+            }, { status: 410 }); // 410 Gone - indicates resource is no longer available
 
         } catch (error: any) {
-            logger.error('Error fetching device logs:', error);
+            logger.error('Error in deprecated device logs endpoint:', error);
             return errorHandler(error);
         }
     },

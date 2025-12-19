@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { logger } from '$lib/server/logger';
-import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/mint';
+import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 import { createErrorResponse, createSuccessResponse } from '$lib/server/types/api';
 import { getClientIp } from '$lib/utils/request-utils';
 

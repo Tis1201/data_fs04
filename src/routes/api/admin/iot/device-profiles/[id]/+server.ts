@@ -239,8 +239,8 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 
                     await publisher.publish(timeoutMessage);
                     logger.info(`Auto-reapply timeout notification sent for device ${device.id}`);
-                  } catch (sseError) {
-                    logger.error(`Error sending auto-reapply timeout notification: ${String(sseError)}`);
+                  } catch (notificationError) {
+                    logger.error(`Error sending auto-reapply timeout notification: ${String(notificationError)}`);
                   }
                 }
               } catch (timeoutError) {

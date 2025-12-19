@@ -169,7 +169,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
             await publisher.publish(statusMessage);
         } else {
             // For other actions, use the standard device:statusUpdate
-            const sseMessage = MessageFactory.createSystemMessage(
+            const notificationMessage = MessageFactory.createSystemMessage(
                 'device:statusUpdate',
                 `subscription:device:${device.id}`,
                 {
@@ -187,7 +187,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
                     excludeDevices: true  // Don't send status updates back to the device
                 }
             );
-            await publisher.publish(sseMessage);
+            await publisher.publish(notificationMessage);
         }
 
         // If action succeeds, fetch and push fresh data via SSE
@@ -220,7 +220,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
                 logger.info(`[Device Status Update] Fetched device info and ${appsData.apps.length} apps for device ${device.id}`);
 
-                // Publish enriched SSE message with fresh data (exclude device connection)
+                // Publish enriched notification message with fresh data (exclude device connection)
                 const dataUpdateMessage = MessageFactory.createSystemMessage(
                     'device:dataUpdate',
                     `subscription:device:${device.id}`,
@@ -330,7 +330,7 @@ async function handleProfileApplication(deviceId: string, data: any) {
                 status: 'SUCCESS'
             });
 
-            // Send SSE notification to web UI to update the device list
+            // Send notification to web UI to update the device list
             // Publish to multiple channels for better coverage (especially important for preclaim flow)
             try {
                 // Get device account for account-level channel
@@ -397,9 +397,9 @@ async function handleProfileApplication(deviceId: string, data: any) {
                     await publisher.publish(accountMessage);
                 }
 
-                logger.info(`[Device Status Update] SSE notification sent for device ${deviceId} profile completion (device + profile + account channels)`);
-            } catch (sseError) {
-                logger.error(`[Device Status Update] Error sending SSE notification: ${String(sseError)}`);
+                logger.info(`[Device Status Update] Notification sent for device ${deviceId} profile completion (device + profile + account channels)`);
+            } catch (notificationError) {
+                logger.error(`[Device Status Update] Error sending notification: ${String(notificationError)}`);
             }
         } else if (data.status === 'failed') {
             // Find the assignment first
@@ -424,7 +424,7 @@ async function handleProfileApplication(deviceId: string, data: any) {
                     message: data.message
                 });
 
-                // Send SSE notification for failure (important for preclaim flow)
+                // Send notification for failure (important for preclaim flow)
                 try {
                     const device = await prisma.device.findUnique({
                         where: { id: deviceId },
@@ -467,9 +467,9 @@ async function handleProfileApplication(deviceId: string, data: any) {
                         await publisher.publish(accountFailureMessage);
                     }
 
-                    logger.info(`[Device Status Update] SSE failure notification sent for device ${deviceId}`);
-                } catch (sseError) {
-                    logger.error(`[Device Status Update] Error sending SSE failure notification: ${String(sseError)}`);
+                    logger.info(`[Device Status Update] Failure notification sent for device ${deviceId}`);
+                } catch (notificationError) {
+                    logger.error(`[Device Status Update] Error sending failure notification: ${String(notificationError)}`);
                 }
             } else {
                 logger.warn(`[Device Status Update] No assignment found for device ${deviceId} when marking as failed`);

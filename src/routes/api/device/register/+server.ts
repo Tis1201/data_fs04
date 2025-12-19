@@ -1,15 +1,8 @@
-//SSE Connection passing in Factory JWT Token and Generated PIN
+//Device registration endpoint - devices now use MQTT for communication
 //Verify JWT Token and PIN format and strength
 //Create a UUID for the device
 //Store a PIN to Device UUID mapping using DeviceManager (transient)
-//Create a subscription for the device 
-//Create subscription:device:uuid to subscriber:connection:uuid   
-//If SSE disconnected, remove this subscription and PIN_UUID mappings
-//Wait for User to Claim Device
-//When User claims device, update DeviceManager with User ID
-//Send message to subscription:device:uuid to subscriber:user:userId to notify device that is claimed
-//Message contains userInfo, api_key, and the device_id
-//On Received, Device will store this information in a secure location
+//Wait for User to Claim Device via MQTT claim flow
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from '@sveltejs/kit';
@@ -18,12 +11,7 @@ import { checkPinFormat } from '$lib/server/device/devicePinChecker';
 import type { DeviceMeta } from '$lib/server/device/deviceMeta';
 import { ClaimStatus } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
-import type { ConnectionMeta } from '$lib/server/messaging/interfaces/connection';
 import { DeviceManager } from '$lib/server/device/deviceManager';
-import { SSEConnection } from '$lib/server/messaging/connections/sse_connection';
-import { ConnectionManager } from '$lib/server/messaging/core/connectionManager';
-import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
-import { DeviceStatusManager } from '$lib/server/device/deviceStatusManager';
 import { 
     ResponseStatus,
     ResponseCategory,
@@ -32,7 +20,6 @@ import {
 } from '$lib/shared/response_format';
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
-import { sendDeviceRegistrationMessage, createClaimOptions } from '$lib/server/device/deviceRegistrationUtils';
 import { PreclaimProfileService } from '$lib/server/device/profile';
 
 ////Device
@@ -42,8 +29,9 @@ import { PreclaimProfileService } from '$lib/server/device/profile';
 //Device will then connect to device/listen with the API Key
 
 /**
- * Device registration endpoint using SSE for real-time communication
+ * Device registration endpoint
  * Handles PIN validation and device registration
+ * Devices now use MQTT for communication after registration
  */
 export const GET: RequestHandler = async ({ locals, request }: any) => {
     try {
@@ -52,26 +40,26 @@ export const GET: RequestHandler = async ({ locals, request }: any) => {
 
         // Validate the PIN
         const pin = request.headers.get('X-Device-PIN');
-        const mac = request.headers.get('X-Device-MAC');
+        const deviceMac = request.headers.get('X-Device-MAC');
 
-        logger.debug(`X-Device-MAC: ${mac}`);
+        logger.debug(`X-Device-MAC: ${deviceMac}`);
 
         // Stash MAC for later use during connection
-        (locals as any).deviceMac = mac;
+        (locals as any).deviceMac = deviceMac;
 
         // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
-        if (mac) {
+        if (deviceMac) {
             const existingDevice = await locals.prisma.device.findFirst({
                 where: { 
                     OR: [
-                        { macAddress: mac },
-                        { wifiMac: mac }
+                        { macAddress: deviceMac },
+                        { wifiMac: deviceMac }
                     ]
                 }
             });
             
             if (existingDevice?.claimedBy) {
-                logger.warn(`Device with MAC ${mac} is already claimed`);
+                logger.warn(`Device with MAC ${deviceMac} is already claimed`);
                 throw toResponse(createErrorResponse({
                     error: 'ValidationError',
                     message: 'Device is already claimed',
@@ -118,200 +106,109 @@ export const GET: RequestHandler = async ({ locals, request }: any) => {
         // Generate a new device ID
         const deviceId = uuidv4();
         
-        // Store the PIN in locals so it can be accessed in the stream
-        locals.pin = pin;
-        locals.deviceId = deviceId;
+        // Create device metadata with MAC address
+        const deviceMeta: DeviceMeta = {
+            id: deviceId,
+            connectionId: deviceId,
+            macAddress: deviceMac || undefined,
+            wifiMac: deviceMac || undefined,
+        };
         
-        // Create SSE stream
-        const stream = new ReadableStream({
-            start(controller) {
-                // Create connection metadata
-                const connectionMeta = {
-                    id: deviceId,
-                    userInfo: {
-                        id: 'admin-device',
-                        email: 'admin@admin.com',
-                        name: 'Admin User',
-                        systemRole: 'ADMIN',
-                        source: 'session' as const
-                    },
-                    nodeId: 'device-register',
-                    protocol: 'sse',
-                    deviceId: deviceId,
-                    connectedAt: Date.now()
-                };
+        // Register the device with the PIN
+        await DeviceManager.registerDevice(pin, deviceMeta);
+        
+        // Handle preclaimed devices
+        const preclaim = (locals as any).preclaimDevice;
+        if (preclaim) {
+            logger.info(`Processing preclaim for device ${deviceId} with preclaim ${preclaim.preclaim.id}`);
+            
+            // Use preclaim set creator as the claiming user (fallback if claimedBy is not set)
+            const preclaimSet = await locals.prisma.preclaimSet.findUnique({
+                where: { id: preclaim.preclaim.setId },
+                select: { createdBy: true }
+            });
+            
+            const resolvedClaimUserId = preclaim.preclaim.claimedBy || preclaimSet?.createdBy;
+            
+            if (!resolvedClaimUserId) {
+                logger.error(`No user found to claim preclaimed device ${deviceId}`);
+                return json({
+                    success: false,
+                    error: 'No user found to claim preclaimed device',
+                    deviceId
+                }, { status: 500 });
+            }
+            
+            // Immediately claim the device with preclaim info
+            const claimedDevice = await DeviceManager.claimDevice(pin, {
+                userId: resolvedClaimUserId,
+                accountId: preclaim.preclaim.accountId,
+                preclaimId: preclaim.preclaim.id
+            });
+            
+            if (!claimedDevice) {
+                logger.error(`Failed to claim device ${deviceId} after preclaim processing`);
+                return json({
+                    success: false,
+                    error: 'Failed to claim device',
+                    deviceId
+                }, { status: 500 });
+            }
 
-                // Create SSE connection
-                const connection = new SSEConnection(connectionMeta, controller);
-                ConnectionManager.registerConnection(connection);
-
-                logger.debug(`Device registration SSE connection established: ${deviceId}`);
-
-                // Create device metadata with the connection ID and MAC address
-                const mac = (locals as any).deviceMac as string | null;
-                const deviceMeta: DeviceMeta = {
-                    id: deviceId,
-                    connectionId: deviceId,
-                    macAddress: mac || undefined,
-                    wifiMac: mac || undefined,
-                };
-                
-                // Register the device with the PIN
-                (async () => {
-                    await DeviceManager.registerDevice(pin, deviceMeta);
-                    // Handle preclaimed devices
-                    const preclaim = (locals as any).preclaimDevice;
-                    if (preclaim) {
-                        logger.info(`Processing preclaim for device ${deviceId} with preclaim ${preclaim.preclaim.id}`);
-                        
-                        // Use preclaim set creator as the claiming user (fallback if claimedBy is not set)
-                        let resolvedClaimUserId: string | null = null;
-                        
-                        locals.prisma.preclaimSet.findUnique({
-                            where: { id: preclaim.preclaim.setId },
-                            select: { createdBy: true }
-                        }).then((preclaimSet: any) => {
-                            resolvedClaimUserId = preclaim.preclaim.claimedBy || preclaimSet?.createdBy;
-                            
-                            if (!resolvedClaimUserId) {
-                                logger.error(`No user found to claim preclaimed device ${deviceId}`);
-                                return;
-                            }
-                            
-                            // Immediately claim the device with preclaim info
-                            return DeviceManager.claimDevice(pin, {
-                                userId: resolvedClaimUserId,
-                                accountId: preclaim.preclaim.accountId,
-                                preclaimId: preclaim.preclaim.id
-                            });
-                        }).then(async (claimedDevice: any) => {
-                            if (!claimedDevice) {
-                                logger.error(`Failed to claim device ${deviceId} after preclaim processing`);
-                                return;
-                            }
-
-                            // Update device network identifiers using the provided MAC
-                            const mac = (locals as any).deviceMac as string | null;
-                            if (mac) {
-                                await locals.prisma.device.update({
-                                    where: { id: claimedDevice.id },
-                                    data: {
-                                        macAddress: mac,
-                                        wifiMac: mac
-                                    }
-                                });
-                            }
-
-                            // Get the actual API key from the claimed device
-                            const deviceWithApiKey = await locals.prisma.device.findUnique({
-                                where: { id: claimedDevice.id },
-                                select: { apiKey: true }
-                            });
-
-                            if (!deviceWithApiKey?.apiKey) {
-                                logger.error(`No API key found for claimed device ${deviceId}`);
-                                return;
-                            }
-
-                            // Update preclaim record with claim metadata and linkage to device
-                            const preclaim = (locals as any).preclaimDevice;
-                            await locals.prisma.preclaimDevice.update({
-                                where: { id: preclaim.preclaim.id },
-                                data: {
-                                    status: ClaimStatus.FULFILLED,
-                                    claimedAt: new Date(),
-                                    claimedBy: resolvedClaimUserId, // Use the resolved claimUserId
-                                    deviceId: deviceId
-                                }
-                            });
-
-                            // Apply device profile if assigned to preclaim set
-                            if (resolvedClaimUserId) {
-                                try {
-                                    const profileService = new PreclaimProfileService(locals.prisma);
-                                    await profileService.applyToDevice(
-                                        deviceId,
-                                        preclaim.preclaim.setId,
-                                        resolvedClaimUserId
-                                        // No delay needed for SSE mode
-                                    );
-                                } catch (profileError: any) {
-                                    logger.error(`Failed to apply profile to claimed device ${deviceId}:`, profileError);
-                                    // Don't fail the claim if profile application fails
-                                }
-                            } else {
-                                logger.warn(`Skipped profile application; no resolvedClaimUserId for device ${deviceId}`);
-                            }
-
-                            // Send registration message using shared utility with the actual API key
-                            if (!resolvedClaimUserId) {
-                                logger.error(`Cannot send registration message: resolvedClaimUserId is null for device ${deviceId}`);
-                                return;
-                            }
-                            
-                            return sendDeviceRegistrationMessage(deviceId, {
-                                id: deviceId,
-                                apiKey: deviceWithApiKey.apiKey, // Use the actual API key from the claimed device
-                                accountId: preclaim.preclaim.accountId,
-                                claimedBy: resolvedClaimUserId, // Use the resolved claimUserId instead of preclaim.preclaim.claimedBy
-                                name: 'Preclaimed Device',
-                                deviceType: 'UNKNOWN',
-                                status: 'ACTIVE'
-                            });
-                        }).catch((error: any) => {
-                            logger.error(`Error in preclaim processing: ${error}`);
-                        });
+            // Update device network identifiers using the provided MAC
+            if (deviceMac) {
+                await locals.prisma.device.update({
+                    where: { id: claimedDevice.id },
+                    data: {
+                        macAddress: deviceMac,
+                        wifiMac: deviceMac
                     }
-                    
-                    logger.info(`Device ${deviceId} registered with PIN ${pin}`);
-                })().catch((error: any) => {
-                    logger.error(`Error registering device: ${error}`);
                 });
+            }
 
-                // Auto-subscribe device to its own scope for receiving commands
-                subscriptionRegistry.addSubscription(
-                    `subscription:device:${deviceId}`,
-                    `subscriber:connection:${deviceId}`
-                ).then(() => {
-                    logger.info(`Device ${deviceId} auto-subscribed to its own channel`);
-                }).catch((error: any) => {
-                    logger.error(`Failed to auto-subscribe device ${deviceId}: ${error}`);
-                });
-
-                // Send initial message
-                controller.enqueue(new TextEncoder().encode(
-                    `data: ${JSON.stringify({
-                        type: 'registered',
-                        deviceId: deviceId,
-                        message: 'Device registered successfully, waiting for claim'
-                    })}\n\n`
-                ));
-            },
-            cancel() {
-                // Clean up device subscription when connection closes
-                const deviceId = (locals as any).deviceId;
-                if (deviceId) {
-                    subscriptionRegistry.removeSubscription(
-                        `subscription:device:${deviceId}`,
-                        `subscriber:connection:${deviceId}`
-                    ).then(() => {
-                        logger.debug(`Device ${deviceId} subscription cleaned up`);
-                    }).catch((error: any) => {
-                        logger.warn(`Failed to clean up device ${deviceId} subscription: ${error}`);
-                    });
+            // Update preclaim record with claim metadata and linkage to device
+            await locals.prisma.preclaimDevice.update({
+                where: { id: preclaim.preclaim.id },
+                data: {
+                    status: ClaimStatus.FULFILLED,
+                    claimedAt: new Date(),
+                    claimedBy: resolvedClaimUserId,
+                    deviceId: deviceId
                 }
-                
-                logger.debug(`Device registration SSE connection closed`);
-            }
-        });
+            });
 
-        // Return SSE response
-        return new Response(stream, {
-            headers: {
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive'
+            // Apply device profile if assigned to preclaim set
+            if (resolvedClaimUserId) {
+                try {
+                    const profileService = new PreclaimProfileService(locals.prisma);
+                    await profileService.applyToDevice(
+                        deviceId,
+                        preclaim.preclaim.setId,
+                        resolvedClaimUserId
+                    );
+                } catch (profileError: any) {
+                    logger.error(`Failed to apply profile to claimed device ${deviceId}:`, profileError);
+                    // Don't fail the claim if profile application fails
+                }
             }
+
+            logger.info(`Device ${deviceId} registered and claimed via preclaim`);
+            
+            return json({
+                success: true,
+                deviceId: deviceId,
+                message: 'Device registered and claimed successfully',
+                claimed: true
+            });
+        }
+        
+        logger.info(`Device ${deviceId} registered with PIN ${pin}`);
+        
+        return json({
+            success: true,
+            deviceId: deviceId,
+            message: 'Device registered successfully, waiting for claim via MQTT',
+            claimed: false
         });
         
     } catch (error) {

@@ -2,6 +2,7 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { publishBundleCore } from '$lib/server/bundles/bundlePublisher';
 
 /**
  * POST /api/v2/bundles/[id]/publish
@@ -11,15 +12,15 @@ import { logger } from '$lib/server/logger';
  * - Changes bundle status to PUBLISHED
  * - Creates waves based on waveSize
  * - Auto-starts first wave
- * - Sends commands to devices in first wave
+ * - Sends MQTT commands to devices in first wave
  * - Sets up timeout tracking
  * - Initializes state management
  * 
  * Restrictions:
  * - Only DRAFT bundles can be published
  * 
- * Note: This delegates to the core implementation which handles
- * all the complex wave management, device messaging, and state tracking
+ * Note: This delegates to publishBundleCore which handles
+ * all the complex wave management, device messaging via MQTT, and state tracking
  */
 export const POST = unifiedEndpoint(
   async ({ context, params }) => {
@@ -42,22 +43,30 @@ export const POST = unifiedEndpoint(
       );
     }
 
-    // Update bundle status to PUBLISHED
-    await prisma.bundle.update({
-      where: { id: bundleId },
-      data: { status: 'PUBLISHED', updatedBy: session.user.id }
-    });
+    // Delegate to core publish logic
+    // This will:
+    // 1. Create waves
+    // 2. Assign devices to waves
+    // 3. Start first wave
+    // 4. Send MQTT notifications to devices
+    // 5. Set up timeout tracking
+    logger.info(`[BundlePublish] Publishing bundle ${bundleId} by user ${session.user.id}`);
+    const result = await publishBundleCore(prisma, bundleId, session.user.id);
 
-    logger.info(`Bundle ${bundleId} published by user ${session.user.id}`);
-    logger.warn(
-      `[BundlePublish] V2 endpoint provides simplified publish. Complex wave/device logic should be handled by background jobs or separate endpoints.`
-    );
+    // Extract wavesCreated from result
+    const wavesCreated = result?.body?.wavesCreated ?? 0;
 
     return successResponse(
-      { bundleId, status: 'PUBLISHED' },
+      { 
+        bundleId, 
+        status: 'PUBLISHED',
+        wavesCreated,
+        bundle: result?.body?.bundle
+      },
       {
-        message:
-          'Bundle published successfully. Wave creation and device deployment will be handled by the system.'
+        message: wavesCreated > 0 
+          ? `Bundle published successfully with ${wavesCreated} wave(s). First wave started automatically.`
+          : 'Bundle published successfully.'
       }
     );
   },
