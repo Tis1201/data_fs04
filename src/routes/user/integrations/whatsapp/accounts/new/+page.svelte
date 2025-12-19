@@ -16,7 +16,7 @@
     import UserPageContent from "$lib/components/user/layout/UserPageContent.svelte";
     import FormCard from "$lib/components/ui_components_sveltekit/form/FormCard.svelte";
     import FormActions from "$lib/components/ui_components_sveltekit/form/FormActions.svelte";
-    import { sseStore, onSSEEvent } from "$lib/stores/sse-store";
+    import { mqttClient } from "$lib/client/mqtt/mqttClient";
     import type { PageData } from "./$types";
     import { onDestroy, onMount } from "svelte";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
@@ -243,14 +243,15 @@
             connectionStatus: "connecting",
         }));
 
-        const responsePayload = await sseStore.sendRequest(
-            {
-                type: "whatsapp",
-                scope: "user:self",
-                payload: { action: "request_qr" },
-            },
-            /* timeoutMs = */ 15000, // 15 second timeout
-            /* requestIdPrefix = */ "whatsapp_qr",
+        // Ensure MQTT is connected
+        if (mqttClient.status !== 'connected') {
+            await mqttClient.connect();
+        }
+
+        const responsePayload = await mqttClient.request(
+            'whatsapp.request_qr',
+            {},
+            { timeoutMs: 15000 }
         );
 
         console.log(
@@ -271,72 +272,33 @@
     onMount(() => {
         console.log("[WHATSAPP_FORM] onMount - Start");
 
-        // Set up SSE event listener for WhatsApp events
-        const unsubscribe = onSSEEvent("message", (message) => {
-            // console.log(
-            //     "[WHATSAPP_FORM] Received WhatsApp SSE event:",
-            //     message,
-            // );
-
-            const msg_type = message.type;
-            const msg_scope = message.scope;
-            const msg_payload = message.payload;
-            const msg_payload_action = message.payload.action;
-
-            if (msg_type === "whatsapp") {
-                if (msg_payload_action === "qrCode") {
-                    const qrCode = msg_payload.content?.qrCode;
-                    const clientId = msg_payload.content?.clientId;
-
-                    console.log("[WHATSAPP_FORM] Received QR code:", {
-                        hasQrCode: !!qrCode,
-                        clientId: clientId || "Not provided",
-                    });
-
-                    if (qrCode) {
-                        whatsAppState.update((state) => ({
-                            ...state,
-                            qrCode: qrCode,
-                            clientId: clientId || state.clientId,
-                            connectionStatus: "awaiting_scan",
-                        }));
-                    }
+        // Set up MQTT notification listener for WhatsApp events
+        // WhatsApp store already handles MQTT notifications, so we just subscribe to the store
+        const unsubscribe = whatsAppState.subscribe((state) => {
+            // Handle QR code updates
+            if (state.qrCode && state.connectionStatus === 'awaiting_scan') {
+                console.log("[WHATSAPP_FORM] QR code received:", {
+                    hasQrCode: !!state.qrCode,
+                    clientId: state.clientId || "Not provided",
+                });
+            }
+            
+            // Handle authentication updates
+            if (state.connectionStatus === 'authenticated' || state.connectionStatus === 'connected') {
+                console.log(`[WHATSAPP_FORM] Received ${state.connectionStatus} event:`, {
+                    clientId: state.clientId,
+                    displayName: state.displayName,
+                    phoneNumber: state.phoneNumber
+                });
+                
+                // Only advance to step 2 if we're not already there
+                if (currentStep === 1) {
+                    console.log("[WHATSAPP_FORM] Advancing to step 2 (Account Details)");
+                    currentStep = 2;
                 }
-                if ( msg_payload_action === "authenticated") {
-                    const clientId = msg_payload.content?.clientId;
-                    const pushName = msg_payload.content?.pushName || msg_payload.content?.displayName;
-                    const phoneNumber = msg_payload.content?.phoneNumber;
-                    
-                    console.log(`[WHATSAPP_FORM] Received ${msg_payload_action} event:`, {
-                        clientId,
-                        pushName,
-                        phoneNumber,
-                        content: msg_payload.content
-                    });
-                    
-                    // Update the WhatsApp state with connection info
-                    whatsAppState.update((state) => {
-                        const newState = {
-                            ...state,
-                            connectionStatus: msg_payload_action === "authenticated" ? "authenticated" : "connected",
-                            clientId: clientId || state.clientId,
-                            displayName: pushName || state.displayName,
-                            phoneNumber: phoneNumber || state.phoneNumber
-                        };
-                        
-                        console.log("[WHATSAPP_FORM] Updated state:", newState);
-                        return newState;
-                    });
-                    
-                    // Only advance to step 2 if we're not already there
-                    if (currentStep === 1) {
-                        console.log("[WHATSAPP_FORM] Advancing to step 2 (Account Details)");
-                        currentStep = 2;
-                    }
-                    
-                    // Update the form with the new connection details
-                    whatsAppState.subscribe(updateFormFromState)();
-                }
+                
+                // Update the form with the new connection details
+                updateFormFromState(state);
             }
         });
 
@@ -359,14 +321,19 @@
             cleanupEventListeners = null;
         }
 
-        // Check if we're in a browser environment before using sseStore
+        // Check if we're in a browser environment before using MQTT
         if (typeof window !== 'undefined') {
             try {
                 const currentState = getCurrentState();
                 
-                const responsePayload = await sseStore.sendRequest(
+                // Ensure MQTT is connected
+                if (mqttClient.status !== 'connected') {
+                    await mqttClient.connect();
+                }
+                
+                const responsePayload = await mqttClient.request(
+                    'whatsapp.disconnect',
                     {
-                        type: "whatsapp",
                         scope: "user:self",
                         payload: { 
                             action: "cleanup",
@@ -375,8 +342,7 @@
                             }
                         },
                     },
-                    5000, // 5 second timeout
-                    "whatsapp_cleanup",
+                    { timeoutMs: 5000 } // 5 second timeout
                 );
                 
                 console.log(

@@ -21,7 +21,7 @@
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
     import { onMount } from "svelte";
-    import { sseStore } from "$lib/stores/sse-store";
+    // MQTT handles profile updates automatically - no import needed
     
     import { getDeviceProfileEditBreadcrumbs } from "$lib/utils/navigation";
     
@@ -56,7 +56,7 @@
 
     // Update form settings when localSettings changes
     $: $form.settings = JSON.stringify(localSettings);
-    let lastSubscribedConnectionId: string | null = null;
+    // Connection ID no longer needed - MQTT handles subscriptions automatically
     
     // Reference to ProfileSettingsEditor component for validation
     let profileSettingsEditor: any;
@@ -76,31 +76,9 @@
     onMount(() => {
         console.log('[AdminDeviceProfileDetail] onMount started for profile:', data.profile.id);
 
-        try {
-            console.debug('[AdminDeviceProfileDetail] Connecting SSE to /api/sse ...');
-            sseStore.connect(`/api/sse`, { withCredentials: true });
-        } catch (e) {
-            console.warn('[AdminDeviceProfileDetail] SSE connect failed (may already be connected):', e);
-        }
-
-        sseStore.on('connected', (msg: any) => {
-            const connId = msg?.data?.connectionId;
-            if (!connId) return;
-            if (connId === lastSubscribedConnectionId) {
-                console.debug('[DeviceProfileDetail] SSE connected event but already subscribed for', connId);
-                return;
-            }
-            console.debug('[DeviceProfileDetail] SSE (re)connected. Subscribing device channel', { profileId: data.profile.id, connId });
-            fetch(`/api/sse/subscribe/device-profile/${data.profile.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ connectionId: connId })
-            }).then(() => {
-                lastSubscribedConnectionId = connId;
-                console.log('[DeviceProfileDetail] Subscribed to device channel for', connId);
-            }).catch((err) => console.warn('Subscribe failed', err));
-        });
+        // Device profile subscriptions now handled via MQTT automatically
+        // MQTT client automatically receives profile updates based on user permissions
+        console.debug('[DeviceProfileDetail] Profile updates will be received via MQTT', { profileId: data.profile.id });
     });
 </script>
 
@@ -212,8 +190,6 @@
                 <DeviceAssignmentManager 
                     profileId={data.profile.id} 
                     isAdmin={false} 
-                    connId={lastSubscribedConnectionId || ''}
-                    {sseStore}
                     onTabChange={handleTabChange}
                 />
             </Tabs.Content>

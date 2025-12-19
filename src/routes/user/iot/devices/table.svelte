@@ -22,7 +22,7 @@
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
     import { Badge } from "$lib/components/ui/badge";
-    import { sseStore } from "$lib/stores/sse-store";
+    import { mqttClient } from "$lib/client/mqtt/mqttClient";
     import OnlineDot from "$lib/components/ui_components_sveltekit/devices/OnlineDot.svelte";
     import DeviceStatusBadge from "$lib/components/ui_components_sveltekit/devices/DeviceStatusBadge.svelte";
 
@@ -258,126 +258,62 @@
     // These are already imported from pagination-utils
     // Subscribe to connection events to update rows in real time
     onMount(() => {
-        console.log('[UserDeviceTable] ✅ SSE listener registered - waiting for device connection events...');
+        if (!browser) return;
+        
+        console.log('[UserDeviceTable] ✅ MQTT listeners registered - waiting for device connection events...');
         console.log('[UserDeviceTable] Total devices in table:', props.records.length);
         
-        const unsubscribe = sseStore.on('*', (msg: any) => {
-            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.log('[UserDeviceTable] 📨 SSE MESSAGE RECEIVED:', {
-                event: msg?.event,
-                hasData: !!msg?.data,
-                timestamp: new Date().toISOString()
-            });
-            console.log('[UserDeviceTable] Full message object:', msg);
+        // Handle device connection notifications
+        const unsubConnection = mqttClient.onNotification('device:connection', (payload: any) => {
+            console.log('[UserDeviceTable] 📨 MQTT device:connection notification:', payload);
             
-            const raw = msg?.data ?? msg;
-            const evtType = raw?.type || msg?.event || raw?.payload?.type;
-            console.log('[UserDeviceTable] Extracted event type:', evtType);
-            
-            // Normalize payloads - handle both old and new structures
-            // Old: { payload: { action: 'device:connection', deviceId, connected } }
-            // New: { type: 'device:connection', payload: { deviceId, connected } }
-            let normalized;
-            if (raw?.payload?.action === 'device:connection' || raw?.payload?.action === 'device:disconnection') {
-                console.log('[UserDeviceTable] 📦 Using OLD event structure (payload.action)');
-                normalized = { ...raw.payload, type: raw.payload.action };
-            } else if (raw?.type === 'device:connection' || raw?.type === 'device:disconnection') {
-                console.log('[UserDeviceTable] 📦 Using NEW event structure (type + payload)');
-                normalized = {
-                    type: raw.type,
-                    deviceId: raw.payload?.deviceId,
-                    connected: raw.payload?.connected,
-                    connectedAt: raw.payload?.connectedAt,
-                    disconnectedAt: raw.payload?.disconnectedAt,
-                    timestamp: raw.payload?.timestamp,
-                    reason: raw.payload?.reason
-                };
-            } else {
-                console.log('[UserDeviceTable] 📦 Unknown structure, passing through');
-                normalized = raw;
-            }
-            
-            console.log('[UserDeviceTable] Normalized event:', normalized);
-            
-            const isConnectionEvent = (evtType === 'device:connection') || (normalized?.type === 'device:connection');
-            const isDisconnectionEvent = (evtType === 'device:disconnection') || (normalized?.type === 'device:disconnection');
-            
-            console.log('[UserDeviceTable] Event type check:', {
-                isConnectionEvent,
-                isDisconnectionEvent,
-                evtType,
-                normalizedType: normalized?.type
-            });
-            
-            if (!isConnectionEvent && !isDisconnectionEvent) {
-                console.log('[UserDeviceTable] ⏭️  Not a connection/disconnection event, ignoring');
-                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            const deviceId = payload?.deviceId;
+            if (!deviceId) {
+                console.warn('[UserDeviceTable] ⚠️  No deviceId in connection notification');
                 return;
             }
             
-            const c = normalized as any;
-            const cDeviceId = c?.deviceId;
-            console.log('[UserDeviceTable] 🔍 Device ID extraction:', {
-                deviceId: cDeviceId,
-                connected: c?.connected,
-                hasDeviceId: !!cDeviceId
-            });
-            
-            if (!cDeviceId) {
-                console.error('[UserDeviceTable] ❌ ERROR: No deviceId found in event!');
-                console.log('[UserDeviceTable] Normalized object:', normalized);
-                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                return;
-            }
-            
-            const idx = props.records.findIndex((r) => r.id === cDeviceId);
-            console.log('[UserDeviceTable] 🔎 Searching for device in table:', {
-                deviceId: cDeviceId,
-                foundAtIndex: idx,
-                totalRecords: props.records.length,
-                recordIds: props.records.map((r: any) => r.id).slice(0, 5) // Show first 5 IDs
-            });
-            
+            const idx = props.records.findIndex((r) => r.id === deviceId);
             if (idx >= 0) {
-                const connected = c?.connected ?? false;
-                const previousStatus = props.records[idx].connected;
-                console.log('[UserDeviceTable] ✏️  Updating device:', {
-                    index: idx,
-                    deviceId: cDeviceId,
-                    previousStatus,
-                    newStatus: connected,
-                    statusChanged: previousStatus !== connected
-                });
-                
-                props.records[idx].connected = !!connected;
-                if (connected && c?.connectedAt) {
-                    (props.records[idx] as any).connectedAt = c.connectedAt;
-                }
-                if (!connected && c?.disconnectedAt) {
-                    (props.records[idx] as any).disconnectedAt = c.disconnectedAt;
+                const connected = payload?.connected ?? true;
+                props.records[idx].connected = connected;
+                if (payload?.connectedAt) {
+                    (props.records[idx] as any).connectedAt = payload.connectedAt;
                 }
                 props = { ...props }; // trigger re-render
-                console.log('[UserDeviceTable] ✅ SUCCESS: Device status updated!', {
-                    deviceId: cDeviceId,
-                    newStatus: connected,
-                    recordUpdated: true
-                });
-                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            } else {
-                console.warn('[UserDeviceTable] ⚠️  Device not found in current table view:', {
-                    deviceId: cDeviceId,
-                    reason: 'Device may be on a different page or filtered out'
-                });
-                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('[UserDeviceTable] ✅ Device status updated (connected):', deviceId);
             }
         });
 
-        // NOTE: No longer subscribing to individual devices
-        // The parent page now subscribes to the account-level channel: subscription:account:{accountId}:devices
-        // This single subscription covers ALL devices in the user's account for scalability
+        // Handle device disconnection notifications
+        const unsubDisconnection = mqttClient.onNotification('device:disconnection', (payload: any) => {
+            console.log('[UserDeviceTable] 📨 MQTT device:disconnection notification:', payload);
+            
+            const deviceId = payload?.deviceId;
+            if (!deviceId) {
+                console.warn('[UserDeviceTable] ⚠️  No deviceId in disconnection notification');
+                return;
+            }
+            
+            const idx = props.records.findIndex((r) => r.id === deviceId);
+            if (idx >= 0) {
+                props.records[idx].connected = false;
+                if (payload?.disconnectedAt) {
+                    (props.records[idx] as any).disconnectedAt = payload.disconnectedAt;
+                }
+                props = { ...props }; // trigger re-render
+                console.log('[UserDeviceTable] ✅ Device status updated (disconnected):', deviceId);
+            }
+        });
+
+        // NOTE: Device subscriptions are handled automatically via MQTT
+        // MQTT client receives device notifications based on user permissions
 
         return () => {
-            try { unsubscribe && unsubscribe(); } catch {}
+            try { 
+                unsubConnection && unsubConnection();
+                unsubDisconnection && unsubDisconnection();
+            } catch {}
         };
     });
 </script>
