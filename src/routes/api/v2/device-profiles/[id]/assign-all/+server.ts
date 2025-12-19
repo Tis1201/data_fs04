@@ -91,7 +91,7 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		userId: session.user.id
 	});
 
-	// Call the assign endpoint to handle ActionLog creation and SSE messaging
+	// Call the assign endpoint to handle ActionLog creation and MQTT messaging
 	const deviceIdsToAssign = devices.map((d: any) => d.id);
 
 	// Create internal request to assign endpoint
