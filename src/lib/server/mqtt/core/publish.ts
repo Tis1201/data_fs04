@@ -19,9 +19,14 @@ export const DeviceNotificationType = {
     Screenshot: 'device.screenshot',
     Reset: 'device.reset',
     ActionRequest: 'device:actionRequest',
+    StatusUpdate: 'device:statusUpdate',
+    ProgressUpdate: 'device:progressUpdate',
     Terminal: 'device:terminal',
     RDP: 'device:rdp',
-    WebRTC: 'device:webrtc'
+    WebRTC: 'device:webrtc',
+    BundleStatus: 'bundle:status',
+    BundleWaveStatus: 'bundle:waveStatus',
+    DeviceBundleStatus: 'device:bundleStatus'
 } as const;
 
 export const NotificationType = {

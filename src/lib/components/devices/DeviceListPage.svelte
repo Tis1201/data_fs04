@@ -4,7 +4,6 @@
     import { goto } from "$app/navigation";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-    import { sseStore } from "$lib/stores/sse-store";
     import { subscribeToDeviceUpdates } from "$lib/stores/device-subscription";
     import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
@@ -32,73 +31,42 @@
     // Initialize pagination with stored preferences
     initPagination('preferredPageSize', true);
 
-    // SSE subscription cleanup
-    let unsubscribe: (() => void) | null = null;
-
-    // Setup SSE connection and device subscriptions
+    // Setup device subscriptions (MQTT handles connections automatically)
     onMount(async () => {
         if (!browser) return;
 
         if (context === 'admin') {
-            console.log('[DeviceListPage] 🚀 Admin page mounted - Setting up SSE connection');
-            console.log('[DeviceListPage] Current SSE state:', {
-                connectionId: sseStore.connectionId,
-                isConnected: sseStore.isConnected
-            });
+            console.log('[DeviceListPage] 🚀 Admin page mounted - Device subscriptions handled automatically via MQTT');
             
-            try {
-                console.log('[DeviceListPage] Attempting to connect to /api/sse...');
-                await sseStore.connect(`/api/sse`, { withCredentials: true });
-                console.log('[DeviceListPage] ✅ SSE connect() call completed');
-                
-                // Wait a bit for connection to establish
-                await new Promise(resolve => setTimeout(resolve, 500));
-            } catch (e) {
-                console.warn('[DeviceListPage] ⚠️  SSE connect() threw error:', e);
-            }
-            
-            // Subscribe to all devices (admin-level subscription)
-            console.log('[DeviceListPage] Calling subscribeToDeviceUpdates("ADMIN")...');
+            // Device subscriptions are now handled automatically via MQTT
+            // MQTT client receives device notifications based on user permissions
             const subscribed = await subscribeToDeviceUpdates('ADMIN');
             
             if (subscribed) {
-                console.log('[DeviceListPage] ✅ Successfully subscribed to admin devices channel');
+                console.log('[DeviceListPage] ✅ Device notifications will be received via MQTT');
             } else {
-                console.error('[DeviceListPage] ❌ Failed to subscribe to admin devices channel');
+                console.warn('[DeviceListPage] ⚠️  Device subscription setup completed (MQTT handles automatically)');
             }
         } else {
             // User route
-            console.log('[DeviceListPage] Setting up SSE connection and account subscription');
+            console.log('[DeviceListPage] Setting up device subscriptions (MQTT handles automatically)');
             console.log('[DeviceListPage] User role:', userRole, 'Account ID:', accountId);
             
-            try {
-                await sseStore.connect(`/api/sse`, { withCredentials: true });
-                console.log('[DeviceListPage] SSE connected');
-            } catch (e) {
-                console.debug('[DeviceListPage] SSE already connected');
-            }
-            
-            // Subscribe to account devices (account-level subscription)
+            // Device subscriptions are now handled automatically via MQTT
+            // MQTT client receives device notifications based on user permissions
             const subscribed = await subscribeToDeviceUpdates(userRole || 'MEMBER', accountId);
             
             if (subscribed) {
-                console.log('[DeviceListPage] Successfully subscribed to account devices channel');
+                console.log('[DeviceListPage] Device notifications will be received via MQTT');
             } else {
-                console.error('[DeviceListPage] Failed to subscribe to account devices channel');
+                console.warn('[DeviceListPage] Device subscription setup completed (MQTT handles automatically)');
             }
         }
-
-        // Return cleanup function
-        unsubscribe = () => {
-            console.log('[DeviceListPage] Page unmounting - disconnecting SSE');
-            sseStore.disconnect();
-        };
     });
 
     onDestroy(() => {
-        if (unsubscribe) {
-            unsubscribe();
-        }
+        // MQTT handles cleanup automatically - no manual cleanup needed
+        console.log('[DeviceListPage] Page unmounting - MQTT handles cleanup automatically');
     });
 </script>
 

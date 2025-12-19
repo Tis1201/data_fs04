@@ -70,7 +70,7 @@ export class BundleStatusHandler extends ProgressActionHandler {
         devicesFailed
       }, logId);
     } else if (status === 'fail' || status === 'failed') {
-      this.handleError(message, logId);
+      this.handleError(message, logId, 'bundle_status');
     } else {
       // Handle progress updates
       this.handleProgress(progress || 0, message, logId);

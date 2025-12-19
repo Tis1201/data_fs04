@@ -6,17 +6,13 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 import { logger } from '$lib/server/logger';
 import { fail } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { deviceProfileSchema } from './deviceProfileLoader';
-import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
-import { ActionLogger } from '$lib/server/action-logger';
-import crypto from 'crypto';
+import { ProfileMessagingService } from './profile/ProfileMessagingService';
 
 export interface ProfileUpdateResult {
     success: boolean;
@@ -149,7 +145,7 @@ export async function updateDeviceProfile(
 }
 
 /**
- * Send updated profile configuration to device via SSE
+ * Send updated profile configuration to device via MQTT queue
  * 
  * @param prisma - Prisma client instance
  * @param deviceId - Device ID
@@ -175,31 +171,30 @@ async function sendProfileUpdateToDevice(
         }
 
         // Map profile to config payload
-        const { mapToConfigPayload } = await import('$lib/utils/mappers/deviceProfileMapper');
         const config = mapToConfigPayload(updatedProfile as any);
 
-        // Send config update to device
-        const routingMessage = MessageFactory.createSystemMessage(
-            'device:actionRequest',
-            `subscription:device:${deviceId}`,
+        // Use ProfileMessagingService to send via MQTT queue
+        const messagingService = new ProfileMessagingService(prisma);
+
+        const result = await messagingService.sendConfigToDevice(
+            deviceId,
+            config,
+            profileId,
             {
-                action: 'applyProfile',
-                deviceId: deviceId,
-                profileId: profileId,
-                config: config,
-                sentAt: new Date().toISOString()
-            },
-            SystemUser,
-            { echoToSender: false }
+                userId: 'system' // Legacy updates use system user
+            }
         );
 
-        await publisher.publish(routingMessage);
-        
-        logger.info(`[DeviceProfileUpdater] Profile update message sent to device ${deviceId}`, {
-            deviceId,
-            profileId,
-            configKeys: Object.keys(config)
-        });
+        if (result.success) {
+            logger.info(`[DeviceProfileUpdater] Profile update message sent to device ${deviceId} via MQTT`, {
+                deviceId,
+                profileId,
+                logId: result.logId,
+                configKeys: Object.keys(config)
+            });
+        } else {
+            logger.error(`[DeviceProfileUpdater] Failed to send profile update to device ${deviceId}:`, result.error);
+        }
     } catch (error) {
         logger.error(`[DeviceProfileUpdater] Error sending profile update message to device ${deviceId}:`, error as any);
         // Don't throw - profile was updated successfully even if message sending failed
@@ -207,7 +202,7 @@ async function sendProfileUpdateToDevice(
 }
 
 /**
- * Send device profile configuration to device via Redis Pub/Sub or publisher fallback
+ * Send device profile configuration to device via MQTT queue
  * 
  * This is a generic service function that can be used from multiple places:
  * - Device registration (after preclaim)
@@ -217,111 +212,54 @@ async function sendProfileUpdateToDevice(
  * @param deviceId - Device ID to send profile to
  * @param profile - Device profile object with settings included
  * @param options - Optional configuration
- * @returns Promise that resolves when message is sent (or fails silently)
+ * @returns Promise that resolves with logId when message is sent (or null on failure)
  */
 export async function sendDeviceProfileConfig(
     deviceId: string,
     profile: any,
     options?: {
         delay?: number; // Optional delay in milliseconds before sending
-        prisma?: any; // Prisma client for creating action log
+        prisma?: any; // Prisma client (required for ProfileMessagingService)
         userId?: string; // User ID for action log
     }
 ): Promise<string | null> {
+    if (!options?.prisma) {
+        logger.error(`[DeviceProfileUpdater] sendDeviceProfileConfig called without prisma client for device ${deviceId}`);
+        return null;
+    }
+
     const sendProfile = async (): Promise<string | null> => {
         try {
-            // Create action log if prisma and userId are provided
-            let logId: string | null = null;
-            if (options?.prisma && options?.userId) {
-                const requestId = crypto.randomUUID();
-                try {
-                    const actionLog = await ActionLogger.createInitiated({
-                        deviceId: deviceId,
-                        actionType: 'config_update',
-                        initiatedBy: options.userId,
-                        requestId: requestId,
-                        metadata: {
-                            action: 'applyProfile',
-                            profileId: profile.id,
-                            profileName: profile.name
-                        },
-                        initialMessage: `Applying profile: ${profile.name}`
-                    });
-                    logId = actionLog.id;
-                    logger.info(`[DeviceProfileService] ActionLog created for device ${deviceId}`, {
-                        deviceId,
-                        profileId: profile.id,
-                        logId
-                    });
-                } catch (logError) {
-                    logger.error(`[DeviceProfileService] Error creating ActionLog: ${String(logError)}`);
-                    // Continue even if log creation fails
-                }
-            }
-            
             // Map profile to config payload
             const config = mapToConfigPayload(profile);
             
-            // Get message relay for Redis Pub/Sub (preferred method)
-            const messageRelay = getMessageRelay();
-            
-            if (messageRelay) {
-                // Use Redis Pub/Sub for scalable device messaging
-                const message = {
-                    type: 'device:actionRequest',
-                    payload: {
-                        action: 'applyProfile',
-                        deviceId: deviceId,
-                        profileId: profile.id,
-                        logId: logId ?? undefined, // Include logId if available
-                        requestId: logId ?? undefined, // Use logId as requestId for consistency
-                        config: config,
-                        sentAt: new Date().toISOString()
-                    },
-                    timestamp: new Date().toISOString()
-                };
-                
-                await messageRelay.publishToDevice(deviceId, message);
-                
-                logger.info(`[DeviceProfileService] Profile config sent to device ${deviceId} via Redis Pub/Sub`, {
+            // Use ProfileMessagingService to send via MQTT queue
+            const messagingService = new ProfileMessagingService(options.prisma);
+
+            const result = await messagingService.sendConfigToDevice(
+                deviceId,
+                config,
+                profile.id,
+                {
+                    userId: options.userId || 'system',
+                    delay: undefined // Delay is handled at outer level
+                }
+            );
+
+            if (result.success) {
+                logger.info(`[DeviceProfileUpdater] Profile config sent to device ${deviceId} via MQTT`, {
                     deviceId,
                     profileId: profile.id,
-                    logId,
+                    logId: result.logId,
                     configKeys: Object.keys(config)
                 });
+                return result.logId;
             } else {
-                // Fallback to publisher system for backward compatibility
-                logger.warn(`[DeviceProfileService] MessageRelay not initialized - using publisher fallback for device ${deviceId}`);
-                
-                const routingMessage = MessageFactory.createSystemMessage(
-                    'device:actionRequest',
-                    `subscription:device:${deviceId}`,
-                    {
-                        action: 'applyProfile',
-                        deviceId: deviceId,
-                        profileId: profile.id,
-                        logId: logId ?? undefined,
-                        requestId: logId ?? undefined,
-                        config: config,
-                        sentAt: new Date().toISOString()
-                    },
-                    SystemUser,
-                    { echoToSender: false }
-                );
-                
-                await publisher.publish(routingMessage);
-                
-                logger.info(`[DeviceProfileService] Profile config sent to device ${deviceId} via publisher`, {
-                    deviceId,
-                    profileId: profile.id,
-                    logId,
-                    configKeys: Object.keys(config)
-                });
+                logger.error(`[DeviceProfileUpdater] Failed to send profile config to device ${deviceId}:`, result.error);
+                return null;
             }
-            
-            return logId;
         } catch (error) {
-            logger.error(`[DeviceProfileService] Error sending profile config to device ${deviceId}:`, error as any);
+            logger.error(`[DeviceProfileUpdater] Error sending profile config to device ${deviceId}:`, error as any);
             // Don't throw - allow caller to handle gracefully
             return null;
         }
@@ -355,43 +293,16 @@ export async function sendPendingProfileAssignments(
     deviceId: string
 ): Promise<void> {
     try {
-        const pendingAssignments = await prisma.deviceProfileAssignment.findMany({
-            where: {
-                deviceId: deviceId,
-                status: 'APPLYING'
-            },
-            include: {
-                profile: {
-                    include: {
-                        settings: {
-                            orderBy: { order: 'asc' }
-                        }
-                    }
-                }
-            }
-        });
+        // Use ProfileMessagingService which has a dedicated method for this
+        const messagingService = new ProfileMessagingService(prisma);
 
-        if (pendingAssignments.length === 0) {
-            logger.debug(`[DeviceProfileService] No pending profile assignments for device ${deviceId}`);
-            return;
-        }
-
-        logger.info(`[DeviceProfileService] Found ${pendingAssignments.length} pending profile assignment(s) for device ${deviceId}`);
+        const count = await messagingService.sendPendingAssignments(deviceId);
         
-        // Send each pending profile
-        for (const assignment of pendingAssignments) {
-            if (assignment.profile) {
-                // Use 'system' as userId for automatic pending profile sends
-                await sendDeviceProfileConfig(deviceId, assignment.profile, {
-                    prisma: prisma,
-                    userId: 'system'
-                });
-            }
+        if (count > 0) {
+            logger.info(`[DeviceProfileUpdater] Sent ${count} pending profile(s) to device ${deviceId} via MQTT`);
         }
-        
-        logger.info(`[DeviceProfileService] Sent ${pendingAssignments.length} pending profile(s) to device ${deviceId}`);
     } catch (error) {
-        logger.error(`[DeviceProfileService] Error sending pending profiles to device ${deviceId}:`, error as any);
+        logger.error(`[DeviceProfileUpdater] Error sending pending profiles to device ${deviceId}:`, error as any);
         // Don't throw - allow caller to handle gracefully
     }
 }

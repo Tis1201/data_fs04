@@ -11,7 +11,6 @@ import { MessageFactory, SystemUser } from '../messaging/interfaces/message';
 import { MessageValidator } from '../../types/unified';
 import { getLoggingManager, LoggingManagerClass } from '../../managers/LoggingManager';
 import { publisher } from '../messaging/core/publisher';
-import { getMessageRelay } from '../pushpin/middleware';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -258,42 +257,22 @@ class RDPHandlerClass implements Handler {
     }
   }
 
+  /**
+   * Forward RDP message to device via MQTT
+   * Note: RDP messages to devices are now handled by MQTT RPC handlers
+   * (see: src/lib/server/mqtt/handlers/web/rdp/handle_rdp.ts)
+   * This method is kept for backward compatibility but messages should
+   * be sent via MQTT RPC operations instead.
+   */
   private async forwardToDevice(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
     
-    // Use MessageRelay to publish to device via Pushpin
-    const messageRelay = getMessageRelay();
+    logger.debug(`[RDPHandler] forwardToDevice called - RDP messages should use MQTT RPC handlers. Action: ${data.action}, Device: ${deviceId}`);
     
-    if (!messageRelay) {
-      const error = 'MessageRelay not available - cannot send RDP message to device';
-      logger.error(`[RDPHandler] ${error} (deviceId: ${deviceId}, action: ${data.action})`);
-      throw new Error(error);
-    }
-    
-    // Prepare RDP message for device
-    // Device expects messages in format: { type: 'rdp:start', options: {...}, timestamp: ... }
-    const rdpMessage: any = {
-      type: data.action, // rdp:start, rdp:stop, rdp:mouse, rdp:keyboard
-      timestamp: Date.now()
-    };
-    
-    // Add specific fields based on action type
-    if (data.action === 'rdp:start') {
-      rdpMessage.options = data.options || {};
-    } else if (data.action === 'rdp:mouse') {
-      rdpMessage.mouse = data.mouse || {};
-    } else if (data.action === 'rdp:keyboard') {
-      rdpMessage.keyboard = data.keyboard || {};
-    }
-    
-    // Publish to device via Pushpin
-    await messageRelay.publishToDevice(deviceId, rdpMessage);
-    
-    this.logger?.logRDP(data.action, deviceId, `Published to device via Pushpin`, {
-      action: data.action
-    });
-    
-    logger.debug(`[RDPHandler] Published ${data.action} to device ${deviceId} via Pushpin`);
+    // RDP messages to devices are now handled by MQTT RPC handlers
+    // Web clients should use: mqttClient.request('rdp.start', {...}) etc.
+    // This handler processes incoming RDP messages from the messaging system,
+    // not outgoing messages to devices.
   }
 
   private async forwardToClient(message: InMessage, data: any): Promise<void> {
@@ -303,9 +282,9 @@ class RDPHandlerClass implements Handler {
     const scope = `subscription:device:${deviceId}`;
 
     // Create a proper RoutingMessage for the publisher
-    // The type field in payload will be used as the SSE event type
+    // The type field in payload will be used as the notification type
     const routingMessage = MessageFactory.createSystemMessage(
-      data.action, // rdp:error - this becomes the SSE event type
+      data.action, // rdp:error - this becomes the notification type
       scope,
       {
         type: data.action, // rdp:error
@@ -323,7 +302,7 @@ class RDPHandlerClass implements Handler {
       routingMessage.requestId = message.requestId;
     }
 
-    this.logger?.logRDP(data.action, deviceId, `Publishing to UI via SSE`, {
+    this.logger?.logRDP(data.action, deviceId, `Publishing to UI via messaging system`, {
       action: data.action,
       scope
     });

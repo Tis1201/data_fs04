@@ -1,7 +1,6 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
-    import { sseStore } from '$lib/stores/sse-store';
     import { mqttClient } from '$lib/client/mqtt/mqttClient';
     import { browser } from '$app/environment';
     
@@ -11,7 +10,7 @@
     let unsubscribe: () => void;
     let isInitializing = false; // Flag to prevent duplicate connections during mount
     
-    // Function to handle SSE connections based on auth state
+    // Function to handle MQTT connections based on auth state
     function handleAuthStateChange(isAuthenticated: boolean, currentPath: string) {
         if (!browser) return;
         
@@ -32,16 +31,13 @@
         
         // CRITICAL: Force disconnect if navigating to auth pages (logout/login)
         if (currentPath.startsWith('/auth/login') || currentPath.startsWith('/auth/logout')) {
-            console.log('[AuthStateHandler] Navigating to auth page, FORCE CLOSING all connections');
+            console.log('[AuthStateHandler] Navigating to auth page, FORCE CLOSING MQTT connection');
             try {
-                sseStore.setAuthEnabled?.(false);
-                sseStore.disconnect();
-                sseStore.resetForNewUser();
                 // Disconnect MQTT client
                 mqttClient.setAuthState('unauthenticated');
                 mqttClient.disconnect(true);
             } catch (err) {
-                console.error('[AuthStateHandler] Error force closing connections:', err);
+                console.error('[AuthStateHandler] Error force closing MQTT connection:', err);
             }
             previousAuthState = false;
             previousPath = currentPath;
@@ -50,19 +46,9 @@
         
         // If auth state changed from logged out to logged in
         if (previousAuthState === false && isAuthenticated === true) {
-            console.log('[AuthStateHandler] User logged in, resetting connections');
-            // Small delay to ensure auth cookies are set before reconnecting
+            console.log('[AuthStateHandler] User logged in, connecting MQTT');
+            // Small delay to ensure auth cookies are set before connecting
             setTimeout(() => {
-                sseStore.setAuthEnabled?.(true);
-                // Reset SSE connection with new session
-                if (sseStore) {
-                    console.log('[AuthStateHandler] Resetting SSE connection');
-                    sseStore.resetForNewUser();
-                    // Reconnect after reset
-                    setTimeout(() => {
-                        sseStore.connect('/api/sse');
-                    }, 50);
-                }
                 // Connect MQTT client
                 mqttClient.setAuthState('authenticated');
                 mqttClient.connect().catch(err => {
@@ -72,80 +58,41 @@
         }
         // If auth state changed from logged in to logged out
         else if (previousAuthState === true && isAuthenticated === false) {
-            console.log('[AuthStateHandler] User logged out, force disconnecting ALL connections');
-            // Force immediate disconnection of ALL connections
+            console.log('[AuthStateHandler] User logged out, force disconnecting MQTT connection');
+            // Force immediate disconnection
             try {
-                sseStore.setAuthEnabled?.(false);
-                sseStore.disconnect();
-                // Disconnect MQTT client
                 mqttClient.setAuthState('unauthenticated');
                 mqttClient.disconnect(true);
             } catch (err) {
-                console.warn('[AuthStateHandler] Error disconnecting stores:', err);
+                console.warn('[AuthStateHandler] Error disconnecting MQTT:', err);
             }
             
-            // Additional cleanup - force close any lingering connections
-            try {
-                if (sseStore.resetForNewUser) {
-                    sseStore.resetForNewUser();
-                }
-            } catch (err) {
-                console.warn('[AuthStateHandler] Error resetting stores:', err);
-            }
-            
-            console.log('[AuthStateHandler] All connections forcefully closed on logout');
+            console.log('[AuthStateHandler] MQTT connection forcefully closed on logout');
         }
-        // If we're navigating to a user route and connections are not open
+        // If we're navigating to a user route and MQTT is not connected
         else if (isAuthenticated && isRouteChange && currentPath.startsWith('/user')) {
-            console.log('[AuthStateHandler] Navigating to user route, checking connections');
-            // Check SSE connection
-            if (sseStore && !sseStore.isConnected) {
-                console.log('[AuthStateHandler] SSE not connected, resetting');
-                sseStore.resetForNewUser();
-                setTimeout(() => {
-                    sseStore.connect('/api/sse');
-                }, 50);
-            }
+            console.log('[AuthStateHandler] Navigating to user route, checking MQTT connection');
             // Check MQTT connection
             mqttClient.setAuthState('authenticated');
             mqttClient.connect().catch(err => {
                 console.warn('[AuthStateHandler] MQTT connect failed:', err);
             });
         }
-        // If we're authenticated but connections are not open
+        // If we're authenticated but MQTT is not connected
         else if (isAuthenticated) {
-            // Check SSE
-            if (sseStore && !sseStore.isConnected) {
-                console.log('[AuthStateHandler] Authenticated but SSE not connected, resetting');
-                sseStore.resetForNewUser();
-                setTimeout(() => {
-                    sseStore.connect('/api/sse');
-                }, 50);
-            }
             // Check MQTT connection (connect() already checks if connected)
             mqttClient.setAuthState('authenticated');
             mqttClient.connect().catch(err => {
                 console.warn('[AuthStateHandler] MQTT connect failed:', err);
             });
         }
-        // If we're not authenticated but connections are open
+        // If we're not authenticated but MQTT is connected
         else if (!isAuthenticated) {
-            console.log('[AuthStateHandler] Not authenticated, ensuring all connections are closed');
+            console.log('[AuthStateHandler] Not authenticated, ensuring MQTT connection is closed');
             try {
-                sseStore.setAuthEnabled?.(false);
-                if (sseStore && sseStore.isConnected) {
-                    console.log('[AuthStateHandler] Force closing SSE connection');
-                    sseStore.disconnect();
-                }
-                
                 // Disconnect MQTT client
                 mqttClient.setAuthState('unauthenticated');
                 mqttClient.disconnect(true);
-                
-                // Additional cleanup to ensure no lingering connections
-                if (sseStore.resetForNewUser) {
-                    sseStore.resetForNewUser();
-                }
             } catch (err) {
                 console.warn('[AuthStateHandler] Error during cleanup:', err);
             }
@@ -173,15 +120,7 @@
         
         // Initial connection check
         if (previousAuthState) {
-            console.log('[AuthStateHandler] Initial mount: Connecting with authenticated user');
-            sseStore.setAuthEnabled?.(true);
-            // Reset and connect SSE to ensure fresh session
-            if (sseStore) {
-                sseStore.resetForNewUser();
-                setTimeout(() => {
-                    sseStore.connect('/api/sse');
-                }, 50);
-            }
+            console.log('[AuthStateHandler] Initial mount: Connecting MQTT with authenticated user');
             
             // Initialize MQTT client for authenticated user
             mqttClient.setAuthState('authenticated');
@@ -200,24 +139,12 @@
         unsubscribe = page.subscribe(($page) => {
             const isAuthenticated = !!$page.data.user;
             const currentPath = $page.url.pathname;
-            if (!isAuthenticated) {
-                sseStore.setAuthEnabled?.(false);
-            }
             handleAuthStateChange(isAuthenticated, currentPath);
         });
-        
-        // Add event listener for page unload (which happens during logout)
-        const handleBeforeUnload = () => {
-            console.log('[AuthStateHandler] Page unloading, cleaning up');
-            sseStore.disconnect();
-        };
-        
-        window.addEventListener('beforeunload', handleBeforeUnload);
         
         // Cleanup function
         return () => {
             if (unsubscribe) unsubscribe();
-            window.removeEventListener('beforeunload', handleBeforeUnload);
             console.log('[AuthStateHandler] Unmounted');
         };
     });

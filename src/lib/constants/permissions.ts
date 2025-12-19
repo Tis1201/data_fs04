@@ -162,11 +162,8 @@ export const ADMIN_SIDEBAR_ITEMS: Record<string, SidebarItem> = {
   },
   
   // Debug Section
-  DEBUG_SSE: {
-    label: 'SSE Debug',
-    href: '/admin/debug/sse',
-    actions: ['VIEW']
-  },
+  // DEBUG_SSE removed - SSE has been migrated to MQTT
+  // Use DEBUG_MESSAGING for MQTT connection debugging
   DEBUG_MESSAGING: {
     label: 'Messaging Debug',
     href: '/admin/debug/messaging',
@@ -263,7 +260,7 @@ export const ADMIN_CATEGORIES = {
   'JWT': ['REFRESH_TOKENS', 'TOKEN_LOGS'],
   'Vision': ['STREAMS', 'PREVIEW'],
   'Monitor': ['MONITOR'],
-  'Debug': ['DEBUG_SSE', 'DEBUG_MESSAGING', 'DEBUG_REDIS']
+  'Debug': ['DEBUG_MESSAGING', 'DEBUG_REDIS']
 } as const;
 
 export const USER_CATEGORIES = {

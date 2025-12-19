@@ -75,9 +75,9 @@ All messages in the system support `requestId` as a first-class property to enab
 
 - **Request-Response Pattern**: When a client sends a message with a `requestId`, any response to that message should include the same `requestId`.
 - **Automatic Generation**: If not provided, a unique `requestId` is automatically generated using `generateRequestId()`.
-- **Cross-Protocol Support**: Works consistently across both WebSocket and SSE protocols.
+- **Cross-Protocol Support**: Works consistently across WebSocket and MQTT protocols (SSE has been migrated to MQTT).
 
-#### 1. SSE Message Example
+#### 1. MQTT Message Example (SSE has been migrated to MQTT)
 ```json
 {
   "type": "message",
@@ -100,7 +100,7 @@ All messages in the system support `requestId` as a first-class property to enab
   "requestId": "req_ms0z7rx4j3",
   "senderId": "cm8ygueii0000hsswg8xuc0yz",
   "senderConnectionId": "8e8d4b20-4c72-4a8d-8afe-e8a2ae7cdff4",
-  "senderConnectionProtocol": "sse",
+  "senderConnectionProtocol": "mqtt",
   "sudo": false,
   "timestamp": "2025-06-14T08:33:03.024Z"
 }
@@ -127,7 +127,7 @@ All messages in the system support `requestId` as a first-class property to enab
 The message pipeline is built on **three clearly separated message types**:
 
 ### 1. InMessage
-- **Source:** Any external input (WebSocket, SSE, webhook, etc.)
+- **Source:** Any external input (WebSocket, MQTT, webhook, etc.)
 - **Purpose:** Represents the raw message received from a client or external system.
 - **Fields:**
   - `type`: Message type identifier
@@ -210,7 +210,7 @@ export interface MessageTrace {
   payload?: any;                  // Full message payload (redacted)
   error?: string;                 // Error message (if any)
   connectionId?: string;          // Connection ID (if applicable)
-  protocol?: string;              // Protocol used (e.g., 'sse', 'websocket')
+   protocol?: string;              // Protocol used (e.g., 'mqtt', 'websocket')
   sudo?: boolean;                 // Whether sudo was used
 }
 ```
@@ -333,7 +333,7 @@ const outMessage = MessageFactory.toOutMessage(routingMessage);
 The messaging system supports dynamic, temporary subscriptions—ideal for real-time UIs such as forms, modals, or dashboards.
 
 **How it works:**
-- When a frontend component (e.g., a form) wants to receive messages for a specific scope (such as a WhatsApp account), it sends a `subscribe` message over SSE or WebSocket using an explicit, extensible structure:
+- When a frontend component (e.g., a form) wants to receive messages for a specific scope (such as a WhatsApp account), it uses MQTT notifications or WebSocket subscriptions using an explicit, extensible structure:
 
   ```json
   {
@@ -417,7 +417,7 @@ The messaging system supports dynamic, temporary subscriptions—ideal for real-
 
 ### Modular Directory Structure
 - **authorizers/**: Contains all scope-based authorizers (connection, subscription, user). Each authorizer enforces security rules for publishing to its respective scope. Authorizers share a common interface and log all decisions for traceability.
-- **connections/**: Implements protocol-specific connection logic (e.g., SSE, WebSocket).
+- **connections/**: Implements protocol-specific connection logic (e.g., MQTT, WebSocket). Note: SSE connections have been migrated to MQTT.
 - **core/**: Contains the core messaging logic, including:
   - `connectionManager.ts`: Manages live connections, user-to-connection mapping, and connection registration/unregistration.
   - `router.ts`: Resolves message scopes to connection IDs using specialized routers (user, subscription, connection).
@@ -451,28 +451,24 @@ For more details, see the relevant files in each directory and the code comments
 
 ### Connection ID Handling
 
-1. **Client-Side (SSE Store)**:
-   - The SSE store automatically includes the current `connectionId` in all outgoing messages as `senderConnectionId`
-   - If the connection ID is not yet available, the store will wait for it with a timeout
-   - Example usage in `sse-store.ts`:
+1. **Client-Side (MQTT Client)**:
+   - The MQTT client automatically includes connection context in all outgoing messages
+   - Connection management is handled automatically by the MQTT client
+   - Example usage with `mqttClient`:
      ```typescript
-     const message = {
-       ...partialMsg,
-       timestamp: new Date().toISOString(),
-       requestId,
-       senderConnectionId: currentConnectionId // Automatically included
-     };
+     const response = await mqttClient.request('whatsapp.request_qr', {}, { timeoutMs: 15000 });
+     // Connection context is automatically included by the MQTT client
      ```
 
-2. **Server-Side (SSE Handler)**:
-   - The server preserves the `senderConnectionId` in all routing messages
+2. **Server-Side (MQTT Handler)**:
+   - The server preserves connection context in all routing messages
    - Used to route responses back to the specific client connection
-   - Example in `+server.ts`:
+   - Example in MQTT handler:
      ```typescript
      const routingMessage: RoutingMessage = {
        // ...other fields
        senderConnectionId: message.senderConnectionId || '',
-       senderConnectionProtocol: 'sse',
+       senderConnectionProtocol: 'mqtt',
      };
      ```
 
@@ -494,7 +490,7 @@ For more details, see the relevant files in each directory and the code comments
 ### Error Handling
 - If `senderConnectionId` is missing, the system will attempt to generate a fallback ID based on the connection protocol
 - All errors related to missing connection IDs are logged for debugging purposes
-- The SSE store includes retry logic for cases where the connection ID isn't immediately available
+- The MQTT client includes retry logic for cases where the connection isn't immediately available
 
 ## Contributing
 - Update message interfaces/types for new features.
@@ -522,8 +518,8 @@ This code is part of the FS0 Web project and is subject to the project's license
   - Document subscription conventions, patterns, and extension points for team clarity.
 
 - **Protocol-based Delivery:**
-  - Enable routing to only specific protocols (e.g., WebSocket, SSE, etc.) by filtering connections based on `protocol`.
-  - Example: Deliver only to WebSocket connections, or only to SSE connections for a given user.
+  - Enable routing to only specific protocols (e.g., WebSocket, MQTT, etc.) by filtering connections based on `protocol`.
+  - Example: Deliver only to WebSocket connections, or only to MQTT connections for a given user.
 
 - **Connection/Device-based Targeting:**
   - Support scopes like `connection:<connectionId>` or `device:<connectionId>` to deliver to a specific device/session.

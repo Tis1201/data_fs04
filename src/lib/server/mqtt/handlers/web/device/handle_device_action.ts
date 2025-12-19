@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { logger } from '$lib/server/logger';
-import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
-import type { RpcHandlerArgs, RpcResponse } from '../index';
-import { checkDeviceAccess } from './access_checker';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../../core/publish';
+import type { RpcHandlerArgs, RpcResponse } from '../../index';
+import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
 import { getStorageConfig, generatePresignedUrl, generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
 
@@ -46,7 +46,7 @@ async function executeDeviceAction(
     const normalizedActionType = actionType.toLowerCase().replace(/\s/g, '_');
     const actionLog = await ActionLogger.createInitiated({
         deviceId,
-        actionType: normalizedActionType as any, // Type is validated by ActionLogger
+        actionType: normalizedActionType as any,
         initiatedBy: userId,
         protocol: 'mqtt',
         metadata: {
@@ -54,7 +54,7 @@ async function executeDeviceAction(
             ...additionalParams,
             source: 'mqtt_rpc'
         },
-        initialMessage: `${actionType} initiated via MQTT RPC`
+        initialMessage: `${actionType} initiated`
     });
 
     const flowId = crypto.randomUUID();

@@ -1,4 +1,3 @@
-import { getMessageRelay } from '$lib/server/pushpin/middleware';
 import { logger } from '$lib/server/logger';
 
 export interface DeviceRegistrationData {
@@ -14,49 +13,24 @@ export interface DeviceRegistrationData {
 }
 
 /**
- * Sends standardized device registration message to device via Redis Pub/Sub
+ * Sends standardized device registration message to device via MQTT
  * 
- * ARCHITECTURE (Scalable - follows redis_pushpin.md):
- * - Device is connected to Pushpin (not backend directly)
- * - Backend publishes to Redis Pub/Sub channel (REDIS_PUSHPIN_CHANNEL_NAME)
- * - Sidecars subscribe to Redis and relay messages to their local Pushpin instances
- * - Pushpin delivers message to device
- * - This enables horizontal scaling (100k+ devices)
+ * @deprecated Device registration is now handled via MQTT claim flow.
+ * The device receives registration credentials (deviceId, apiKey, accountId) 
+ * directly from the MQTT claim confirm handler response.
+ * 
+ * See: src/lib/server/mqtt/handlers/device/claim/handle_claim_confirm.ts
+ * 
+ * This function is kept for backward compatibility but does nothing.
+ * All calls to this function should be removed.
  */
 export async function sendDeviceRegistrationMessage(
     deviceId: string, 
     deviceData: DeviceRegistrationData
 ): Promise<void> {
-    const messageRelay = getMessageRelay();
-    
-    if (!messageRelay) {
-        logger.error(`[Redis Pub/Sub] MessageRelay not initialized - cannot send registration message to device ${deviceId}`);
-        throw new Error('MessageRelay not initialized - Redis service may not be available');
-    }
-    
-    // Create message payload
-    const message = {
-        type: 'device',
-        payload: {
-            action: 'registered',
-            ...deviceData,
-            claimedAt: deviceData.claimedAt || new Date().toISOString()
-        },
-        timestamp: new Date().toISOString()
-    };
-    
-    logger.info(`[Redis Pub/Sub] Publishing registration message for device ${deviceId}`);
-    logger.debug(`[Redis Pub/Sub] Registration message payload: ${JSON.stringify(message)}`);
-    
-    try {
-        // Publish to Redis Pub/Sub - sidecars will relay to Pushpin
-        // Channel format: device:{deviceId} (matches Pushpin channel)
-        await messageRelay.publishToDevice(deviceId, message);
-        logger.info(`[Redis Pub/Sub] ✓ Device registration message successfully published for device ${deviceId}`);
-    } catch (error) {
-        logger.error(`[Redis Pub/Sub] ✗ Failed to publish registration message for device ${deviceId}:`, error);
-        throw error; // Re-throw to ensure caller knows it failed
-    }
+    // No-op: Device registration now handled via MQTT claim flow
+    // The device receives credentials directly from handle_claim_confirm response
+    logger.debug(`[DeviceRegistration] Legacy sendDeviceRegistrationMessage called for device ${deviceId} - no-op (MQTT claim flow handles registration)`);
 }
 
 /**

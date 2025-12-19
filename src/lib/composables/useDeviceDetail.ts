@@ -1,10 +1,11 @@
 import { writable, type Writable } from 'svelte/store';
 import { toast } from 'svelte-sonner';
 import { goto } from '$app/navigation';
-import { sseStore } from '$lib/stores/sse-store';
-import { subscribeDeviceDetailEvents } from '$lib/client/actionHandlers';
+import { subscribeActionLogUpdates } from '$lib/client/mqtt/handlers/data/actionLogHandler';
+import { createModalHandler } from '$lib/client/mqtt/handlers/ui/modalHandler';
+import { createProgressBarHandler } from '$lib/client/mqtt/handlers/ui/progressBarHandler';
 import { DeviceActionsService } from '$lib/services/deviceActionsService';
-import { useDeviceSSEHandlers } from './useDeviceSSEHandlers';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 import {
     updateFirmware as mqttUpdateFirmware,
     installApp as mqttInstallApp,
@@ -599,6 +600,11 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
 
     // Action handlers
     function accessRemoteTerminal() {
+        const currentDevice = device.get();
+        if (!currentDevice?.connected) {
+            toast.error('Device is offline');
+            return;
+        }
         addActionLogRow('terminal', 'Opening terminal', 'initiated');
         goto(`${basePath}/iot/devices/${deviceId}/terminal`);
     }
@@ -622,6 +628,11 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
     }
 
     async function viewLogs() {
+        const currentDevice = device.get();
+        if (!currentDevice?.connected) {
+            toast.error('Device is offline');
+            return;
+        }
         await actionsService.viewLogs();
     }
 
@@ -629,114 +640,40 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
         goto(`${basePath}/iot/devices/${deviceId}/edit`);
     }
 
-    // SSE handlers setup
+    // MQTT handlers setup
     let unsubscribeDeviceRealtime: (() => void) | null = null;
-    let sseHandlersCleanup: (() => void) | null = null;
+    let mqttUnsubscribes: (() => void)[] = [];
 
-    function setupSSEHandlers() {
-        // Setup device detail events subscription
-        unsubscribeDeviceRealtime = subscribeDeviceDetailEvents(
+    function setupMQTTHandlers() {
+        // Subscribe to device action log updates (data handler)
+        unsubscribeDeviceRealtime = subscribeActionLogUpdates(
             deviceId,
             () => actionLogs.get(),
             (logs) => { actionLogs.set(logs); },
-            actionStatus,
-            sseStore
+            actionStatus
         );
 
-        // Setup SSE event handlers
-        const sseHandlers = useDeviceSSEHandlers(
+        // Setup UI handlers for modal closing and progress bars
+        // Note: Action log updates are handled by ActionHandlerManager via subscribeActionLogUpdates()
+        // These handlers only handle UI-specific concerns (modal closing, progress bars)
+        const modalHandler = createModalHandler({
             deviceId,
-            device.get(),
-            actionStatus,
-            {
-                onPullFileSuccess: async (payload) => {
-                    // Update action log entry
-                    if (payload.logId) {
-                        const logIndex = actionLogs.get().findIndex(log => log.id === payload.logId);
-                        if (logIndex >= 0) {
-                            const updated = [...actionLogs.get()];
-                            updated[logIndex] = {
-                                ...updated[logIndex],
-                                status: 'success',
-                                message: "File uploaded and downloaded successfully"
-                            };
-                            actionLogs.set(updated);
-                        }
-                    }
-                    showPullFileModal.set(false);
-                    isLoading.set(false);
-                },
-                onPullFileFailed: (message) => {
-                    // Update action log entry on failure
-                    // Note: logId would need to be passed in the callback, but for now we'll rely on subscribeDeviceDetailEvents
-                    showPullFileModal.set(false);
-                    isLoading.set(false);
-                },
-                onPushFileProgress: (progress, message) => {
-                    pushFileProgress.set(progress);
-                    pushFileStatusMessage.set(message || pushFileStatusMessage.get());
-                },
-                onPushFileSuccess: () => {
-                    showPushFileModal.set(false);
-                    isLoading.set(false);
-                },
-                onPushFileFailed: () => {
-                    showPushFileModal.set(false);
-                    isLoading.set(false);
-                },
-                onPushFileData: (fileData, fileName) => {
-                    downloadPushFile(fileData, fileName);
-                    showPushFileModal.set(false);
-                    isLoading.set(false);
-                },
-                onInstallAppSuccess: () => {
-                    showInstallAppModal.set(false);
-                    isLoading.set(false);
-                },
-                onInstallAppFailed: () => {
-                    showInstallAppModal.set(false);
-                    isLoading.set(false);
-                },
-                onGetLogsSuccess: async (payload) => {
-                    // Update action log entry
-                    if (payload.logId) {
-                        const logIndex = actionLogs.get().findIndex(log => log.id === payload.logId);
-                        if (logIndex >= 0) {
-                            const updated = [...actionLogs.get()];
-                            updated[logIndex] = {
-                                ...updated[logIndex],
-                                status: 'success',
-                                message: "Logs uploaded and downloaded successfully"
-                            };
-                            actionLogs.set(updated);
-                        }
-                    }
-                    isLoading.set(false);
-                },
-                onGetLogsFailed: (message) => {
-                    isLoading.set(false);
-                },
-                onActionLogUpdate: (logId: string, status: 'success' | 'failed', message?: string) => {
-                    updateTempActionLog(logId, status, message);
-                },
-                onDataUpdate: (updatedData) => {
-                    if (updatedData.deviceInfo) {
-                        deviceInformation.set(updatedData.deviceInfo);
-                    }
-                },
-                onConnectionChange: (connected, connectedAt, disconnectedAt) => {
-                    device.set({
-                        ...device.get(),
-                        connected: !!connected,
-                        connectedAt: connected ? (connectedAt ?? device.get().connectedAt) : device.get().connectedAt,
-                        disconnectedAt: !connected ? (disconnectedAt ?? device.get().disconnectedAt) : device.get().disconnectedAt
-                    });
-                }
-            }
-        );
+            showPullFileModal,
+            showPushFileModal,
+            showInstallAppModal,
+            isLoading
+        });
 
-        sseHandlers.init();
-        sseHandlersCleanup = sseHandlers.cleanup;
+        const progressBarHandler = createProgressBarHandler({
+            deviceId,
+            pushFileProgress,
+            pushFileStatusMessage
+        });
+
+        const statusUnsub = mqttClient.onNotification('device:statusUpdate', modalHandler);
+        const progressUnsub = mqttClient.onNotification('device:progressUpdate', progressBarHandler);
+
+        mqttUnsubscribes.push(statusUnsub, progressUnsub);
     }
 
     function cleanup() {
@@ -744,10 +681,10 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             try { unsubscribeDeviceRealtime(); } catch {}
             unsubscribeDeviceRealtime = null;
         }
-        if (sseHandlersCleanup) {
-            try { sseHandlersCleanup(); } catch {}
-            sseHandlersCleanup = null;
-        }
+        mqttUnsubscribes.forEach(unsub => {
+            try { unsub(); } catch {}
+        });
+        mqttUnsubscribes = [];
     }
 
     return {
@@ -783,7 +720,7 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
         downloadPushFile,
         
         // Setup/cleanup
-        setupSSEHandlers,
+        setupMQTTHandlers: setupMQTTHandlers,
         cleanup
     };
 }

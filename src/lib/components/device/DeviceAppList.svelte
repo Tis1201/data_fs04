@@ -3,6 +3,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { writable } from 'svelte/store';
+  import { useDeviceAppMqtt } from '$lib/composables/useDeviceAppMqtt';
 
   // ===== Props =====
   export let deviceId: string;
@@ -15,9 +16,6 @@
   // Use this component for both pinned/all by changing the endpoint & initialQuery
   export let endpoint: string | undefined;
   export let initialQuery: Partial<Record<'search' | 'filter' | 'sortBy' | 'sortOrder', string>> = {};
-  
-  // Accept SSE store from parent to avoid creating multiple connections
-  export let sseStore: any = null;
 
   // ===== Types =====
   interface DeviceApp {
@@ -91,8 +89,7 @@
   let totalApps = 0;
   let totalPages = 0;
 
-  // SSE - now using parent's SSE store instead of creating own connection
-  let sseUnsubscribe: (() => void) | null = null;
+  // MQTT - real-time updates via composable (useDeviceAppMqtt)
 
   // Derived
   $: sortedApps = apps;
@@ -122,15 +119,12 @@
 
     await loadData();
     isInitialized = true;
-    setupSSE();
+    setupAppMqtt();
   });
 
   onDestroy(() => {
-    // Unsubscribe from SSE messages
-    if (sseUnsubscribe) {
-      sseUnsubscribe();
-      sseUnsubscribe = null;
-    }
+    // Cleanup MQTT subscriptions via composable
+    cleanupAppMqtt();
   });
 
   // ===== Data loading =====
@@ -210,84 +204,12 @@
     };
   }
 
-  // ===== SSE handling =====
-  function setupSSE() {
-    if (!browser || !sseStore) {
-      console.warn('[DeviceAppList] No SSE store provided, real-time updates disabled');
-      return;
-    }
-
-    // Subscribe to SSE messages using parent's SSE store (no new connection created!)
-    console.log('[DeviceAppList:SSE] Subscribing to messages for device:', deviceId);
-    sseUnsubscribe = sseStore.on('*', (msg: any) => {
-      try {
-        const data = msg?.data || msg;
-        handleSSEMessage(data);
-      } catch (err) {
-        console.error('[DeviceAppList:SSE] Failed to handle message:', err);
-      }
-    });
-  }
-
-  function handleSSEMessage(data: any) {
-    if (data?.type === 'ping') return;
-
-    if (data?.type === 'device:statusUpdate' || data?.type === 'device:progressUpdate') {
-      handleAppActionUpdate(data);
-    }
-
-    // Handle data updates pushed via SSE
-    if (data?.type === 'device:dataUpdate') {
-      handleDataUpdate(data);
-    }
-  }
-
-  // Apply fresh data from SSE push
-  function handleDataUpdate(data: any) {
-    const payload = data?.payload || {};
-    const updatedData = payload.updatedData;
-    
-    if (!updatedData) return;
-    
-    console.log('[DeviceAppList:SSE] Received fresh data via SSE push');
-    
-    // Check if this component uses a special endpoint (like apps-with-pins)
-    const usesSpecialEndpoint = endpoint && endpoint.includes('apps-with-pins');
-    
-    if (usesSpecialEndpoint) {
-      // For special endpoints (e.g., apps-with-pins), reload from the correct endpoint
-      // because SSE data doesn't include pin information
-      console.log('[DeviceAppList:SSE] Using special endpoint, reloading from API');
-      loadData();
-      return;
-    }
-    
-    // Update apps directly from SSE data (for basic apps endpoint)
-    if (updatedData.apps && Array.isArray(updatedData.apps)) {
-      apps = updatedData.apps;
-      
-      // Update pagination
-      if (updatedData.appsPagination) {
-        totalApps = updatedData.appsPagination.total;
-        totalPages = updatedData.appsPagination.totalPages;
-        currentPage = updatedData.appsPagination.page;
-      }
-      
-      // Update timestamp
-      lastSync = new Date(updatedData.timestamp);
-      
-      // Recalculate summary
-      calculateSummary();
-      
-      console.log(`[DeviceAppList:SSE] Updated ${apps.length} apps from SSE (total: ${totalApps})`);
-      
-      // If there's more data than what was pushed, optionally reload full list
-      if (updatedData.shouldReloadFullList && currentPage > 1) {
-        console.log('[DeviceAppList:SSE] Large app list detected, reloading current page');
-        loadData(); // Reload to respect current page/filters
-      }
-    }
-  }
+  // ===== MQTT handling =====
+  // Use composable for MQTT handlers (extracted to useDeviceAppMqtt.ts)
+  const { setup: setupAppMqtt, cleanup: cleanupAppMqtt } = useDeviceAppMqtt({
+    deviceId,
+    onAppActionUpdate: handleAppActionUpdate
+  });
 
   function handleAppUpdate(data: any) {
     if (data?.type === 'apps_updated' || data?.type === 'apps_processed') {
@@ -308,13 +230,13 @@
   //   }
   // }
   function handleAppActionUpdate(data: any) {
-    console.log(`[DeviceAppList:SSE] update received:`, JSON.stringify(data));
+    console.log(`[DeviceAppList:MQTT] update received:`, JSON.stringify(data));
     const payload = data?.payload || {};
     const action = payload.action as string;          // e.g. 'restartApp' | 'uninstall' | 'config'
     const status = payload.status as string;          // 'complete' | 'failed' | ...
     const message = payload.message as string | undefined;
 
-    console.log(`[DeviceAppList:SSE] action: ${action}, status: ${status}`);
+    console.log(`[DeviceAppList:MQTT] action: ${action}, status: ${status}`);
     if (!action) return;
 
     const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
@@ -352,7 +274,7 @@
           delete newState[key];
           return newState;
         });
-        console.log(`[DeviceAppList:SSE] cleared ${key} from actionLoading`);
+        console.log(`[DeviceAppList:MQTT] cleared ${key} from actionLoading`);
       }
     }
   }
@@ -473,7 +395,7 @@
       actionStatus.set({ action: action === 'restart' ? 'restartApp' : action, status: 'success', message: `${pretty} command sent`, packageName });
       toast.success(`${pretty} command sent`, { description: `Action sent to device for ${packageName}` });
 
-      // The loading state will be cleared by the SSE handler when a 'complete' or 'failed' message is received.
+      // The loading state will be cleared by the MQTT handler when a 'complete' or 'failed' message is received.
 
     } catch (err) {
       const pretty = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);

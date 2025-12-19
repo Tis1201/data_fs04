@@ -5,27 +5,25 @@ import { logger } from '$lib/server/logger';
 // This allows the module to work in both SvelteKit and standalone contexts
 const dev = process.env.NODE_ENV !== 'production';
 
-// Check if Pushpin is enabled
-const isPushpinEnabled = process.env.USE_PUSHPIN === 'true';
-
 // Global instance for development to prevent multiple connections
 declare global {
     var redisClient: Redis | undefined;
 }
 
 // Create Redis client with error handling
+// Redis is used for MQTT queue, device presence, and other features
 function createRedisClient(): Redis | null {
-    // Only create Redis client if Pushpin is enabled
-    if (!isPushpinEnabled) {
-        logger.info('Redis client not created because USE_PUSHPIN is not set to true');
-        return null;
-    }
-
     // Use specific Redis configuration from .env if available
     const connectionUrl = process.env.REDIS_URL;
     const host = process.env.REDIS_HOST || 'localhost';
     const port = parseInt(process.env.REDIS_PORT || '6379', 10);
     const password = process.env.REDIS_PASSWORD;
+    
+    // If no Redis configuration is provided, return null
+    if (!connectionUrl && !host) {
+        logger.info('Redis client not created - no Redis configuration found');
+        return null;
+    }
 
     logger.info(connectionUrl ? `Creating Redis client from URL` : `Creating Redis client for ${host}:${port}`);
 

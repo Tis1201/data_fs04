@@ -96,6 +96,7 @@ export class FileOperationHandler extends StreamActionHandler {
     if (status === 'complete' || status === 'success') {
       // For pullFile operations, if objectPath is present, trigger download from GCloud
       // Use sessionStorage to prevent multiple downloads for the same logId (persists across page reloads)
+      // IMPORTANT: Only trigger download for pull operations, never for push operations
       if (this.operationType === 'pull' && objectPath && logId) {
         // Check and mark synchronously BEFORE any async operations
         if (this.isDownloadTriggered(logId)) {
@@ -115,9 +116,14 @@ export class FileOperationHandler extends StreamActionHandler {
         }
       }
       
+      // Use the database action type format to match existing logs
+      // The API creates logs with 'push_file' or 'pull_file', so we need to use that format
+      // Map from entity.action (which might be 'pushFile', 'file_operation', etc.) to database format
+      const dbActionType = this.operationType === 'pull' ? 'pull_file' : 'push_file';
+      
       // Use server-calculated duration instead of calculating locally
       this.handleSuccess({ 
-        action: this.operationType === 'pull' ? 'pull_file' : 'push_file', 
+        action: dbActionType, // Use database format to match existing logs ('push_file' or 'pull_file')
         status, 
         message: message || `${this.operationType}File completed`, 
         logId, 
@@ -125,7 +131,9 @@ export class FileOperationHandler extends StreamActionHandler {
         objectPath
       }, logId);
     } else if (status === 'failed' || status === 'fail') {
-      this.handleError(message || `${this.operationType}File failed`, logId);
+      // Use the database action type format to match existing logs
+      const dbActionType = this.operationType === 'pull' ? 'pull_file' : 'push_file';
+      this.handleError(message || `${this.operationType}File failed`, logId, dbActionType);
     } else if (progress !== undefined) {
       // Handle progress updates
       this.handleProgress(progress, message || `${this.operationType}File progress: ${progress}%`, logId);

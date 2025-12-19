@@ -13,7 +13,6 @@
     import StatusBanner from "$lib/components/ui_components_sveltekit/devices/StatusBanner.svelte";
     import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
     import DeviceDetailTabs from "$lib/components/device/DeviceDetailTabs.svelte";
-    import { sseStore } from "$lib/stores/sse-store";
     import { onMount, onDestroy } from 'svelte';
     import { useDeviceDetail } from "$lib/composables/useDeviceDetail";
     import { useDeviceMqttStatus } from "$lib/composables/useDeviceMqttStatus";
@@ -201,7 +200,7 @@
         addActionLogRow,
         updateTempActionLog,
         downloadPushFile,
-        setupSSEHandlers,
+        setupMQTTHandlers,
         cleanup: cleanupDeviceDetail
     } = deviceDetail;
 
@@ -291,9 +290,10 @@
                 }
             });
 
-        // Setup SSE handlers for other events (action updates, data updates, etc.)
-        // Note: Connection status is now handled via MQTT above
-        setupSSEHandlers();
+        // Setup handlers for action updates (pullFile, pushFile, installApp, etc.)
+        // Note: Connection status is handled via MQTT above
+        // Action updates are handled via MQTT through subscribeActionLogUpdates
+        setupMQTTHandlers();
     });
 
     onDestroy(() => {
@@ -337,6 +337,10 @@
             onViewLogs={viewLogs}
             onTerminal={accessRemoteTerminal}
             onRemoteDesktop={() => { 
+                if (!device?.connected) {
+                    toast.error('Device is offline');
+                    return;
+                }
                 addActionLogRow('remote_desktop', 'Opening remote desktop', 'initiated'); 
                 goto(`${basePath}/iot/devices/${device.id}/rdp`); 
             }}
@@ -422,7 +426,6 @@
             {deviceInformation}
             {deviceProfile}
             {deviceProfileForm}
-            {sseStore}
         />
     {:else}
         <div class="text-center py-8">

@@ -1,7 +1,7 @@
 import { type PrismaClient } from '@prisma/client';
 import { registerRpcClient } from '../index';
-import { handleGetPin } from './handle_get_pin';
-import { handleClaimConfirm } from './handle_claim_confirm';
+import { handleGetPin } from './claim/handle_get_pin';
+import { handleClaimConfirm } from './claim/handle_claim_confirm';
 
 /********************************************************************************************
  * Register device-side RPC handlers for factory and claimed topics.

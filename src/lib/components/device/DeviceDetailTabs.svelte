@@ -49,7 +49,6 @@
   export let deviceInformation: any = null;
   export let deviceProfile: any = null;
   export let deviceProfileForm: any = null;
-  export let sseStore: any; // ✅ FIX: Receive sseStore as prop from parent
 
   let activeTab = "overview";
   let loading = false;
@@ -483,7 +482,6 @@
             {actionLogs}
             {isLoading}
             {actionStatus}
-            {sseStore}
             endpoint={`/api/v2/devices/${device.id}/apps-with-pins`}
             initialQuery={{ filter: 'pinned' }}
           />
@@ -502,7 +500,6 @@
             {actionLogs}
             {isLoading}
             {actionStatus}
-            {sseStore}
             endpoint={`/api/v2/devices/${device.id}/apps`}
             initialQuery={{ filter: 'all' }}
           />

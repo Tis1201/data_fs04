@@ -2,7 +2,7 @@ import jwt, { type Algorithm } from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { getAdminPrisma } from '$lib/server/prisma';
-import { logger } from '../logger';
+import { logger } from '$lib/server/logger';
 
 export interface IoTCoreMintParams {
     username: string;

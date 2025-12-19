@@ -6,9 +6,6 @@
  */
 
 import { logger } from '$lib/server/logger';
-import { getMessageRelay } from '$lib/server/pushpin/middleware';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
 import { ActionLogger } from '$lib/server/action-logger';
 import crypto from 'crypto';
 
@@ -80,8 +77,15 @@ export class ProfileMessagingService {
                     }
                 }
 
-                // Get message relay for Redis Pub/Sub (Pushpin mode)
-                const messageRelay = getMessageRelay();
+                // Get device info for accountId
+                const device = await this.prisma.device.findUnique({
+                    where: { id: deviceId },
+                    select: { id: true, accountId: true }
+                });
+
+                if (!device) {
+                    throw new Error(`Device ${deviceId} not found`);
+                }
 
                 const messagePayload = {
                     action: 'applyProfile',
@@ -93,45 +97,38 @@ export class ProfileMessagingService {
                     sentAt: new Date().toISOString()
                 };
 
-                if (messageRelay) {
-                    // Use Redis Pub/Sub for scalable device messaging
-                    const message = {
-                        type: 'device:actionRequest',
-                        payload: messagePayload,
-                        timestamp: new Date().toISOString()
-                    };
+                // Use MQTT queue (for worker to send)
+                const { queueNotification } = await import('$lib/server/mqtt/core/queue');
+                const { DeviceNotificationType } = await import('$lib/server/mqtt/core/publish');
 
-                    await messageRelay.publishToDevice(deviceId, message);
+                const userId = options?.userId || 'system';
+                const flowId = crypto.randomUUID();
 
-                    logger.info(`[ProfileMessaging] Config sent via Redis Pub/Sub`, {
-                        deviceId,
-                        profileId,
-                        logId,
-                        configKeys: Object.keys(config),
-                        transport: 'redis'
-                    });
-                } else {
-                    // Fallback to publisher system (SSE mode)
-                    logger.warn(`[ProfileMessaging] MessageRelay unavailable, using publisher fallback`);
+                // Get accountId from device
+                const accountId = device.accountId;
 
-                    const routingMessage = MessageFactory.createSystemMessage(
-                        'device:actionRequest',
-                        `subscription:device:${deviceId}`,
-                        messagePayload,
-                        SystemUser,
-                        { echoToSender: false }
-                    );
-
-                    await publisher.publish(routingMessage);
-
-                    logger.info(`[ProfileMessaging] Config sent via publisher`, {
-                        deviceId,
-                        profileId,
-                        logId,
-                        configKeys: Object.keys(config),
-                        transport: 'sse'
-                    });
+                if (!accountId) {
+                    throw new Error(`Device ${deviceId} has no accountId`);
                 }
+
+                await queueNotification({
+                    sub: `user:${userId}:${accountId}`,
+                    recipient: `device:${deviceId}`,
+                    type: DeviceNotificationType.ActionRequest,
+                    flowId,
+                    params: messagePayload,
+                    expiresIn: '5m'
+                });
+
+                logger.info(`[ProfileMessaging] Config queued via MQTT`, {
+                    deviceId,
+                    profileId,
+                    logId,
+                    accountId,
+                    flowId,
+                    configKeys: Object.keys(config),
+                    transport: 'mqtt'
+                });
 
                 return {
                     success: true,

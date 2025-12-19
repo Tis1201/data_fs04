@@ -1,7 +1,6 @@
 import { onMount, onDestroy } from 'svelte';
 import { derived, type Readable } from 'svelte/store';
 import { deviceRealtimeStore, initializeDeviceRealtime, cleanupDeviceRealtime, type DeviceConnectionUpdate } from '$lib/stores/deviceRealtimeStore';
-import { sseStore } from '$lib/stores/sse-store';
 
 export interface DeviceRealtimeMixinOptions {
     deviceIds?: string[];
@@ -55,33 +54,11 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
             return;
         }
 
-        try {
-            // Get connection ID if not available
-            if (!connectionId) {
-                let unsub: (() => void) | undefined;
-                unsub = sseStore.subscribe((store: any) => {
-                    if (store.connectionId) {
-                        connectionId = store.connectionId;
-                        unsub?.();
-                    }
-                });
-            }
-
-            if (connectionId) {
-                await fetch(`/api/sse/subscribe/device/${deviceId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ connectionId })
-                });
-                subscribedDeviceIds.add(deviceId);
-                if (debug) console.debug(`[DeviceRealtimeMixin] Subscribed to device ${deviceId}`);
-            } else {
-                if (debug) console.warn(`[DeviceRealtimeMixin] No connection ID available for device ${deviceId}`);
-            }
-        } catch (error) {
-            if (debug) console.error(`[DeviceRealtimeMixin] Failed to subscribe to device ${deviceId}:`, error as any);
-        }
+        // Device subscriptions now handled via MQTT automatically
+        // MQTT client automatically receives device notifications based on user permissions
+        // No manual subscription needed
+        subscribedDeviceIds.add(deviceId);
+        if (debug) console.debug(`[DeviceRealtimeMixin] Device ${deviceId} will receive updates via MQTT`);
     }
 
     // Helper function to unsubscribe from a device channel
@@ -91,21 +68,10 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
             return;
         }
 
-        try {
-            // Call the unsubscribe API endpoint
-            if (connectionId) {
-                await fetch(`/api/sse/unsubscribe/device/${deviceId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ connectionId })
-                });
-            }
-            subscribedDeviceIds.delete(deviceId);
-            if (debug) console.debug(`[DeviceRealtimeMixin] Unsubscribed from device ${deviceId}`);
-        } catch (error) {
-            if (debug) console.error(`[DeviceRealtimeMixin] Failed to unsubscribe from device ${deviceId}:`, error as any);
-        }
+        // Device subscriptions now handled via MQTT automatically
+        // MQTT client manages subscriptions - no manual unsubscribe needed
+        subscribedDeviceIds.delete(deviceId);
+        if (debug) console.debug(`[DeviceRealtimeMixin] Device ${deviceId} tracking removed (MQTT handles subscriptions)`);
     }
 
     // Helper function to check if a device is connected
@@ -154,20 +120,12 @@ export function useDeviceRealtime(options: DeviceRealtimeMixinOptions = {}): Dev
     // Auto-subscribe to devices on mount
     onMount(async () => {
         if (autoSubscribe && deviceIds.length > 0) {
-            if (debug) console.debug(`[DeviceRealtimeMixin] Auto-subscribing to ${deviceIds.length} devices`);
+            if (debug) console.debug(`[DeviceRealtimeMixin] Tracking ${deviceIds.length} devices (MQTT handles subscriptions automatically)`);
             
-            // Wait for SSE connection
-            let unsub: (() => void) | undefined;
-            unsub = sseStore.subscribe((store: any) => {
-                if (store.connectionId) {
-                    connectionId = store.connectionId;
-                    unsub?.();
-                    
-                    // Subscribe to all devices
-                    deviceIds.forEach(deviceId => {
-                        subscribeToDevice(deviceId);
-                    });
-                }
+            // MQTT automatically handles device subscriptions - no manual subscription needed
+            // Just track the device IDs for local state management
+            deviceIds.forEach(deviceId => {
+                subscribeToDevice(deviceId);
             });
         }
     });

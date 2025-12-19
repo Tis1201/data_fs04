@@ -32,9 +32,9 @@ export abstract class BaseActionHandler {
     this.onSuccess?.(data);
   }
 
-  protected handleError(error: string, logId?: string): void {
+  protected handleError(error: string, logId?: string, action?: string): void {
     console.error(`[BaseActionHandler] Error:`, error);
-    this.onError?.(error, logId);
+    this.onError?.(error, logId, action);
   }
 
   protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
@@ -74,7 +74,18 @@ export abstract class BaseActionHandler {
         durationMs 
       }, logId);
     } else if (status === 'failed' || status === 'error') {
-      this.handleError(message || `${action} failed`, logId);
+      // Map action to database format for error handling
+      const actionMap: Record<string, string> = {
+        'pushFile': 'push_file',
+        'pullFile': 'pull_file',
+        'installApp': 'install_app',
+        'updateFirmware': 'update_firmware',
+        'getLogs': 'get_logs',
+        'uninstall': 'uninstall_app',
+        'restartApp': 'restart_app'
+      };
+      const dbActionType = action ? (actionMap[action] || action) : undefined;
+      this.handleError(message || `${action} failed`, logId, dbActionType);
     } else if (progress !== undefined) {
       this.handleProgress(progress, message || `${action} progress: ${progress}%`, logId);
     } else {

@@ -97,7 +97,14 @@ export class ProgressActionHandler extends BaseActionHandler {
         durationMs 
       }, logId);
     } else if (status === 'failed' || status === 'error') {
-      this.handleError(message || `${action} failed`, logId);
+      // Map handler action type to database format
+      const actionMap: Record<string, string> = {
+        'firmware_update': 'update_firmware',
+        'install': 'install_app',
+        'pull_file': 'pull_file'
+      };
+      const dbActionType = actionMap[this.actionType] || this.actionType;
+      this.handleError(message || `${action} failed`, logId, dbActionType);
     } else if (progress !== undefined) {
       // Handle progress updates
       this.handleProgress(progress, message || `${action} progress: ${progress}%`, logId);

@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store';
-import { sseStore } from '$lib/stores/sse-store';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 import { browser } from '$app/environment';
 
 interface RoomState {
@@ -14,17 +14,16 @@ interface RoomState {
 function createRoomStore() {
   const { subscribe, set, update } = writable<RoomState>({});
 
-  // Event-driven room message handling via SSE
+  // Event-driven room message handling via MQTT
   if (browser) {
-    sseStore.on('room', (message: any) => {
-      console.log('[roomStore] Received room message via SSE:', message);
+    mqttClient.onNotification('room:*', (payload: any) => {
+      console.log('[roomStore] Received room notification via MQTT:', payload);
       
-      // Extract payload from SSE message format
-      const payload = message.data?.payload || message.data || message.payload;
-      const action = payload?.action;
+      // Extract action from payload
+      const action = payload?.action || payload?.type?.replace('room:', '');
       
       if (!action) {
-        console.warn('[roomStore] No action in room message:', message);
+        console.warn('[roomStore] No action in room notification:', payload);
         return;
       }
       
@@ -93,19 +92,6 @@ function createRoomStore() {
       }
       // Do not clear error on other room actions
     });
-    // // Backward compatibility for legacy 'room:create' messages
-    // socketStore.on('room:create', (msg: any) => {
-    //   update(r => ({ ...r, roomId: msg.roomId, status: msg.status, error: undefined }));
-    // });
-    // socketStore.on('room:join', (msg: any) => {
-    //   update(state => ({ ...state, ...msg }));
-    // });
-    // socketStore.on('room:list', (msg: any) => {
-    //   update(state => ({ ...state, rooms: msg.rooms }));
-    // });
-    // socketStore.on('room', (msg: any) => {
-    //   update(state => ({ ...state, error: msg.error }));
-    // });
   }
 
   function clearError() {
@@ -115,14 +101,9 @@ function createRoomStore() {
   async function createRoom() {
     if (!browser) return;
     try {
-      await sseStore.sendRequest({
-        type: 'room',
-        scope: 'user:self',
-        payload: {
-          action: 'create',
-          data: {}
-        }
-      }, 10000, 'room_create');
+      const result = await mqttClient.request('room.create', {}, { timeoutMs: 10000 });
+      // Result will be handled by the notification handler
+      console.log('[roomStore] Room creation request sent:', result);
     } catch (error) {
       console.error('[roomStore] Failed to create room:', error);
       update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to create room' }));
@@ -132,18 +113,13 @@ function createRoomStore() {
   async function joinRoom(roomId: string, role: string = 'viewer', password?: string) {
     if (!browser) return;
     try {
-      await sseStore.sendRequest({
-        type: 'room',
-        scope: 'user:self',
-        payload: {
-          action: 'join',
-          data: {
-            roomId,
-            role,
-            password
-          }
-        }
-      }, 10000, 'room_join');
+      const result = await mqttClient.request('room.join', {
+        roomId,
+        role,
+        password
+      }, { timeoutMs: 10000 });
+      // Result will be handled by the notification handler
+      console.log('[roomStore] Room join request sent:', result);
     } catch (error) {
       console.error('[roomStore] Failed to join room:', error);
       update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to join room' }));
@@ -153,16 +129,11 @@ function createRoomStore() {
   async function leaveRoom(roomId: string) {
     if (!browser) return;
     try {
-      await sseStore.sendRequest({
-        type: 'room',
-        scope: 'user:self',
-        payload: {
-          action: 'leave',
-          data: {
-            roomId
-          }
-        }
-      }, 10000, 'room_leave');
+      const result = await mqttClient.request('room.leave', {
+        roomId
+      }, { timeoutMs: 10000 });
+      // Result will be handled by the notification handler
+      console.log('[roomStore] Room leave request sent:', result);
     } catch (error) {
       console.error('[roomStore] Failed to leave room:', error);
       update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to leave room' }));
@@ -172,13 +143,12 @@ function createRoomStore() {
   async function listRooms() {
     if (!browser) return;
     try {
-      await sseStore.sendRequest({
-        type: 'room',
-        scope: 'user:self',
-        payload: {
-          action: 'list'
-        }
-      }, 10000, 'room_list');
+      const result = await mqttClient.request('room.list', {}, { timeoutMs: 10000 });
+      // Handle list response directly
+      if (result?.rooms) {
+        update(r => ({ ...r, rooms: result.rooms }));
+      }
+      console.log('[roomStore] Room list request sent:', result);
     } catch (error) {
       console.error('[roomStore] Failed to list rooms:', error);
       update(r => ({ ...r, error: error instanceof Error ? error.message : 'Failed to list rooms' }));

@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import type { MqttClient, IClientOptions } from 'mqtt';
+import { decodeNotificationJwtPayload } from './notificationUtils';
 
 export type UserMqttStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 
@@ -79,20 +80,52 @@ class UserMqttClient {
   }
 
   setAuthState(state: AuthState): void {
+    console.log('[MQTT Client] setAuthState() called', {
+      oldState: this.authState,
+      newState: state,
+      willAllowConnections: state === 'authenticated'
+    });
+    
     this.authState = state;
     this.allowConnections = state === 'authenticated';
 
     if (!this.allowConnections) {
+      console.log('[MQTT Client] Connections not allowed, disconnecting');
       this.disconnect(true);
     }
   }
 
   async connect(): Promise<void> {
-    if (!browser) return;
-    if (!this.allowConnections || this.authState !== 'authenticated') return;
+    console.log('[MQTT Client] connect() called', {
+      browser,
+      allowConnections: this.allowConnections,
+      authState: this.authState,
+      clientConnected: this.client?.connected,
+      status: this.status
+    });
+    
+    if (!browser) {
+      console.log('[MQTT Client] Skipping connect: not in browser');
+      return;
+    }
+    
+    if (!this.allowConnections || this.authState !== 'authenticated') {
+      console.log('[MQTT Client] Skipping connect: not allowed or not authenticated', {
+        allowConnections: this.allowConnections,
+        authState: this.authState
+      });
+      return;
+    }
 
-    if (this.client && this.client.connected) return;
-    if (this.status === 'connecting' || this.status === 'reconnecting') return;
+    if (this.client && this.client.connected) {
+      console.log('[MQTT Client] Already connected');
+      return;
+    }
+    
+    if (this.status === 'connecting' || this.status === 'reconnecting') {
+      console.log('[MQTT Client] Already connecting/reconnecting');
+      return;
+    }
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -102,12 +135,25 @@ class UserMqttClient {
     this.manualDisconnect = false;
     this.setStatus(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting', null);
 
+    console.log('[MQTT Client] Starting connection process', {
+      hasMintResult: !!this.mintResult,
+      reconnectAttempts: this.reconnectAttempts
+    });
+
     try {
       if (!this.mintResult) {
+        console.log('[MQTT Client] Minting credentials...');
         this.mintResult = await this.mint();
+        console.log('[MQTT Client] Credentials minted successfully', {
+          brokerUrl: this.mintResult.brokerUrl,
+          clientId: this.mintResult.clientId,
+          username: this.mintResult.username
+        });
       }
 
+      console.log('[MQTT Client] Opening MQTT connection...');
       await this.openMqttConnection();
+      console.log('[MQTT Client] MQTT connection opened');
     } catch (err) {
       const error = err instanceof Error ? err : new Error('MQTT connect failed');
       console.error('[MQTT Client] Connection failed:', error);
@@ -250,10 +296,23 @@ class UserMqttClient {
   }
 
   private async openMqttConnection(): Promise<void> {
-    if (!browser) return;
-    if (!this.mintResult) return;
+    console.log('[MQTT Client] openMqttConnection() called', {
+      browser,
+      hasMintResult: !!this.mintResult
+    });
+    
+    if (!browser) {
+      console.log('[MQTT Client] Not in browser, skipping');
+      return;
+    }
+    
+    if (!this.mintResult) {
+      console.log('[MQTT Client] No mint result, skipping');
+      return;
+    }
 
     if (this.client) {
+      console.log('[MQTT Client] Cleaning up existing client');
       try {
         this.client.removeAllListeners();
         this.client.end(true);
@@ -265,6 +324,12 @@ class UserMqttClient {
 
     const { brokerUrl, clientId, username, jwt } = this.mintResult;
     this.subject = username;
+
+    console.log('[MQTT Client] Connecting to broker', {
+      brokerUrl,
+      clientId,
+      username
+    });
 
     const mqttModule = await import('mqtt');
 
@@ -283,11 +348,20 @@ class UserMqttClient {
       reconnectPeriod: 0
     };
 
+    console.log('[MQTT Client] Creating MQTT client with options:', {
+      clientId: options.clientId,
+      username: options.username,
+      clean: options.clean,
+      reconnectPeriod: options.reconnectPeriod
+    });
+
     const client = connectFn(brokerUrl, options);
     this.client = client;
+    
+    console.log('[MQTT Client] MQTT client created, waiting for connection...');
 
     client.on('connect', () => {
-      console.debug('[MQTT Client] Connected to broker');
+      console.log('[MQTT Client] ✅ Connected to broker');
       this.reconnectAttempts = 0;
       this.setStatus('connected', null);
       this.subscribeTopics();
@@ -298,25 +372,37 @@ class UserMqttClient {
     });
 
     client.on('close', () => {
+      console.log('[MQTT Client] Connection closed', {
+        manualDisconnect: this.manualDisconnect,
+        allowConnections: this.allowConnections,
+        authState: this.authState
+      });
       this.client = null;
       this.failAllPending(new Error('MQTT connection closed'));
 
       if (this.manualDisconnect || !this.allowConnections || this.authState !== 'authenticated') {
+        console.log('[MQTT Client] Not reconnecting (manual disconnect or not authenticated)');
         this.setStatus('idle', null);
         return;
       }
 
+      console.log('[MQTT Client] Scheduling reconnect');
       this.setStatus('error', new Error('MQTT connection closed'));
       this.scheduleReconnect();
     });
 
     client.on('error', (err: Error) => {
-      console.error('[MQTT Client] Error:', err);
+      console.error('[MQTT Client] ❌ Connection error:', err);
+      console.error('[MQTT Client] Error details:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name
+      });
       this.setStatus('error', err);
       try {
         client.end(true);
-      } catch {
-        // ignore
+      } catch (endErr) {
+        console.error('[MQTT Client] Error ending client:', endErr);
       }
     });
   }
@@ -327,14 +413,14 @@ class UserMqttClient {
     const base = `user/${this.subject}`;
     const topics = [`${base}/response`, `${base}/notifications`];
 
-    console.debug('[MQTT Client] Subscribing to topics:', topics);
+    console.log('[MQTT Client] Subscribing to topics:', topics);
 
     this.client.subscribe(topics, { qos: 1 }, (err) => {
       if (err) {
         console.error('[MQTT Client] Subscription error:', err);
         this.setStatus('error', err);
       } else {
-        console.debug('[MQTT Client] Successfully subscribed');
+        console.log('[MQTT Client] ✅ Successfully subscribed to topics');
       }
     });
   }
@@ -374,20 +460,32 @@ class UserMqttClient {
       let type = data?.type || data?.payload?.type;
       let payloadData = data?.payload ?? data;
 
-      if (data?.ticket && !type) {
+      if (data?.ticket) {
         try {
           // Decode JWT ticket (just parse the payload, don't verify signature in client)
-          const parts = data.ticket.split('.');
-          if (parts.length === 3) {
-            const payload = JSON.parse(atob(parts[1]));
+          // JWT uses base64url encoding, not base64, so we use the utility function
+          const payload = decodeNotificationJwtPayload(data.ticket);
+          if (payload) {
             // Use params.type if available (the actual event type), otherwise fall back to payload.type
-            type = payload.params?.type || payload.type || '*';
-            payloadData = payload.params || {};
-            console.log('[MQTT Client] Decoded notification ticket:', { type, payloadData });
+            const decodedType = payload.params?.type || payload.type;
+            if (decodedType) {
+              type = decodedType;
+              payloadData = payload.params || {};
+              console.log('[MQTT Client] Decoded notification ticket:', { type, payloadData });
+            } else if (!type) {
+              // If JWT decoding succeeded but no type found, and no type in data, use wildcard
+              type = '*';
+            }
+          } else if (!type) {
+            // JWT decoding failed and no type in data, use wildcard
+            console.warn('[MQTT Client] JWT decoding failed and no type field found, using wildcard');
+            type = '*';
           }
         } catch (err) {
           console.warn('[MQTT Client] Failed to decode notification ticket:', err);
-          type = '*';
+          if (!type) {
+            type = '*';
+          }
         }
       }
 
@@ -396,6 +494,8 @@ class UserMqttClient {
       }
 
       console.log('[MQTT Client] Processing notification:', { type, payloadData });
+      console.log('[MQTT Client] Notification payload keys:', payloadData ? Object.keys(payloadData) : 'null');
+      console.log('[MQTT Client] Full notification data:', JSON.stringify({ type, payloadData }, null, 2));
 
       const handlers = this.notificationHandlers.get(type);
       const wildcard = this.notificationHandlers.get('*');

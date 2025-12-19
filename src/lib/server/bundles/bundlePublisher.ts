@@ -6,13 +6,16 @@
  */
 
 import { logger } from '$lib/server/logger';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
+import { queueNotification } from '$lib/server/mqtt/core/queue';
+import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
 import { initializeStateManager, getStateManager } from '$lib/server/state/stateManagerFactory';
 import { BundleProcessingState } from '$lib/server/state/types';
 import { registerWaveTimeout, setBundleTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 import { calculateBundleTimeout, getTimeoutMinutes } from '$lib/server/config/timeoutConfig';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
+import { convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { publishToAccountMembers } from '../mqtt/notifications/bundleNotifications';
+import crypto from 'crypto';
 
 /**
  * Publish a bundle and create deployment waves
@@ -56,17 +59,23 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
     logger.warn(`[PublishBundle] Failed to initialize bundle state for ${bundleId}: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  // Notify UI that bundle moved to PUBLISHED so detail/list can refresh in real-time
+  // Notify UI that bundle moved to PUBLISHED via MQTT
+  // Publish to all account members (like device connection notifications)
   try {
-    const publishedMsg = MessageFactory.createSystemMessage(
-      'bundle:status',
-      `subscription:bundle:${bundleId}`,
-      { action: 'bundleStatus', bundleId, status: 'PUBLISHED' },
-      SystemUser,
-      { echoToSender: false }
+    await publishToAccountMembers(
+      prisma,
+      bundle.accountId,
+      DeviceNotificationType.BundleStatus,
+      {
+        action: 'bundleStatus',
+        bundleId,
+        status: 'PUBLISHED',
+        timestamp: new Date().toISOString()
+      }
     );
-    await publisher.publish(publishedMsg);
-  } catch {}
+  } catch (err) {
+    logger.warn(`[PublishBundle] Failed to send bundle status notification: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   try {
     const existingWaves = await prisma.bundleWave.count({ where: { bundleId } });
@@ -113,17 +122,22 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
             logger.warn(`[PublishBundle] Failed to register auto-started wave for timeout tracking: ${String(timeoutErr?.message || timeoutErr)}`);
           }
 
-          // Notify UI that bundle moved to IN_PROGRESS (auto-started first wave)
+          // Notify UI that bundle moved to IN_PROGRESS via MQTT (auto-started first wave)
           try {
-            const inProgressMsg = MessageFactory.createSystemMessage(
-              'bundle:status',
-              `subscription:bundle:${bundleId}`,
-              { action: 'bundleStatus', bundleId, status: 'IN_PROGRESS' },
-              SystemUser,
-              { echoToSender: false }
+            await publishToAccountMembers(
+              prisma,
+              bundle.accountId,
+              DeviceNotificationType.BundleStatus,
+              {
+                action: 'bundleStatus',
+                bundleId,
+                status: 'IN_PROGRESS',
+                timestamp: new Date().toISOString()
+              }
             );
-            await publisher.publish(inProgressMsg);
-          } catch {}
+          } catch (err) {
+            logger.warn(`[PublishBundle] Failed to send bundle IN_PROGRESS notification: ${err instanceof Error ? err.message : String(err)}`);
+          }
 
           const [bundleMeta, bundleWithApps, progresses] = await Promise.all([
             prisma.bundle.findUnique({ where: { id: bundleId }, select: { id: true, name: true, reboot: true, forceUpdate: true, autoOpen: true } }),
@@ -145,16 +159,75 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
 
           // Set bundle timeout using centralized configuration (only once)
           let bundleTimeoutSet = false;
-          const apps = (bundleWithApps?.apps || []).map((a: any, idx: number) => ({ 
-            resourceId: a.resourceId, 
-            name: a.resource?.name, 
-            packageName: a.resource?.packageName, 
-            path: a.resource?.path, 
-            version: a.resource?.version, 
-            format: a.resource?.format, 
-            size: a.resource?.size, 
-            order: a.order ?? idx + 1 
-          }));
+          
+          // Generate presigned URLs for each app (similar to installApp action)
+          const apps = await Promise.all(
+            (bundleWithApps?.apps || []).map(async (a: any, idx: number) => {
+              if (!a.resource?.path) {
+                logger.warn(`[PublishBundle] App ${a.resourceId} has no path, skipping presigned URL generation`);
+                return {
+                  resourceId: a.resourceId,
+                  name: a.resource?.name,
+                  packageName: a.resource?.packageName,
+                  path: a.resource?.path,
+                  version: a.resource?.version,
+                  format: a.resource?.format,
+                  size: a.resource?.size,
+                  order: a.order ?? idx + 1
+                };
+              }
+
+              try {
+                // Generate presigned download URL (1 hour expiry)
+                const result = await convertGCloudUrlToSignedDownloadUrl(
+                  a.resource.path,
+                  3600,
+                  a.resource.name
+                );
+
+                if (!result?.downloadUrl) {
+                  logger.error(`[PublishBundle] Failed to generate presigned URL for app ${a.resourceId}`, {
+                    resourceId: a.resourceId,
+                    name: a.resource.name,
+                    path: a.resource.path
+                  });
+                  throw new Error('Failed to generate presigned URL');
+                }
+
+                logger.debug(`[PublishBundle] Generated presigned URL for app ${a.resourceId}`, {
+                  resourceId: a.resourceId,
+                  name: a.resource.name,
+                  downloadUrl: result.downloadUrl
+                });
+
+                return {
+                  resourceId: a.resourceId,
+                  name: a.resource.name,
+                  packageName: a.resource.packageName,
+                  path: result.downloadUrl, // Use presigned URL instead of raw GCS URL
+                  version: a.resource.version,
+                  format: a.resource.format,
+                  size: a.resource.size,
+                  order: a.order ?? idx + 1
+                };
+              } catch (err) {
+                logger.error(`[PublishBundle] Error generating presigned URL for app ${a.resourceId}: ${err instanceof Error ? err.message : String(err)}`);
+                // Fall back to original path if presigned URL generation fails
+                return {
+                  resourceId: a.resourceId,
+                  name: a.resource?.name,
+                  packageName: a.resource?.packageName,
+                  path: a.resource?.path,
+                  version: a.resource?.version,
+                  format: a.resource?.format,
+                  size: a.resource?.size,
+                  order: a.order ?? idx + 1
+                };
+              }
+            })
+          );
+
+          logger.info(`[PublishBundle] Generated ${apps.length} presigned URLs for bundle apps`);
 
           for (const prog of progresses) {
             const deviceId = (prog as any).bundleDevice.deviceId as string;
@@ -232,25 +305,45 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
                   logger.warn(`[PublishBundle] Failed to update bundle status: ${bundleStatusErr instanceof Error ? bundleStatusErr.message : String(bundleStatusErr)}`);
                 }
                 
-                // Send real-time progress update
-                const waveMsg = MessageFactory.createSystemMessage(
-                  'bundle:wave:progress',
-                  `subscription:bundle:${bundleId}`,
-                  { waveId: firstWaveId, bundleId, status: waveStatus, progress: waveProgress, devicesTotal, devicesCompleted, devicesFailed },
-                  SystemUser,
-                  { echoToSender: false }
+                // Send real-time wave progress update via MQTT
+                await publishToAccountMembers(
+                  prisma,
+                  bundle.accountId,
+                  DeviceNotificationType.BundleWaveStatus,
+                  {
+                    action: 'waveStatus',
+                    bundleId,
+                    waveId: firstWaveId,
+                    status: waveStatus,
+                    progress: waveProgress,
+                    devicesTotal,
+                    devicesCompleted,
+                    devicesFailed,
+                    timestamp: new Date().toISOString()
+                  }
                 );
-                await publisher.publish(waveMsg);
                 
-                // Send device-specific offline notification
-                const offlineMsg = MessageFactory.createSystemMessage(
-                  'device:bundleStatus',
-                  `subscription:device:${deviceId}`,
-                  { action: 'bundleStatus', deviceId, waveId: firstWaveId, status: 'FAILED', progress: waveProgress, devicesTotal, devicesCompleted, devicesFailed },
-                  SystemUser,
-                  { echoToSender: false }
-                );
-                await publisher.publish(offlineMsg);
+                // Send device-specific offline notification via MQTT
+                await queueNotification({
+                  sub: `user:system:${bundle.accountId}`,
+                  recipient: `device:${deviceId}`,
+                  type: DeviceNotificationType.DeviceBundleStatus,
+                  flowId: crypto.randomUUID(),
+                  params: {
+                    action: 'bundleStatus',
+                    deviceId,
+                    bundleId,
+                    waveId: firstWaveId,
+                    status: 'FAILED',
+                    message: 'Device offline',
+                    progress: waveProgress,
+                    devicesTotal,
+                    devicesCompleted,
+                    devicesFailed,
+                    timestamp: new Date().toISOString()
+                  },
+                  expiresIn: '5m'
+                });
                 
                 logger.info(`[PublishBundle] Device ${deviceId} offline => fast-fail => progress=${waveProgress}%, status=${waveStatus}`);
               } catch (failErr) {
@@ -272,39 +365,37 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
               }
             }
 
-            const command = {
-              type: 'bundle_install',
-              sessionId: `wave:${firstWaveId}`,
-              batchId: `wave:${firstWaveId}`,
-              deviceId,
-              bundles: [
-                {
-                  id: bundleId,
-                  name: bundleMeta?.name || 'Bundle',
-                  order: 1,
-                  apps: apps
-                }
-              ],
-              options: {
-                reboot: bundleMeta?.reboot ?? false,
-                autoOpen: bundleMeta?.autoOpen ?? false,
-                forceUpdate: bundleMeta?.forceUpdate ?? false
-              }
-            };
-
-            const routing = MessageFactory.createSystemMessage(
-              'device:actionRequest',
-              `subscription:device:${deviceId}`,
-              command,
-              SystemUser,
-              { echoToSender: false }
-            );
-
+            // Send bundle_install command via MQTT
             try {
-              await publisher.publish(routing);
-              logger.info(`[PublishBundle] Dispatched bundle_install to device ${deviceId} in auto-started wave ${firstWaveId} with ${apps.length} apps`);
+              await queueNotification({
+                sub: `user:system:${bundle.accountId}`,
+                recipient: `device:${deviceId}`,
+                type: DeviceNotificationType.ActionRequest,
+                flowId: crypto.randomUUID(),
+                params: {
+                  action: 'bundle_install',
+                  sessionId: `wave:${firstWaveId}`,
+                  batchId: `wave:${firstWaveId}`,
+                  deviceId,
+                  bundles: [
+                    {
+                      id: bundleId,
+                      name: bundleMeta?.name || 'Bundle',
+                      order: 1,
+                      apps: apps
+                    }
+                  ],
+                  options: {
+                    reboot: bundleMeta?.reboot ?? false,
+                    autoOpen: bundleMeta?.autoOpen ?? false,
+                    forceUpdate: bundleMeta?.forceUpdate ?? false
+                  }
+                },
+                expiresIn: '5m'
+              });
+              logger.info(`[PublishBundle] Queued bundle_install via MQTT for device ${deviceId} in wave ${firstWaveId} with ${apps.length} apps`);
             } catch (pubErr) {
-              logger.error(`[PublishBundle] Failed to publish to device ${deviceId}: ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`);
+              logger.error(`[PublishBundle] Failed to queue bundle_install for device ${deviceId}: ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`);
             }
           }
 

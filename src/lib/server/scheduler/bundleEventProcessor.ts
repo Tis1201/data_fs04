@@ -8,6 +8,7 @@ import type { ClickHouseEvent } from '$lib/server/clickhouse/client';
 import { eventDeduplication } from '$lib/server/state/eventDeduplication';
 import { getStateManager } from '$lib/server/state/stateManagerFactory';
 import { BundleProcessingState } from '$lib/server/state/types';
+import crypto from 'crypto';
 import {
   calculateActivePeriodEnd,
   isWithinActivePeriod,
@@ -205,32 +206,7 @@ async function recomputeWaveAndPublish(waveId: string, bundleId: string, waveNam
     });
     logger.info(`[BundleEventProcessor] Wave ${waveId} aggregate: total=${devicesTotal} completed=${devicesCompleted} failed=${devicesFailed} progress=${waveProgress} status=${waveStatus}`);
 
-    // Publish wave status update to UI (wave scope)
-    try {
-      logger.info(`[BundleEventProcessor] Publishing wave status update: waveId=${waveId}, status=${waveStatus}, progress=${waveProgress}`);
-      const routing = MessageFactory.createSystemMessage(
-        'bundle:waveStatus',
-        `subscription:bundle:wave:${waveId}`,
-        {
-          action: 'waveStatus',
-          waveId,
-          status: waveStatus,
-          progress: waveProgress,
-          devicesTotal,
-          devicesCompleted,
-          devicesFailed,
-          endTime: waveStatus !== 'IN_PROGRESS' ? new Date().toISOString() : undefined
-        },
-        SystemUser,
-        { echoToSender: false }
-      );
-      await publisher.publish(routing);
-      logger.info(`[BundleEventProcessor] Successfully published SSE to subscription:bundle:wave:${waveId}`);
-    } catch (pubErr) {
-      logger.warn(`[BundleEventProcessor] Publish wave status failed: ${String(pubErr)}`);
-    }
-
-    // Also publish to bundle-level scope for bundle detail page
+    // Publish wave status update to UI via MQTT
     let effectiveBundleId = bundleId;
     if (!effectiveBundleId) {
       try {
@@ -240,27 +216,41 @@ async function recomputeWaveAndPublish(waveId: string, bundleId: string, waveNam
     }
     
     try {
-      logger.info(`[BundleEventProcessor] Publishing bundle-level wave status update: bundleId=${effectiveBundleId}, waveId=${waveId}`);
-      const routing2 = MessageFactory.createSystemMessage(
-        'bundle:waveStatus',
-        `subscription:bundle:${effectiveBundleId}`,
-        {
-          action: 'bundle:waveStatus',
-          waveId,
-          status: waveStatus,
-          progress: waveProgress,
-          devicesTotal,
-          devicesCompleted,
-          devicesFailed,
-          endTime: waveStatus !== 'IN_PROGRESS' ? new Date().toISOString() : undefined
-        },
-        SystemUser,
-        { echoToSender: false }
-      );
-      await publisher.publish(routing2);
-      logger.info(`[BundleEventProcessor] Successfully published SSE to subscription:bundle:${effectiveBundleId}`);
-    } catch (e2) {
-      logger.warn(`[BundleEventProcessor] Publish bundle-level wave status failed: ${String(e2)}`);
+      logger.info(`[BundleEventProcessor] Publishing wave status update via MQTT: bundleId=${effectiveBundleId}, waveId=${waveId}, status=${waveStatus}, progress=${waveProgress}`);
+      
+      // Get bundle accountId for MQTT topic
+      const bundle = await (prisma as any).bundle.findUnique({
+        where: { id: effectiveBundleId },
+        select: { accountId: true }
+      });
+      
+      if (bundle && bundle.accountId) {
+        const { publishToAccountMembers } = await import('$lib/server/mqtt/notifications/bundleNotifications');
+        const { DeviceNotificationType } = await import('$lib/server/mqtt/core/publish');
+        
+        await publishToAccountMembers(
+          prisma,
+          bundle.accountId,
+          DeviceNotificationType.BundleWaveStatus,
+          {
+            action: 'waveStatus',
+            bundleId: effectiveBundleId,
+            waveId,
+            status: waveStatus,
+            progress: waveProgress,
+            devicesTotal,
+            devicesCompleted,
+            devicesFailed,
+            endTime: waveStatus !== 'IN_PROGRESS' ? new Date().toISOString() : undefined
+          }
+        );
+        
+        logger.info(`[BundleEventProcessor] Successfully published wave status via MQTT for waveId=${waveId}`);
+      } else {
+        logger.warn(`[BundleEventProcessor] Bundle ${effectiveBundleId} not found or missing accountId, skipping MQTT broadcast`);
+      }
+    } catch (pubErr) {
+      logger.warn(`[BundleEventProcessor] Publish wave status via MQTT failed: ${String(pubErr)}`);
     }
 
     // Update bundle status based on all waves
@@ -761,15 +751,31 @@ export async function checkAndTransitionBundleState(bundleId: string): Promise<v
       
       // Publish SSE update
       try {
-        const bundleStatusMsg = MessageFactory.createSystemMessage(
-          'bundle:status',
-          `subscription:bundle:${bundleId}`,
-          { action: 'bundleStatus', bundleId, status: finalState },
-          SystemUser,
-          { echoToSender: false }
-        );
-        await publisher.publish(bundleStatusMsg);
-        logger.info(`[BundleEventProcessor] Published bundle status update: ${bundleId} -> ${finalState}`);
+        // Get bundle accountId for MQTT topic
+        const bundle = await (prisma as any).bundle.findUnique({
+          where: { id: bundleId },
+          select: { accountId: true }
+        });
+        
+        if (bundle && bundle.accountId) {
+          const { publishToAccountMembers } = await import('$lib/server/mqtt/notifications/bundleNotifications');
+          const { DeviceNotificationType } = await import('$lib/server/mqtt/core/publish');
+          
+          await publishToAccountMembers(
+            prisma,
+            bundle.accountId,
+            DeviceNotificationType.BundleStatus,
+            {
+              action: 'bundleStatus',
+              bundleId,
+              status: finalState
+            }
+          );
+          
+          logger.info(`[BundleEventProcessor] Published bundle status update via MQTT: ${bundleId} -> ${finalState}`);
+        } else {
+          logger.warn(`[BundleEventProcessor] Bundle ${bundleId} not found or missing accountId, skipping MQTT broadcast`);
+        }
       } catch (e) {
         logger.warn(`[BundleEventProcessor] Failed to publish bundle status update: ${String(e instanceof Error ? e.message : e)}`);
       }

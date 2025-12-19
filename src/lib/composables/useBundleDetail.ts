@@ -8,9 +8,8 @@ import { writable, get, type Writable } from 'svelte/store';
 import { toast } from 'svelte-sonner';
 import { goto } from '$app/navigation';
 import { invalidate } from '$app/navigation';
-import { sseStore } from '$lib/stores/sse-store';
 import { subscribeBundleWave } from '$lib/bundles/realtime';
-import { subscribeToDeviceUpdates } from '$lib/stores/device-subscription';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 import { api_post, api_delete } from '$lib/utils/ApiUtils';
 import { postV2, deleteV2 } from '$lib/utils/v2ApiHandler';
 import { onMount, onDestroy } from 'svelte';
@@ -235,8 +234,8 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
         }
     }
 
-    // Setup SSE subscriptions
-    function setupSSESubscriptions() {
+    // Setup MQTT subscriptions
+    function setupMQTTSubscriptions() {
         const b = bundle.get();
         if (!b?.id) return;
 
@@ -246,7 +245,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
             unsubscribeRealtime = null;
         }
 
-        // Subscribe to bundle wave updates
+        // Subscribe to bundle wave updates via MQTT
         unsubscribeRealtime = subscribeBundleWave(b.id, (payload) => {
             const waveId = payload.waveId;
             const waveStatus = payload.status;
@@ -310,111 +309,48 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
             deviceStatusVersion.update(v => v + 1);
         }
 
-        // Listen for device connection events
-        unsubscribeDeviceConnections = sseStore.on('*', (msg: any) => {
-            const raw = msg?.data ?? msg;
-            const evtType = raw?.type || msg?.event || raw?.payload?.type;
+        // Listen for device connection events via MQTT
+        // Subscribe to both device:connection notifications
+        const unsubConnection = mqttClient.onNotification('device:connection', (payload: any) => {
+            const deviceId = payload.deviceId;
+            const connected = payload.connected ?? true; // connection event means connected
             
-            // Handle both old and new event structures
-            let normalized;
-            if (raw?.payload?.action === 'device:connection' || raw?.payload?.action === 'device:disconnection') {
-                normalized = { ...raw.payload, type: raw.payload.action };
-            } else if (raw?.type === 'device:connection' || raw?.type === 'device:disconnection') {
-                normalized = {
-                    type: raw.type,
-                    deviceId: raw.payload?.deviceId,
-                    connected: raw.payload?.connected,
-                    connectedAt: raw.payload?.connectedAt,
-                    disconnectedAt: raw.payload?.disconnectedAt,
-                    timestamp: raw.payload?.timestamp,
-                    reason: raw.payload?.reason
-                };
-            } else {
-                return;
-            }
-            
-            const isConnectionEvent = normalized?.type === 'device:connection';
-            const isDisconnectionEvent = normalized?.type === 'device:disconnection';
-            
-            if (!isConnectionEvent && !isDisconnectionEvent) {
-                return;
-            }
-            
-            const cDeviceId = normalized?.deviceId;
-            const connected = normalized?.connected ?? false;
-            
-            if (cDeviceId) {
-                deviceConnectionStates.set(cDeviceId, !!connected);
+            if (deviceId && deviceConnectionStates.has(deviceId)) {
+                deviceConnectionStates.set(deviceId, connected);
                 deviceStatusVersion.update(v => v + 1);
             }
         });
+
+        // Subscribe to device:disconnection notifications
+        const unsubDisconnection = mqttClient.onNotification('device:disconnection', (payload: any) => {
+            const deviceId = payload.deviceId;
+            
+            if (deviceId && deviceConnectionStates.has(deviceId)) {
+                deviceConnectionStates.set(deviceId, false);
+                deviceStatusVersion.update(v => v + 1);
+            }
+        });
+
+        // Store combined unsubscribe function
+        unsubscribeDeviceConnections = () => {
+            unsubConnection();
+            unsubDisconnection();
+        };
     }
 
     // Initialize on mount
     onMount(async () => {
-        // Establish SSE connection
-        if (browser) {
-            try {
-                sseStore.connect(`/api/sse`, { withCredentials: true });
-            } catch (e) {
-                console.warn('SSE connect failed (may already be connected):', e);
-            }
-        }
+        // MQTT client connects automatically via AuthStateHandler
+        // No need to manually connect
 
-        // Subscribe to admin-level device updates (admin only)
-        if (enableDeviceTracking && context === 'admin') {
-            await subscribeToDeviceUpdates('ADMIN');
-        }
+        // Setup bundle wave subscriptions via MQTT
+        setupMQTTSubscriptions();
 
-        // Setup bundle wave subscriptions
-        setupSSESubscriptions();
-
-        // Subscribe to device channels for real-time updates (admin only)
-        if (enableDeviceTracking && browser) {
-            const devices = bundleDevices.get();
-            const deviceIds = devices?.map((d: any) => d.device?.id).filter(Boolean) || [];
-            
-            if (deviceIds.length > 0) {
-                const connId = sseStore.connectionId;
-                if (connId) {
-                    for (const deviceId of deviceIds) {
-                        try {
-                            await fetch(`/api/sse/subscribe/device/${deviceId}`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                credentials: 'include',
-                                body: JSON.stringify({ connectionId: connId })
-                            });
-                        } catch (e) {
-                            console.error('Failed to subscribe to device:', deviceId, e);
-                        }
-                    }
-                } else {
-                    // Wait for connection
-                    const unsubOnce = sseStore.on('connected', async (m: any) => {
-                        try { unsubOnce(); } catch {}
-                        const id = m?.data?.connectionId || m?.connectionId || null;
-                        if (!id) return;
-                        
-                        for (const deviceId of deviceIds) {
-                            try {
-                                await fetch(`/api/sse/subscribe/device/${deviceId}`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    credentials: 'include',
-                                    body: JSON.stringify({ connectionId: id })
-                                });
-                            } catch (e) {
-                                console.error('Failed to subscribe to device:', deviceId, e);
-                            }
-                        }
-                    });
-                }
-            }
-        }
+        // Device connection tracking is now handled via MQTT notifications
+        // No need for manual SSE subscriptions
 
         // Note: Bundle changes are handled reactively in the component
-        // The component should call setupSSESubscriptions() when bundle.id changes
+        // The component should call setupMQTTSubscriptions() when bundle.id changes
     });
 
     // Cleanup on destroy
@@ -423,7 +359,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
             try {
                 unsubscribeRealtime();
             } catch (e) {
-                console.error('Error cleaning up SSE subscription:', e);
+                console.error('Error cleaning up MQTT subscription:', e);
             }
             unsubscribeRealtime = null;
         }
@@ -435,21 +371,6 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
                 console.error('Error cleaning up device connection subscription:', e);
             }
             unsubscribeDeviceConnections = null;
-        }
-
-        // Unsubscribe from device channels (admin only)
-        if (enableDeviceTracking && browser && sseStore.connectionId) {
-            const devices = bundleDevices.get();
-            const deviceIds = devices?.map((d: any) => d.device?.id).filter(Boolean) || [];
-            
-            for (const deviceId of deviceIds) {
-                fetch(`/api/sse/unsubscribe/device/${deviceId}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ connectionId: sseStore.connectionId })
-                }).catch(err => console.warn('Unsubscribe failed:', err));
-            }
         }
     });
 
@@ -479,7 +400,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
         // Helper functions (for reactive updates in component)
         updateComputedCounts,
         updateDerivedWaves,
-        setupSSESubscriptions
+        setupMQTTSubscriptions
     };
 }
 

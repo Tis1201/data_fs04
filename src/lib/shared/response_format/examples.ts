@@ -77,17 +77,17 @@ export async function exampleFormHandler(event: RequestEvent) {
 }
 
 /**
- * Example: SSE message formatting
+ * Example: MQTT notification message formatting
  */
-export function formatSSEMessage(data: any) {
+export function formatNotificationMessage(data: any) {
     // Create a standardized response
     const response = createSuccessResponse(data, {
         message: 'New data available',
         category: ResponseCategory.NOTIFICATION
     });
     
-    // Format as SSE message
-    return `data: ${JSON.stringify(response)}\n\n`;
+    // Format as notification message (for MQTT)
+    return JSON.stringify(response);
 }
 
 /**

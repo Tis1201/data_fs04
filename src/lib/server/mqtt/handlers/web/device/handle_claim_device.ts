@@ -1,6 +1,6 @@
 import { logger } from '$lib/server/logger';
-import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
-import type { RpcResponse, RpcHandlerArgs } from '../index';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../../core/publish';
+import type { RpcResponse, RpcHandlerArgs } from '../../index';
 
 interface ClaimDeviceParams {
     pin?: string;

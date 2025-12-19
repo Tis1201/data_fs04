@@ -7,6 +7,7 @@ import { checkAndAutoStartNextWave } from '$lib/server/messaging/handlers/device
 import { updateBundleStatus } from './bundleEventProcessor';
 import { getStateManager } from '$lib/server/state/stateManagerFactory';
 import { TimeoutConfig, calculateBundleTimeout, getTimeoutMinutes } from '$lib/server/config/timeoutConfig';
+import crypto from 'crypto';
 
 // In-memory cache for wave timeout tracking
 interface WaveTimeoutInfo {
@@ -394,7 +395,7 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
         // Wave will be removed by bundle cleanup manager when bundle active period expires
         // DO NOT call unregisterWaveTimeout() for FAILED waves here!
         
-        // Publish real-time update for already-terminal wave so UI can update
+        // Publish real-time update for already-terminal wave so UI can update via MQTT
         try {
           const all = await (prisma as any).bundleDeviceProgress.findMany({ where: { waveId: waveInfo.waveId } });
           const devicesTotal = all.length;
@@ -402,26 +403,38 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
           const devicesFailed = all.filter((r: any) => r.status === 'FAILED').length;
           const waveProgress = devicesTotal > 0 ? Math.round(((devicesCompleted + devicesFailed) / devicesTotal) * 100) : 0;
           
-          const bundleStatusRouting = MessageFactory.createSystemMessage(
-            'bundle:waveStatus',
-            `subscription:bundle:${bundleId}`,
-            {
-              action: 'waveStatus',
-              bundleId: bundleId,
-              waveId: waveInfo.waveId,
-              status: currentWave.status,
-              progress: waveProgress,
-              devicesTotal,
-              devicesCompleted,
-              devicesFailed,
-              endTime: currentWave.status !== 'IN_PROGRESS' ? new Date().toISOString() : undefined,
-              timestamp: new Date().toISOString()
-            },
-            SystemUser,
-            { echoToSender: false }
-          );
-          await publisher.publish(bundleStatusRouting);
-          logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Published terminal wave status update: status=${currentWave.status}, progress=${waveProgress}%`);
+          // Get bundle accountId for MQTT topic
+          const bundle = await (prisma as any).bundle.findUnique({
+            where: { id: bundleId },
+            select: { accountId: true }
+          });
+          
+          if (bundle && bundle.accountId) {
+            const { publishToAccountMembers } = await import('$lib/server/mqtt/notifications/bundleNotifications');
+            const { DeviceNotificationType } = await import('$lib/server/mqtt/core/publish');
+            
+            await publishToAccountMembers(
+              prisma,
+              bundle.accountId,
+              DeviceNotificationType.BundleWaveStatus,
+              {
+                action: 'waveStatus',
+                bundleId: bundleId,
+                waveId: waveInfo.waveId,
+                status: currentWave.status,
+                progress: waveProgress,
+                devicesTotal,
+                devicesCompleted,
+                devicesFailed,
+                endTime: currentWave.status !== 'IN_PROGRESS' ? new Date().toISOString() : undefined,
+                timestamp: new Date().toISOString()
+              }
+            );
+            
+            logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Published terminal wave status update via MQTT: status=${currentWave.status}, progress=${waveProgress}%`);
+          } else {
+            logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} not found or missing accountId, skipping MQTT broadcast`);
+          }
         } catch (updateErr: any) {
           logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} - Failed to publish terminal wave status update: ${String(updateErr?.message || updateErr)}`);
         }
@@ -496,28 +509,40 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
       // Update bundle status
       await updateBundleStatus(prisma, bundleId);
       
-      // Publish bundle-level status update
+      // Publish bundle-level status update via MQTT
       try {
-        const bundleStatusRouting = MessageFactory.createSystemMessage(
-          'bundle:waveStatus',
-          `subscription:bundle:${bundleId}`,
-          {
-            action: 'waveStatus',
-            bundleId: bundleId,
-            waveId: waveInfo.waveId,
-            status: waveStatus,
-            progress: waveProgress,
-            devicesTotal,
-            devicesCompleted,
-            devicesFailed,
-            endTime: waveStatus !== 'IN_PROGRESS' ? new Date().toISOString() : undefined,
-            timestamp: new Date().toISOString()
-          },
-          SystemUser,
-          { echoToSender: false }
-        );
-        await publisher.publish(bundleStatusRouting);
-        logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Published bundle status update: status=${waveStatus}`);
+        // Get bundle accountId for MQTT topic
+        const bundle = await (prisma as any).bundle.findUnique({
+          where: { id: bundleId },
+          select: { accountId: true }
+        });
+        
+        if (bundle && bundle.accountId) {
+          const { publishToAccountMembers } = await import('$lib/server/mqtt/notifications/bundleNotifications');
+          const { DeviceNotificationType } = await import('$lib/server/mqtt/core/publish');
+          
+          await publishToAccountMembers(
+            prisma,
+            bundle.accountId,
+            DeviceNotificationType.BundleWaveStatus,
+            {
+              action: 'waveStatus',
+              bundleId: bundleId,
+              waveId: waveInfo.waveId,
+              status: waveStatus,
+              progress: waveProgress,
+              devicesTotal,
+              devicesCompleted,
+              devicesFailed,
+              endTime: waveStatus !== 'IN_PROGRESS' ? new Date().toISOString() : undefined,
+              timestamp: new Date().toISOString()
+            }
+          );
+          
+          logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Published bundle status update via MQTT: status=${waveStatus}`);
+        } else {
+          logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} not found or missing accountId, skipping MQTT broadcast`);
+        }
       } catch (bundleUpdateErr: any) {
         logger.warn(`[BundleTimeoutManager] Bundle ${bundleId} - Failed to publish bundle status update: ${String(bundleUpdateErr?.message || bundleUpdateErr)}`);
       }

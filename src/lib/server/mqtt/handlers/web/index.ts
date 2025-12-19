@@ -1,8 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 import { registerRpcClient } from '../index';
-import { handleClaimDevice } from './handle_claim_device';
-import { handleScreenshotDevice } from './handle_screenshot_device';
-import { handleResetDevice } from './handle_reset_device';
+import { handleClaimDevice } from './device/handle_claim_device';
+import { handleScreenshotDevice } from './screenshot/handle_screenshot_device';
+import { handleResetDevice } from './device/handle_reset_device';
 import {
     handleRefreshDevice,
     handleRebootDevice,
@@ -11,24 +11,24 @@ import {
     handlePullFile,
     handlePushFile,
     handleGetLogs
-} from './handle_device_action';
+} from './device/handle_device_action';
 import {
     handleTerminalConnect,
     handleTerminalInput,
     handleTerminalResize,
     handleTerminalDisconnect
-} from './handle_terminal';
+} from './terminal/handle_terminal';
 import {
     handleRDPStart,
     handleRDPStop,
     handleRDPControl
-} from './handle_rdp';
+} from './rdp/handle_rdp';
 import {
     handleWebRTCConnect,
     handleWebRTCAnswer,
     handleWebRTCICECandidate,
     handleWebRTCVideoRequest
-} from './handle_webrtc';
+} from './webrtc/handle_webrtc';
 
 /********************************************************************************************
  * Register web-side MQTT RPC handlers for user topics (user/<subject>/...).

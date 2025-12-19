@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { sseStore } from './sse-store';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 import type { WebRTCMessageType } from '$lib/server/webrtc/WebrtcSignalingUtils';
 
 export interface WebRTCMessage {
@@ -46,16 +46,15 @@ function createWebRTCStore() {
     const { subscribe, update } = writable<WebRTCState>(initialState);
 
     if (browser) {
-        // Listen to WebRTC messages via SSE (device events)
-        sseStore.on('device', (message: any) => {
-            const payload = message.data?.payload || message.data || message.payload;
+        // Listen to WebRTC messages via MQTT
+        mqttClient.onNotification('webrtc:*', (payload: any) => {
+            console.log(`[WebRTCStore] Received WebRTC notification via MQTT:`, payload);
             
             // Check if this is a WebRTC message
-            if (payload?.action === 'message' && payload?.type?.startsWith('webrtc:')) {
-                console.log(`[WebRTCStore] Received WebRTC message via SSE:`, payload);
-                
+            const messageType = payload?.type || '';
+            if (messageType.startsWith('webrtc:')) {
                 const webrtcMessage: WebRTCMessage = {
-                    type: payload.type as any,
+                    type: messageType as any,
                     sdp: payload.sdp,
                     candidate: payload.candidate,
                     data: payload,

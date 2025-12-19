@@ -62,7 +62,17 @@ export class SimpleActionHandler extends BaseActionHandler {
         durationMs // Pass server-calculated duration
       }, logId);
     } else if (status === 'failed' || status === 'fail') {
-      this.handleError(message || `${actionType} failed`, logId);
+      // Map handler action type to database format
+      const actionMap: Record<string, string> = {
+        'uninstall': 'uninstall_app',
+        'restartApp': 'restart_app',
+        'config': 'config',
+        'reboot': 'reboot',
+        'restart': 'restart',
+        'refresh': 'refresh'
+      };
+      const dbActionType = actionMap[actionType] || actionType;
+      this.handleError(message || `${actionType} failed`, logId, dbActionType);
     } else {
       // Handle progress updates (in_progress, etc.)
       this.handleProgress(0, message || `${actionType} in progress`, logId);

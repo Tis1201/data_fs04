@@ -221,7 +221,7 @@ export const features: Record<string, FeatureConfig> = {
 	'system.connectionDebug': {
 		admin: true,
 		user: false,
-		description: 'Debug SSE/WebSocket connections',
+		description: 'Debug MQTT/WebSocket connections',
 		status: 'stable'
 	},
 

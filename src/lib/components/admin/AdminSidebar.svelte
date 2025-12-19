@@ -185,7 +185,8 @@
             icon: BugOff,
             initialExpanded: false,
             subItems: [
-                { href: "/admin/debug/sse", label: "SSE", icon: Zap },
+                // SSE debug page removed - SSE has been migrated to MQTT
+                // { href: "/admin/debug/mqtt", label: "MQTT", icon: Zap },
                 { href: "/admin/debug/messaging", label: "Messaging", icon: MessageCircle },
                 { href: "/admin/debug/redis", label: "Redis", icon: Database },
                 { href: "/admin/debug/dashboard/superset", label: "Superset", icon: Book },

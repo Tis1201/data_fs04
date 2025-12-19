@@ -69,7 +69,9 @@ export class StreamActionHandler extends BaseActionHandler {
         durationMs // Pass server-calculated duration
       }, logId);
     } else if (status === 'failed' || status === 'fail') {
-      this.handleError(message || `${actionType} failed`, logId);
+      // Map handler action type to database format
+      const dbActionType = actionType === 'logs' ? 'get_logs' : actionType;
+      this.handleError(message || `${actionType} failed`, logId, dbActionType);
     } else if (progress !== undefined) {
       // Handle progress updates
       this.handleProgress(progress, message || `${actionType} progress: ${progress}%`, logId);
@@ -225,8 +227,9 @@ export class LogsHandler extends StreamActionHandler {
       }
       
       // Use server-calculated duration instead of calculating locally
+      // Use database format 'get_logs' to match existing logs
       this.handleSuccess({ 
-        action: 'logs', 
+        action: 'get_logs', 
         status, 
         message: message || `Logs completed`, 
         logId, 
@@ -234,7 +237,7 @@ export class LogsHandler extends StreamActionHandler {
         objectPath
       }, logId);
     } else if (status === 'failed' || status === 'fail') {
-      this.handleError(message || `Logs failed`, logId);
+      this.handleError(message || `Logs failed`, logId, 'get_logs');
     } else if (progress !== undefined) {
       // Handle progress updates
       this.handleProgress(progress, message || `Logs progress: ${progress}%`, logId);

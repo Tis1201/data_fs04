@@ -5,11 +5,11 @@
  * Replaces SSE-based WebRTC signaling with MQTT.
  */
 
-import type { RpcHandlerArgs, RpcResponse } from '../index';
-import { sendNotificationWithTicket } from '../../core/publish';
-import { DeviceNotificationType } from '../../core/publish';
+import type { RpcHandlerArgs, RpcResponse } from '../../index';
+import { sendNotificationWithTicket } from '../../../core/publish';
+import { DeviceNotificationType } from '../../../core/publish';
 import { logger } from '$lib/server/logger';
-import { checkDeviceAccess } from './access_checker';
+import { checkDeviceAccess } from '../shared/access_checker';
 import crypto from 'crypto';
 
 // ============================================================================

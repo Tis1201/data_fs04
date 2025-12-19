@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { toast } from 'svelte-sonner';
+  import { useDeviceSummaryMqtt } from '$lib/composables/useDeviceSummaryMqtt';
 
   export let deviceId: string;
   export let accountId: string;
@@ -27,17 +28,20 @@
   let summary: AppSummary | null = null;
   let loading = true;
   let error: string | null = null;
-  let sseConnection: EventSource | null = null;
+
+  // MQTT handling via composable (useDeviceSummaryMqtt)
+  const { setup: setupSummaryMqtt, cleanup: cleanupSummaryMqtt } = useDeviceSummaryMqtt({
+    deviceId,
+    onAppChange: loadSummary
+  });
 
   onMount(async () => {
     await loadSummary();
-    setupSSE();
+    setupSummaryMqtt();
   });
 
   onDestroy(() => {
-    if (sseConnection) {
-      sseConnection.close();
-    }
+    cleanupSummaryMqtt();
   });
 
   async function loadSummary() {
@@ -85,32 +89,7 @@
     }
   }
 
-  function setupSSE() {
-    if (!browser) return;
-
-    const sseUrl = `/api/sse?deviceId=${deviceId}`;
-    sseConnection = new EventSource(sseUrl);
-
-    sseConnection.addEventListener('device-apps-changed', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleAppUpdate(data);
-      } catch (err) {
-        console.error('Failed to parse app update:', err);
-      }
-    });
-
-    sseConnection.onerror = (event) => {
-      console.error('SSE connection error:', event);
-    };
-  }
-
-  function handleAppUpdate(data: any) {
-    if (data.type === 'apps_updated' || data.type === 'apps_processed') {
-      // Reload summary when apps are updated
-      loadSummary();
-    }
-  }
+  // MQTT setup is now handled by useDeviceSummaryMqtt composable
 
   function formatDate(dateString: string | null): string {
     if (!dateString) return 'Never';

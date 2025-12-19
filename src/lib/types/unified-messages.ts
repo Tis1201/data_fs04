@@ -183,9 +183,8 @@ export interface DeviceStatusApiResponse {
 // ============================================================================
 
 /**
- * Parse a raw SSE message into a typed message
  */
-export function parseSSEMessage(rawMessage: any): DeviceMessage | null {
+export function parseMessage(rawMessage: any): DeviceMessage | null {
   try {
     const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
     
@@ -215,7 +214,7 @@ export function parseSSEMessage(rawMessage: any): DeviceMessage | null {
 
     return message as DeviceMessage;
   } catch (error) {
-    console.error('[MessageParser] Failed to parse SSE message:', error);
+    console.error('[MessageParser] Failed to parse message:', error);
     return null;
   }
 }

@@ -9,7 +9,7 @@ import { generateId } from 'lucia';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { logAudit } from '../audit-logger';
 import { AuditActionType } from '$lib/constants/system';
-import { sendDeviceRegistrationMessage, createClaimOptions, type ClaimDeviceOptions } from './deviceRegistrationUtils';
+import { createClaimOptions, type ClaimDeviceOptions } from './deviceRegistrationUtils';
 import type { DeviceMeta } from './deviceMeta';
 // Mock database for device records (in a real app, this would be in Prisma)
 const deviceRecords: Record<string, any> = {};
@@ -182,20 +182,11 @@ export class DefaultDeviceManager {
         // Remove PIN from store
         await pinSharedStore.remove(pin);
 
-        // Send registration message to device via Pushpin
-        // IMPORTANT: Always send to device, regardless of UI connection status
-        // The device is connected to Pushpin, not dependent on UI SSE connection
+        // Device registration is handled via MQTT claim flow
+        // The device receives credentials (deviceId, apiKey, accountId) directly 
+        // from the MQTT claim confirm handler response
         if (!isPreclaim) {
-            await sendDeviceRegistrationMessage(device.id, {
-                id: updatedDevice.id,
-                apiKey: updatedDevice.apiKey!,
-                accountId: actualAccountId,
-                claimedBy: actualUserId,
-                name: updatedDevice.name,
-                deviceType: updatedDevice.deviceType,
-                status: updatedDevice.status,
-                ...((deviceMeta as any).metadata || {})
-            });
+            logger.debug(`[DeviceManager] Device ${device.id} registration completed - credentials sent via MQTT claim flow`);
         }
 
         return updatedDevice;

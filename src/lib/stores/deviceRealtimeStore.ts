@@ -1,5 +1,5 @@
 import { writable, derived, type Readable } from 'svelte/store';
-import { sseStore } from './sse-store';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 import { browser } from '$app/environment';
 
 export interface DeviceConnectionUpdate {
@@ -7,7 +7,7 @@ export interface DeviceConnectionUpdate {
     connected: boolean;
     connectedAt?: string;
     disconnectedAt?: string;
-    protocol?: 'sse' | 'pushpin';
+    protocol?: 'mqtt';
     timestamp: string;
 }
 
@@ -44,66 +44,41 @@ export const deviceRealtimeStore = derived(deviceStates, ($states) => ({
     }
 }));
 
-// SSE message handler for device connection updates
-let sseUnsubscribe: (() => void) | null = null;
+// MQTT notification handlers for device connection updates
+let mqttUnsubscribes: (() => void)[] = [];
 
 export function initializeDeviceRealtime(): void {
-    if (sseUnsubscribe) {
+    if (mqttUnsubscribes.length > 0) {
         if (browser) console.debug('[DeviceRealtimeStore] Already initialized');
         return;
     }
 
-    if (browser) console.log('[DeviceRealtimeStore] Initializing device real-time updates');
+    if (!browser) {
+        return;
+    }
 
-    sseUnsubscribe = sseStore.on('*', (msg: any) => {
+    if (browser) console.log('[DeviceRealtimeStore] Initializing device real-time updates via MQTT');
+
+    // Subscribe to device connection notifications
+    const unsubConnection = mqttClient.onNotification('device:connection', (payload: any) => {
         try {
-            if (browser) console.log('[DeviceRealtimeStore] Received SSE message:', msg);
-            const raw = msg?.data ?? msg;
-            const evtType = raw?.type || msg?.event || raw?.payload?.type;
+            if (browser) console.log('[DeviceRealtimeStore] Received device:connection notification:', payload);
             
-            // Normalize payloads that carry action in payload
-            const normalized = raw?.payload?.action === 'device:connection' 
-                ? { ...raw.payload, type: 'device:connection' }
-                : raw;
-
-            // Only process device:connection events
-            if (evtType !== 'device:connection' && normalized?.type !== 'device:connection') {
-                return;
-            }
-
-            const connectionData = normalized as any;
-            if (!connectionData?.deviceId) {
-                if (browser) console.debug('[DeviceRealtimeStore] No deviceId in connection event');
-                return;
-            }
-
-            // Extract connection data with proper fallbacks
-            const deviceId = connectionData.deviceId || connectionData.payload?.deviceId;
-            const connected = connectionData.connected ?? connectionData.payload?.connected ?? false;
-            const connectedAt = connectionData.connectedAt ?? connectionData.payload?.connectedAt;
-            const disconnectedAt = connectionData.disconnectedAt ?? connectionData.payload?.disconnectedAt;
-            const protocol = connectionData.protocol ?? connectionData.payload?.protocol ?? 'sse';
-
+            const deviceId = payload?.deviceId;
             if (!deviceId) {
-                if (browser) console.warn('[DeviceRealtimeStore] No deviceId found in connection event');
+                if (browser) console.debug('[DeviceRealtimeStore] No deviceId in connection notification');
                 return;
             }
 
             const update: DeviceConnectionUpdate = {
                 deviceId,
-                connected: !!connected,
-                connectedAt: connected ? (connectedAt || new Date().toISOString()) : undefined,
-                disconnectedAt: !connected ? (disconnectedAt || new Date().toISOString()) : undefined,
-                protocol,
+                connected: true,
+                connectedAt: payload?.connectedAt || payload?.timestamp || new Date().toISOString(),
+                protocol: 'mqtt',
                 timestamp: new Date().toISOString()
             };
 
-            if (browser) console.debug(`[DeviceRealtimeStore] Updating device ${deviceId}:`, {
-                connected: update.connected,
-                protocol: update.protocol,
-                connectedAt: update.connectedAt,
-                disconnectedAt: update.disconnectedAt
-            });
+            if (browser) console.debug(`[DeviceRealtimeStore] Updating device ${deviceId} as connected:`, update);
 
             // Update the device state
             deviceStates.update(states => {
@@ -114,16 +89,52 @@ export function initializeDeviceRealtime(): void {
             });
 
         } catch (error) {
-            if (browser) console.error('[DeviceRealtimeStore] Error processing device connection event:', error as any);
+            if (browser) console.error('[DeviceRealtimeStore] Error processing device connection notification:', error as any);
         }
     });
+
+    // Subscribe to device disconnection notifications
+    const unsubDisconnection = mqttClient.onNotification('device:disconnection', (payload: any) => {
+        try {
+            if (browser) console.log('[DeviceRealtimeStore] Received device:disconnection notification:', payload);
+            
+            const deviceId = payload?.deviceId;
+            if (!deviceId) {
+                if (browser) console.debug('[DeviceRealtimeStore] No deviceId in disconnection notification');
+                return;
+            }
+
+            const update: DeviceConnectionUpdate = {
+                deviceId,
+                connected: false,
+                disconnectedAt: payload?.disconnectedAt || payload?.timestamp || new Date().toISOString(),
+                protocol: 'mqtt',
+                timestamp: new Date().toISOString()
+            };
+
+            if (browser) console.debug(`[DeviceRealtimeStore] Updating device ${deviceId} as disconnected:`, update);
+
+            // Update the device state
+            deviceStates.update(states => {
+                const newStates = new Map(states);
+                newStates.set(deviceId, update);
+                if (browser) console.log(`[DeviceRealtimeStore] Updated device state for ${deviceId}:`, update);
+                return newStates;
+            });
+
+        } catch (error) {
+            if (browser) console.error('[DeviceRealtimeStore] Error processing device disconnection notification:', error as any);
+        }
+    });
+
+    mqttUnsubscribes = [unsubConnection, unsubDisconnection];
 }
 
 export function cleanupDeviceRealtime(): void {
-    if (sseUnsubscribe) {
+    if (mqttUnsubscribes.length > 0) {
         if (browser) console.debug('[DeviceRealtimeStore] Cleaning up device real-time updates');
-        sseUnsubscribe();
-        sseUnsubscribe = null;
+        mqttUnsubscribes.forEach(unsub => unsub());
+        mqttUnsubscribes = [];
     }
 }
 

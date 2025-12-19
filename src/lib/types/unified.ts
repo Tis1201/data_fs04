@@ -17,7 +17,7 @@ export interface BaseMessage {
   userId?: string;
   requestId?: string;
   connectionId?: string;
-  protocol?: 'websocket' | 'sse' | 'pushpin';
+  protocol?: 'websocket' | 'sse' | 'mqtt';
 }
 
 export type MessageType = 

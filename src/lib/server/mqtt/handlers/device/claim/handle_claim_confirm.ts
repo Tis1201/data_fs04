@@ -1,8 +1,8 @@
 import { ClaimStatus } from '@prisma/client';
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
-import type { RpcHandlerArgs, RpcResponse } from '../index';
-import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../core/publish';
+import type { RpcHandlerArgs, RpcResponse } from '../../index';
+import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../../core/publish';
 
 /********************************************************************************************
  * Device-side claim confirm handler: finalizes claim and provisions a real device.
@@ -107,7 +107,7 @@ export async function handleClaimConfirm(
     // Use MAC as wifiMac if available (can be differentiated later if needed)
     const wifiMac = macAddress;
     
-    // Check if device with same MAC address is already claimed (following Pushpin flow)
+    // Check if device with same MAC address is already claimed (following MQTT flow)
     if (macAddress) {
         const existingDevice = await prisma.device.findFirst({
             where: {

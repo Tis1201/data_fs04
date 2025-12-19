@@ -18,7 +18,7 @@ export type ActionHandlerParams = {
   actionStatus: any;
   onProgress?: (progress: number, message: string, logId?: string) => void;
   onSuccess?: (data: any) => void;
-  onError?: (error: string, logId?: string) => void;
+  onError?: (error: string, logId?: string, action?: string) => void;
 };
 
 export type MessageData = {

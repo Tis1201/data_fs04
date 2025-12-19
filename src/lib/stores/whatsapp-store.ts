@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { sseStore } from './sse-store';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 
 export interface WhatsAppMessage {
     id: string;
@@ -40,16 +40,14 @@ function createWhatsAppStore() {
     const { subscribe, update, set } = writable<WhatsAppState>(initialState);
 
     if (browser) {
-        // Listen to SSE whatsapp events
-        sseStore.on('whatsapp', (message: any) => {
-            console.log('[WHATSAPP_STORE] Received SSE message:', message);
+        // Listen to MQTT WhatsApp notifications
+        mqttClient.onNotification('whatsapp:*', (payload: any) => {
+            console.log('[WHATSAPP_STORE] Received MQTT notification:', payload);
 
-            // Extract payload from SSE message format
-            const payload = message.data?.payload || message.payload || message.data;
             const { action, content } = payload || {};
             
             if (!content) {
-                console.error('[WHATSAPP_STORE] Message content is missing:', message);
+                console.error('[WHATSAPP_STORE] Message content is missing:', payload);
                 return;
             }
 
@@ -131,7 +129,7 @@ function createWhatsAppStore() {
                     break;
  
                 default:
-                    console.log('[WHATSAPP_STORE] Unknown message action:', action, message);
+                    console.log('[WHATSAPP_STORE] Unknown message action:', action, payload);
             } 
         });
     }

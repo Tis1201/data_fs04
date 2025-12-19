@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '$lib/server/logger';
-import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../../core/publish';
 
 interface HandlePreclaimArgs {
     prisma: PrismaClient;

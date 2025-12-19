@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
-import { sseStore } from './sse-store';
+import { mqttClient } from '$lib/client/mqtt/mqttClient';
 
 interface DeviceMessage {
     type: string;
@@ -85,141 +85,109 @@ const initialState: DeviceState = {
 function createDeviceStore() {
     const { subscribe, set, update } = writable<DeviceState>(initialState);
 
-    // Set up SSE listener for device messages
+    // Set up MQTT listeners for device messages
     if (browser) {
-        sseStore.on('device', (message: any) => {
-            console.log('[DEVICE_STORE] ===== DEVICE STORE RECEIVED SSE MESSAGE =====');
-            console.log('[DEVICE_STORE] Full SSE message:', message);
+        // Listen for terminal messages
+        mqttClient.onNotification('device:terminal', (payload: any) => {
+            console.log('[DEVICE_STORE] Received terminal notification via MQTT:', payload);
             
-            // SSE messages have payload in message.data.payload, not message.payload
-            const payload = message.data?.payload || message.data || message.payload;
+            const messageType = payload?.type || 'terminal-response';
+            const deviceId = payload?.deviceId || '';
             
-            // Check if this is a WebRTC message (old structure)
-            if (payload?.type && payload.type.startsWith('webrtc:')) {
-                console.log('[DEVICE_STORE] ===== WEBRTC MESSAGE DETECTED IN SSE (OLD STRUCTURE) =====');
-                console.log('[DEVICE_STORE] WebRTC message type:', payload.type);
-                console.log('[DEVICE_STORE] WebRTC device ID:', payload.deviceId);
-            }
-            console.log('[DEVICE_STORE] Final payload:', payload);
-            
-            if (!payload?.action) {
-                console.log('[DEVICE_STORE] No action in SSE data, ignoring message');
-                return;
-            }
-            
-            switch (payload.action) {
-                case 'message': {
-                    const messageType = payload.type || '';
-                    const deviceId = payload.deviceId || '';
-                    
-                    // Handle terminal-related messages
-                    if (messageType.startsWith('terminal-')) {
-                        const terminalMessageType = messageType as 'terminal-response' | 'terminal-connected' | 'terminal-error';
-                        
-                        // Create a terminal message object
-                        const terminalMessage: TerminalMessage = {
-                            type: terminalMessageType,
-                            deviceId,
-                            output: payload.output,
-                            error: payload.error,
-                            timestamp: new Date().toISOString()
-                        };
-                        
-                        // Update the store with the new terminal message
-                        update(state => ({
-                            ...state,
-                            terminalMessages: [...state.terminalMessages, terminalMessage],
-                            latestTerminalMessage: terminalMessage
-                        }));
-                    }
-                    // Handle WebRTC-related messages
-                    else if (messageType.startsWith('webrtc:')) {
-                        console.log('[DEVICE_STORE] ===== WEBRTC MESSAGE DETECTED VIA SSE =====');
-                        console.log('[DEVICE_STORE] Full message:', message);
-                        console.log('[DEVICE_STORE] Message type:', messageType);
-                        console.log('[DEVICE_STORE] Device ID:', deviceId);
-                        
-                        const webrtcMessageType = messageType as 'webrtc:offer' | 'webrtc:answer' | 'webrtc:ice-candidate';
-                        
-                        // Create a WebRTC message object
-                        const webrtcMessage: WebRTCMessage = {
-                            type: webrtcMessageType,
-                            deviceId,
-                            sdp: payload.sdp,
-                            candidate: payload.candidate,
-                            clientMessageId: payload._clientMessageId,
-                            timestamp: new Date().toISOString(),
-                            scope: message.scope,
-                            senderId: message.senderId
-                        };
-                        
-                        console.log('[DEVICE_STORE] WebRTC message created:', webrtcMessage);
-                        
-                        // Update the store with the new WebRTC message
-                        update(state => {
-                            console.log('[DEVICE_STORE] Current state deviceId:', state.deviceId);
-                            console.log('[DEVICE_STORE] Target deviceId:', deviceId);
-                            // Only store the latest WebRTC message for the current device
-                            if (!state.deviceId || state.deviceId === deviceId) {
-                                console.log('[DEVICE_STORE] Updating WebRTC message in store via SSE');
-                                return {
-                                    ...state,
-                                    latestWebRTCMessage: webrtcMessage
-                                };
-                            } else {
-                                console.log('[DEVICE_STORE] Device ID mismatch, not updating store via SSE');
-                            }
-                            return state;
-                        });
-                    }
-                    break;
-                }
+            if (messageType.startsWith('terminal-')) {
+                const terminalMessageType = messageType as 'terminal-response' | 'terminal-connected' | 'terminal-error';
                 
-                case 'error': {
-                    const errorDetails = payload.details || payload.error || 'Unknown error occurred';
-                    update(state => ({
-                        ...state,
-                        claimStatus: 'failed',
-                        error: errorDetails
-                    }));
-                    break;
-                }
+                const terminalMessage: TerminalMessage = {
+                    type: terminalMessageType,
+                    deviceId,
+                    output: payload.output,
+                    error: payload.error,
+                    timestamp: payload.timestamp || new Date().toISOString()
+                };
                 
-                case 'registered': {
-                    console.log('[DEVICE_STORE] Device registered:', payload);
-                    update(state => ({
-                        ...state,
-                        deviceId: payload.id || null,
-                        claimStatus: 'claimed'
-                    }));
-                    break;
-                }
-                    
-                case 'claimed': {
-                    if (payload.success) {
-                        console.log('[DEVICE_STORE] Device claimed successfully:', payload);
-                        update(state => ({
-                            ...state,
-                            deviceId: payload.deviceId || payload.device?.id || null,
-                            name: payload.deviceName || payload.device?.name || null,
-                            deviceType: payload.device?.deviceType || null,
-                            status: payload.device?.status || null,
-                            claimStatus: 'claimed',
-                            error: null
-                        }));
-                    } else {
-                        update(state => ({
-                            ...state,
-                            claimStatus: 'failed',
-                            error: payload.error || payload.message || 'Claim failed'
-                        }));
-                    }
-                    break;
-                }
-                    
-                default:
-                    console.log('[DEVICE_STORE] Unhandled action:', payload.action);
+                update(state => ({
+                    ...state,
+                    terminalMessages: [...state.terminalMessages, terminalMessage],
+                    latestTerminalMessage: terminalMessage
+                }));
             }
+        });
+
+        // Listen for WebRTC messages
+        mqttClient.onNotification('device:webrtc', (payload: any) => {
+            console.log('[DEVICE_STORE] Received WebRTC notification via MQTT:', payload);
+            
+            const messageType = payload?.type || '';
+            const deviceId = payload?.deviceId || '';
+            
+            if (messageType.startsWith('webrtc:')) {
+                const webrtcMessageType = messageType as 'webrtc:offer' | 'webrtc:answer' | 'webrtc:ice-candidate';
+                
+                const webrtcMessage: WebRTCMessage = {
+                    type: webrtcMessageType,
+                    deviceId,
+                    sdp: payload.sdp,
+                    candidate: payload.candidate,
+                    clientMessageId: payload._clientMessageId,
+                    timestamp: payload.timestamp || new Date().toISOString(),
+                    scope: payload.scope,
+                    senderId: payload.senderId
+                };
+                
+                update(state => {
+                    // Only store the latest WebRTC message for the current device
+                    if (!state.deviceId || state.deviceId === deviceId) {
+                        return {
+                            ...state,
+                            latestWebRTCMessage: webrtcMessage
+                        };
+                    }
+                    return state;
+                });
+            }
+        });
+
+        // Listen for device claim/registration messages
+        mqttClient.onNotification('device:claim', (payload: any) => {
+            console.log('[DEVICE_STORE] Received device claim notification via MQTT:', payload);
+            
+            if (payload.success) {
+                update(state => ({
+                    ...state,
+                    deviceId: payload.deviceId || payload.device?.id || null,
+                    name: payload.deviceName || payload.device?.name || null,
+                    deviceType: payload.device?.deviceType || null,
+                    status: payload.device?.status || null,
+                    claimStatus: 'claimed',
+                    error: null
+                }));
+            } else {
+                update(state => ({
+                    ...state,
+                    claimStatus: 'failed',
+                    error: payload.error || payload.message || 'Claim failed'
+                }));
+            }
+        });
+
+        // Listen for device registration messages
+        mqttClient.onNotification('device:registered', (payload: any) => {
+            console.log('[DEVICE_STORE] Device registered via MQTT:', payload);
+            update(state => ({
+                ...state,
+                deviceId: payload.id || payload.deviceId || null,
+                claimStatus: 'claimed'
+            }));
+        });
+
+        // Listen for device errors
+        mqttClient.onNotification('device:error', (payload: any) => {
+            const errorDetails = payload?.details || payload?.error || 'Unknown error occurred';
+            update(state => ({
+                ...state,
+                claimStatus: 'failed',
+                error: errorDetails
+            }));
         });
     }
 

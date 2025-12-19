@@ -152,33 +152,15 @@ async function publishDeviceStatusNotification(params: {
         }
     }
     
-    // Publish notification to each user's MQTT notifications topic
+    // Publish notification once per user (not per connection)
+    // The user's MQTT client will receive it on their subscribed topic
     for (const userId of usersToNotify) {
         try {
-            // Find active MQTT sessions for this user
-            const userConnections = await prisma.mqttConnection.findMany({
-                where: {
-                    kind: 'user',
-                    status: 'CONNECTED',
-                    username: {
-                        startsWith: `user:${userId}:`
-                    }
-                },
-                select: { username: true }
-            });
-            
-            // Publish to each active user session
-            for (const conn of userConnections) {
-                const topic = `user/${conn.username}/notifications`;
-                try {
-                    await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
-                    logger.debug(`[MQTT Device Status] Published ${notificationType} to ${topic}`);
-                } catch (err) {
-                    logger.error(`[MQTT Device Status] Failed to publish to ${topic}:`, err);
-                }
-            }
+            const topic = `user/user:${userId}:${device.accountId}/notifications`;
+            await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
+            logger.debug(`[MQTT Device Status] Published ${notificationType} to ${topic}`);
         } catch (err) {
-            logger.error(`[MQTT Device Status] Failed to get connections for user ${userId}:`, err);
+            logger.error(`[MQTT Device Status] Failed to publish to user ${userId}:`, err);
         }
     }
     
@@ -189,7 +171,12 @@ async function publishDeviceStatusNotification(params: {
  * Central dispatcher for all MQTT messages consumed by the worker.
  ********************************************************************************************/
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
-    logger.debug(`[MQTT Messaging] Received message on ${topic}`);
+    // Log all incoming messages to help debug
+    if (topic.includes('replies') || topic.includes('device')) {
+        logger.info(`[MQTT Messaging] 📨 Received message on ${topic}`, { payloadLength: payload.length });
+    } else {
+        logger.debug(`[MQTT Messaging] Received message on ${topic}`, { payloadLength: payload.length });
+    }
 
     if (
         topic === '$events/client/connected' ||
@@ -499,16 +486,21 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // which carry a simple { ticket, result } envelope. This must be defensive:
     // malformed messages should be logged and ignored so the worker never crashes.
     if (topic.endsWith('/replies')) {
+        logger.info('[MQTT Reply] ✅ Received reply message', { topic, payloadLength: payload.length });
         const rawReply = payload.toString('utf8');
+        logger.debug('[MQTT Reply] Raw reply content (first 500 chars):', rawReply.substring(0, 500));
 
         try {
+            logger.debug('[MQTT Reply] Parsing reply payload', { topic, rawReplyLength: rawReply.length });
             const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
             const { ticket, result } = reply;
 
             if (!ticket) {
-                logger.error('[MQTT Reply] Missing ticket in reply payload', { topic, rawReply });
+                logger.error('[MQTT Reply] Missing ticket in reply payload', { topic, rawReply: rawReply.substring(0, 200) });
                 return;
             }
+            
+            logger.debug('[MQTT Reply] Reply has ticket, decoding...', { topic, hasResult: !!result });
 
             const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
 
@@ -546,6 +538,15 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             const status = resultObj.status as string;
             const message = resultObj.message as string;
             const action = resultObj.action as string;
+            
+            logger.debug('[MQTT Reply] Processing reply result', {
+                messageType,
+                logId,
+                status,
+                action,
+                hasResult: !!result,
+                resultKeys: resultObj ? Object.keys(resultObj) : []
+            });
 
             // Handle device:statusUpdate (matches old SSE flow)
             if (logId && messageType === 'device:statusUpdate') {
@@ -590,6 +591,47 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         message,
                         updatedLogId: updatedLog.id
                     });
+
+                    // If this is an applyProfile action, update the DeviceProfileAssignment status
+                    if (action === 'applyProfile' && status && (status === 'success' || status === 'failed')) {
+                        const profileId = resultObj.profileId as string | undefined;
+                        const deviceId = resultObj.deviceId as string | undefined;
+                        
+                        if (profileId && deviceId) {
+                            try {
+                                const assignmentStatus = status === 'success' ? 'APPLIED' : 'FAILED';
+                                await (prisma as any).deviceProfileAssignment.updateMany({
+                                    where: {
+                                        deviceId,
+                                        profileId
+                                    },
+                                    data: {
+                                        status: assignmentStatus,
+                                        lastSyncAt: new Date()
+                                    }
+                                });
+                                
+                                logger.info('[MQTT Reply] Updated DeviceProfileAssignment status', {
+                                    deviceId,
+                                    profileId,
+                                    status: assignmentStatus
+                                });
+                            } catch (assignErr) {
+                                logger.error('[MQTT Reply] Failed to update DeviceProfileAssignment', {
+                                    deviceId,
+                                    profileId,
+                                    status,
+                                    error: assignErr instanceof Error ? assignErr.message : String(assignErr)
+                                });
+                            }
+                        } else {
+                            logger.warn('[MQTT Reply] applyProfile status update missing profileId or deviceId', {
+                                profileId,
+                                deviceId,
+                                status
+                            });
+                        }
+                    }
                 } catch (dbErr) {
                     logger.error('[MQTT Reply] Failed to update action log', {
                         logId,
@@ -830,14 +872,31 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             }
 
             // Ensure type is preserved correctly (device.screenshot for screenshot responses)
-            // The device reply might have type: 'device' in its structure, but the ticket type should be 'device.screenshot'
+            // For status/progress updates, use the actual message type instead of original request type
+            // The device reply might have type: 'device' in its structure, but the ticket type should match the message type
             // Also check notificationParams for objectPath as a fallback (in case extraction already happened)
             let notificationType = ctx.type;
             const hasScreenshotObjectPath = (notificationParams && typeof notificationParams === 'object' && 
                 typeof (notificationParams as Record<string, unknown>).objectPath === 'string' &&
                 ((notificationParams as Record<string, unknown>).objectPath as string).includes('/screenshots/'));
             
-            if (isScreenshotResponse || hasScreenshotObjectPath) {
+            // For progress and status updates, change notification type to match the actual message
+            // so the UI can listen for the correct notification type
+            if (messageType === 'device:statusUpdate') {
+                notificationType = 'device:statusUpdate';
+                logger.debug('[MQTT Reply] Forwarding as device:statusUpdate', {
+                    originalType: ctx.type,
+                    action,
+                    status
+                });
+            } else if (messageType === 'device:progressUpdate') {
+                notificationType = 'device:progressUpdate';
+                logger.debug('[MQTT Reply] Forwarding as device:progressUpdate', {
+                    originalType: ctx.type,
+                    action,
+                    progress: resultObj.progress
+                });
+            } else if (isScreenshotResponse || hasScreenshotObjectPath) {
                 // Force type to 'device.screenshot' for screenshot responses
                 notificationType = 'device.screenshot';
                 logger.info('[MQTT Reply] Setting screenshot notification type to device.screenshot', {
@@ -849,8 +908,9 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     objectPath: hasScreenshotObjectPath ? (notificationParams as Record<string, unknown>).objectPath : undefined
                 });
             } else {
-                logger.debug('[MQTT Reply] Not a screenshot response', {
+                logger.debug('[MQTT Reply] Using original notification type', {
                     ctxType: ctx.type,
+                    messageType,
                     isScreenshotResponse,
                     hasScreenshotObjectPath,
                     resultType: result && typeof result === 'object' ? (result as Record<string, unknown>).type : undefined
@@ -870,6 +930,15 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 });
             }
 
+            logger.info('[MQTT Reply] Forwarding notification to user', {
+                notificationType,
+                recipient: ctx.sub,
+                sub: ctx.recipient,
+                flowId: ctx.flowId,
+                hasParams: !!cleanParams,
+                paramKeys: cleanParams ? Object.keys(cleanParams) : []
+            });
+
             await sendNotificationWithTicket({
                 prisma,
                 sub: ctx.recipient,
@@ -878,6 +947,11 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 flowId: ctx.flowId,
                 params: cleanParams,
                 expiresIn: '5m'
+            });
+            
+            logger.debug('[MQTT Reply] Notification forwarded successfully', {
+                notificationType,
+                recipient: ctx.sub
             });
         } catch (err) {
             logger.error(

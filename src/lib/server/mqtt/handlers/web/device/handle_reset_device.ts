@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { logger } from '$lib/server/logger';
-import { DeviceNotificationType, sendNotificationWithTicket } from '../../core/publish';
-import type { RpcHandlerArgs, RpcResponse } from '../index';
-import { checkDeviceAccess } from './access_checker';
+import { DeviceNotificationType, sendNotificationWithTicket } from '../../../core/publish';
+import type { RpcHandlerArgs, RpcResponse } from '../../index';
+import { checkDeviceAccess } from '../shared/access_checker';
 
 interface ResetDeviceParams {
     deviceId?: string;

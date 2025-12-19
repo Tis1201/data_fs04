@@ -11,7 +11,6 @@ import { MessageFactory, SystemUser } from '../messaging/interfaces/message';
 import { MessageValidator, MessageRouter } from '../../types/unified';
 import { getLoggingManager } from '../../managers/LoggingManager';
 import { publisher } from '../messaging/core/publisher';
-import { getMessageRelay } from '../pushpin/middleware';
 import { logger } from '../logger';
 
 // ============================================================================
@@ -279,45 +278,22 @@ class TerminalHandlerClass implements Handler {
     }
   }
 
+  /**
+   * Forward terminal message to device via MQTT
+   * Note: Terminal messages to devices are now handled by MQTT RPC handlers
+   * (see: src/lib/server/mqtt/handlers/web/terminal/handle_terminal.ts)
+   * This method is kept for backward compatibility but messages should
+   * be sent via MQTT RPC operations instead.
+   */
   private async forwardToDevice(message: InMessage, data: any): Promise<void> {
     const deviceId = data.deviceId;
     
-    // Use MessageRelay to publish to device via Pushpin
-    const messageRelay = getMessageRelay();
+    logger.debug(`[TerminalHandler] forwardToDevice called - Terminal messages should use MQTT RPC handlers. Action: ${data.action}, Device: ${deviceId}`);
     
-    if (!messageRelay) {
-      const error = 'MessageRelay not available - cannot send terminal message to device';
-      logger.error(`[TerminalHandler] ${error} (deviceId: ${deviceId}, action: ${data.action})`);
-      throw new Error(error);
-    }
-    
-    // Prepare terminal message for device
-    // Device expects messages in format: { type: 'terminal:input', data: '...', timestamp: ... }
-    const terminalMessage: any = {
-      type: data.action, // terminal:input, terminal:resize, terminal:connect, terminal:disconnect
-      timestamp: Date.now()
-    };
-    
-    // Add specific fields based on action type
-    if (data.action === 'terminal:input') {
-      terminalMessage.data = data.input;
-    } else if (data.action === 'terminal:resize') {
-      terminalMessage.rows = data.rows;
-      terminalMessage.cols = data.cols;
-    } else if (data.action === 'terminal:connect' || data.action === 'terminal:disconnect') {
-      terminalMessage.connectionState = data.connectionState;
-    }
-    
-    // Publish to device via Pushpin
-    await messageRelay.publishToDevice(deviceId, terminalMessage);
-    
-    this.logger?.logTerminal(data.action, deviceId, `Published to device via Pushpin`, {
-      action: data.action,
-      ...(data.action === 'terminal:input' ? { inputLength: data.input?.length } : {}),
-      ...(data.action === 'terminal:resize' ? { rows: data.rows, cols: data.cols } : {})
-    });
-    
-    logger.debug(`[TerminalHandler] Published ${data.action} to device ${deviceId} via Pushpin`);
+    // Terminal messages to devices are now handled by MQTT RPC handlers
+    // Web clients should use: mqttClient.request('terminal.input', {...}) etc.
+    // This handler processes incoming terminal messages from the messaging system,
+    // not outgoing messages to devices.
   }
 
   private async forwardToClient(message: InMessage, data: any): Promise<void> {
@@ -327,9 +303,9 @@ class TerminalHandlerClass implements Handler {
     const scope = `subscription:device:${deviceId}`;
 
     // Create a proper RoutingMessage for the publisher
-    // The type field in payload will be used as the SSE event type
+    // The type field in payload will be used as the notification type
     const routingMessage = MessageFactory.createSystemMessage(
-      data.action, // terminal:output, terminal:error - this becomes the SSE event type
+      data.action, // terminal:output, terminal:error - this becomes the notification type
       scope,
       {
         type: data.action, // terminal:output, terminal:error
@@ -347,7 +323,7 @@ class TerminalHandlerClass implements Handler {
       routingMessage.requestId = message.requestId;
     }
 
-    this.logger?.logTerminal(data.action, deviceId, `Publishing to UI via SSE`, {
+    this.logger?.logTerminal(data.action, deviceId, `Publishing to UI via messaging system`, {
       action: data.action,
       scope
     });

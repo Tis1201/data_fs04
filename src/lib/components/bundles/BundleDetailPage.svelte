@@ -108,7 +108,7 @@
         handleStopAllWaves,
         updateComputedCounts,
         updateDerivedWaves,
-        setupSSESubscriptions
+        setupMQTTSubscriptions
     } = useBundleDetail({
         bundleId: bundle.id,
         context,
@@ -131,7 +131,7 @@
     $: if (bundle?.id) {
         updateComputedCounts();
         updateDerivedWaves();
-        setupSSESubscriptions();
+        setupMQTTSubscriptions();
     }
 
     // Action handlers
@@ -172,7 +172,7 @@
             if (response.id) {
                 goto(`${basePath}/${response.id}`);
             }
-            // Auto-refresh to load complete data and ensure SSE subscription works
+            // Auto-refresh to load complete data and ensure MQTT subscription works
             setTimeout(() => window.location.reload(), 100);
         } catch (e) {
             toast.error('Failed to duplicate bundle');

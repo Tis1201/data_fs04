@@ -1,10 +1,14 @@
 import { logger } from '$lib/server/logger';
-import { getPresenceManager, getMessageRelay } from '$lib/server/pushpin/middleware';
 
 /**
  * Manages device status updates through database
- * This ensures consistent status tracking across all connection types (SSE, WebSocket, Pushpin)
- * Note: Redis is optional - if not available, only database updates are performed
+ * 
+ * This class handles database updates for device connection status.
+ * Presence tracking is handled by MQTT handlers, but database updates
+ * are still needed for persistence and querying.
+ * 
+ * Used by:
+ * - Message handlers (device connection/disconnection events)
  */
 export class DeviceStatusManager {
     
@@ -27,35 +31,6 @@ export class DeviceStatusManager {
                     lastUsedAt: now
                 }
             });
-            
-            // Update presence tracking and publish to Redis if available
-            try {
-                const presenceManager = getPresenceManager();
-                const messageRelay = getMessageRelay();
-                
-                if (presenceManager) {
-                    await presenceManager.setDeviceOnline(deviceId);
-                }
-                
-                if (messageRelay) {
-                    await messageRelay.publishDeviceStatus(deviceId, 'online', connectionId);
-                } else {
-                    // Fallback to direct Redis publish
-                    const { getRedisService } = await import('$lib/server/services/redisService');
-                    const redisService = getRedisService(locals);
-                    if (redisService) {
-                        await redisService.publish('device_status_changes', JSON.stringify({
-                            deviceId,
-                            status: 'online',
-                            connectionId,
-                            timestamp: new Date().toISOString()
-                        }));
-                    }
-                }
-                logger.debug(`Device ${deviceId} status published to Redis`);
-            } catch (redisError) {
-                logger.debug(`Redis not available, skipping publish for device ${deviceId}: ${redisError}`);
-            }
             
             logger.info(`Device ${deviceId} marked as online (connection: ${connectionId || 'unknown'})`);
             
@@ -82,35 +57,6 @@ export class DeviceStatusManager {
                     disconnectedAt: new Date() 
                 }
             });
-            
-            // Update presence tracking and publish to Redis if available
-            try {
-                const presenceManager = getPresenceManager();
-                const messageRelay = getMessageRelay();
-                
-                if (presenceManager) {
-                    await presenceManager.setDeviceOffline(deviceId);
-                }
-                
-                if (messageRelay) {
-                    await messageRelay.publishDeviceStatus(deviceId, 'offline', connectionId);
-                } else {
-                    // Fallback to direct Redis publish
-                    const { getRedisService } = await import('$lib/server/services/redisService');
-                    const redisService = getRedisService(locals);
-                    if (redisService) {
-                        await redisService.publish('device_status_changes', JSON.stringify({
-                            deviceId,
-                            status: 'offline',
-                            connectionId,
-                            timestamp: new Date().toISOString()
-                        }));
-                    }
-                }
-                logger.debug(`Device ${deviceId} status published to Redis`);
-            } catch (redisError) {
-                logger.debug(`Redis not available, skipping publish for device ${deviceId}: ${redisError}`);
-            }
             
             logger.info(`Device ${deviceId} marked as offline (connection: ${connectionId || 'unknown'})`);
             
