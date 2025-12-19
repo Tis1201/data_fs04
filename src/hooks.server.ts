@@ -4,8 +4,7 @@ import redis from "$lib/server/redis";
 import { building } from "$app/environment";
 import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
 import { authMiddleware } from "$lib/server/auth/middleware";
-import { pushpinMiddleware } from "$lib/server/pushpin/middleware";
-// WebSocket middleware removed - all communication now uses SSE
+// Pushpin middleware removed - all device communication now uses MQTT
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
 import prisma from "$lib/server/prisma";
@@ -128,7 +127,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     (event.locals as any).ipAddress = ip;
 
     // Chain the middleware functions properly
-    // First apply auth middleware, then pushpin middleware if enabled
+    // Apply auth middleware (Pushpin middleware removed - all devices use MQTT)
     const response = await authMiddleware({
         event,
         resolve: async (authEvent) => {
@@ -145,15 +144,7 @@ export const handle: Handle = async ({ event, resolve }) => {
                 }
             }
 
-            // Respect REALTIME_TRANSPORT env for enabling Pushpin
-            const enablePushpin = String(process.env.REALTIME_TRANSPORT || 'sse').toLowerCase() === 'pushpin';
-            if (redis && enablePushpin) {
-                return pushpinMiddleware({
-                    event: authEvent,
-                    resolve
-                });
-            }
-            // If Pushpin disabled or no Redis, resolve directly (SSE is handled by routes)
+            // Resolve directly (Pushpin removed, devices use MQTT, SSE handled by routes)
             return resolve(authEvent);
         }
     });
