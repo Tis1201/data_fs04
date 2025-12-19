@@ -23,7 +23,7 @@ This directory contains deployment-related documentation for the FS04 IoT Manage
 - [ ] Database migrations applied
 - [ ] Redis configuration verified
 - [ ] Load balancer timeouts set
-- [ ] Pushpin routes configured
+- [ ] MQTT broker configured
 
 ### Deployment
 - [ ] Kubernetes manifests updated

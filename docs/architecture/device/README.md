@@ -21,13 +21,15 @@ Device claiming process and PIN validation system:
 - Security considerations
 
 
-### [Pushpin](./PUSHPIN.md)
-Real-time messaging and WebSocket management:
-- WebSocket connection handling
+### [MQTT](./mqtt/)
+Real-time messaging via MQTT:
+- MQTT connection handling
 - Real-time message broadcasting
-- Connection pooling and management
+- Device presence tracking
 - Message routing and delivery
 - Performance optimization
+
+**Note**: Pushpin has been deprecated and replaced with MQTT. See [MQTT documentation](./mqtt/) for current architecture.
 
 ## 🚀 Feature Overview
 
@@ -47,12 +49,12 @@ Secure device claiming system with:
 - **Error Handling**: Comprehensive error scenarios
 - **Security**: Multi-layer security implementation
 
-### Real-time Communication
+### Real-time Communication (MQTT)
 Advanced real-time communication features:
-- **WebSocket**: Real-time message delivery
-- **SSE**: Server-sent events for status updates
+- **MQTT**: Real-time message delivery via MQTT broker
+- **Device Presence**: Real-time device status tracking
 - **Connection Management**: Robust connection handling
-- **Performance**: Optimized for high throughput
+- **Performance**: Optimized for high throughput (100k+ devices)
 
 ## 🔧 Implementation Details
 
@@ -168,7 +170,7 @@ const claimedDevice = await prisma.device.update({
 
 ### Cross-Feature Dependencies
 - **Device Management** ↔ **Device Claiming**: Device ownership
-- **Device Management** ↔ **Pushpin**: Device communication
+- **Device Management** ↔ **MQTT**: Device communication
 - **All Features** ↔ **Authentication**: Security integration
 
 ### API Integration
