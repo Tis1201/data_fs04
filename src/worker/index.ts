@@ -2,10 +2,12 @@ import 'dotenv/config';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
-import { logger } from '../lib/server/logger';
-import { registerMqttTransport } from '../lib/server/mqtt/core/transport';
-import { registerDeviceHandlers } from '../lib/server/mqtt/handlers/device';
-import { registerWebHandlers } from '../lib/server/mqtt/handlers/web';
+import { logger } from '$lib/server/logger';
+import { registerMqttTransport } from '$lib/server/mqtt/core/transport';
+import { registerDeviceHandlers } from '$lib/server/mqtt/handlers/device';
+import { registerWebHandlers } from '$lib/server/mqtt/handlers/web';
+import { subscribeToQueue } from '$lib/server/mqtt/core/queue';
+import { sendNotificationWithTicket } from '$lib/server/mqtt/core/publish';
 import {
   client,
   connectWorkerClient,
@@ -69,6 +71,44 @@ export function startMqttListener(): void {
 
   (async () => {
     await connectWorkerClient();
+
+    // Subscribe to Redis queue for cross-process MQTT notifications
+    logger.info('[MQTT Transport] Setting up Redis queue subscription...');
+    await subscribeToQueue(async (notification) => {
+      try {
+        logger.info(`[MQTT Queue] Processing notification: type=${notification.type}, recipient=${notification.recipient}`);
+        
+        // Send the queued notification via MQTT
+        await sendNotificationWithTicket({
+          prisma: adminPrisma,
+          sub: notification.sub,
+          recipient: notification.recipient,
+          type: notification.type,
+          flowId: notification.flowId,
+          params: notification.params,
+          expiresIn: notification.expiresIn
+        });
+        
+        logger.debug(`[MQTT Queue] Successfully sent notification: type=${notification.type}`);
+      } catch (error) {
+        logger.error(`[MQTT Queue] Failed to send notification: ${String(error)}`);
+      }
+    });
+    logger.info('[MQTT Transport] Redis queue subscription active');
+
+    // Reconcile device presence after a short delay to ensure MQTT transport is ready
+    setTimeout(async () => {
+      try {
+        logger.info('[MQTT Transport] Starting device presence reconciliation...');
+        const { reconcileDevicePresence } = await import('$lib/server/mqtt/utils/reconciliation');
+        await reconcileDevicePresence();
+        logger.info('[MQTT Transport] Device presence reconciliation completed');
+      } catch (err) {
+        logger.error(
+          `[MQTT Transport] Device presence reconciliation failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }, 5000); // Wait 5 seconds for MQTT transport to be fully ready
 
     const shutdown = (signal: NodeJS.Signals) => {
       logger.info(`[MQTT Transport] Caught ${signal}, shutting down service`);

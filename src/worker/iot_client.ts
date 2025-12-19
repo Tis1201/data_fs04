@@ -4,10 +4,10 @@ import mqtt, { type IClientOptions, type IConnackPacket, type MqttClient } from 
 type QoS = 0 | 1 | 2;
 import os from 'node:os';
 import process from 'node:process';
-import { logger } from '../lib/server/logger';
-import { handleIncoming } from '../lib/server/mqtt/handlers';
-import { getWorkerSubscriptions } from '../lib/server/mqtt/core/subscriptions';
-import { mintIoTCoreCredentials } from '../lib/server/mqtt/mint';
+import { logger } from '$lib/server/logger';
+import { handleIncoming } from '$lib/server/mqtt/handlers';
+import { getWorkerSubscriptions } from '$lib/server/mqtt/core/subscriptions';
+import { mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 import { PrismaClient } from '@prisma/client';
 
 // Use raw Prisma client for the worker (no Zenstack enhancement)
