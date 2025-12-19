@@ -210,7 +210,7 @@
         
         try {
             // Get all presence keys (presence:device:*)
-            // This is the actual key pattern used by pushpin-tracker
+            // This is the actual key pattern used by MQTT presence tracker
             const response = await fetch('/admin/debug/redis', {
                 method: 'POST',
                 headers: {
@@ -528,7 +528,7 @@
     <!-- Connected Devices Card -->
     <AdminCard
       title="Connected Devices"
-      description="List of all devices connected through Pushpin"
+      description="List of all devices connected through MQTT"
       icon={Wifi}
       class="mt-6"
     >
@@ -678,7 +678,7 @@
                 <DialogTitle>Publish Message to Device</DialogTitle>
                 <DialogDescription>
                     Send a message to device {selectedDeviceId} via Redis messages channel.
-                    This will be relayed to the device through Pushpin.
+                    This will be relayed to the device through MQTT.
                 </DialogDescription>
             </DialogHeader>
             

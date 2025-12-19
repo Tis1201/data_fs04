@@ -22,7 +22,7 @@ export const GET = restrict(
             const redisService = getRedisService(locals);
             
             if (!redisService) {
-                return json({ error: 'Redis service not available. Make sure USE_PUSHPIN=true in your .env file.' }, { status: 503 });
+                return json({ error: 'Redis service not available. Make sure Redis is configured in your .env file.' }, { status: 503 });
             }
             
             // Get the value from Redis
@@ -63,7 +63,7 @@ export const POST = restrict(
             const redisService = getRedisService(locals);
             
             if (!redisService) {
-                return json({ error: 'Redis service not available. Make sure USE_PUSHPIN=true in your .env file.' }, { status: 503 });
+                return json({ error: 'Redis service not available. Make sure Redis is configured in your .env file.' }, { status: 503 });
             }
             
             // Handle special commands
@@ -111,7 +111,7 @@ export const POST = restrict(
                 });
             } else if (command === 'publish') {
                 // Handle publishing messages to devices via the messages channel
-                // This follows the Pushpin Connection Tracker format
+                // Format message for MQTT queue
                 
                 try {
                     // Extract the device ID directly from the request body
@@ -122,14 +122,14 @@ export const POST = restrict(
                         return json({ error: 'Message must contain device ID and content' }, { status: 400 });
                     }
                     
-                    // Format the message according to the Pushpin Connection Tracker format
+                    // Format the message for MQTT queue
                     const messageObj = {
                         channel: deviceId,
                         payload: messageContent
                     };
                     
                     // Publish the message to the messages channel
-                    // The Go tracker will relay this to the appropriate Pushpin channel
+                    // The MQTT worker will relay this to the device via MQTT
                     const result = await redisService.publish('messages', JSON.stringify(messageObj));
                     
                     logger.debug(`User ${auth.user.id} published message to device: ${deviceId}`);
@@ -205,7 +205,7 @@ export const DELETE = restrict(
             const redisService = getRedisService(locals);
             
             if (!redisService) {
-                return json({ error: 'Redis service not available. Make sure USE_PUSHPIN=true in your .env file.' }, { status: 503 });
+                return json({ error: 'Redis service not available. Make sure Redis is configured in your .env file.' }, { status: 503 });
             }
             
             // Delete the key from Redis

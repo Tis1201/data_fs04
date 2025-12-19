@@ -13,7 +13,7 @@ export const POST: RequestHandler = async () => {
         
         // Group connections by user and collect statistics
         const userConnections: Record<string, any[]> = {};
-        const sseUserIds = new Set<string>();
+        const mqttUserIds = new Set<string>();
         const whatsappConnections = new Set<string>();
         const deviceConnections = new Set<string>();
 
@@ -24,9 +24,9 @@ export const POST: RequestHandler = async () => {
             }
             userConnections[userId].push(conn);
 
-            // Track SSE connections
-            if (conn.protocol === 'sse' && userId !== 'anonymous') {
-                sseUserIds.add(userId);
+            // Track MQTT connections
+            if (conn.protocol === 'mqtt' && userId !== 'anonymous') {
+                mqttUserIds.add(userId);
             }
 
             // Track WhatsApp connections
@@ -59,7 +59,7 @@ export const POST: RequestHandler = async () => {
             subscriptionCount: subscriptions.length,
             userCount: Object.keys(userConnections).length,
             stats: {
-                sseUsers: sseUserIds.size,
+                mqttUsers: mqttUserIds.size,
                 whatsappConnections: whatsappConnections.size,
                 deviceConnections: deviceConnections.size
             }

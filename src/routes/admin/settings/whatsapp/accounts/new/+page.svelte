@@ -17,7 +17,7 @@
     import { onDestroy, onMount } from "svelte";
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { createClientMessage, type ClientMessage } from "$lib/types/messages";
-    import { sseStore } from "$lib/stores/sse-store";
+    import { mqttClient } from "$lib/client/mqtt/mqttClient";
   
     export let data: PageData;
     const title = "Create WhatsApp Account";
@@ -192,52 +192,20 @@
             connectionStatus: 'connecting',
         }));
 
-        // Wait for SSE to be connected
-        const checkConnection = () => {
-            return new Promise<void>((resolve, reject) => {
-                const unsubscribe = sseStore.subscribe((state) => {
-                    if (state.status === 'OPEN') {
-                        unsubscribe();
-                        resolve();
-                    } else if (state.status === 'CLOSED' && state.error) {
-                        unsubscribe();
-                        reject(new Error('SSE connection failed'));
-                    }
-                });
-                
-                // Timeout after 10 seconds
-                setTimeout(() => {
-                    unsubscribe();
-                    reject(new Error('SSE connection timeout'));
-                }, 10000);
-            });
-        };
-
         try {
-            // Ensure SSE is connected
-            let currentStatus: string | null = null;
-            const unsubscribe = sseStore.subscribe((state) => {
-                currentStatus = state.status;
-            });
-            unsubscribe();
-
-            if (currentStatus !== 'OPEN') {
-                console.log('[WHATSAPP_FORM] SSE not open, connecting...');
-                sseStore.connect('/api/sse', { withCredentials: true });
-                await checkConnection();
+            // Ensure MQTT is connected
+            if (mqttClient.status !== 'connected') {
+                console.log('[WHATSAPP_FORM] MQTT not connected, connecting...');
+                await mqttClient.connect();
             }
 
-            console.log('[WHATSAPP_FORM] SSE connected, sending QR request...');
+            console.log('[WHATSAPP_FORM] MQTT connected, sending QR request...');
             
-            // Use sendRequest to get a response
-            const response = await sseStore.sendRequest(
-                {
-                    type: 'whatsapp',
-                    scope: 'user:self',
-                    payload: { action: 'request_qr' }
-                },
-                15000, // 15 second timeout
-                'whatsapp_qr'
+            // Use MQTT RPC to request QR code
+            const response = await mqttClient.request(
+                'whatsapp.request_qr',
+                {},
+                { timeoutMs: 15000 }
             );
 
             console.log('[WHATSAPP_FORM] QR code request sent successfully:', response);
@@ -251,12 +219,14 @@
         }
     }
 
-    // Request QR code on mount, but wait a bit for SSE to connect
+    // Request QR code on mount, but wait a bit for MQTT to connect
     onMount(() => {
-        // Ensure SSE is connected
-        sseStore.connect('/api/sse', { withCredentials: true });
+        // Ensure MQTT is connected
+        mqttClient.connect().catch(err => {
+            console.warn('[WHATSAPP_FORM] MQTT connect failed:', err);
+        });
         
-        // Wait a bit for SSE to connect, then request QR code
+        // Wait a bit for MQTT to connect, then request QR code
         setTimeout(() => {
             requestNewQRCode();
         }, 500);

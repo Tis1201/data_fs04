@@ -20,8 +20,7 @@
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
-    import { onMount, onDestroy } from "svelte";
-    import { sseStore } from "$lib/stores/sse-store";
+    import { onMount } from "svelte";
     import { writable } from 'svelte/store';
     
     import { getDeviceProfileEditBreadcrumbs } from "$lib/utils/navigation";
@@ -83,8 +82,7 @@
         label: $form.isActive === 'true' ? 'Active' : 'Inactive'
     };
     
-    // Use global SSE store (managed by AuthStateHandler)
-    let lastSubscribedConnectionId: string | null = null;
+    // MQTT notifications are handled automatically by DeviceAssignmentManager
     
     // Reference to ProfileSettingsEditor component for validation
     let profileSettingsEditor: any;
@@ -102,73 +100,8 @@
     }
     
     onMount(() => {
-        // Use global SSE connection (managed by AuthStateHandler)
-        console.log('[DeviceProfileEdit] Using global SSE connection:', {
-            connectionId: sseStore.connectionId,
-            isConnected: sseStore.isConnected
-        });
-
-        // Function to subscribe to device profile channel
-        async function subscribeToDeviceProfileChannel(connId: string) {
-            if (connId === lastSubscribedConnectionId) {
-                console.debug('[DeviceProfileEdit] Already subscribed for', connId);
-                return;
-            }
-            
-            console.log('[DeviceProfileEdit] Subscribing to device profile channel', { 
-                profileId: data.profile.id, 
-                connId 
-            });
-            
-            try {
-                const response = await fetch(`/api/sse/subscribe/device-profile/${data.profile.id}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ connectionId: connId })
-                });
-                
-                if (response.ok) {
-                    lastSubscribedConnectionId = connId;
-                    console.log('[DeviceProfileEdit] ✅ Successfully subscribed to device profile channel for', connId);
-                } else {
-                    console.error('[DeviceProfileEdit] Subscribe failed with status:', response.status);
-                    const text = await response.text();
-                    console.error('[DeviceProfileEdit] Subscribe error:', text);
-                }
-            } catch (err) {
-                console.warn('[DeviceProfileEdit] Subscribe failed:', err);
-            }
-        }
-        
-        // Check if SSE is already connected and subscribe immediately
-        if (sseStore.connectionId && sseStore.isConnected) {
-            console.log('[DeviceProfileEdit] SSE already connected, subscribing immediately');
-            subscribeToDeviceProfileChannel(sseStore.connectionId);
-        }
-
-        // Listen for future connection events
-        const connectedUnsub = sseStore.on('connected', (msg: any) => {
-            console.log('[DeviceProfileEdit] SSE connected event received:', msg);
-            const connId = msg?.data?.connectionId;
-            if (!connId) {
-                console.warn('[DeviceProfileEdit] No connectionId in connected event');
-                return;
-            }
-            
-            // Subscribe immediately - the event already indicates connection is ready
-            console.log('[DeviceProfileEdit] Connection ready, subscribing to device profile channel');
-            subscribeToDeviceProfileChannel(connId);
-        });
-
-        return () => {
-            connectedUnsub();
-        };
-    });
-
-    onDestroy(() => {
-        // Don't disconnect global SSE - other components/pages may still be using it
-        console.log('[DeviceProfileEdit] Keeping global SSE connection active for other components');
+        // MQTT connection is managed globally by mqttClient
+        console.log('[DeviceProfileEdit] Using MQTT for real-time updates');
     });
 </script>
 
@@ -301,8 +234,7 @@
                 <DeviceAssignmentManager 
                     profileId={data.profile.id} 
                     isAdmin={true} 
-                    connId={lastSubscribedConnectionId || ''}
-                    {sseStore}
+                    connId=""
                     onTabChange={handleTabChange}
                 />
             </Tabs.Content>

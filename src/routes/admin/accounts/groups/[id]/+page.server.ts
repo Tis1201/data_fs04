@@ -140,7 +140,7 @@ export const load: PageServerLoad = restrict(
             let groupRole: 'ADMIN' | 'USER' = 'ADMIN';
             const adminOnlyModules = ['ACCOUNTS', 'COMPANIES', 'GROUPS', 'ADMIN_USERS', 'LICENSES', 
                                      'SIGNING_KEYS', 'API_KEYS', 'REFRESH_TOKENS', 'TOKEN_LOGS', 
-                                     'GENERAL_SETTINGS', 'EMAIL_SETTINGS', 'MONITOR', 'DEBUG_SSE', 
+                                     'GENERAL_SETTINGS', 'EMAIL_SETTINGS', 'MONITOR', 
                                      'DEBUG_MESSAGING', 'DEBUG_REDIS', 'STREAMS', 'PREVIEW', 'WEBHOOK', 
                                      'LISTENERS', 'FACTORY_TOKENS'];
             

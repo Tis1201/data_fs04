@@ -8,7 +8,7 @@ The Redis Debug Page (`/admin/debug/redis`) is an administrative tool that provi
 
 - **URL**: `http://localhost:5173/admin/debug/redis`
 - **Access Level**: Admin only (requires `SystemRole.ADMIN`)
-- **Prerequisites**: Redis must be enabled (`USE_PUSHPIN=true` in `.env`)
+- **Prerequisites**: Redis must be configured in `.env` (used for MQTT queue and device presence)
 
 ## Features
 
@@ -45,7 +45,7 @@ The Redis Debug Page (`/admin/debug/redis`) is an administrative tool that provi
 ### 2. Connected Devices Management
 
 #### Device List
-- **Purpose**: View all devices connected through Pushpin
+- **Purpose**: View all devices connected through MQTT
 - **Features**:
   - Lists all devices with `device:*:status` keys
   - Shows device connection status (online/offline)
@@ -73,7 +73,7 @@ The Redis Debug Page (`/admin/debug/redis`) is an administrative tool that provi
     "message": "Hello from admin"
   }
   ```
-- **Delivery**: Message is published to the `messages` Redis channel and relayed to the device through Pushpin
+- **Delivery**: Message is published to the `messages` Redis channel and relayed to the device through MQTT
 
 ### 3. Special Commands
 
@@ -279,8 +279,8 @@ Delete a key from Redis.
 ### Common Errors
 
 1. **Redis Service Not Available**
-   - **Error**: `Redis service not available. Make sure USE_PUSHPIN=true in your .env file.`
-   - **Solution**: Ensure `USE_PUSHPIN=true` is set in `.env` and Redis is running
+   - **Error**: `Redis service not available. Make sure Redis is configured in your .env file.`
+   - **Solution**: Ensure Redis configuration is set in `.env` (REDIS_URL or REDIS_HOST/REDIS_PORT) and Redis is running
 
 2. **Key Pattern Not Allowed**
    - **Error**: `Only device: key patterns are allowed for security reasons`
