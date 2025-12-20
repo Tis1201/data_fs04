@@ -92,7 +92,7 @@ Body:
 
 ```jsonc
 {
-  "controllerId": "radar"   // Controller scope identifier
+  "type": "radar"   // Controller scope identifier
 }
 ```
 
