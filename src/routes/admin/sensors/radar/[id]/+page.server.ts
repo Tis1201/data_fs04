@@ -40,7 +40,7 @@ const dwellBucketSchema = z.object({
 export const load = restrict(
     async ({ params, locals }) => {
         const { id } = params;
-        
+
         try {
             const radarSensor = await locals.prisma.radarSensor.findUnique({
                 where: { id },
@@ -74,14 +74,14 @@ export const load = restrict(
                     }
                 }
             });
-            
+
             if (!radarSensor) {
                 throw error(404, {
                     message: 'Radar Sensor not found',
                     code: 'RADAR_SENSOR_NOT_FOUND'
                 });
             }
-            
+
             const accounts = await locals.prisma.account.findMany({
                 where: { isSystem: false },
                 select: {
@@ -92,7 +92,7 @@ export const load = restrict(
                     name: 'asc'
                 }
             });
-            
+
             const devices = await locals.prisma.device.findMany({
                 where: {
                     OR: [
@@ -109,7 +109,7 @@ export const load = restrict(
                     name: 'asc'
                 }
             });
-            
+
             const form = await superValidate(
                 {
                     name: radarSensor.name,
@@ -120,7 +120,7 @@ export const load = restrict(
                     status: radarSensor.status,
                     accountId: radarSensor.accountId,
                     deviceId: radarSensor.deviceId || ''
-                }, 
+                },
                 zod(radarSensorSchema)
             );
 
@@ -408,6 +408,116 @@ export const actions: Actions = {
             } catch (err) {
                 logger.error(`Error deleting zone: ${err}`);
                 return fail(500, { error: 'Failed to delete zone' });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+
+    updateZone: restrict(
+        async ({ request, locals }) => {
+            const form = await superValidate(request, zod(zoneSchema));
+            const formData = await request.formData();
+            const zoneId = formData.get('zoneId')?.toString();
+
+            if (!zoneId) {
+                return fail(400, { error: 'Zone ID is required' });
+            }
+
+            if (!form.valid) {
+                // In a real modal scenario, returning form errors to a specific instance is tricky without mapping.
+                // We'll return errors but UI might need generic error handling.
+                return fail(400, { zoneForm: form });
+            }
+
+            try {
+                const zone = await locals.prisma.zone.update({
+                    where: { id: zoneId },
+                    data: {
+                        name: form.data.name,
+                        zoneNumber: form.data.zoneNumber,
+                        startX: form.data.startX,
+                        startY: form.data.startY,
+                        endX: form.data.endX,
+                        endY: form.data.endY,
+                        description: form.data.description,
+                        color: form.data.color
+                    }
+                });
+
+                logger.info(`Zone updated: ${zone.id}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Zone',
+                    recordId: zone.id,
+                    oldData: null, // Full diff not fetched for perf optimization in this tailored action
+                    newData: zone,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+
+                return { success: true };
+            } catch (err) {
+                logger.error(`Error updating zone: ${err}`);
+                return fail(500, { error: 'Failed to update zone' });
+            }
+        },
+        [SystemRole.ADMIN]
+    ),
+
+    saveLayout: restrict(
+        async ({ request, params, locals }) => {
+            const { id } = params;
+            const formData = await request.formData();
+            const layoutJson = formData.get('layout')?.toString();
+
+            if (!layoutJson) {
+                return fail(400, { error: 'Layout data missing' });
+            }
+
+            try {
+                const layout = JSON.parse(layoutJson);
+                const { arena, zones } = layout;
+
+                // Update Arena
+                if (arena) {
+                    await locals.prisma.trackingArea.update({
+                        where: { radarSensorId: id },
+                        data: {
+                            startX: arena.startX,
+                            startY: arena.startY,
+                            endX: arena.endX,
+                            endY: arena.endY
+                        }
+                    });
+                }
+
+                // Update Zones
+                if (zones && Array.isArray(zones)) {
+                    // We doing a loop here for simplicity. 
+                    // In high-scale this should be a transaction, but for <5 zones it's fine.
+                    for (const z of zones) {
+                        if (z.id) {
+                            await locals.prisma.zone.update({
+                                where: { id: z.id },
+                                data: {
+                                    startX: z.startX,
+                                    startY: z.startY,
+                                    endX: z.endX,
+                                    endY: z.endY
+                                }
+                            });
+                        }
+                    }
+                }
+
+                logger.info(`Layout saved for sensor ${id}`);
+                return { success: true };
+
+            } catch (err) {
+                logger.error(`Error saving layout: ${err}`);
+                return fail(500, { error: 'Failed to save layout' });
             }
         },
         [SystemRole.ADMIN]
