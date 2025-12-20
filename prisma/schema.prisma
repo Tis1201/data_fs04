@@ -57,7 +57,8 @@ model Account {
   pinRules                 PinRule[]
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
-  radarSensors             RadarSensor[]
+  controllers              Controller[]
+  sensors                  Sensor[]
 
   @@index([slug])
 }
@@ -202,7 +203,8 @@ model User {
   pinRules                  PinRule[]
   userAppActions            UserAppAction[]
   createdAccountAssignments AccountAssignment[]
-  createdRadarSensors       RadarSensor[]
+  createdControllers        Controller[]
+  createdSensors            Sensor[]
 
   @@index([primaryAccountId])
 }
@@ -400,7 +402,7 @@ model Device {
   profileAssignment    DeviceProfileAssignment?
   appSummaries         DeviceAppSummary[]
   userActions          UserAppAction[]
-  radarSensor          RadarSensor?
+  controllers          Controller[]
 
   @@index([createdBy])
   @@index([hardwareId])
@@ -1169,76 +1171,51 @@ model MqttConnection {
   @@index([lastEventAt])
 }
 
-model RadarSensor {
-  id           String        @id() @default(cuid())
+model Controller {
+  id           String   @id() @default(cuid())
   name         String
-  serialNumber String        @unique()
-  status       String        @default("INACTIVE")
-  deviceId     String?       @unique()
-  device       Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  type         String
+  serialNumber String   @unique()
+  status       String   @default("INACTIVE")
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   accountId    String
-  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt()
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt()
   createdBy    String?
-  creator      User?         @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  creator      User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   description  String?
-  location     String?
-  firmware     String?
-  trackingArea TrackingArea?
-  dwellBuckets DwellBucket[]
+  sensors      Sensor[]
 
+  @@unique([deviceId, type])
   @@index([accountId])
   @@index([deviceId])
+  @@index([type])
   @@index([status])
 }
 
-model TrackingArea {
-  id            String      @id() @default(cuid())
-  name          String
-  startX        Float
-  startY        Float
-  endX          Float
-  endY          Float
-  radarSensorId String      @unique()
-  radarSensor   RadarSensor @relation(fields: [radarSensorId], references: [id], onDelete: Cascade)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt()
-  description   String?
-  zones         Zone[]
+model Sensor {
+  id           String     @id() @default(cuid())
+  name         String
+  type         String
+  serialNumber String     @unique()
+  status       String     @default("INACTIVE")
+  controllerId String
+  controller   Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt()
+  createdBy    String?
+  creator      User?      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  description  String?
+  location     String?
+  firmware     String?
+  config       Json?
 
-  @@index([radarSensorId])
-}
-
-model Zone {
-  id             String       @id() @default(cuid())
-  name           String
-  zoneNumber     Int
-  startX         Float
-  startY         Float
-  endX           Float
-  endY           Float
-  trackingAreaId String
-  trackingArea   TrackingArea @relation(fields: [trackingAreaId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt()
-  description    String?
-  color          String?
-
-  @@unique([trackingAreaId, zoneNumber])
-  @@index([trackingAreaId])
-}
-
-model DwellBucket {
-  id            String      @id() @default(cuid())
-  name          String
-  minDuration   Int
-  maxDuration   Int?
-  radarSensorId String
-  radarSensor   RadarSensor @relation(fields: [radarSensorId], references: [id], onDelete: Cascade)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt()
-  description   String?
-
-  @@index([radarSensorId])
+  @@index([controllerId])
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
 }

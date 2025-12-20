@@ -9,7 +9,7 @@
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
     import StatusBadge from "$lib/components/ui_components_sveltekit/table/column/StatusBadge.svelte";
     import { Pencil, Trash } from "lucide-svelte";
-    import type { RadarSensor } from "@prisma/client";
+    import type { Sensor } from "@prisma/client";
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { browser } from "$app/environment";
@@ -20,7 +20,7 @@
     } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
     export let props = {
-        records: [] as RadarSensor[],
+        records: [] as Sensor[],
         pagination: {
             page: 1,
             per_page: 10,
@@ -38,7 +38,7 @@
     };
 
     let state = {
-        selectedRecord: null as RadarSensor | null,
+        selectedRecord: null as Sensor | null,
         confirmationOpen: false,
         title: "Delete Radar Controller",
         message: "",
@@ -48,7 +48,7 @@
         errorMessage: "Failed to delete radar sensor",
     };
 
-    function confirmDelete(sensor: RadarSensor) {
+    function confirmDelete(sensor: Sensor) {
         state.selectedRecord = sensor;
         state.message = `Are you sure you want to delete the radar controller "${sensor.name}" (${sensor.serialNumber})? This action cannot be undone.`;
         state.confirmationOpen = true;
@@ -77,7 +77,7 @@
             label: "Name",
             sortable: true,
             width: "15%",
-            render: (record: RadarSensor) => ({
+            render: (record: Sensor) => ({
                 component: NameWithIdLink,
                 props: {
                     record,
@@ -91,14 +91,14 @@
             label: "Serial Number",
             sortable: true,
             width: "12%",
-            render: (record: RadarSensor) => record.serialNumber,
+            render: (record: Sensor) => record.serialNumber,
         },
         {
             id: "status",
             label: "Status",
             sortable: true,
             width: "10%",
-            render: (record: RadarSensor) => ({
+            render: (record: Sensor) => ({
                 component: StatusBadge,
                 props: {
                     status: record.status,
@@ -109,22 +109,23 @@
             id: "account",
             label: "Account",
             width: "12%",
-            render: (record: RadarSensor) => record.account?.name || "N/A",
+            render: (record: Sensor) => record.account?.name || "N/A",
         },
         {
             id: "location",
             label: "Location",
             width: "12%",
-            render: (record: RadarSensor) => record.location || "N/A",
+            render: (record: Sensor) => record.location || "N/A",
         },
         {
             id: "trackingArea",
             label: "Tracking Area",
             width: "10%",
-            render: (record: RadarSensor) => {
-                if (!record.trackingArea) return "Not configured";
-                const zoneCount = record.trackingArea._count?.zones || 0;
-                return `${record.trackingArea.name} (${zoneCount} zones)`;
+            render: (record: Sensor) => {
+                const config = record.config as any;
+                if (!config?.trackingArea) return "Not configured";
+                const zoneCount = config?.zones?.length || 0;
+                return `${config.trackingArea.name} (${zoneCount} zones)`;
             },
         },
         {
@@ -132,7 +133,7 @@
             label: "Created",
             sortable: true,
             width: "12%",
-            render: (record: RadarSensor) => ({
+            render: (record: Sensor) => ({
                 component: RelativeDate,
                 props: {
                     date: record.createdAt,
@@ -147,7 +148,7 @@
             id: "actions",
             label: "Actions",
             width: "10%",
-            render: (record: RadarSensor) => {
+            render: (record: Sensor) => {
                 const actionItems = [
                     {
                         label: "Configure",

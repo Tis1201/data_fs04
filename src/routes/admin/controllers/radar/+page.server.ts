@@ -20,8 +20,10 @@ export const load = restrict(
             const skip = (page - 1) * perPage;
             const take = perPage;
 
-            const where: any = {};
-            
+            const where: any = {
+                type: 'radar'
+            };
+
             if (search) {
                 where.OR = [
                     { name: { contains: search, mode: 'insensitive' } },
@@ -31,17 +33,17 @@ export const load = restrict(
                     { location: { contains: search, mode: 'insensitive' } }
                 ];
             }
-            
+
             if (statuses.length > 0) {
                 where.status = { in: statuses };
             }
-            
+
             if (accountId) {
                 where.accountId = accountId;
             }
 
-            const [radarSensors, totalSensors] = await Promise.all([
-                locals.prisma.radarSensor.findMany({
+            const [sensors, totalSensors] = await Promise.all([
+                locals.prisma.sensor.findMany({
                     where,
                     orderBy: {
                         [sortField]: sortOrder
@@ -65,35 +67,26 @@ export const load = restrict(
                                 name: true
                             }
                         },
-                        device: {
-                            select: {
-                                id: true,
-                                name: true
-                            }
-                        },
-                        trackingArea: {
+                        controller: {
                             select: {
                                 id: true,
                                 name: true,
-                                _count: {
+                                device: {
                                     select: {
-                                        zones: true
+                                        id: true,
+                                        name: true
                                     }
                                 }
                             }
                         },
-                        _count: {
-                            select: {
-                                dwellBuckets: true
-                            }
-                        }
+                        config: true
                     }
                 }),
-                locals.prisma.radarSensor.count({ where })
+                locals.prisma.sensor.count({ where })
             ]);
 
             const totalPages = Math.ceil(totalSensors / perPage);
-                
+
             const accounts = await locals.prisma.account.findMany({
                 where: { isSystem: false },
                 select: {
@@ -106,7 +99,7 @@ export const load = restrict(
             });
 
             return {
-                radarSensors,
+                radarSensors: sensors, // Keeping prop name for now
                 accounts,
                 meta: {
                     totalItems: totalSensors,
@@ -135,11 +128,11 @@ export const actions: Actions = {
             const id = formData.get('id')?.toString();
 
             if (!id) {
-                return fail(400, { error: 'Radar Sensor ID is required' });
+                return fail(400, { error: 'Sensor ID is required' });
             }
 
             try {
-                const existingSensor = await locals.prisma.radarSensor.findUnique({
+                const existingSensor = await locals.prisma.sensor.findUnique({
                     where: { id },
                     select: {
                         id: true,
@@ -149,10 +142,10 @@ export const actions: Actions = {
                 });
 
                 if (!existingSensor) {
-                    return fail(404, { error: 'Radar Sensor not found' });
+                    return fail(404, { error: 'Sensor not found' });
                 }
 
-                const deletedSensor = await locals.prisma.radarSensor.delete({
+                const deletedSensor = await locals.prisma.sensor.delete({
                     where: { id }
                 });
 
@@ -160,7 +153,7 @@ export const actions: Actions = {
 
                 await logAudit({
                     actionType: AuditActionType.DELETE,
-                    tableName: 'RadarSensor',
+                    tableName: 'Sensor',
                     recordId: id,
                     oldData: deletedSensor,
                     newData: null,
@@ -173,13 +166,13 @@ export const actions: Actions = {
             } catch (err) {
                 const errorMsg = err instanceof Error ? err.message : 'Unknown error';
                 logger.error(`Error deleting radar sensor ${id}: ${errorMsg}`);
-                
+
                 if (errorMsg.includes('Foreign key constraint')) {
-                    return fail(400, { error: 'Cannot delete radar sensor - it is still referenced by other records. Please remove all related data first.' });
+                    return fail(400, { error: 'Cannot delete sensor - it is still referenced by other records.' });
                 } else if (errorMsg.includes('Record to delete does not exist')) {
-                    return fail(404, { error: 'Radar Sensor not found or already deleted.' });
+                    return fail(404, { error: 'Sensor not found or already deleted.' });
                 } else {
-                    return fail(500, { error: `Failed to delete radar sensor: ${errorMsg}` });
+                    return fail(500, { error: `Failed to delete sensor: ${errorMsg}` });
                 }
             }
         },

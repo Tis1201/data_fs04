@@ -12,6 +12,7 @@
     Plus,
     Eye,
     Pencil,
+    Settings,
   } from "lucide-svelte";
   import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
   import { Input } from "$lib/components/ui/input";
@@ -27,22 +28,7 @@
     TableHeader,
     TableRow,
   } from "$lib/components/ui/table";
-  import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-  } from "$lib/components/ui/dialog";
-  import { Label } from "$lib/components/ui/label";
-  import {
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-  } from "$lib/components/ui/tabs";
+  // Dialog imports for legacy use if needed, but new dialog handles its own
 
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
   import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
@@ -50,7 +36,7 @@
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-  import RadarVisualEditor from "$lib/components/ui_components_sveltekit/radar/RadarVisualEditor.svelte";
+  import RadarSensorConfigDialog from "./RadarSensorConfigDialog.svelte"; // Implemented
   import type { PageData } from "./$types";
   import { browser } from "$app/environment";
 
@@ -58,6 +44,9 @@
 
   /* Refactor: Sensors -> Controllers */
   const title = `Configure Radar Controller: ${data.radarSensor.name}`;
+  // Helper to access config safely
+  $: config = data.radarSensor.config as any;
+
   const pageCrumbs = [
     ["Admin", "/admin"],
     ["Controllers", "/admin/controllers"],
@@ -112,11 +101,10 @@
     resetForm: true,
     onResult: ({ result }) => {
       if (result.type === "success") {
-        toast.success("Zone created successfully!");
-        showZoneForm = false;
+        toast.success("Zone saved successfully!");
         window.location.reload();
       } else if (result.type === "error") {
-        toast.error("Failed to create zone");
+        toast.error("Failed to save zone");
       }
     },
   });
@@ -131,13 +119,31 @@
     onResult: ({ result }) => {
       if (result.type === "success") {
         toast.success("Dwell Bucket created successfully!");
-        showDwellBucketForm = false;
         window.location.reload();
       } else if (result.type === "error") {
         toast.error("Failed to create dwell bucket");
       }
     },
   });
+
+  // Bundle form states for Dialog
+  $: formStates = {
+    trackingArea: {
+      submitting: $trackingAreaSubmitting,
+      errors: $trackingAreaErrors,
+      enhance: trackingAreaEnhance,
+    },
+    zone: {
+      submitting: $zoneSubmitting,
+      errors: $zoneErrors,
+      enhance: zoneEnhance,
+    },
+    dwellBucket: {
+      submitting: $dwellBucketSubmitting,
+      errors: $dwellBucketErrors,
+      enhance: dwellBucketEnhance,
+    },
+  };
 
   const accountOptions = data.accounts.map((account: any) => ({
     value: account.id,
@@ -150,8 +156,7 @@
     { value: "MAINTENANCE", label: "Maintenance" },
   ];
 
-  let showZoneForm = false;
-  let showDwellBucketForm = false;
+  let showSensorConfig = false;
 
   async function deleteZone(zoneId: string, zoneName: string) {
     if (!confirm(`Are you sure you want to delete zone "${zoneName}"?`)) {
@@ -207,21 +212,13 @@
     }
   }
 
-  $: nextZoneNumber = data.radarSensor.trackingArea?.zones
-    ? Math.max(
-        0,
-        ...data.radarSensor.trackingArea.zones.map((z: any) => z.zoneNumber),
-      ) + 1
-    : 1;
-
-  // Visual editor state - initialized from data but mutable
-  // User Requirement: Default Arena at -4,0 to 4,4
-  let editorArena = data.radarSensor.trackingArea
+  // Visual editor state
+  let editorArena = config?.trackingArea
     ? {
-        startX: data.radarSensor.trackingArea.startX,
-        startY: data.radarSensor.trackingArea.startY,
-        endX: data.radarSensor.trackingArea.endX,
-        endY: data.radarSensor.trackingArea.endY,
+        startX: config.trackingArea.startX,
+        startY: config.trackingArea.startY,
+        endX: config.trackingArea.endX,
+        endY: config.trackingArea.endY,
       }
     : {
         startX: -4,
@@ -231,7 +228,7 @@
       };
 
   let editorZones =
-    data.radarSensor.trackingArea?.zones?.map((z: any) => ({
+    config?.zones?.map((z: any) => ({
       id: z.id,
       name: z.name,
       startX: z.startX,
@@ -240,102 +237,17 @@
       endY: z.endY,
     })) || [];
 
-  function handleArenaChange(
-    event: CustomEvent<{
-      startX: number;
-      startY: number;
-      endX: number;
-      endY: number;
-    }>,
-  ) {
-    const { startX, startY, endX, endY } = event.detail;
-    // Update form
-    $trackingAreaForm.startX = startX;
-    $trackingAreaForm.startY = startY;
-    $trackingAreaForm.endX = endX;
-    $trackingAreaForm.endY = endY;
-
-    // Update local state to keep editor in sync
-    editorArena = { ...event.detail };
-  }
-
-  function handleZonesChange(
-    event: CustomEvent<
-      Array<{
-        id?: string;
-        name: string;
-        startX: number;
-        startY: number;
-        endX: number;
-        endY: number;
-      }>
-    >,
-  ) {
-    // Update local state so the editor re-renders the new zones (especially important for "Add Zone")
-    editorZones = event.detail;
-    console.log("Zones updated:", event.detail);
-  }
-  // Zone color palette
-  const COLORS = {
-    zonePalette: [
-      "#ef4444", // Red
-      "#f97316", // Orange
-      "#f59e0b", // Amber
-      "#84cc16", // Lime
-      "#10b981", // Emerald
-      "#06b6d4", // Cyan
-      "#3b82f6", // Blue
-      "#8b5cf6", // Violet
-      "#d946ef", // Fuchsia
-    ],
-  };
-
-  // Zone Edit State
-  let showZoneDialog = false;
-  let editingZoneId: string | null = null;
-  // Initialize default form values
-  let zoneDialogForm = {
-    name: "",
-    zoneNumber: 1,
-    color: "#10b981",
-    description: "",
-  };
-
-  function openCreateZone() {
-    editingZoneId = null;
-    zoneDialogForm = {
-      name: "",
-      zoneNumber: nextZoneNumber,
-      color:
-        COLORS.zonePalette[nextZoneNumber % COLORS.zonePalette.length] ||
-        "#10b981",
-      description: "",
-    };
-    showZoneDialog = true;
-  }
-
-  function openEditZone(zone: any) {
-    editingZoneId = zone.id;
-    zoneDialogForm = {
-      name: zone.name,
-      zoneNumber: zone.zoneNumber,
-      color: zone.color || "#10b981",
-      description: zone.description || "",
-    };
-    showZoneDialog = true;
-  }
-
-  // Unified Save Handler
+  // Unified Save Handler (Main Form)
   async function handleSave() {
-    // 1. Submit Main Sensor Form
     const sensorForm = document.querySelector(
       'form[action="?/updateSensor"]',
     ) as HTMLFormElement;
     if (sensorForm) sensorForm.requestSubmit();
+  }
 
-    // 2. Save Layout (Arena & Zones Coordinates)
-    // We construct a FormData and send it via fetch to ?/saveLayout
-    if (data.radarSensor.trackingArea) {
+  // Layout Save Handler (Visual Editor)
+  async function handleSaveLayout() {
+    if (config?.trackingArea) {
       const layoutData = {
         arena: editorArena,
         zones: editorZones,
@@ -353,10 +265,13 @@
         const result = await response.json();
         if (result.type === "success" || result.status === 200) {
           toast.success("Layout saved");
+          window.location.reload(); // Refresh to ensure sync
         }
       } else {
         toast.error("Failed to save layout");
       }
+    } else {
+      toast.error("Please configure Tracking Area first via the form.");
     }
   }
 </script>
@@ -565,7 +480,7 @@
         <TabsContent value="form" class="space-y-6">
           <FormContainer
             method="POST"
-            action={data.radarSensor.trackingArea
+            action={config?.trackingArea
               ? "?/updateTrackingArea"
               : "?/createTrackingArea"}
             enhance={trackingAreaEnhance}
@@ -685,7 +600,7 @@
                 <Button type="submit" disabled={$trackingAreaSubmitting}>
                   {$trackingAreaSubmitting
                     ? "Saving..."
-                    : data.radarSensor.trackingArea
+                    : config?.trackingArea
                       ? "Update Area"
                       : "Create Area"}
                 </Button>
@@ -702,14 +617,14 @@
       icon={Grid3x3}
       compact={true}
     >
-      {#if !data.radarSensor.trackingArea}
+      {#if !config?.trackingArea}
         <div class="text-center py-8 text-muted-foreground">
           <p>Please create a tracking area first before adding zones.</p>
         </div>
       {:else}
         <div class="space-y-4">
           <!-- Zone List/Table -->
-          {#if !data.radarSensor.trackingArea || data.radarSensor.trackingArea.zones.length === 0}
+          {#if !config?.trackingArea || !config?.zones || config.zones.length === 0}
             <div
               class="text-center py-8 text-muted-foreground border-2 border-dashed rounded-md"
             >
@@ -718,14 +633,14 @@
                 variant="outline"
                 class="mt-4"
                 on:click={openCreateZone}
-                disabled={!data.radarSensor.trackingArea}
+                disabled={!config?.trackingArea}
               >
                 <Plus class="h-4 w-4 mr-2" /> Create First Zone
               </Button>
             </div>
           {:else}
             <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {#each data.radarSensor.trackingArea.zones as zone}
+              {#each config.zones as zone}
                 <div
                   class="border rounded-lg p-4 bg-card text-card-foreground shadow-sm relative group"
                 >
@@ -771,7 +686,7 @@
               {/each}
 
               <!-- Add Button Card -->
-              {#if data.radarSensor.trackingArea.zones.length < 5}
+              {#if config.zones.length < 5}
                 <button
                   class="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors min-h-[140px]"
                   on:click={openCreateZone}
@@ -821,14 +736,16 @@
             <!-- Ideally we send current coords from server state to avoid overwriting with defaults if hidden fields aren't populated. -->
             <!-- Simplified: We just explicitly include the current/default fields required by Schema -->
             <!-- Note: The schema requires starX/Y etc. so we must include them even if hidden/unchanged in this view. -->
-            {#each data.radarSensor.trackingArea.zones as z}
-              {#if z.id === editingZoneId}
-                <input type="hidden" name="startX" value={z.startX} />
-                <input type="hidden" name="startY" value={z.startY} />
-                <input type="hidden" name="endX" value={z.endX} />
-                <input type="hidden" name="endY" value={z.endY} />
-              {/if}
-            {/each}
+            {#if config?.zones}
+              {#each config.zones as z}
+                {#if z.id === editingZoneId}
+                  <input type="hidden" name="startX" value={z.startX} />
+                  <input type="hidden" name="startY" value={z.startY} />
+                  <input type="hidden" name="endX" value={z.endX} />
+                  <input type="hidden" name="endY" value={z.endY} />
+                {/if}
+              {/each}
+            {/if}
           {:else}
             <!-- Defaults for new zone -->
             <input type="hidden" name="startX" value="0" />
@@ -908,13 +825,13 @@
       compact={true}
     >
       <div class="space-y-4">
-        {#if data.radarSensor.dwellBuckets.length === 0}
+        {#if !config?.dwellBuckets || config.dwellBuckets.length === 0}
           <div class="text-center py-4 text-muted-foreground">
             <p>No dwell buckets configured yet.</p>
           </div>
         {:else}
           <div class="space-y-2">
-            {#each data.radarSensor.dwellBuckets as bucket}
+            {#each config.dwellBuckets as bucket}
               <div
                 class="flex items-center justify-between p-3 bg-card border rounded-md"
               >

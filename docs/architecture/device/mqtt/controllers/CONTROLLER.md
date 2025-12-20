@@ -20,14 +20,14 @@ graph TD
         
         subgraph "Controller: Radar"
             RC[Radar App]
-            RC_T["Topics: device:<deviceId>/controller:<controllerId>/*"]
+            RC_T["Topics: device:<deviceId>/controller/radar:<controllerId>/*"]
             RS[Radar Sensor Hardware]
             RC --> RS
         end
         
         subgraph "Controller: Camera"
             CC[Camera App]
-            CC_T["Topics: device:<deviceId>/controller:<controllerId>/*"]
+            CC_T["Topics: device:<deviceId>/controller/camera:<controllerId>/*"]
             CS[Camera Sensor Hardware]
             CC --> CS
         end
@@ -42,32 +42,32 @@ graph TD
 
 ## 2. Topic Structure
 
-Controller topics are namespaced under the device's root topic, using the `controller:<controllerId>` pattern.
+Controller topics are namespaced under the device's root topic, using the `controller/<type>:<controllerId>` pattern.
 
 ### 2.1 Controller Topic Patterns
 
-For a device `<deviceId>` and controller `<controllerId>`:
+For a device `<deviceId>`, controller type `<type>`, and controller ID `<controllerId>`:
 *(Topic convention follows the `type:id` pattern used throughout the system.)*
 
 - **RPC Channels**:
-  - `device:<deviceId>/controller:<controllerId>/requests`
-  - `device:<deviceId>/controller:<controllerId>/response`
-  - `device:<deviceId>/controller:<controllerId>/loopback`
+  - `device:<deviceId>/controller/<type>:<controllerId>/requests`
+  - `device:<deviceId>/controller/<type>:<controllerId>/response`
+  - `device:<deviceId>/controller/<type>:<controllerId>/loopback`
 
 - **Notification Channels**:
-  - `device:<deviceId>/controller:<controllerId>/notifications`
-  - `device:<deviceId>/controller:<controllerId>/replies`
+  - `device:<deviceId>/controller/<type>:<controllerId>/notifications`
+  - `device:<deviceId>/controller/<type>:<controllerId>/replies`
 
 - **Data Channels**:
-  - `device:<deviceId>/controller:<controllerId>/data`
+  - `device:<deviceId>/controller/<type>:<controllerId>/data`
 
 ### 2.2 Comparison with Device Topics
 
 | Actor | Topic Pattern | Notes |
 | :--- | :--- | :--- |
 | Claimed Device (MDM) | `device/device:<deviceId>/requests` | Uses `device/` namespace root |
-| Controller (Radar) | `device:<deviceId>/controller:radar/requests` | `type:id` pattern |
-| Controller (Camera) | `device:<deviceId>/controller:camera/requests` | `type:id` pattern |
+| Controller (Radar) | `device:<deviceId>/controller/radar:<id>/requests` | `type:id` pattern |
+| Controller (Camera) | `device:<deviceId>/controller/camera:<id>/requests` | `type:id` pattern |
 
 This ensures clear separation. Note that while MDM topics are nested under `device/`, Controller topics start directly with the device identity `device:<deviceId>`.
 
@@ -110,21 +110,20 @@ Body:
 
 ### 3.4 ACL Scoping
 
-When `controllerId` is present, the mint endpoint generates ACLs restricted to
-the controller namespace:
+When `type` and `controllerId` are present, the mint endpoint generates ACLs restricted to the controller namespace:
 
 - `pubTopics`:
-  - `device:<deviceId>/controller:<controllerId>/replies`
-  - `device:<deviceId>/controller:<controllerId>/requests`
-  - `device:<deviceId>/controller:<controllerId>/data`
-  - `device:<deviceId>/controller:<controllerId>/loopback`
+  - `device:<deviceId>/controller/<type>:<controllerId>/replies`
+  - `device:<deviceId>/controller/<type>:<controllerId>/requests`
+  - `device:<deviceId>/controller/<type>:<controllerId>/data`
+  - `device:<deviceId>/controller/<type>:<controllerId>/loopback`
 
 - `subTopics`:
-  - `device:<deviceId>/controller:<controllerId>/response`
-  - `device:<deviceId>/controller:<controllerId>/notifications`
-  - `device:<deviceId>/controller:<controllerId>/loopback`
+  - `device:<deviceId>/controller/<type>:<controllerId>/response`
+  - `device:<deviceId>/controller/<type>:<controllerId>/notifications`
+  - `device:<deviceId>/controller/<type>:<controllerId>/loopback`
 
-When `controllerId` is **not** present (legacy/MDM), the existing root device
+When `type` is **not** present (legacy/MDM), the existing root device
 topics are used as documented in `DEVICE_CONNECT.md`.
 
 ---
@@ -144,15 +143,15 @@ sequenceDiagram
 
     Note over C: Has deviceId + apiKey from device provisioning
 
-    C->>API: POST /api/device/controller/mqtt/mint<br/>{ controllerId: "radar" }
-    API->>IoT: Mint with scoped ACLs<br/>username=device:<deviceId><br/>topics=.../controller:radar/...
+    C->>API: POST /api/device/controller/mqtt/mint<br/>{ type: "radar", controllerId: "abc123" }
+    API->>IoT: Mint with scoped ACLs<br/>username=device:<deviceId><br/>topics=.../controller/radar:abc123/...
     IoT-->>API: { clientId, token }
     API-->>C: { brokerUrl, clientId, username, jwt }
 
     C->>B: CONNECT (clientId, username, password=jwt)
     B-->>C: CONNACK
 
-    C->>B: SUBSCRIBE<br/>device:<deviceId>/controller:radar/notifications<br/>device:<deviceId>/controller:radar/response
+    C->>B: SUBSCRIBE<br/>device:<deviceId>/controller/radar:abc123/notifications<br/>device:<deviceId>/controller/radar:abc123/response
 ```
 
 ---
@@ -163,8 +162,8 @@ Controllers use the same two channel pairs as devices (see `DEVICE_MQTT.md` § 2
 
 ### 5.1 RPC Pair (requests ↔ response)
 
-- Controller publishes RPC on `.../controller:<controllerId>/requests`.
-- Worker responds on `.../controller:<controllerId>/response`.
+- Controller publishes RPC on `.../controller/<type>:<controllerId>/requests`.
+- Worker responds on `.../controller/<type>:<controllerId>/response`.
 
 Payload structure is identical to device RPCs:
 
@@ -178,8 +177,8 @@ Payload structure is identical to device RPCs:
 
 ### 5.2 Notification Pair (notifications ↔ replies)
 
-- Worker sends notifications on `.../controller:<controllerId>/notifications`.
-- Controller replies on `.../controller:<controllerId>/replies`.
+- Worker sends notifications on `.../controller/<type>:<controllerId>/notifications`.
+- Controller replies on `.../controller/<type>:<controllerId>/replies`.
 
 Uses the signed-ticket pattern from `DEVICE_NOTIFICATION_REPLY.md`:
 
@@ -212,10 +211,10 @@ sequenceDiagram
     participant C as Radar Controller
 
     Note over W: Admin updates radar config in UI
-    W->>B: Publish notification<br/>topic: device:<id>/controller:radar/notifications<br/>{ ticket: "jwt...", type: "config.update" }
+    W->>B: Publish notification<br/>topic: device:<id>/controller/radar:<cid>/notifications<br/>{ ticket: "jwt...", type: "config.update" }
     B->>C: Deliver notification
     C->>C: Apply new config
-    C->>B: Publish reply<br/>topic: device:<id>/controller:radar/replies<br/>{ ticket: "jwt...", result: { success: true } }
+    C->>B: Publish reply<br/>topic: device:<id>/controller/radar:<cid>/replies<br/>{ ticket: "jwt...", result: { success: true } }
     B->>W: Deliver reply
 ```
 
@@ -234,7 +233,7 @@ sequenceDiagram
     W->>C: Notification { type: "preview.start", ticket }
 
     loop Every 100ms for duration
-        C->>W: Publish to .../controller:radar/data<br/>{ points: [...] }
+        C->>W: Publish to .../controller/radar:<cid>/data<br/>{ points: [...] }
         W->>U: Forward via WebSocket/SSE
     end
 
@@ -270,9 +269,9 @@ The worker subscribes to controller topics using shared subscription groups.
 **Note**: Since controller topics start with `device:<id>` (varying roots), we must use the single-level wildcard `+` at the root.
 
 ```
-$share/server_10/+/controller:+/requests
-$share/server_10/+/controller:+/replies
-$share/server_10/+/controller:+/data
+$share/server_10/+/controller/+/requests
+$share/server_10/+/controller/+/replies
+$share/server_10/+/controller/+/data
 ```
 
 This ensures horizontal scaling across multiple worker instances while routing

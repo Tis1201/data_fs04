@@ -63,8 +63,9 @@ model Account {
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
   
-  // Radar sensors
-  radarSensors     RadarSensor[]
+  // Controllers and Sensors
+  controllers      Controller[]
+  sensors          Sensor[]
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -287,8 +288,9 @@ model User {
   // Account assignment relations (creator)
   createdAccountAssignments AccountAssignment[]
   
-  // Radar sensor relations
-  createdRadarSensors RadarSensor[]
+  // Controller and Sensor relations
+  createdControllers Controller[]
+  createdSensors     Sensor[]
 
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
@@ -576,8 +578,8 @@ model Device {
   // Pin management relations
   userActions  UserAppAction[]
   
-  // Radar sensor relation
-  radarSensor  RadarSensor?
+  // Controller relation
+  controllers   Controller[]
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('delete', auth() != null && createdBy == auth().id)
@@ -1721,14 +1723,58 @@ model MqttConnection {
 	@@allow('all', auth().systemRole == 'ADMIN')
 }
 
-// Radar Sensor Management Models
-model RadarSensor {
+// Controller Management Models
+// Controller represents an app managing one or more sensors (e.g., Radar App, Camera App)
+model Controller {
   id            String    @id @default(cuid())
   name          String
+  type          String    // "radar", "camera", "ble", etc.
   serialNumber  String    @unique
   status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
-  deviceId      String?   @unique // Link to Device if applicable
-  device        Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  
+  // Link to Device (1:N - device can have multiple controllers of different types)
+  deviceId      String
+  device        Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  description   String?
+  
+  // Relationships - sensors managed by this controller
+  sensors       Sensor[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@unique([deviceId, type]) // One controller per type per device
+  @@index([accountId])
+  @@index([deviceId])
+  @@index([type])
+  @@index([status])
+}
+
+// Sensor Model - Single Table Inheritance
+// All sensor types (radar, camera, ble) stored in one table with `type` discriminator
+// Type-specific configuration stored in JSON `config` field
+model Sensor {
+  id            String    @id @default(cuid())
+  name          String
+  type          String    // "radar", "camera", "ble", etc.
+  serialNumber  String    @unique
+  status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
+  
+  // Link to Controller
+  controllerId  String
+  controller    Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
   
   accountId     String
   account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -1742,9 +1788,10 @@ model RadarSensor {
   location      String?
   firmware      String?
   
-  // Relationships
-  trackingArea  TrackingArea?
-  dwellBuckets  DwellBucket[]
+  // Type-specific configuration (validated by application layer)
+  // Radar: { trackingArea: {...}, zones: [...], dwellBuckets: [...] }
+  // Camera: { resolution: "1080p", fps: 30, ... }
+  config        Json?
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
@@ -1752,90 +1799,8 @@ model RadarSensor {
   @@allow('read', auth() != null && account.members?[userId == auth().id])
   @@allow('create', auth() != null)
   
+  @@index([controllerId])
   @@index([accountId])
-  @@index([deviceId])
+  @@index([type])
   @@index([status])
-}
-
-model TrackingArea {
-  id            String    @id @default(cuid())
-  name          String
-  
-  // Arena definition - origin is the sensor
-  startX        Float     // Can be negative
-  startY        Float     // Cannot be negative (validated in app logic)
-  endX          Float     // Can be negative
-  endY          Float     // Cannot be negative (validated in app logic)
-  
-  radarSensorId String    @unique
-  radarSensor   RadarSensor @relation(fields: [radarSensorId], references: [id], onDelete: Cascade)
-  
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  
-  description   String?
-  
-  // Relationships - max 5 zones
-  zones         Zone[]
-  
-  // Authorization rules
-  @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read,update,delete', auth() != null && radarSensor.createdBy == auth().id)
-  @@allow('read', auth() != null && radarSensor.account.members?[userId == auth().id])
-  @@allow('create', auth() != null)
-  
-  @@index([radarSensorId])
-}
-
-model Zone {
-  id              String    @id @default(cuid())
-  name            String
-  zoneNumber      Int       // 1-5 (max 5 zones)
-  
-  // Zone coordinates - origin is area top-left [0,0]
-  startX          Float     // Cannot be negative
-  startY          Float     // Cannot be negative
-  endX            Float     // Cannot be negative
-  endY            Float     // Cannot be negative
-  
-  trackingAreaId  String
-  trackingArea    TrackingArea @relation(fields: [trackingAreaId], references: [id], onDelete: Cascade)
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
-  description     String?
-  color           String?   // For visualization
-  
-  // Authorization rules
-  @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read,update,delete', auth() != null && trackingArea.radarSensor.createdBy == auth().id)
-  @@allow('read', auth() != null && trackingArea.radarSensor.account.members?[userId == auth().id])
-  @@allow('create', auth() != null)
-  
-  @@unique([trackingAreaId, zoneNumber])
-  @@index([trackingAreaId])
-}
-
-model DwellBucket {
-  id              String    @id @default(cuid())
-  name            String
-  minDuration     Int       // Minimum dwell time in seconds
-  maxDuration     Int?      // Maximum dwell time in seconds (null for unlimited)
-  
-  radarSensorId   String
-  radarSensor     RadarSensor @relation(fields: [radarSensorId], references: [id], onDelete: Cascade)
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
-  description     String?
-  
-  // Authorization rules
-  @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read,update,delete', auth() != null && radarSensor.createdBy == auth().id)
-  @@allow('read', auth() != null && radarSensor.account.members?[userId == auth().id])
-  @@allow('create', auth() != null)
-  
-  @@index([radarSensorId])
 }
