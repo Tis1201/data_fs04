@@ -1177,6 +1177,7 @@ model Controller {
   type         String
   serialNumber String   @unique()
   status       String   @default("INACTIVE")
+  isDeleted    Boolean  @default(false)
   deviceId     String
   device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   accountId    String
@@ -1188,7 +1189,7 @@ model Controller {
   description  String?
   sensors      Sensor[]
 
-  @@unique([deviceId, type])
+  @@unique([deviceId, type, isDeleted])
   @@index([accountId])
   @@index([deviceId])
   @@index([type])

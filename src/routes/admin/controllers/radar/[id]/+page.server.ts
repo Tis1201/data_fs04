@@ -553,15 +553,38 @@ export const actions: Actions = {
             const { id } = params;
 
             try {
-                const sensor = await locals.prisma.sensor.delete({
-                    where: { id }
+                // First get the sensor with its controller
+                const sensor = await locals.prisma.sensor.findUnique({
+                    where: { id },
+                    include: { controller: true }
                 });
+                
+                if (!sensor) {
+                    return fail(404, { error: 'Sensor not found' });
+                }
 
-                logger.info(`Sensor deleted: ${sensor.id}`);
+                // Start transaction
+                const result = await locals.prisma.$transaction(async (tx) => {
+                    // First soft delete the controller by marking isDeleted = true
+                    const updatedController = await tx.controller.update({
+                        where: { id: sensor.controllerId },
+                        data: { isDeleted: true }
+                    });
+                    
+                    // Then delete the sensor
+                    const deletedSensor = await tx.sensor.delete({
+                        where: { id }
+                    });
+                    
+                    return { sensor: deletedSensor, controller: updatedController };
+                });
+                
+                logger.info(`Sensor deleted: ${result.sensor.id}, Controller marked as deleted: ${result.controller.id}`);
+                
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Sensor',
-                    recordId: sensor.id,
+                    recordId: result.sensor.id,
                     oldData: sensor,
                     newData: null,
                     userId: locals.user.id,

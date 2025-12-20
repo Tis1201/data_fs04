@@ -44,7 +44,12 @@ export const load = restrict(
 
             const [sensors, totalSensors] = await Promise.all([
                 locals.prisma.sensor.findMany({
-                    where,
+                    where: {
+                        ...where,
+                        controller: {
+                            isDeleted: false // Only show sensors with non-deleted controllers
+                        }
+                    },
                     orderBy: {
                         [sortField]: sortOrder
                     },

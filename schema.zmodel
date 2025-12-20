@@ -1731,6 +1731,7 @@ model Controller {
   type          String    // "radar", "camera", "ble", etc.
   serialNumber  String    @unique
   status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
+  isDeleted     Boolean   @default(false)
   
   // Link to Device (1:N - device can have multiple controllers of different types)
   deviceId      String
@@ -1755,7 +1756,7 @@ model Controller {
   @@allow('read', auth() != null && account.members?[userId == auth().id])
   @@allow('create', auth() != null)
   
-  @@unique([deviceId, type]) // One controller per type per device
+  @@unique([deviceId, type, isDeleted]) // One controller per type per device (unless deleted)
   @@index([accountId])
   @@index([deviceId])
   @@index([type])
