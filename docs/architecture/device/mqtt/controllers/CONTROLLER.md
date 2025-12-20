@@ -1,66 +1,73 @@
 ## Controller MQTT Architecture
 
-This document describes how **Controller Apps** (e.g., Radar Sensor App, Camera
-Sensor App) connect to FS04 over MQTT using the **same patterns** as claimed
-devices, but with a scoped topic namespace. It extends the architecture defined
-in `DEVICE_MQTT.md`, `DEVICE_CONNECT.md`, and `DEVICE_NOTIFICATION_REPLY.md`.
+This document describes how **Controller Apps** (e.g., Radar App, Camera App) connect to FS04 over MQTT.
 
 ---
 
-## 1. Background
+## 1. Relationship Hierarchy
 
-A **Controller** is an app running on a client device that manages one or more
-sensors (e.g., radar, camera, BLE scanner). Controllers may run:
+The following diagram illustrates the relationship between the Device, Controller Apps, and the Sensors they manage.
 
-- **Alongside the MDM Agent**: Both apps share the same physical device but
-  connect independently to the broker.
-- **Standalone**: The user installs only the Controller App (e.g., Radar App)
-  without the MDM Agent.
-
-Key principles:
-
-- **Reuse device identity**: Controllers authenticate using the device's
-  `apiKey`, just like the MDM Agent.
-- **Scoped topics**: Controllers operate on a namespaced topic path
-  `controller/<controllerId>/...` under the device root, preventing topic
-  collisions and limiting blast radius.
-- **Same channel pairs**: Controllers use the same RPC (`requests ↔ response`)
-  and Notification (`notifications ↔ replies`) patterns as devices.
+```mermaid
+graph TD
+    subgraph "Device Scope (device:<deviceId>)"
+        D[Device Identity]
+        
+        subgraph "MDM Agent"
+            MDM[MDM Core]
+            MDM_T[Topics: device/device:<id>/*]
+        end
+        
+        subgraph "Controller: Radar"
+            RC[Radar App]
+            RC_T[Topics: device:<id>/controller/radar/*]
+            RS[Radar Sensor Hardware]
+            RC --> RS
+        end
+        
+        subgraph "Controller: Camera"
+            CC[Camera App]
+            CC_T[Topics: device:<id>/controller/camera/*]
+            CS[Camera Sensor Hardware]
+            CC --> CS
+        end
+        
+        D --> MDM
+        D --> RC
+        D --> CC
+    end
+```
 
 ---
 
 ## 2. Topic Structure
 
-Controller topics mirror the device topic structure but are namespaced by a
-`controllerId` (e.g., `radar`, `camera`).
+Controller topics are namespaced under the device's root topic, using a `controllerId` (e.g., `radar`, `camera`).
 
 ### 2.1 Controller Topic Patterns
 
-For a claimed device `<deviceId>` and controller `<controllerId>`:
+For a device `<deviceId>` and controller `<controllerId>`:
+*(Note: The username is `device:<deviceId>`. Controller topics typically omit the `device/` root prefix used by the MDM agent, starting directly with the identity.)*
 
-- RPC-style:
-  - `device/device:<deviceId>/controller/<controllerId>/requests`
-  - `device/device:<deviceId>/controller/<controllerId>/response`
-  - `device/device:<deviceId>/controller/<controllerId>/loopback` *(diagnostic)*
+- **RPC Channels**:
+  - `device:<deviceId>/controller/<controllerId>/requests`
+  - `device:<deviceId>/controller/<controllerId>/response`
+  - `device:<deviceId>/controller/<controllerId>/loopback`
 
-- Notification-style:
-  - `device/device:<deviceId>/controller/<controllerId>/notifications`
-  - `device/device:<deviceId>/controller/<controllerId>/replies`
+- **Notification Channels**:
+  - `device:<deviceId>/controller/<controllerId>/notifications`
+  - `device:<deviceId>/controller/<controllerId>/replies`
 
-- Data stream (optional, QoS 0):
-  - `device/device:<deviceId>/controller/<controllerId>/data`
-
-**Example**: Radar controller on device `cmi123`:
-- `device/device:cmi123/controller/radar/requests`
-- `device/device:cmi123/controller/radar/notifications`
+- **Data Channels**:
+  - `device:<deviceId>/controller/<controllerId>/data`
 
 ### 2.2 Comparison with Device Topics
 
 | Actor | Topic Pattern |
 | :--- | :--- |
 | Claimed Device (MDM) | `device/device:<deviceId>/requests` |
-| Controller (Radar) | `device/device:<deviceId>/controller/radar/requests` |
-| Controller (Camera) | `device/device:<deviceId>/controller/camera/requests` |
+| Controller (Radar) | `device:<deviceId>/controller/radar/requests` |
+| Controller (Camera) | `device:<deviceId>/controller/camera/requests` |
 
 This ensures the MDM Agent and Controllers do not interfere with each other's
 message flows.
@@ -147,7 +154,7 @@ sequenceDiagram
     C->>B: CONNECT (clientId, username, password=jwt)
     B-->>C: CONNACK
 
-    C->>B: SUBSCRIBE<br/>device/device:<deviceId>/controller/radar/notifications<br/>device/device:<deviceId>/controller/radar/response
+    C->>B: SUBSCRIBE<br/>device:<deviceId>/controller/radar/notifications<br/>device:<deviceId>/controller/radar/response
 ```
 
 ---
@@ -207,10 +214,10 @@ sequenceDiagram
     participant C as Radar Controller
 
     Note over W: Admin updates radar config in UI
-    W->>B: Publish notification<br/>topic: device/device:123/controller/radar/notifications<br/>{ ticket: "jwt...", type: "config.update" }
+    W->>B: Publish notification<br/>topic: device:<id>/controller/radar/notifications<br/>{ ticket: "jwt...", type: "config.update" }
     B->>C: Deliver notification
     C->>C: Apply new config
-    C->>B: Publish reply<br/>topic: device/device:123/controller/radar/replies<br/>{ ticket: "jwt...", result: { success: true } }
+    C->>B: Publish reply<br/>topic: device:<id>/controller/radar/replies<br/>{ ticket: "jwt...", result: { success: true } }
     B->>W: Deliver reply
 ```
 

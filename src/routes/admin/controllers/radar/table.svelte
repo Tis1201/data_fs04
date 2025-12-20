@@ -14,7 +14,10 @@
     import { page } from "$app/stores";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
-    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import {
+        handleTableSort,
+        handleTablePagination,
+    } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
 
     export let props = {
         records: [] as RadarSensor[],
@@ -22,52 +25,52 @@
             page: 1,
             per_page: 10,
             total_records: 0,
-            total_pages: 0
+            total_pages: 0,
         },
         sort: {
             field: "createdAt",
-            order: "desc" as "asc" | "desc"
+            order: "desc" as "asc" | "desc",
         },
         loading: false,
         filters: {
-            accounts: [] as {id: string, name: string}[]
-        }
+            accounts: [] as { id: string; name: string }[],
+        },
     };
-    
+
     let state = {
         selectedRecord: null as RadarSensor | null,
         confirmationOpen: false,
-        title: "Delete Radar Sensor",
+        title: "Delete Radar Controller",
         message: "",
         confirmButtonText: "Delete",
         cancelButtonText: "Cancel",
-        successMessage: "Radar Sensor deleted successfully",
-        errorMessage: "Failed to delete radar sensor"
+        successMessage: "Radar Controller deleted successfully",
+        errorMessage: "Failed to delete radar sensor",
     };
 
     function confirmDelete(sensor: RadarSensor) {
         state.selectedRecord = sensor;
-        state.message = `Are you sure you want to delete the radar sensor "${sensor.name}" (${sensor.serialNumber})? This action cannot be undone.`;
+        state.message = `Are you sure you want to delete the radar controller "${sensor.name}" (${sensor.serialNumber})? This action cannot be undone.`;
         state.confirmationOpen = true;
     }
-    
+
     onMount(() => {
         if (!browser) return;
-        
+
         const url = new URL(window.location.href);
         let needsRedirect = false;
-        
+
         if (needsRedirect) {
             goto(url.toString(), { replaceState: true, noScroll: true });
         }
     });
-    
+
     const statusOptions = [
         { label: "Active", value: "ACTIVE" },
         { label: "Inactive", value: "INACTIVE" },
-        { label: "Maintenance", value: "MAINTENANCE" }
+        { label: "Maintenance", value: "MAINTENANCE" },
     ];
-    
+
     $: columns = [
         {
             id: "name",
@@ -78,17 +81,17 @@
                 component: NameWithIdLink,
                 props: {
                     record,
-                    baseUrl: "/admin/sensors/radar",
-                    showId: true
-                }
-            })
+                    baseUrl: "/admin/controllers/radar",
+                    showId: true,
+                },
+            }),
         },
         {
             id: "serialNumber",
             label: "Serial Number",
             sortable: true,
             width: "12%",
-            render: (record: RadarSensor) => record.serialNumber
+            render: (record: RadarSensor) => record.serialNumber,
         },
         {
             id: "status",
@@ -98,21 +101,21 @@
             render: (record: RadarSensor) => ({
                 component: StatusBadge,
                 props: {
-                    status: record.status
-                }
-            })
+                    status: record.status,
+                },
+            }),
         },
         {
             id: "account",
             label: "Account",
             width: "12%",
-            render: (record: RadarSensor) => record.account?.name || "N/A"
+            render: (record: RadarSensor) => record.account?.name || "N/A",
         },
         {
             id: "location",
             label: "Location",
             width: "12%",
-            render: (record: RadarSensor) => record.location || "N/A"
+            render: (record: RadarSensor) => record.location || "N/A",
         },
         {
             id: "trackingArea",
@@ -122,7 +125,7 @@
                 if (!record.trackingArea) return "Not configured";
                 const zoneCount = record.trackingArea._count?.zones || 0;
                 return `${record.trackingArea.name} (${zoneCount} zones)`;
-            }
+            },
         },
         {
             id: "createdAt",
@@ -136,9 +139,9 @@
                     format: "relative",
                     showTooltip: true,
                     useHoverCard: true,
-                    iconSize: 12
-                }
-            })
+                    iconSize: 12,
+                },
+            }),
         },
         {
             id: "actions",
@@ -149,23 +152,24 @@
                     {
                         label: "Configure",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/sensors/radar/${record.id}`)
+                        onClick: () =>
+                            goto(`/admin/controllers/radar/${record.id}`),
                     },
                     {
                         label: "Delete",
                         icon: Trash,
-                        onClick: () => confirmDelete(record)
-                    }
+                        onClick: () => confirmDelete(record),
+                    },
                 ];
-                
+
                 return {
                     component: RecordActions,
                     props: {
-                        items: actionItems
-                    }
+                        items: actionItems,
+                    },
                 };
-            }
-        }
+            },
+        },
     ];
 </script>
 
@@ -187,21 +191,30 @@
                 <DebouncedTextFilter
                     placeholder="Search by name, serial number, location..."
                     paramName="search"
-                    value={$page.url.searchParams.get('search') || ''}
+                    value={$page.url.searchParams.get("search") || ""}
                 />
             </div>
-            
+
             <PopoverFilter
                 label="Status"
                 options={statusOptions}
-                selectedValues={$page.url.searchParams.get('statuses')?.split(',').filter(Boolean) || []}
+                selectedValues={$page.url.searchParams
+                    .get("statuses")
+                    ?.split(",")
+                    .filter(Boolean) || []}
                 key="statuses"
             />
-            
+
             <PopoverFilter
                 label="Account"
-                options={props.filters.accounts?.map(account => ({ label: account.name, value: account.id })) || []}
-                selectedValues={$page.url.searchParams.get('accountId')?.split(',').filter(Boolean) || []}
+                options={props.filters.accounts?.map((account) => ({
+                    label: account.name,
+                    value: account.id,
+                })) || []}
+                selectedValues={$page.url.searchParams
+                    .get("accountId")
+                    ?.split(",")
+                    .filter(Boolean) || []}
                 key="accountId"
             />
         </div>

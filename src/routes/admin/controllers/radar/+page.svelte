@@ -4,43 +4,43 @@
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import RadarSensorsTable from "./table.svelte";
     import type { PageData } from "./$types";
-    
+
     export let data: PageData;
-    
+
     $: tableProps = {
         records: data.radarSensors || [],
         pagination: {
             page: data.meta?.currentPage || 1,
             per_page: data.meta?.itemsPerPage || 10,
             total_records: data.meta?.totalItems || 0,
-            total_pages: data.meta?.totalPages || 0
+            total_pages: data.meta?.totalPages || 0,
         },
         sort: {
             field: data.sort?.field || "createdAt",
-            order: data.sort?.order || "desc"
+            order: data.sort?.order || "desc",
         },
         loading: false,
         filters: {
-            accounts: data.accounts || []
-        }
+            accounts: data.accounts || [],
+        },
     };
-    
+
     const pageCrumbs = [
         ["Admin", "/admin"],
-        ["Sensors", "/admin/sensors"],
-        "Radar"
+        ["Controllers", "/admin/controllers"],
+        "Radar",
     ];
 </script>
 
 <AdminPageLayout
-    title="Radar Sensors"
+    title="Radar Controllers"
     crumbs={pageCrumbs}
     actionButtons={[
         {
-            label: "Register Sensor",
+            label: "Register Controller",
             icon: Plus,
-            onClick: () => goto('/admin/sensors/radar/new')
-        }
+            onClick: () => goto("/admin/controllers/radar/new"),
+        },
     ]}
 >
     <RadarSensorsTable props={tableProps} />

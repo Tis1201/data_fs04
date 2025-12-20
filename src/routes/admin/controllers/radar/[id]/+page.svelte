@@ -52,15 +52,16 @@
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
   import RadarVisualEditor from "$lib/components/ui_components_sveltekit/radar/RadarVisualEditor.svelte";
   import type { PageData } from "./$types";
-  import { browser } from '$app/environment';
+  import { browser } from "$app/environment";
 
   export let data: PageData;
 
-  const title = `Configure Radar Sensor: ${data.radarSensor.name}`;
+  /* Refactor: Sensors -> Controllers */
+  const title = `Configure Radar Controller: ${data.radarSensor.name}`;
   const pageCrumbs = [
     ["Admin", "/admin"],
-    ["Sensors", "/admin/sensors"],
-    ["Radar", "/admin/sensors/radar"],
+    ["Controllers", "/admin/controllers"],
+    ["Radar", "/admin/controllers/radar"],
     data.radarSensor.name,
   ];
 
@@ -79,9 +80,9 @@
   const { form, errors, enhance, submitting } = superForm(data.form, {
     onResult: ({ result }) => {
       if (result.type === "success") {
-        toast.success("Radar Sensor updated successfully!");
+        toast.success("Radar Controller updated successfully!");
       } else if (result.type === "error") {
-        toast.error("Failed to update radar sensor");
+        toast.error("Failed to update radar controller");
       }
     },
   });
@@ -305,8 +306,10 @@
     zoneDialogForm = {
       name: "",
       zoneNumber: nextZoneNumber,
-      color: COLORS.zonePalette[nextZoneNumber % COLORS.zonePalette.length] || "#10b981",
-      description: ""
+      color:
+        COLORS.zonePalette[nextZoneNumber % COLORS.zonePalette.length] ||
+        "#10b981",
+      description: "",
     };
     showZoneDialog = true;
   }
@@ -317,42 +320,44 @@
       name: zone.name,
       zoneNumber: zone.zoneNumber,
       color: zone.color || "#10b981",
-      description: zone.description || ""
+      description: zone.description || "",
     };
     showZoneDialog = true;
   }
 
   // Unified Save Handler
   async function handleSave() {
-      // 1. Submit Main Sensor Form
-      const sensorForm = document.querySelector('form[action="?/updateSensor"]') as HTMLFormElement;
-      if (sensorForm) sensorForm.requestSubmit();
+    // 1. Submit Main Sensor Form
+    const sensorForm = document.querySelector(
+      'form[action="?/updateSensor"]',
+    ) as HTMLFormElement;
+    if (sensorForm) sensorForm.requestSubmit();
 
-      // 2. Save Layout (Arena & Zones Coordinates)
-      // We construct a FormData and send it via fetch to ?/saveLayout
-      if (data.radarSensor.trackingArea) {
-          const layoutData = {
-              arena: editorArena,
-              zones: editorZones
-          };
-          
-          const formData = new FormData();
-          formData.append('layout', JSON.stringify(layoutData));
-          
-          const response = await fetch('?/saveLayout', {
-              method: 'POST',
-              body: formData
-          });
-          
-          if (response.ok) {
-              const result = await response.json();
-              if (result.type === 'success' || result.status === 200) {
-                 toast.success("Layout saved");
-              }
-          } else {
-              toast.error("Failed to save layout");
-          }
+    // 2. Save Layout (Arena & Zones Coordinates)
+    // We construct a FormData and send it via fetch to ?/saveLayout
+    if (data.radarSensor.trackingArea) {
+      const layoutData = {
+        arena: editorArena,
+        zones: editorZones,
+      };
+
+      const formData = new FormData();
+      formData.append("layout", JSON.stringify(layoutData));
+
+      const response = await fetch("?/saveLayout", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.type === "success" || result.status === 200) {
+          toast.success("Layout saved");
+        }
+      } else {
+        toast.error("Failed to save layout");
       }
+    }
   }
 </script>
 
@@ -371,7 +376,7 @@
       {
         label: "Back",
         icon: ArrowLeft,
-        onClick: () => goto("/admin/sensors/radar"),
+        onClick: () => goto("/admin/controllers/radar"),
         variant: "outline",
       },
       {
@@ -387,8 +392,8 @@
   >
     <FormContainer method="POST" action="?/updateSensor" {enhance} novalidate>
       <AdminCard
-        title="Sensor Information"
-        description="Edit radar sensor details"
+        title="Controller Information"
+        description="Edit radar controller details"
         icon={Radio}
         compact={true}
       >
@@ -396,7 +401,7 @@
           <FormRow columns={2}>
             <FormField
               id="name"
-              label="Sensor Name"
+              label="Controller Name"
               error={$errors.name}
               required={true}
             >
@@ -705,53 +710,77 @@
         <div class="space-y-4">
           <!-- Zone List/Table -->
           {#if !data.radarSensor.trackingArea || data.radarSensor.trackingArea.zones.length === 0}
-            <div class="text-center py-8 text-muted-foreground border-2 border-dashed rounded-md">
+            <div
+              class="text-center py-8 text-muted-foreground border-2 border-dashed rounded-md"
+            >
               <p>No zones configured yet.</p>
-              <Button variant="outline" class="mt-4" on:click={openCreateZone} disabled={!data.radarSensor.trackingArea}>
+              <Button
+                variant="outline"
+                class="mt-4"
+                on:click={openCreateZone}
+                disabled={!data.radarSensor.trackingArea}
+              >
                 <Plus class="h-4 w-4 mr-2" /> Create First Zone
               </Button>
             </div>
           {:else}
-             <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {#each data.radarSensor.trackingArea.zones as zone}
-                  <div class="border rounded-lg p-4 bg-card text-card-foreground shadow-sm relative group">
-                      <div class="flex items-center justify-between mb-2">
-                          <div class="flex items-center gap-2">
-                             <span class="flex h-3 w-3 rounded-full" style="background-color: {zone.color || '#10b981'}"></span>
-                             <span class="font-semibold">{zone.name}</span>
-                          </div>
-                          <Badge variant="secondary">#{zone.zoneNumber}</Badge>
-                      </div>
-                      
-                      <div class="text-xs text-muted-foreground space-y-1">
-                          <p>Pos: ({zone.startX}, {zone.startY}) to ({zone.endX}, {zone.endY})</p>
-                          {#if zone.description}
-                            <p class="truncate">{zone.description}</p>
-                          {/if}
-                      </div>
-
-                      <div class="flex justify-end gap-2 mt-4 pt-2 border-t">
-                          <Button variant="ghost" size="icon" class="h-8 w-8" on:click={() => openEditZone(zone)}>
-                              <Pencil class="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" class="h-8 w-8 text-destructive hover:text-destructive" on:click={() => deleteZone(zone.id, zone.name)}>
-                              <Trash class="h-4 w-4" />
-                          </Button>
-                      </div>
+            <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {#each data.radarSensor.trackingArea.zones as zone}
+                <div
+                  class="border rounded-lg p-4 bg-card text-card-foreground shadow-sm relative group"
+                >
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="flex h-3 w-3 rounded-full"
+                        style="background-color: {zone.color || '#10b981'}"
+                      ></span>
+                      <span class="font-semibold">{zone.name}</span>
+                    </div>
+                    <Badge variant="secondary">#{zone.zoneNumber}</Badge>
                   </div>
-                {/each}
-                
-                <!-- Add Button Card -->
-                {#if data.radarSensor.trackingArea.zones.length < 5}
-                    <button 
-                        class="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors min-h-[140px]"
-                        on:click={openCreateZone}
+
+                  <div class="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      Pos: ({zone.startX}, {zone.startY}) to ({zone.endX}, {zone.endY})
+                    </p>
+                    {#if zone.description}
+                      <p class="truncate">{zone.description}</p>
+                    {/if}
+                  </div>
+
+                  <div class="flex justify-end gap-2 mt-4 pt-2 border-t">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8"
+                      on:click={() => openEditZone(zone)}
                     >
-                        <Plus class="h-8 w-8 mb-2" />
-                        <span class="font-medium">Add Zone</span>
-                    </button>
-                {/if}
-             </div>
+                      <Pencil class="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      class="h-8 w-8 text-destructive hover:text-destructive"
+                      on:click={() => deleteZone(zone.id, zone.name)}
+                    >
+                      <Trash class="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              {/each}
+
+              <!-- Add Button Card -->
+              {#if data.radarSensor.trackingArea.zones.length < 5}
+                <button
+                  class="border-2 border-dashed rounded-lg p-4 flex flex-col items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors min-h-[140px]"
+                  on:click={openCreateZone}
+                >
+                  <Plus class="h-8 w-8 mb-2" />
+                  <span class="font-medium">Add Zone</span>
+                </button>
+              {/if}
+            </div>
           {/if}
         </div>
       {/if}
@@ -761,76 +790,113 @@
     <Dialog bind:open={showZoneDialog}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editingZoneId ? 'Edit Zone' : 'Create Zone'}</DialogTitle>
+          <DialogTitle
+            >{editingZoneId ? "Edit Zone" : "Create Zone"}</DialogTitle
+          >
           <DialogDescription>
-            Configure zone details. Position can also be adjusted in the visual editor.
+            Configure zone details. Position can also be adjusted in the visual
+            editor.
           </DialogDescription>
         </DialogHeader>
 
-        <form 
-            action={editingZoneId ? "?/updateZone" : "?/createZone"} 
-            method="POST" 
-            use:enhance={() => {
-                return async ({ result }) => {
-                    if (result.type === 'success') {
-                        showZoneDialog = false;
-                        toast.success(editingZoneId ? "Zone updated" : "Zone created");
-                        await invalidateAll();
-                    } else {
-                        toast.error("Operation failed");
-                    }
-                };
-            }}
-            class="space-y-4"
+        <form
+          action={editingZoneId ? "?/updateZone" : "?/createZone"}
+          method="POST"
+          use:enhance={() => {
+            return async ({ result }) => {
+              if (result.type === "success") {
+                showZoneDialog = false;
+                toast.success(editingZoneId ? "Zone updated" : "Zone created");
+                await invalidateAll();
+              } else {
+                toast.error("Operation failed");
+              }
+            };
+          }}
+          class="space-y-4"
         >
-            {#if editingZoneId}
-                <input type="hidden" name="zoneId" value={editingZoneId} />
-                <!-- Preserve existing coords when just editing props, or use what might be in form? -->
-                <!-- Ideally we send current coords from server state to avoid overwriting with defaults if hidden fields aren't populated. -->
-                <!-- Simplified: We just explicitly include the current/default fields required by Schema -->
-                <!-- Note: The schema requires starX/Y etc. so we must include them even if hidden/unchanged in this view. -->
-                 {#each data.radarSensor.trackingArea.zones as z}
-                    {#if z.id === editingZoneId}
-                        <input type="hidden" name="startX" value={z.startX} />
-                        <input type="hidden" name="startY" value={z.startY} />
-                        <input type="hidden" name="endX" value={z.endX} />
-                        <input type="hidden" name="endY" value={z.endY} />
-                    {/if}
-                 {/each}
-            {:else}
-                 <!-- Defaults for new zone -->
-                 <input type="hidden" name="startX" value="0" />
-                 <input type="hidden" name="startY" value="2" />
-                 <input type="hidden" name="endX" value="2" />
-                 <input type="hidden" name="endY" value="4" />
-            {/if}
+          {#if editingZoneId}
+            <input type="hidden" name="zoneId" value={editingZoneId} />
+            <!-- Preserve existing coords when just editing props, or use what might be in form? -->
+            <!-- Ideally we send current coords from server state to avoid overwriting with defaults if hidden fields aren't populated. -->
+            <!-- Simplified: We just explicitly include the current/default fields required by Schema -->
+            <!-- Note: The schema requires starX/Y etc. so we must include them even if hidden/unchanged in this view. -->
+            {#each data.radarSensor.trackingArea.zones as z}
+              {#if z.id === editingZoneId}
+                <input type="hidden" name="startX" value={z.startX} />
+                <input type="hidden" name="startY" value={z.startY} />
+                <input type="hidden" name="endX" value={z.endX} />
+                <input type="hidden" name="endY" value={z.endY} />
+              {/if}
+            {/each}
+          {:else}
+            <!-- Defaults for new zone -->
+            <input type="hidden" name="startX" value="0" />
+            <input type="hidden" name="startY" value="2" />
+            <input type="hidden" name="endX" value="2" />
+            <input type="hidden" name="endY" value="4" />
+          {/if}
 
-            <div class="grid gap-4 py-4">
-                <div class="grid grid-cols-4 items-center gap-4">
-                    <Label for="z-name" class="text-right">Name</Label>
-                    <Input id="z-name" name="name" bind:value={zoneDialogForm.name} class="col-span-3" required />
-                </div>
-                <div class="grid grid-cols-4 items-center gap-4">
-                    <Label for="z-number" class="text-right">Number</Label>
-                    <Input id="z-number" name="zoneNumber" type="number" min="1" max="5" bind:value={zoneDialogForm.zoneNumber} class="col-span-3" required />
-                </div>
-                 <div class="grid grid-cols-4 items-center gap-4">
-                    <Label for="z-color" class="text-right">Color</Label>
-                    <div class="col-span-3 flex items-center gap-2">
-                        <Input id="z-color" name="color" type="color" bind:value={zoneDialogForm.color} class="w-12 h-10 p-1" />
-                        <span class="text-xs text-muted-foreground">{zoneDialogForm.color}</span>
-                    </div>
-                </div>
-                <div class="grid grid-cols-4 items-center gap-4">
-                    <Label for="z-desc" class="text-right">Description</Label>
-                    <Textarea id="z-desc" name="description" bind:value={zoneDialogForm.description} class="col-span-3" />
-                </div>
+          <div class="grid gap-4 py-4">
+            <div class="grid grid-cols-4 items-center gap-4">
+              <Label for="z-name" class="text-right">Name</Label>
+              <Input
+                id="z-name"
+                name="name"
+                bind:value={zoneDialogForm.name}
+                class="col-span-3"
+                required
+              />
             </div>
+            <div class="grid grid-cols-4 items-center gap-4">
+              <Label for="z-number" class="text-right">Number</Label>
+              <Input
+                id="z-number"
+                name="zoneNumber"
+                type="number"
+                min="1"
+                max="5"
+                bind:value={zoneDialogForm.zoneNumber}
+                class="col-span-3"
+                required
+              />
+            </div>
+            <div class="grid grid-cols-4 items-center gap-4">
+              <Label for="z-color" class="text-right">Color</Label>
+              <div class="col-span-3 flex items-center gap-2">
+                <Input
+                  id="z-color"
+                  name="color"
+                  type="color"
+                  bind:value={zoneDialogForm.color}
+                  class="w-12 h-10 p-1"
+                />
+                <span class="text-xs text-muted-foreground"
+                  >{zoneDialogForm.color}</span
+                >
+              </div>
+            </div>
+            <div class="grid grid-cols-4 items-center gap-4">
+              <Label for="z-desc" class="text-right">Description</Label>
+              <Textarea
+                id="z-desc"
+                name="description"
+                bind:value={zoneDialogForm.description}
+                class="col-span-3"
+              />
+            </div>
+          </div>
 
-            <DialogFooter>
-                 <Button type="button" variant="outline" on:click={() => showZoneDialog = false}>Cancel</Button>
-                 <Button type="submit">{editingZoneId ? 'Save Changes' : 'Create'}</Button>
-            </DialogFooter>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              on:click={() => (showZoneDialog = false)}>Cancel</Button
+            >
+            <Button type="submit"
+              >{editingZoneId ? "Save Changes" : "Create"}</Button
+            >
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
@@ -983,6 +1049,6 @@
   action="?/deleteSensor"
   actionName="deleteSensor"
   onConfirm={() => {
-    goto("/admin/sensors/radar");
+    goto("/admin/controllers/radar");
   }}
 />
