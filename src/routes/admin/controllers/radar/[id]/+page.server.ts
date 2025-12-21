@@ -81,25 +81,32 @@ function generateId() {
 
 export const load = restrict(
     async ({ params, locals }) => {
-        const { id } = params;
+        const { id } = params; // This is the controller ID
 
         try {
-            const sensor = await locals.prisma.sensor.findUnique({
-                where: { id },
+            // First find the controller by ID
+            const controller = await locals.prisma.controller.findUnique({
+                where: { 
+                    id,
+                    isDeleted: false // Only find non-deleted controllers
+                },
                 include: {
-                    account: {
+                    device: {
                         select: {
                             id: true,
-                            name: true
+                            name: true,
+                            hardwareId: true
                         }
                     },
-                    controller: {
+                    sensors: {
+                        where: {
+                            type: 'radar'
+                        },
                         include: {
-                            device: {
+                            account: {
                                 select: {
                                     id: true,
-                                    name: true,
-                                    hardwareId: true
+                                    name: true
                                 }
                             }
                         }
@@ -107,14 +114,33 @@ export const load = restrict(
                 }
             });
 
+            if (!controller) {
+                throw error(404, {
+                    message: 'Controller not found',
+                    code: 'CONTROLLER_NOT_FOUND'
+                });
+            }
+
+            // Get the radar sensor from the controller
+            const sensor = controller.sensors.find(s => s.type === 'radar');
+            
             if (!sensor) {
                 throw error(404, {
-                    message: 'Sensor not found',
+                    message: 'Radar sensor not found for this controller',
                     code: 'SENSOR_NOT_FOUND'
                 });
             }
 
             const config = (sensor.config as unknown as RadarConfig) || {};
+            
+            // Add controller reference to sensor object for compatibility
+            const sensorWithController = {
+                ...sensor,
+                controller: {
+                    ...controller,
+                    device: controller.device
+                }
+            };
 
             const accounts = await locals.prisma.account.findMany({
                 where: { isSystem: false },
@@ -136,7 +162,7 @@ export const load = restrict(
                     firmware: sensor.firmware || '',
                     status: sensor.status,
                     accountId: sensor.accountId,
-                    deviceId: sensor.controller?.deviceId || ''
+                    deviceId: controller.deviceId
                 },
                 zod(radarSensorSchema)
             );
@@ -162,9 +188,8 @@ export const load = restrict(
                 zoneForm,
                 dwellBucketForm,
                 radarSensor: {
-                    ...sensor,
-                    config, // Explicitly pass typed config
-                    device: sensor.controller?.device // Flatten for UI compatibility if needed
+                    ...sensorWithController,
+                    config // Explicitly pass typed config
                 },
                 accounts,
                 devices: [] // Simplify for now
@@ -550,30 +575,46 @@ export const actions: Actions = {
 
     deleteSensor: restrict(
         async ({ params, locals }) => {
-            const { id } = params;
+            const { id } = params; // This is the controller ID
 
             try {
-                // First get the sensor with its controller
-                const sensor = await locals.prisma.sensor.findUnique({
-                    where: { id },
-                    include: { controller: true }
+                // First find the controller by ID
+                const controller = await locals.prisma.controller.findUnique({
+                    where: { 
+                        id,
+                        isDeleted: false // Only find non-deleted controllers
+                    },
+                    include: {
+                        sensors: {
+                            where: {
+                                type: 'radar'
+                            }
+                        }
+                    }
                 });
                 
+                if (!controller) {
+                    return fail(404, { error: 'Controller not found' });
+                }
+                
+                // Get the radar sensor from the controller
+                const sensor = controller.sensors.find(s => s.type === 'radar');
+                
                 if (!sensor) {
-                    return fail(404, { error: 'Sensor not found' });
+                    return fail(404, { error: 'Radar sensor not found for this controller' });
                 }
 
                 // Start transaction
                 const result = await locals.prisma.$transaction(async (tx) => {
                     // First soft delete the controller by marking isDeleted = true
                     const updatedController = await tx.controller.update({
-                        where: { id: sensor.controllerId },
+                        where: { id: controller.id },
                         data: { isDeleted: true }
                     });
                     
                     // Then delete the sensor
                     const deletedSensor = await tx.sensor.delete({
-                        where: { id }
+                        where: { id: sensor.id }
                     });
                     
                     return { sensor: deletedSensor, controller: updatedController };

@@ -30,19 +30,9 @@ export const load = restrict(
                 }
             });
 
-            // Get all devices first to see if any exist
-            const deviceCount = await locals.prisma.device.count();
-            logger.info(`Total devices in database: ${deviceCount}`);
-
-            // Get all devices and their controllers (including deleted ones for debugging)
-            const allDevices = await locals.prisma.device.findMany({
+            // Get all devices for easier testing - don't filter by controllers
+            const devices = await locals.prisma.device.findMany({
                 include: {
-                    controllers: {
-                        where: {
-                            type: 'radar'
-                            // Don't filter by isDeleted here - get all radar controllers
-                        }
-                    },
                     account: {
                         select: {
                             id: true,
@@ -55,22 +45,7 @@ export const load = restrict(
                 }
             });
 
-            logger.info(`Found ${allDevices.length} devices total`);
-            logger.info(`Devices with all controllers:`, allDevices.map(d => ({ 
-                name: d.name, 
-                totalControllers: d.controllers.length,
-                activeControllers: d.controllers.filter(c => !c.isDeleted).length,
-                deletedControllers: d.controllers.filter(c => c.isDeleted).length
-            })));
-
-            // Filter out devices that have active (non-deleted) radar controllers
-            const devices = allDevices.filter(device => {
-                const activeRadarControllers = device.controllers.filter(c => !c.isDeleted);
-                return activeRadarControllers.length === 0;
-            });
-            
-            logger.info(`Available devices after filtering: ${devices.length}`);
-            logger.info(`Available device names:`, devices.map(d => d.name));
+            logger.info(`Found ${devices.length} devices available for selection`);
 
             return {
                 form,
@@ -254,20 +229,21 @@ export const actions: Actions = {
                         });
                     }
 
-                    // Check if already has a radar controller
-                    // The schema enforces @@unique([deviceId, type]) on Controller.
-                    // If a controller exists, we cannot create another one for this device.
-                    const existingController = await locals.prisma.controller.findFirst({
+                    // Check if already has an active (non-deleted) radar controller
+                    // The schema enforces @@unique([deviceId, type, isDeleted]) on Controller.
+                    // Only block if there's an active controller, allow if only soft-deleted ones exist.
+                    const existingActiveController = await locals.prisma.controller.findFirst({
                         where: {
                             deviceId: form.data.deviceId,
-                            type: 'radar'
+                            type: 'radar',
+                            isDeleted: false // Only check for active controllers
                         }
                     });
 
-                    if (existingController) {
+                    if (existingActiveController) {
                         return fail(400, {
                             form,
-                            error: 'This device already has a radar controller configured. Only one radar controller is allowed per device.'
+                            error: 'This device already has an active radar controller configured. Only one active radar controller is allowed per device.'
                         });
                     }
                 }
