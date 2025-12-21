@@ -154,9 +154,10 @@ async function publishDeviceStatusNotification(params: {
     
     // Publish notification once per user (not per connection)
     // The user's MQTT client will receive it on their subscribed topic
+    // Use subscription-based routing that works with MQTT ACL
     for (const userId of usersToNotify) {
         try {
-            const topic = `user/user:${userId}:${device.accountId}/notifications`;
+            const topic = `subscription:user:${userId}:${device.accountId}`;
             await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
             logger.debug(`[MQTT Device Status] Published ${notificationType} to ${topic}`);
         } catch (err) {
@@ -289,18 +290,27 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 : now;
 
         // Update device presence in Redis for claimed devices (not factory devices)
+        // Uses both individual keys (for fast lookups) and a Set (for fast listing)
         if (deviceId && redis) {
             const presenceKey = `presence:device:${deviceId}`;
-            const presenceTTL = parseInt(process.env.PRESENCE_TTL || '300', 10); // 5 minutes default
+            const presenceSetKey = 'presence:devices:online';
+            const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10); // 10 minutes default (increased for stability)
             
             try {
                 if (isConnectEvent) {
-                    // Set device online with TTL
-                    await redis.setex(presenceKey, presenceTTL, '1');
+                    // Set device online with TTL and add to Set
+                    // Use pipeline for atomic operations
+                    const pipeline = redis.pipeline();
+                    pipeline.setex(presenceKey, presenceTTL, '1');
+                    pipeline.sadd(presenceSetKey, deviceId);
+                    await pipeline.exec();
                     logger.debug(`[MQTT Presence] Device ${deviceId} marked online (TTL: ${presenceTTL}s)`);
                 } else {
                     // Remove device presence on disconnect
-                    await redis.del(presenceKey);
+                    const pipeline = redis.pipeline();
+                    pipeline.del(presenceKey);
+                    pipeline.srem(presenceSetKey, deviceId);
+                    await pipeline.exec();
                     logger.debug(`[MQTT Presence] Device ${deviceId} marked offline`);
                 }
             } catch (redisError) {

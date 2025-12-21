@@ -96,10 +96,25 @@ export function startMqttListener(): void {
     });
     logger.info('[MQTT Transport] Redis queue subscription active');
 
-    // Reconcile device presence after a short delay to ensure MQTT transport is ready
+    // Fast startup sync: Bulk-refresh Redis from MQTT broker as quickly as possible
+    // This provides immediate presence data without waiting for full reconciliation
     setTimeout(async () => {
       try {
-        logger.info('[MQTT Transport] Starting device presence reconciliation...');
+        logger.info('[MQTT Transport] Starting fast startup sync...');
+        const { fastStartupSync } = await import('$lib/server/mqtt/utils/reconciliation');
+        await fastStartupSync();
+        logger.info('[MQTT Transport] Fast startup sync completed');
+      } catch (err) {
+        logger.error(
+          `[MQTT Transport] Fast startup sync failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }, 1000); // Start after 1 second (quick!)
+
+    // Full reconciliation after fast sync to update DB and send notifications
+    setTimeout(async () => {
+      try {
+        logger.info('[MQTT Transport] Starting full device presence reconciliation...');
         const { reconcileDevicePresence } = await import('$lib/server/mqtt/utils/reconciliation');
         await reconcileDevicePresence();
         logger.info('[MQTT Transport] Device presence reconciliation completed');
@@ -108,7 +123,50 @@ export function startMqttListener(): void {
           `[MQTT Transport] Device presence reconciliation failed: ${err instanceof Error ? err.message : String(err)}`
         );
       }
-    }, 5000); // Wait 5 seconds for MQTT transport to be fully ready
+    }, 3000); // Full reconciliation after 3 seconds
+
+    // Frequent reconciliation during first 5 minutes after startup
+    // This ensures quick sync if there were any missed events during downtime
+    const STARTUP_RECONCILE_INTERVAL_MS = 30 * 1000; // 30 seconds
+    const startupReconcileInterval = setInterval(async () => {
+      try {
+        const { reconcileDevicePresence } = await import('$lib/server/mqtt/utils/reconciliation');
+        await reconcileDevicePresence();
+        logger.debug('[MQTT Transport] Startup reconciliation cycle completed');
+      } catch (err) {
+        logger.error(
+          `[MQTT Transport] Startup reconciliation failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }, STARTUP_RECONCILE_INTERVAL_MS);
+
+    // Stop frequent startup reconciliation after 5 minutes
+    setTimeout(() => {
+      clearInterval(startupReconcileInterval);
+      logger.info('[MQTT Transport] Startup reconciliation period ended, switching to normal interval');
+    }, 5 * 60 * 1000); // 5 minutes
+
+    // Set up periodic TTL refresh for connected devices (every 2 minutes)
+    // This prevents devices from appearing offline when they're still connected
+    const PRESENCE_REFRESH_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+    const presenceRefreshInterval = setInterval(async () => {
+      try {
+        const { reconcileDevicePresence } = await import('$lib/server/mqtt/utils/reconciliation');
+        await reconcileDevicePresence();
+        logger.debug('[MQTT Transport] Periodic device presence TTL refresh completed');
+      } catch (err) {
+        logger.error(
+          `[MQTT Transport] Periodic presence refresh failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }, PRESENCE_REFRESH_INTERVAL_MS);
+    
+    // Clean up intervals on shutdown
+    const originalShutdown = (signal: NodeJS.Signals) => {
+      clearInterval(startupReconcileInterval);
+      clearInterval(presenceRefreshInterval);
+      shutdown(signal);
+    };
 
     const shutdown = (signal: NodeJS.Signals) => {
       logger.info(`[MQTT Transport] Caught ${signal}, shutting down service`);
@@ -122,8 +180,8 @@ export function startMqttListener(): void {
       });
     };
 
-    process.once('SIGINT', shutdown);
-    process.once('SIGTERM', shutdown);
+    process.once('SIGINT', originalShutdown);
+    process.once('SIGTERM', originalShutdown);
   })().catch((err) => {
     logger.error(
       `[MQTT Transport] Failed to start worker MQTT listener: ${err instanceof Error ? err.message : String(err)

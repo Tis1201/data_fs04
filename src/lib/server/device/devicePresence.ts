@@ -1,24 +1,62 @@
-// Device presence tracking using pushpin-tracker
-// The pushpin-tracker sidecar automatically maintains presence keys in Redis
-// based on Pushpin's stats feed. No device-side code needed!
+// Device presence tracking via MQTT + Redis
+// Redis provides fast presence checks with TTL auto-expiry
+// Database provides fallback and historical data
 
 import redis from '$lib/server/redis';
 import { logger } from '$lib/server/logger';
+import { getAdminPrisma } from '$lib/server/prisma';
 
 /**
  * Check if a device is currently online
  * @param deviceId The device ID to check
  * @returns true if device is online, false otherwise
+ * 
+ * Priority: Redis (fast) → Database (fallback)
  */
 export async function isDeviceOnline(deviceId: string): Promise<boolean> {
   try {
-    if (!redis) {
-      logger.warn('[DevicePresence] Redis not available (USE_PUSHPIN not enabled)');
+    // Primary: Check Redis for real-time presence (0.1-1ms)
+    if (redis) {
+      try {
+        const exists = await redis.exists(`presence:device:${deviceId}`);
+        logger.debug(`[DevicePresence] Redis check - device ${deviceId} online: ${exists === 1}`);
+        return exists === 1;
+      } catch (redisError) {
+        logger.warn('[DevicePresence] Redis check failed, falling back to database', {
+          error: redisError instanceof Error ? redisError.message : String(redisError),
+          deviceId
+        });
+        // Fall through to database check
+      }
+    }
+    
+    // Fallback: Check database (10-50ms, but reliable)
+    logger.debug('[DevicePresence] Using database fallback for device presence check');
+    const prisma = getAdminPrisma();
+    const device = await prisma.device.findUnique({
+      where: { id: deviceId },
+      select: { 
+        connected: true,
+        disconnectedAt: true 
+      }
+    });
+    
+    if (!device) {
+      logger.warn(`[DevicePresence] Device ${deviceId} not found in database`);
       return false;
     }
-    const exists = await redis.exists(`presence:device:${deviceId}`);
-    logger.debug(`[DevicePresence] device online: ${exists} `);
-    return exists === 1;
+    
+    // Additional validation: if disconnectedAt is very recent (< 30s), might be stale
+    // This handles edge case where device disconnected but DB hasn't updated yet
+    if (device.connected && device.disconnectedAt) {
+      const disconnectAge = Date.now() - new Date(device.disconnectedAt).getTime();
+      if (disconnectAge < 30000) { // Less than 30 seconds
+        logger.debug(`[DevicePresence] Device ${deviceId} recently disconnected (${disconnectAge}ms ago), treating as offline`);
+        return false;
+      }
+    }
+    
+    return device.connected ?? false;
   } catch (error) {
     logger.error('[DevicePresence] Failed to check device online status', {
       error: error instanceof Error ? error.message : String(error),
@@ -107,36 +145,85 @@ export async function getAllOnlineDevices(): Promise<string[]> {
  * Batch check if multiple devices are online
  * @param deviceIds Array of device IDs to check
  * @returns Map of deviceId -> boolean (true if online)
+ * 
+ * Priority: Redis (fast batch) → Database (fallback batch)
  */
 export async function areDevicesOnline(deviceIds: string[]): Promise<Map<string, boolean>> {
   try {
-    if (!redis) {
-      logger.warn('[DevicePresence] Redis not available (USE_PUSHPIN not enabled)');
-      return new Map(deviceIds.map(id => [id, false]));
-    }
-    
     if (deviceIds.length === 0) {
       return new Map();
     }
     
-    // Build keys for all devices
-    const keys = deviceIds.map(id => `presence:device:${id}`);
+    // Primary: Check Redis with pipeline (very fast for batch operations)
+    if (redis) {
+      try {
+        // Build keys for all devices
+        const keys = deviceIds.map(id => `presence:device:${id}`);
+        
+        // Use pipeline to batch all EXISTS commands at once (much faster than sequential calls)
+        const pipeline = redis.pipeline();
+        keys.forEach(key => {
+          pipeline.exists(key);
+        });
+        
+        const results = await pipeline.exec();
+        
+        // Build result map
+        const result = new Map<string, boolean>();
+        deviceIds.forEach((deviceId, index) => {
+          // results is an array of [error, result] tuples
+          const exists = results?.[index]?.[1] === 1;
+          result.set(deviceId, exists);
+        });
+        
+        logger.debug(`[DevicePresence] Redis batch check completed for ${deviceIds.length} devices`);
+        return result;
+      } catch (redisError) {
+        logger.warn('[DevicePresence] Redis batch check failed, falling back to database', {
+          error: redisError instanceof Error ? redisError.message : String(redisError),
+          deviceCount: deviceIds.length
+        });
+        // Fall through to database check
+      }
+    }
     
-    // Use pipeline to batch all EXISTS commands at once (much faster than sequential calls)
-    const pipeline = redis.pipeline();
-    keys.forEach(key => {
-      pipeline.exists(key);
+    // Fallback: Batch check database
+    logger.debug(`[DevicePresence] Using database fallback for batch presence check (${deviceIds.length} devices)`);
+    const prisma = getAdminPrisma();
+    const devices = await prisma.device.findMany({
+      where: { 
+        id: { in: deviceIds }
+      },
+      select: { 
+        id: true,
+        connected: true,
+        disconnectedAt: true
+      }
     });
     
-    const results = await pipeline.exec();
-    
-    // Build result map
+    // Build result map from database
     const result = new Map<string, boolean>();
-    deviceIds.forEach((deviceId, index) => {
-      // results is an array of [error, result] tuples
-      const exists = results?.[index]?.[1] === 1;
-      result.set(deviceId, exists);
-    });
+    const now = Date.now();
+    
+    for (const deviceId of deviceIds) {
+      const device = devices.find(d => d.id === deviceId);
+      
+      if (!device) {
+        result.set(deviceId, false);
+        continue;
+      }
+      
+      // Additional validation: check for recent disconnects
+      let isOnline = device.connected ?? false;
+      if (isOnline && device.disconnectedAt) {
+        const disconnectAge = now - new Date(device.disconnectedAt).getTime();
+        if (disconnectAge < 30000) { // Less than 30 seconds
+          isOnline = false;
+        }
+      }
+      
+      result.set(deviceId, isOnline);
+    }
     
     return result;
   } catch (error) {
