@@ -125,14 +125,39 @@ sequenceDiagram
 
 ---
 
-## Implementation
+## Implementation Checklist
 
-| Component | File | Status |
-|-----------|------|--------|
-| Start/Stop RPC | [handle_sensor_preview.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/web/handle_sensor_preview.ts) | ✅ |
-| Data Forwarding | [index.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/index.ts) | ✅ |
-| E2E Test | [sensor_preview_e2e.test.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/tests/integrations/sensor_preview_e2e.test.ts) | ✅ |
-| Controller Handler | TBD | ⏳ |
+### Worker (Web)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| `sensor.preview.start` RPC handler | ✅ | [handle_sensor_preview.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/web/handle_sensor_preview.ts) |
+| `sensor.preview.stop` RPC handler | ✅ | Same file |
+| Ticket creation with routing claims | ✅ | `recipient`, `flowId`, `sessionId` in claims |
+| Data forwarding from `.../data` | ✅ | [index.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/index.ts) |
+| Stateless ticket verification | ✅ | Ticket-based routing implemented, legacy fallback maintained |
+
+> [!NOTE]
+> Worker supports **both** routing methods:
+> - **Ticket-based** (preferred): Controller echoes ticket in each data frame - stateless and horizontally scalable
+> - **Session-based** (legacy): Uses in-memory session lookup - single worker only
+
+### Controller (Device)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Handle `preview.start` notification | ❌ | Store ticket, start streaming |
+| Handle `preview.stop` notification | ❌ | Stop streaming, reply |
+| Echo ticket in each data frame | ❌ | `{ ticket, type: "preview.frame", data }` |
+| Duration-based auto-stop | ❌ | Use `exp` from ticket |
+
+### Tests
+
+| Item | Status | Notes |
+|------|--------|-------|
+| E2E test: start/stop flow | ✅ | [sensor_preview_e2e.test.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/tests/integrations/sensor_preview_e2e.test.ts) |
+| E2E test: legacy data forwarding | ✅ | Session-based routing for backwards compatibility |
+| E2E test: ticket-based data forwarding | ✅ | Stateless routing with ticket verification |
 
 ---
 

@@ -410,24 +410,58 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
         return;
     }
 
-    // Handle controller data streams (sensor preview)
+    // Handle controller data streams (sensor preview) - STATELESS TICKET-BASED ROUTING
     if (topic.endsWith('/data')) {
         const raw = payload.toString('utf8');
         try {
             const data = JSON.parse(raw);
-            // Expect { type: "preview.frame", sessionId, ... }
+
+            // NEW: Ticket-based stateless routing (preferred)
+            // Controller echoes the ticket from preview.start with each data frame
+            if (data.type === 'preview.frame' && data.ticket) {
+                try {
+                    // Verify ticket and extract routing claims
+                    const claims = await decodeNotificationTicket(prisma, data.ticket);
+
+                    // Forward to user using claims from ticket
+                    await sendNotificationWithTicket({
+                        prisma,
+                        sub: claims.sub || `device:unknown`,
+                        recipient: claims.recipient,
+                        type: 'preview.data',
+                        flowId: claims.flowId,
+                        params: {
+                            sessionId: claims.params?.sessionId,
+                            sensorId: claims.params?.sensorId,
+                            timestamp: data.timestamp || Date.now(),
+                            data: data.data || data
+                        },
+                        expiresIn: '1m'
+                    });
+
+                    logger.debug('[Preview] Forwarded data frame using ticket-based routing', {
+                        flowId: claims.flowId,
+                        recipient: claims.recipient
+                    });
+                } catch (ticketErr) {
+                    // Ticket verification failed (expired, invalid signature, etc.)
+                    logger.debug('[Preview] Ticket verification failed, ignoring data frame', {
+                        error: ticketErr instanceof Error ? ticketErr.message : String(ticketErr)
+                    });
+                }
+                return;
+            }
+
+            // LEGACY: In-memory session-based routing (backwards compatibility)
+            // TODO: Deprecate once all controllers use ticket-based routing
             if (data.type === 'preview.frame' && data.sessionId) {
                 const session = getPreviewSession(data.sessionId);
 
-                // If session exists and is valid
                 if (session && !isSessionExpired(data.sessionId)) {
-                    // Forward to user
-                    // Note: For high-frequency data, creating DB-backed tickets is expensive.
-                    // For now we use the standard path, but in future optimization we might want ephemeral tickets.
                     await sendNotificationWithTicket({
                         prisma,
-                        sub: `device:${session.deviceId}`, // Sender
-                        recipient: `user:${session.userId}:${session.accountId}`, // Recipient
+                        sub: `device:${session.deviceId}`,
+                        recipient: `user:${session.userId}:${session.accountId}`,
                         type: 'preview.data',
                         flowId: session.flowId,
                         params: {

@@ -133,8 +133,8 @@ describe('Sensor Preview Logic Integration', () => {
         expect(callArgs.params.sessionId).toBe(sessionId);
     });
 
-    it('should forward data frames', async () => {
-        // Now simulate incoming data on .../controller/radar:<id>/data
+    it('should forward data frames (legacy session-based)', async () => {
+        // LEGACY: In-memory session-based routing (for backwards compatibility)
         const dataTopic = `device:${deviceId}/controller/${controllerId}/data`;
         const payload = JSON.stringify({
             type: 'preview.frame',
@@ -146,15 +146,48 @@ describe('Sensor Preview Logic Integration', () => {
         await handleIncoming(dataTopic, Buffer.from(payload), prisma);
 
         // Verify data forwarded to user
-        // userTopic = `user/${userId}:${accountId}/notifications`
-        // We mocked sendNotificationWithTicket.
-
         expect(mockSendNotification).toHaveBeenCalled();
         const callArgs = mockSendNotification.mock.calls[0][0];
         expect(callArgs.recipient).toBe(userSub);
         expect(callArgs.type).toBe('preview.data');
         expect(callArgs.flowId).toBe(flowId);
         expect(callArgs.params.sessionId).toBe(sessionId);
+    });
+
+    it('should forward data frames (ticket-based stateless)', async () => {
+        vi.clearAllMocks();
+
+        // Import createTicket to generate a real ticket for testing
+        const { createTicket } = await import('$lib/server/mqtt/core/publish');
+
+        // Create a valid ticket with routing claims (like controller would receive)
+        const ticket = await createTicket(
+            prisma,
+            userSub,
+            userSub, // recipient is the user
+            'preview.start',
+            flowId,
+            { sessionId, sensorId },
+            '5m'
+        );
+
+        // NEW: Ticket-based stateless routing
+        const dataTopic = `device:${deviceId}/controller/${controllerId}/data`;
+        const payload = JSON.stringify({
+            type: 'preview.frame',
+            ticket: ticket,
+            timestamp: Date.now(),
+            data: { points: [{ x: 1, y: 2 }] }
+        });
+
+        await handleIncoming(dataTopic, Buffer.from(payload), prisma);
+
+        // Verify data forwarded using ticket-based routing
+        expect(mockSendNotification).toHaveBeenCalled();
+        const callArgs = mockSendNotification.mock.calls[0][0];
+        expect(callArgs.recipient).toBe(userSub);
+        expect(callArgs.type).toBe('preview.data');
+        expect(callArgs.flowId).toBe(flowId);
     });
 
     it('should stop a preview session', async () => {
