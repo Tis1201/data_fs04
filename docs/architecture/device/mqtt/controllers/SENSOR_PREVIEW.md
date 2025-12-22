@@ -28,13 +28,10 @@ sequenceDiagram
         end
     end
 
-    alt User stops early
-        U->>W: RPC sensor.preview.stop
-        W->>C: Notification { ticket, type: stop }
-    else Duration expires
-        C->>W: { ticket, type: complete }
-    end
-    W->>U: Notification { flowId, complete }
+    U->>W: RPC sensor.preview.stop { sessionId }
+    W->>C: Notification { stopTicket }
+    C->>W: Reply { stopTicket, stopped: true }
+    W->>U: Notification { flowId, type: complete }
 ```
 
 ---
@@ -67,7 +64,7 @@ sequenceDiagram
 { "ticket": "<signed-jwt>" }
 ```
 
-**Ticket Claims**: `type`, `flowId`, `recipient`, `deviceId`, `controllerId`, `sensorId`, `duration`, `exp`
+**Ticket Claims**: `type`, `flowId`, `recipient`, `deviceId`, `controllerId`, `sensorId`, `sessionId`, `duration`, `exp`
 
 ### Data Frame (Controller → Worker)
 
@@ -114,6 +111,7 @@ sequenceDiagram
 | `user/<sub>/response` | Worker → User | RPC response |
 | `user/<sub>/notifications` | Worker → User | Data stream |
 | `.../controller/.../notifications` | Worker → Controller | Commands |
+| `.../controller/.../replies` | Controller → Worker | Command responses |
 | `.../controller/.../data` | Controller → Worker | Data frames |
 
 ---
