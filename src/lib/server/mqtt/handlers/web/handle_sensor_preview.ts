@@ -171,25 +171,30 @@ export async function handleSensorPreviewStop(
     removePreviewSession(params.sessionId);
 
     // Notify controller to stop
-    // We can fire-and-forget this
     const { createTicket } = await import('../../core/publish');
     const { getMqttTransport } = await import('../../core/transport');
+
+    // Build the correct topic: device:<did>/controller/radar:<cid>/notifications
+    // Must match the format used in start handler
+    const notificationTopic = `device:${session.deviceId}/controller/radar:${session.controllerId}/notifications`;
+    const recipient = `device:${session.deviceId}/controller/radar:${session.controllerId}`;
+
+    logger.info(`[SensorPreview] Stopping session ${params.sessionId}, publishing to ${notificationTopic}`);
 
     const ticket = await createTicket(
         prisma,
         sub!,
-        `device:${session.deviceId}/controller/${session.controllerId}`,
+        recipient,
         'preview.stop',
         session.flowId,
         { sessionId: params.sessionId },
         '1m'
     );
 
-    const notificationTopic = `device:${session.deviceId}/controller/${session.controllerId}/notifications`;
     const transport = getMqttTransport();
     await transport.publish(notificationTopic, JSON.stringify({ ticket }), { qos: 1 });
 
-    logger.info(`[SensorPreview] Stopped session ${params.sessionId}`);
+    logger.info(`[SensorPreview] Stop notification sent for session ${params.sessionId}`);
 
     return {
         // We return the original flowId if available

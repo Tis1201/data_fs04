@@ -182,7 +182,10 @@ export async function connectWorkerClient(): Promise<void> {
     });
 
     activeClient.on('message', async (topic, payload) => {
-        logger.debug(`[MQTT Transport] Received message on ${topic}`);
+        // Only log non-data topics to reduce spam
+        if (!topic.endsWith('/data')) {
+            logger.debug(`[MQTT Transport] Received message on ${topic}`);
+        }
         await handleIncoming(topic, payload, adminPrisma);
     });
 

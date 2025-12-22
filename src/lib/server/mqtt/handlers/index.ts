@@ -109,7 +109,10 @@ export function registerRpcClient<P extends PrismaClient>(
  * Central dispatcher for all MQTT messages consumed by the worker.
  ********************************************************************************************/
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
-    logger.debug(`[MQTT Messaging] Received message on ${topic}`);
+    // Only log non-data topics to reduce spam
+    if (!topic.endsWith('/data')) {
+        logger.debug(`[MQTT Messaging] Received message on ${topic}`);
+    }
 
     if (
         topic === '$events/client/connected' ||
@@ -441,11 +444,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     };
 
                     await transport.publish(userNotificationTopic, JSON.stringify(notification), { qos: 0 });
-
-                    logger.debug('[Preview] Forwarded data frame to user', {
-                        flowId: claims.flowId,
-                        topic: userNotificationTopic
-                    });
+                    // Note: Removed per-frame logging to reduce console spam
                 } catch (ticketErr) {
                     // Ticket verification failed (expired, invalid signature, etc.)
                     logger.debug('[Preview] Ticket verification failed, ignoring data frame', {
