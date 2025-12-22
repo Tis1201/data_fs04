@@ -92,19 +92,27 @@ Body:
 
 ```jsonc
 {
-  "type": "radar"   // Controller scope identifier
+  "type": "radar",           // Required: Controller type ("radar", "camera", "ble", etc.)
+  "controllerId": "abc123"   // Optional: Specific controller ID.
+                             // If omitted, finds existing controller or creates new one.
 }
 ```
+
+**Auto-Creation Behavior**:
+- If `controllerId` is **not provided**: The endpoint will find an existing active controller of the specified type for the device. If none exists, it will automatically create one.
+- If `controllerId` **is provided**: The endpoint validates that the controller exists, belongs to the device, and matches the type.
+- Only one active controller per (device, type) is created automatically. For multiple controllers of the same type, create them explicitly and specify the ID.
 
 ### 3.3 Response
 
 ```jsonc
 {
   "brokerUrl": "wss://mq.datarealities.com/mqtt",
-  "clientId": "device:<deviceId>_radar_<suffix>",
+  "clientId": "device:<deviceId>_<suffix>",
   "username": "device:<deviceId>",
   "jwt": "<link-jwt>",
-  "mqttUsername": "device:<deviceId>"
+  "mqttUsername": "device:<deviceId>",
+  "controllerId": "<controller-uuid>"   // The actual controller ID (auto-created or found)
 }
 ```
 
@@ -312,8 +320,8 @@ a controller is connected. The MDM Agent's presence is optional.
 
 ## 10. Implementation Checklist
 
-- [ ] Create `POST /api/device/controller/mqtt/mint` endpoint with scoped ACLs.
-- [ ] Add worker subscription patterns for `+/controller:+/...`.
+- [x] Create `POST /api/device/controller/mqtt/mint` endpoint with scoped ACLs.
+- [ ] Add worker subscription patterns for `+/controller/+/...`.
 - [ ] Implement controller-specific RPC handlers (e.g., `sensor.getConfig`,
       `sensor.preview.start`).
 - [ ] Add E2E test: `tests/integrations/controller_mqtt_mint_e2e.test.ts`.
