@@ -281,6 +281,44 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     data: { connected: true, connectedAt: eventDate }
                 });
                 logger.info('[MQTT Events] Device connected', { deviceId, username, clientId });
+
+                // Auto-sync: Push pending configs for this device's sensors
+                try {
+                    // Use raw query to avoid type issues with syncStatus field
+                    const pendingSensors = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+                        SELECT s.id, s.name 
+                        FROM "Sensor" s
+                        JOIN "Controller" c ON s."controllerId" = c.id
+                        WHERE c."deviceId" = ${deviceId}
+                        AND s."syncStatus" = 'PENDING'
+                    `;
+
+                    if (pendingSensors.length > 0) {
+                        logger.info(`[MQTT Events] Auto-syncing ${pendingSensors.length} pending configs for device ${deviceId}`);
+
+                        const { handleSensorConfigPush } = await import('./web/handle_sensor_config');
+
+                        for (const sensor of pendingSensors) {
+                            try {
+                                // Create minimal RpcHandlerArgs for the handler
+                                const args = {
+                                    prisma,
+                                    sub: `device:${deviceId}`,
+                                    topic: '$system/auto-sync',
+                                    requestId: `auto-sync-${sensor.id}`,
+                                    op: 'sensor.config.push',
+                                    params: { sensorId: sensor.id }
+                                };
+                                await handleSensorConfigPush({ sensorId: sensor.id }, args);
+                                logger.info(`[MQTT Events] Auto-synced config for sensor ${sensor.name}`);
+                            } catch (err) {
+                                logger.warn(`[MQTT Events] Auto-sync failed for sensor ${sensor.name}:`, err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    logger.warn('[MQTT Events] Failed to check for pending configs:', err);
+                }
             } else {
                 await prisma.device.updateMany({
                     where: { id: deviceId },

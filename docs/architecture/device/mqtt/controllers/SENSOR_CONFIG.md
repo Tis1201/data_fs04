@@ -166,24 +166,25 @@ stateDiagram-v2
 |------|--------|-------|
 | `sensor.config.save` RPC | ✅ | [handle_sensor_config.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/web/handle_sensor_config.ts) |
 | `sensor.config.push` RPC | ✅ | Same file |
-| Auto-sync on device connect | ⬜ | Listen for connection events |
+| Auto-sync on device connect | ✅ | [handlers/index.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/index.ts) |
 | Config versioning | ✅ | `configVersion` field in Sensor model |
 
 ### Controller (Device)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Handle `config.update` notification | ✅ | Already in radar.ts |
-| Version acknowledgment | ⬜ | Include configVersion in reply |
+| Handle `config.update` notification | ✅ | [radar.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_device/emulators/node/devices/controllers/radar/radar.ts) |
+| Re-fetch config on notification | ✅ | Implemented in radar.ts |
+| Version acknowledgment | ✅ | Included in reply |
 
 ### User (Browser)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Save button → `sensor.config.save` | ⬜ | Always enabled |
-| Push button → `sensor.config.push` | ⬜ | Enabled when online |
-| Sync status indicator | ⬜ | Show SYNCED/PENDING/FAILED |
-| Auto-push toggle | ⬜ | Push automatically on save |
+| Save button → `sensor.config.save` | ✅ | Config Dialog |
+| Push button → `sensor.config.push` | ✅ | Config Dialog |
+| Sync status indicator | ✅ | Config Dialog Header |
+| Auto-push toggle | ⬜ | Nice-to-have: auto-push after save |
 
 ---
 
