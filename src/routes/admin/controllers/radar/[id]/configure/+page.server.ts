@@ -1,9 +1,9 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { logger } from '$lib/utils/logger';
-import { SystemRole } from '@prisma/client';
-import { restrictToRole } from '$lib/server/auth/restrict';
+import { logger } from '$lib/server/logger';
+import { SystemRole } from '$lib/types/roles';
+import { restrict } from '$lib/server/security/guards';
 import { trackingAreaSchema } from '../tracking-area-schema';
 import type { PageServerLoad, Actions } from './$types';
 
@@ -60,7 +60,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 };
 
 export const actions: Actions = {
-    createTrackingArea: restrictToRole(
+    createTrackingArea: restrict(
         async ({ request, locals, params }) => {
             const controllerId = params.id;
             if (!controllerId) {
