@@ -3,6 +3,7 @@ import type { PrismaClient, Device } from '@prisma/client';
 import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../core/publish';
 import redis from '$lib/server/redis';
 import { getMqttTransport } from '../core/transport';
+import { getPreviewSession, isSessionExpired } from '../sessions/preview_sessions';
 
 /********************************************************************************************
  * Raw RPC handler types shared across device/web clients.
@@ -74,8 +75,7 @@ export function registerRpcHandler<P extends PrismaClient>(
     handler: RpcHandler<P>,
     prisma: P
 ): void {
-    // Type assertion: RpcHandler<P> is compatible with RpcHandler<PrismaClient> when P extends PrismaClient
-    rpcHandlers.set(prefix, { handler: handler as RpcHandler<PrismaClient>, prisma });
+    rpcHandlers.set(prefix, { handler, prisma });
 }
 
 /********************************************************************************************
@@ -118,7 +118,7 @@ async function publishDeviceStatusNotification(params: {
 }): Promise<void> {
     const { prisma, device, connected, timestamp, reason } = params;
     const transport = getMqttTransport();
-    
+
     const notificationType = connected ? 'device:connection' : 'device:disconnection';
     const payload = {
         type: notificationType,
@@ -130,15 +130,15 @@ async function publishDeviceStatusNotification(params: {
         accountId: device.accountId,
         userId: device.createdBy
     };
-    
+
     // Determine which users to notify based on device ownership
     const usersToNotify: string[] = [];
-    
+
     // Notify device owner
     if (device.createdBy) {
         usersToNotify.push(device.createdBy);
     }
-    
+
     // Notify account members if device belongs to an account
     if (device.accountId) {
         const accountMembers = await prisma.accountMembership.findMany({
@@ -151,7 +151,7 @@ async function publishDeviceStatusNotification(params: {
             }
         }
     }
-    
+
     // Publish notification once per user (not per connection)
     // The user's MQTT client will receive it on their subscribed topic
     // Use subscription-based routing that works with MQTT ACL
@@ -164,7 +164,7 @@ async function publishDeviceStatusNotification(params: {
             logger.error(`[MQTT Device Status] Failed to publish to user ${userId}:`, err);
         }
     }
-    
+
     logger.info(`[MQTT Device Status] Published ${notificationType} for device ${device.id} to ${usersToNotify.length} users`);
 }
 
@@ -172,11 +172,9 @@ async function publishDeviceStatusNotification(params: {
  * Central dispatcher for all MQTT messages consumed by the worker.
  ********************************************************************************************/
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
-    // Log all incoming messages to help debug
-    if (topic.includes('replies') || topic.includes('device')) {
-        logger.info(`[MQTT Messaging] 📨 Received message on ${topic}`, { payloadLength: payload.length });
-    } else {
-        logger.debug(`[MQTT Messaging] Received message on ${topic}`, { payloadLength: payload.length });
+    // Only log non-data topics to reduce spam
+    if (!topic.endsWith('/data')) {
+        logger.debug(`[MQTT Messaging] Received message on ${topic}`);
     }
 
     if (
@@ -295,7 +293,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             const presenceKey = `presence:device:${deviceId}`;
             const presenceSetKey = 'presence:devices:online';
             const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10); // 10 minutes default (increased for stability)
-            
+
             try {
                 if (isConnectEvent) {
                     // Set device online with TTL and add to Set
@@ -380,7 +378,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     data: { connected: true, connectedAt: eventDate }
                 });
                 logger.info('[MQTT Events] Device connected', { deviceId, username, clientId });
-                
+
                 // Publish MQTT notification for real-time UI updates
                 const deviceRecord = await prisma.device.findUnique({
                     where: { id: deviceId },
@@ -394,13 +392,51 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         timestamp: eventDate.toISOString()
                     });
                 }
+
+                // Auto-sync: Push pending configs for this device's sensors
+                try {
+                    // Use raw query to avoid type issues with syncStatus field
+                    const pendingSensors = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+                        SELECT s.id, s.name 
+                        FROM "Sensor" s
+                        JOIN "Controller" c ON s."controllerId" = c.id
+                        WHERE c."deviceId" = ${deviceId}
+                        AND s."syncStatus" = 'PENDING'
+                    `;
+
+                    if (pendingSensors.length > 0) {
+                        logger.info(`[MQTT Events] Auto-syncing ${pendingSensors.length} pending configs for device ${deviceId}`);
+
+                        const { handleSensorConfigPush } = await import('./web/handle_sensor_config');
+
+                        for (const sensor of pendingSensors) {
+                            try {
+                                // Create minimal RpcHandlerArgs for the handler
+                                const args = {
+                                    prisma,
+                                    sub: `device:${deviceId}`,
+                                    topic: '$system/auto-sync',
+                                    requestId: `auto-sync-${sensor.id}`,
+                                    op: 'sensor.config.push',
+                                    params: { sensorId: sensor.id }
+                                };
+                                await handleSensorConfigPush({ sensorId: sensor.id }, args);
+                                logger.info(`[MQTT Events] Auto-synced config for sensor ${sensor.name}`);
+                            } catch (err) {
+                                logger.warn(`[MQTT Events] Auto-sync failed for sensor ${sensor.name}:`, err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    logger.warn('[MQTT Events] Failed to check for pending configs:', err);
+                }
             } else {
                 await prisma.device.updateMany({
                     where: { id: deviceId },
                     data: { connected: false, disconnectedAt: eventDate }
                 });
                 logger.info('[MQTT Events] Device disconnected', { deviceId, username, clientId, reason });
-                
+
                 // Publish MQTT notification for real-time UI updates
                 const deviceRecord = await prisma.device.findUnique({
                     where: { id: deviceId },
@@ -496,30 +532,18 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // which carry a simple { ticket, result } envelope. This must be defensive:
     // malformed messages should be logged and ignored so the worker never crashes.
     if (topic.endsWith('/replies')) {
-        logger.info('[MQTT Reply] ✅ Received reply message', { topic, payloadLength: payload.length });
         const rawReply = payload.toString('utf8');
-        logger.debug('[MQTT Reply] Raw reply content (first 500 chars):', rawReply.substring(0, 500));
 
         try {
-            logger.debug('[MQTT Reply] Parsing reply payload', { topic, rawReplyLength: rawReply.length });
             const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
             const { ticket, result } = reply;
 
             if (!ticket) {
-                logger.error('[MQTT Reply] Missing ticket in reply payload', { topic, rawReply: rawReply.substring(0, 200) });
+                logger.error('[MQTT Reply] Missing ticket in reply payload', { topic, rawReply });
                 return;
             }
-            
-            logger.debug('[MQTT Reply] Reply has ticket, decoding...', { topic, hasResult: !!result });
 
             const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
-
-            logger.debug('[MQTT Reply] Decoded notification ticket context', {
-                type: ctx.type,
-                flowId: ctx.flowId,
-                sub: ctx.sub,
-                recipient: ctx.recipient
-            });
 
             if (!ctx.sub) {
                 logger.error('[MQTT Reply] Missing sub in notification ticket', { topic });
@@ -548,7 +572,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             const status = resultObj.status as string;
             const message = resultObj.message as string;
             const action = resultObj.action as string;
-            
+
             logger.debug('[MQTT Reply] Processing reply result', {
                 messageType,
                 logId,
@@ -606,7 +630,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     if (action === 'applyProfile' && status && (status === 'success' || status === 'failed')) {
                         const profileId = resultObj.profileId as string | undefined;
                         const deviceId = resultObj.deviceId as string | undefined;
-                        
+
                         if (profileId && deviceId) {
                             try {
                                 const assignmentStatus = status === 'success' ? 'APPLIED' : 'FAILED';
@@ -620,7 +644,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                                         lastSyncAt: new Date()
                                     }
                                 });
-                                
+
                                 logger.info('[MQTT Reply] Updated DeviceProfileAssignment status', {
                                     deviceId,
                                     profileId,
@@ -688,12 +712,12 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
 
             // Handle terminal output - forward immediately to user
             // Terminal messages: terminal:output, terminal:connected, terminal:error, terminal:disconnected
-            if (ctx.type === 'device:terminal' || 
+            if (ctx.type === 'device:terminal' ||
                 (result && typeof result === 'object' && !Array.isArray(result))) {
                 const resultObj = result as Record<string, unknown>;
                 const payload = resultObj.payload as Record<string, unknown> | undefined;
                 const payloadType = payload?.type as string | undefined;
-                
+
                 if (payloadType && (
                     payloadType === 'terminal:output' ||
                     payloadType === 'terminal:connected' ||
@@ -704,7 +728,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         type: payloadType,
                         hasOutput: !!payload?.output
                     });
-                    
+
                     // Remove conflicting 'type' field from params to ensure client uses JWT 'type'
                     const cleanParams = { ...(result as Record<string, unknown>) };
                     if (typeof cleanParams.type === 'string' && cleanParams.type !== 'device:terminal') {
@@ -714,7 +738,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         });
                         delete cleanParams.type;
                     }
-                    
+
                     // Forward terminal output immediately to user
                     await sendNotificationWithTicket({
                         prisma,
@@ -725,11 +749,11 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         params: cleanParams,
                         expiresIn: '5m'
                     });
-                    
+
                     // Terminal output forwarded, no need to process further
                     return;
                 }
-                
+
                 // Handle RDP messages from device (rdp:status, rdp:error, etc.)
                 if (payloadType && (
                     payloadType === 'rdp:status' ||
@@ -740,7 +764,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     logger.debug('[MQTT Reply] Detected RDP message, forwarding to user', {
                         type: payloadType
                     });
-                    
+
                     // Remove conflicting 'type' field from params to ensure client uses JWT 'type'
                     const cleanParams = { ...(result as Record<string, unknown>) };
                     if (typeof cleanParams.type === 'string' && cleanParams.type !== 'device:rdp') {
@@ -750,7 +774,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         });
                         delete cleanParams.type;
                     }
-                    
+
                     // Forward RDP message immediately to user
                     await sendNotificationWithTicket({
                         prisma,
@@ -761,11 +785,11 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         params: cleanParams,
                         expiresIn: '5m'
                     });
-                    
+
                     // RDP message forwarded, no need to process further
                     return;
                 }
-                
+
                 // Handle WebRTC messages from device (webrtc:offer, webrtc:ice-candidate, etc.)
                 if (payloadType && (
                     payloadType === 'webrtc:offer' ||
@@ -777,7 +801,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     logger.debug('[MQTT Reply] Detected WebRTC message, forwarding to user', {
                         type: payloadType
                     });
-                    
+
                     // Remove conflicting 'type' field from params to ensure client uses JWT 'type'
                     const cleanParams = { ...(result as Record<string, unknown>) };
                     if (typeof cleanParams.type === 'string' && cleanParams.type !== 'device:webrtc') {
@@ -787,7 +811,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         });
                         delete cleanParams.type;
                     }
-                    
+
                     // Forward WebRTC message immediately to user
                     await sendNotificationWithTicket({
                         prisma,
@@ -798,7 +822,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         params: cleanParams,
                         expiresIn: '5m'
                     });
-                    
+
                     // WebRTC message forwarded, no need to process further
                     return;
                 }
@@ -808,20 +832,20 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             // Device sends: { type: "device", payload: { objectPath: "...", format: "..." } }
             // Generate download URL server-side so UI can use it directly
             let notificationParams = result as Record<string, unknown>;
-            
+
             // Detect screenshot responses by checking payload.type === 'screenshot:response' or presence of objectPath in screenshots path
             let isScreenshotResponse = false;
             if (result && typeof result === 'object' && !Array.isArray(result)) {
                 const resultObj = result as Record<string, unknown>;
                 const payload = resultObj.payload as Record<string, unknown> | undefined;
-                
+
                 // Check if this is a screenshot response
-                isScreenshotResponse = ctx.type === 'device.screenshot' || 
+                isScreenshotResponse = ctx.type === 'device.screenshot' ||
                     (!!payload && (
                         payload.type === 'screenshot:response' ||
                         (typeof payload.objectPath === 'string' && payload.objectPath.includes('/screenshots/'))
                     ));
-                
+
                 if (isScreenshotResponse) {
                     logger.debug('[MQTT Reply] Detected screenshot response', {
                         ctxType: ctx.type,
@@ -829,13 +853,13 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         hasObjectPath: !!payload?.objectPath,
                         objectPath: payload?.objectPath
                     });
-                    
+
                     if (payload && payload.objectPath) {
                         // Generate download URL server-side so UI can use it directly as <img src={downloadUrl} />
                         // This is simpler than having UI request download URL separately
                         const { generateDownloadUrl } = await import('$lib/server/storage');
                         const path = await import('path');
-                        
+
                         try {
                             const fileName = path.basename(payload.objectPath as string);
                             const downloadUrlResult = await generateDownloadUrl(
@@ -843,7 +867,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                                 3600, // 1 hour expiry
                                 fileName
                             );
-                            
+
                             notificationParams = {
                                 ...resultObj,
                                 objectPath: payload.objectPath,
@@ -852,7 +876,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                                 // Keep the full payload for backward compatibility
                                 payload
                             };
-                            
+
                             logger.info('[MQTT Reply] Generated download URL for screenshot', {
                                 objectPath: payload.objectPath,
                                 format: payload.format,
@@ -863,7 +887,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                                 error: err instanceof Error ? err.message : String(err),
                                 objectPath: payload.objectPath
                             });
-                            
+
                             // Fallback: just include objectPath
                             notificationParams = {
                                 ...resultObj,
@@ -886,10 +910,10 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             // The device reply might have type: 'device' in its structure, but the ticket type should match the message type
             // Also check notificationParams for objectPath as a fallback (in case extraction already happened)
             let notificationType = ctx.type;
-            const hasScreenshotObjectPath = (notificationParams && typeof notificationParams === 'object' && 
+            const hasScreenshotObjectPath = (notificationParams && typeof notificationParams === 'object' &&
                 typeof (notificationParams as Record<string, unknown>).objectPath === 'string' &&
                 ((notificationParams as Record<string, unknown>).objectPath as string).includes('/screenshots/'));
-            
+
             // For progress and status updates, change notification type to match the actual message
             // so the UI can listen for the correct notification type
             if (messageType === 'device:statusUpdate') {
@@ -932,7 +956,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             const cleanParams = { ...notificationParams };
             const hadConflictingType = 'type' in cleanParams;
             delete cleanParams.type;
-            
+
             if (hadConflictingType) {
                 logger.debug('[MQTT Reply] Removed conflicting type field from params', {
                     removedType: notificationParams.type,
@@ -958,7 +982,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 params: cleanParams,
                 expiresIn: '5m'
             });
-            
+
             logger.debug('[MQTT Reply] Notification forwarded successfully', {
                 notificationType,
                 recipient: ctx.sub
@@ -972,6 +996,75 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             );
         }
 
+        return;
+    }
+
+    // Handle controller data streams (sensor preview) - STATELESS TICKET-BASED ROUTING
+    if (topic.endsWith('/data')) {
+        const raw = payload.toString('utf8');
+        try {
+            const data = JSON.parse(raw);
+
+            // NEW: Ticket-based stateless routing (preferred)
+            // Controller echoes the ticket from preview.start with each data frame
+            if (data.type === 'preview.frame' && data.ticket) {
+                try {
+                    // Verify ticket and extract routing claims
+                    const claims = await decodeNotificationTicket(prisma, data.ticket);
+
+                    // Forward to USER (not device) - the sub contains the user subject
+                    // Topic format: user/{sub}/notifications
+                    const userNotificationTopic = `user/${claims.sub}/notifications`;
+                    const { getMqttTransport } = await import('../core/transport');
+                    const transport = getMqttTransport();
+
+                    const notification = {
+                        type: 'preview.data',
+                        flowId: claims.flowId,
+                        params: {
+                            sessionId: claims.params?.sessionId,
+                            sensorId: claims.params?.sensorId,
+                            timestamp: data.timestamp || Date.now(),
+                            data: data.data || data
+                        }
+                    };
+
+                    await transport.publish(userNotificationTopic, JSON.stringify(notification), { qos: 0 });
+                    // Note: Removed per-frame logging to reduce console spam
+                } catch (ticketErr) {
+                    // Ticket verification failed (expired, invalid signature, etc.)
+                    logger.debug('[Preview] Ticket verification failed, ignoring data frame', {
+                        error: ticketErr instanceof Error ? ticketErr.message : String(ticketErr)
+                    });
+                }
+                return;
+            }
+
+            // LEGACY: In-memory session-based routing (backwards compatibility)
+            // TODO: Deprecate once all controllers use ticket-based routing
+            if (data.type === 'preview.frame' && data.sessionId) {
+                const session = getPreviewSession(data.sessionId);
+
+                if (session && !isSessionExpired(data.sessionId)) {
+                    await sendNotificationWithTicket({
+                        prisma,
+                        sub: `device:${session.deviceId}`,
+                        recipient: `user:${session.userId}:${session.accountId}`,
+                        type: 'preview.data',
+                        flowId: session.flowId,
+                        params: {
+                            sessionId: session.sessionId,
+                            sensorId: session.sensorId,
+                            timestamp: data.timestamp || Date.now(),
+                            data: data.data || data
+                        },
+                        expiresIn: '1m'
+                    });
+                }
+            }
+        } catch (err) {
+            // Ignore malformed data messages to prevent log spam
+        }
         return;
     }
 

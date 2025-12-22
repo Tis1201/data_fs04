@@ -16,51 +16,66 @@
     import { Textarea } from "$lib/components/ui/textarea";
     import { Button } from "$lib/components/ui/button";
     import { Badge } from "$lib/components/ui/badge";
-    
+
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    
+
     import type { PageData } from "./$types";
     import { radarSensorSchema } from "./radar-sensor";
-    import { getDetailPageFormConfig, getFieldProps, getSelectProps, processFormMessages } from "$lib/utils/formHelpers";
+    import {
+        getDetailPageFormConfig,
+        getFieldProps,
+        getSelectProps,
+        processFormMessages,
+    } from "$lib/utils/formHelpers";
 
     export let data: PageData;
     const title = "Create Radar Controller";
-    
+
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
         ["Controllers", "/admin/controllers"],
         ["Radar", "/admin/controllers/radar"],
-        "Create New"
+        "Create New",
     ];
 
     // Enhanced SuperForms setup - best practice approach
-    const { form, errors, enhance, submitting, message, delayed, timeout, tainted } = 
-        superForm(data.form, {
-            validators: zod(radarSensorSchema),
-            ...getDetailPageFormConfig("Radar Controller"),
-            onResult: async ({ result }) => {
-                if (result.type === "success" && result.data?.controllerId) {
-                    await goto(`/admin/controllers/radar/${result.data.controllerId}`);
-                } else if (result.type === "failure") {
-                    // Handle server-side errors
-                    const errorData = result.data?.error;
-                    if (errorData) {
-                        serverError = errorData;
-                    }
+    const {
+        form,
+        errors,
+        enhance,
+        submitting,
+        message,
+        delayed,
+        timeout,
+        tainted,
+    } = superForm(data.form, {
+        validators: zod(radarSensorSchema),
+        ...getDetailPageFormConfig("Radar Controller"),
+        onResult: async ({ result }) => {
+            if (result.type === "success" && result.data?.controllerId) {
+                await goto(
+                    `/admin/controllers/radar/${result.data.controllerId}`,
+                );
+            } else if (result.type === "failure") {
+                // Handle server-side errors
+                const errorData = result.data?.error;
+                if (errorData) {
+                    serverError = errorData;
                 }
-            },
-            onError: ({ result }) => {
-                // Handle network errors
-                toast.error(result.error.message || "Failed to submit form");
             }
-        });
-    
+        },
+        onError: ({ result }) => {
+            // Handle network errors
+            toast.error(result.error.message || "Failed to submit form");
+        },
+    });
+
     // Reactive states - using formHelpers pattern
     $: isLoading = $submitting || $delayed;
     $: hasTimeout = $timeout;
@@ -70,18 +85,20 @@
     let selectedDevice: any = null;
 
     // Server error state
-    let serverError = '';
+    let serverError = "";
     let showForceOption = false;
 
     // Form submission handler
     function triggerSubmit() {
-        const formElement = document.querySelector('form[action="?/create"]') as HTMLFormElement;
+        const formElement = document.querySelector(
+            'form[action="?/create"]',
+        ) as HTMLFormElement;
         if (formElement) formElement.requestSubmit();
     }
 
     // Clear server error when interacting with form
     $: if ($form.deviceId || $form.name || $form.serialNumber) {
-        if (serverError) serverError = '';
+        if (serverError) serverError = "";
     }
 
     $: if ($form.deviceId) {
@@ -115,16 +132,16 @@
         {
             label: "Cancel",
             icon: ArrowLeft,
-            onClick: async () => await goto('/admin/controllers/radar'),
+            onClick: async () => await goto("/admin/controllers/radar"),
             variant: "outline",
-            class: "h-9"
+            class: "h-9",
         },
         {
             label: "Create Controller",
             icon: Save,
             onClick: triggerSubmit,
-            class: "h-9"
-        }
+            class: "h-9",
+        },
     ]}
     loading={isLoading}
     showCreateButton={false}
@@ -144,38 +161,57 @@
             {isLoading}
             delayed={$delayed}
         >
-            {#if serverError && serverError.includes('already has a radar controller')}
-                <div class="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-4">
+            {#if serverError && serverError.includes("already has a radar controller")}
+                <div
+                    class="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-4"
+                >
                     <div class="flex items-start gap-3">
                         <Info class="h-5 w-5 text-destructive mt-0.5" />
                         <div class="space-y-2 flex-1">
                             <p class="text-sm font-medium text-destructive">
                                 {serverError}
                             </p>
-                            
+
                             <div class="text-xs text-muted-foreground">
                                 <ul class="list-disc list-inside space-y-1">
                                     <li>Select a different device</li>
-                                    <li>Check the <a href="/admin/controllers/radar" class="underline hover:text-primary">controllers list</a> for existing records</li>
+                                    <li>
+                                        Check the <a
+                                            href="/admin/controllers/radar"
+                                            class="underline hover:text-primary"
+                                            >controllers list</a
+                                        > for existing records
+                                    </li>
                                 </ul>
                             </div>
 
                             <div class="pt-2">
-                                <Button 
-                                    variant="outline" 
-                                    size="sm" 
+                                <Button
+                                    variant="outline"
+                                    size="sm"
                                     class="text-xs h-7"
-                                    on:click={() => showForceOption = !showForceOption}
+                                    on:click={() =>
+                                        (showForceOption = !showForceOption)}
                                 >
-                                    {showForceOption ? 'Hide Advanced Options' : 'Show Advanced Options'}
+                                    {showForceOption
+                                        ? "Hide Advanced Options"
+                                        : "Show Advanced Options"}
                                 </Button>
                             </div>
 
                             {#if showForceOption}
-                                <div class="mt-2 bg-background p-3 rounded border border-destructive/20">
-                                    <p class="text-xs font-semibold mb-2">Force Creation (Caution)</p>
-                                    <p class="text-xs text-muted-foreground mb-3">
-                                        This will forcibly remove any existing controller/sensor data for this device and create a new one.
+                                <div
+                                    class="mt-2 bg-background p-3 rounded border border-destructive/20"
+                                >
+                                    <p class="text-xs font-semibold mb-2">
+                                        Force Creation (Caution)
+                                    </p>
+                                    <p
+                                        class="text-xs text-muted-foreground mb-3"
+                                    >
+                                        This will forcibly remove any existing
+                                        controller/sensor data for this device
+                                        and create a new one.
                                     </p>
                                     <Button
                                         type="button"
@@ -184,28 +220,91 @@
                                         class="w-full sm:w-auto"
                                         on:click={() => {
                                             const formSubmit = new FormData();
-                                            formSubmit.append('deviceId', $form.deviceId);
-                                            formSubmit.append('name', $form.name);
-                                            formSubmit.append('serialNumber', $form.serialNumber);
-                                            formSubmit.append('status', $form.status);
-                                            formSubmit.append('accountId', $form.accountId);
-                                            formSubmit.append('force', 'true');
-                                            if ($form.location) formSubmit.append('location', $form.location);
-                                            if ($form.description) formSubmit.append('description', $form.description);
-                                            if ($form.firmware) formSubmit.append('firmware', $form.firmware);
-                                            
-                                            fetch('?/forceCreate', {
-                                                method: 'POST',
-                                                body: formSubmit
-                                            }).then(async response => {
-                                                const result = await response.json();
-                                                // Handle redirect manually since this is a fetch
-                                                if (result.type === 'success' && result.data?.controllerId) {
-                                                    goto(`/admin/controllers/radar/${result.data.controllerId}`);
-                                                } else {
-                                                    serverError = 'Force creation failed.';
-                                                }
-                                            });
+                                            formSubmit.append(
+                                                "deviceId",
+                                                $form.deviceId,
+                                            );
+                                            formSubmit.append(
+                                                "name",
+                                                $form.name,
+                                            );
+                                            formSubmit.append(
+                                                "serialNumber",
+                                                $form.serialNumber,
+                                            );
+                                            formSubmit.append(
+                                                "status",
+                                                $form.status,
+                                            );
+                                            formSubmit.append(
+                                                "accountId",
+                                                $form.accountId,
+                                            );
+                                            formSubmit.append("force", "true");
+                                            if ($form.location)
+                                                formSubmit.append(
+                                                    "location",
+                                                    $form.location,
+                                                );
+                                            if ($form.description)
+                                                formSubmit.append(
+                                                    "description",
+                                                    $form.description,
+                                                );
+                                            if ($form.firmware)
+                                                formSubmit.append(
+                                                    "firmware",
+                                                    $form.firmware,
+                                                );
+
+                                            fetch("?/forceCreate", {
+                                                method: "POST",
+                                                body: formSubmit,
+                                            })
+                                                .then(async (response) => {
+                                                    // SvelteKit action responses are JSON with a specific structure
+                                                    const actionResult =
+                                                        await response.json();
+                                                    // The actual data is in actionResult.data for success responses
+                                                    // Format: { type: 'success', status: 200, data: { form, success, controllerId, message } }
+                                                    const controllerId =
+                                                        actionResult?.data
+                                                            ?.controllerId;
+                                                    if (controllerId) {
+                                                        toast.success(
+                                                            "Controller created successfully",
+                                                        );
+                                                        goto(
+                                                            `/admin/controllers/radar/${controllerId}`,
+                                                        );
+                                                    } else if (
+                                                        actionResult?.data
+                                                            ?.success &&
+                                                        actionResult?.data?.form
+                                                    ) {
+                                                        // Sometimes controllerId might be at a different level
+                                                        toast.error(
+                                                            "Controller created but redirect failed. Please check the controllers list.",
+                                                        );
+                                                        goto(
+                                                            "/admin/controllers/radar",
+                                                        );
+                                                    } else {
+                                                        const errorMsg =
+                                                            actionResult?.data
+                                                                ?.error ||
+                                                            "Force creation failed.";
+                                                        serverError = errorMsg;
+                                                    }
+                                                })
+                                                .catch((err) => {
+                                                    console.error(
+                                                        "Force create error:",
+                                                        err,
+                                                    );
+                                                    serverError =
+                                                        "Network error during force creation.";
+                                                });
                                         }}
                                     >
                                         Force Create Controller
@@ -394,9 +493,8 @@
                     {/if}
                 </div>
             </AdminCard>
-
         </FormContainer>
-        
+
         <!-- Debug Info (only in development) -->
         {#if import.meta.env.DEV}
             <div class="mt-8 p-4 bg-gray-100 rounded-lg text-xs">
@@ -404,8 +502,14 @@
                 <div class="space-y-1">
                     <div><strong>Loading:</strong> {isLoading}</div>
                     <div><strong>Has Changes:</strong> {hasChanges}</div>
-                    <div><strong>Selected Device:</strong> {selectedDevice?.name || "None"}</div>
-                    <div><strong>Form Data:</strong> {JSON.stringify($form, null, 2)}</div>
+                    <div>
+                        <strong>Selected Device:</strong>
+                        {selectedDevice?.name || "None"}
+                    </div>
+                    <div>
+                        <strong>Form Data:</strong>
+                        {JSON.stringify($form, null, 2)}
+                    </div>
                 </div>
             </div>
         {/if}
