@@ -2,6 +2,7 @@ import type { NotificationTicketEnvelope } from '../core/envelope';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 import { decodeNotificationTicket, sendNotificationWithTicket } from '../core/publish';
+import { getPreviewSession, isSessionExpired } from '../sessions/preview_sessions';
 
 /********************************************************************************************
  * Raw RPC handler types shared across device/web clients.
@@ -202,8 +203,8 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
         const kind = username.startsWith('device:')
             ? 'device'
             : username.startsWith('user:')
-              ? 'user'
-              : 'other';
+                ? 'user'
+                : 'other';
         const deviceId = kind === 'device' ? username.slice('device:'.length) : null;
 
         const now = new Date();
@@ -400,13 +401,48 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             });
         } catch (err) {
             logger.error(
-                `[MQTT Reply] Failed to process reply message: ${
-                    err instanceof Error ? err.message : String(err)
+                `[MQTT Reply] Failed to process reply message: ${err instanceof Error ? err.message : String(err)
                 }`,
                 { topic, rawReply }
             );
         }
 
+        return;
+    }
+
+    // Handle controller data streams (sensor preview)
+    if (topic.endsWith('/data')) {
+        const raw = payload.toString('utf8');
+        try {
+            const data = JSON.parse(raw);
+            // Expect { type: "preview.frame", sessionId, ... }
+            if (data.type === 'preview.frame' && data.sessionId) {
+                const session = getPreviewSession(data.sessionId);
+
+                // If session exists and is valid
+                if (session && !isSessionExpired(data.sessionId)) {
+                    // Forward to user
+                    // Note: For high-frequency data, creating DB-backed tickets is expensive.
+                    // For now we use the standard path, but in future optimization we might want ephemeral tickets.
+                    await sendNotificationWithTicket({
+                        prisma,
+                        sub: `device:${session.deviceId}`, // Sender
+                        recipient: `user:${session.userId}:${session.accountId}`, // Recipient
+                        type: 'preview.data',
+                        flowId: session.flowId,
+                        params: {
+                            sessionId: session.sessionId,
+                            sensorId: session.sensorId,
+                            timestamp: data.timestamp || Date.now(),
+                            data: data.data || data
+                        },
+                        expiresIn: '1m'
+                    });
+                }
+            }
+        } catch (err) {
+            // Ignore malformed data messages to prevent log spam
+        }
         return;
     }
 
