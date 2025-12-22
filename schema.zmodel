@@ -63,6 +63,10 @@ model Account {
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
   
+  // Controllers and Sensors
+  controllers      Controller[]
+  sensors          Sensor[]
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   
@@ -283,8 +287,10 @@ model User {
 
   // Account assignment relations (creator)
   createdAccountAssignments AccountAssignment[]
-
-
+  
+  // Controller and Sensor relations
+  createdControllers Controller[]
+  createdSensors     Sensor[]
 
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
@@ -577,6 +583,9 @@ model Device {
   
   // Pin management relations
   userActions  UserAppAction[]
+  
+  // Controller relation
+  controllers   Controller[]
 
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('delete', auth() != null && createdBy == auth().id)
@@ -1791,4 +1800,88 @@ model MqttConnection {
 	@@index([lastEventAt])
 
 	@@allow('all', auth().systemRole == 'ADMIN')
+}
+
+// Controller Management Models
+// Controller represents an app managing one or more sensors (e.g., Radar App, Camera App)
+model Controller {
+  id            String    @id @default(cuid())
+  name          String
+  type          String    // "radar", "camera", "ble", etc.
+  serialNumber  String    @unique
+  status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
+  isDeleted     Boolean   @default(false)
+  
+  // Link to Device (1:N - device can have multiple controllers of different types)
+  deviceId      String
+  device        Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  description   String?
+  
+  // Relationships - sensors managed by this controller
+  sensors       Sensor[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  // Custom constraint: Only one active controller per device/type, but multiple deleted ones allowed
+  // We'll handle this in application logic since Prisma doesn't support conditional unique constraints
+  @@index([accountId])
+  @@index([deviceId])
+  @@index([type])
+  @@index([status])
+}
+
+// Sensor Model - Single Table Inheritance
+// All sensor types (radar, camera, ble) stored in one table with `type` discriminator
+// Type-specific configuration stored in JSON `config` field
+model Sensor {
+  id            String    @id @default(cuid())
+  name          String
+  type          String    // "radar", "camera", "ble", etc.
+  serialNumber  String    @unique
+  status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
+  
+  // Link to Controller
+  controllerId  String
+  controller    Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
+  
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  description   String?
+  location      String?
+  firmware      String?
+  
+  // Type-specific configuration (validated by application layer)
+  // Radar: { trackingArea: {...}, zones: [...], dwellBuckets: [...] }
+  // Camera: { resolution: "1080p", fps: 30, ... }
+  config        Json?
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([controllerId])
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
 }

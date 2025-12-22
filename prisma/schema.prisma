@@ -57,6 +57,8 @@ model Account {
   pinRules                 PinRule[]
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
+  controllers              Controller[]
+  sensors                  Sensor[]
 
   @@index([slug])
 }
@@ -201,6 +203,8 @@ model User {
   pinRules                  PinRule[]
   userAppActions            UserAppAction[]
   createdAccountAssignments AccountAssignment[]
+  createdControllers        Controller[]
+  createdSensors            Sensor[]
 
   @@index([primaryAccountId])
 }
@@ -400,6 +404,7 @@ model Device {
   profileOverrides     DeviceProfileOverride[]
   appSummaries         DeviceAppSummary[]
   userActions          UserAppAction[]
+  controllers          Controller[]
 
   @@index([createdBy])
   @@index([hardwareId])
@@ -1211,4 +1216,53 @@ model MqttConnection {
   @@index([username])
   @@index([status])
   @@index([lastEventAt])
+}
+
+model Controller {
+  id           String   @id() @default(cuid())
+  name         String
+  type         String
+  serialNumber String   @unique()
+  status       String   @default("INACTIVE")
+  isDeleted    Boolean  @default(false)
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt()
+  createdBy    String?
+  creator      User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  description  String?
+  sensors      Sensor[]
+
+  @@index([accountId])
+  @@index([deviceId])
+  @@index([type])
+  @@index([status])
+}
+
+model Sensor {
+  id           String     @id() @default(cuid())
+  name         String
+  type         String
+  serialNumber String     @unique()
+  status       String     @default("INACTIVE")
+  controllerId String
+  controller   Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
+  accountId    String
+  account      Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt()
+  createdBy    String?
+  creator      User?      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  description  String?
+  location     String?
+  firmware     String?
+  config       Json?
+
+  @@index([controllerId])
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
 }
