@@ -128,13 +128,8 @@ describe('Controller Config E2E', () => {
         expect(data.controller.status).toBe('ACTIVE');
         expect(data.controller.serialNumber).toBeDefined();
 
-        // Check Sensors (should be empty array initially if no sensors created implicitly yet, 
-        // or dependent on implementation details if sensors are auto-created too)
-        expect(Array.isArray(data.sensors)).toBe(true);
-
-        // Check Config
-        expect(data.config).toBeDefined();
-        expect(data.config.sensitivity).toBeDefined(); // Assuming default config from our implementation
+        // Check Sensors (now nested inside controller)
+        expect(Array.isArray(data.controller.sensors)).toBe(true);
     });
 
     it('retrieves the SAME controller on subsequent requests (idempotency)', async () => {

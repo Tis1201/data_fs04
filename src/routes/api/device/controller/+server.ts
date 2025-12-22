@@ -105,7 +105,7 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
             sensors = controller.sensors;
         }
 
-        // Build response
+        // Build response - sensors nested inside controller
         const response = {
             controller: {
                 id: controller.id,
@@ -115,18 +115,18 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
                 status: controller.status,
                 description: controller.description,
                 createdAt: controller.createdAt,
-                updatedAt: controller.updatedAt
-            },
-            sensors: sensors.map((sensor) => ({
-                id: sensor.id,
-                name: sensor.name,
-                type: sensor.type,
-                status: sensor.status,
-                config: sensor.config,
-                createdAt: sensor.createdAt,
-                updatedAt: sensor.updatedAt
-            })),
-            config: getControllerTypeSpecificConfig(type)
+                updatedAt: controller.updatedAt,
+                // Sensors nested inside controller, each with its own config
+                sensors: sensors.map((sensor) => ({
+                    id: sensor.id,
+                    name: sensor.name,
+                    type: sensor.type,
+                    status: sensor.status,
+                    config: sensor.config ?? getDefaultSensorConfig(sensor.type),
+                    createdAt: sensor.createdAt,
+                    updatedAt: sensor.updatedAt
+                }))
+            }
         };
 
         return json(createSuccessResponse(response));
@@ -137,9 +137,9 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
 });
 
 /**
- * Get type-specific configuration for a controller
+ * Get default configuration for a sensor type
  */
-function getControllerTypeSpecificConfig(type: string): Record<string, unknown> {
+function getDefaultSensorConfig(type: string): Record<string, unknown> {
     switch (type) {
         case 'radar':
             return {

@@ -321,7 +321,10 @@ a controller is connected. The MDM Agent's presence is optional.
 ## 10. Implementation Checklist
 
 - [x] Create `POST /api/device/controller/mqtt/mint` endpoint with scoped ACLs.
+- [x] Create `GET /api/device/controller?type=<type>` for config retrieval/auto-creation.
+- [x] Add E2E test: `tests/integrations/controller_mqtt_mint_e2e.test.ts`.
+- [x] Add E2E test: `tests/integrations/controller_config_e2e.test.ts`.
+- [x] Node.js radar controller emulator with two-step flow.
 - [ ] Add worker subscription patterns for `+/controller/+/...`.
 - [ ] Implement controller-specific RPC handlers (e.g., `sensor.getConfig`,
       `sensor.preview.start`).
-- [ ] Add E2E test: `tests/integrations/controller_mqtt_mint_e2e.test.ts`.

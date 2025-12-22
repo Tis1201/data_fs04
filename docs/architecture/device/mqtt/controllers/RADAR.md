@@ -10,6 +10,31 @@ This separation allows devices to:
 - Persist the controllerId locally
 - Mint MQTT credentials multiple times without recreation
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Radar Controller
+    participant API as FS04 API
+    participant DB as Database
+    participant MQTT as MQTT Broker
+
+    Note over R: First Run - No saved config
+
+    R->>API: GET /api/device/controller?type=radar
+    API->>DB: Find or create controller
+    DB-->>API: Controller + Sensors
+    API-->>R: { controller: { id, sensors: [...] } }
+    
+    Note over R: Save config to radar.json
+
+    R->>API: POST /api/device/controller/mqtt/mint<br/>{ type: "radar", controllerId: "..." }
+    API-->>R: { brokerUrl, jwt, clientId }
+
+    R->>MQTT: CONNECT (jwt)
+    MQTT-->>R: CONNACK
+    R->>MQTT: SUBSCRIBE .../notifications
+```
+
 ---
 
 ## 1. Controller Configuration API
@@ -42,23 +67,22 @@ Headers:
       "status": "ACTIVE",
       "description": "Auto-created during config retrieval",
       "createdAt": "2025-12-22T08:00:00Z",
-      "updatedAt": "2025-12-22T08:00:00Z"
-    },
-    "sensors": [
-      {
-        "id": "sensor-xyz-456",
-        "name": "Radar Sensor 1",
-        "type": "radar",
-        "status": "ACTIVE",
-        "config": { /* sensor-specific config */ },
-        "createdAt": "2025-12-22T08:00:00Z",
-        "updatedAt": "2025-12-22T08:00:00Z"
-      }
-    ],
-    "config": {
-      "detectionZones": [],
-      "sensitivity": 50,
-      "range": 10
+      "updatedAt": "2025-12-22T08:00:00Z",
+      "sensors": [
+        {
+          "id": "sensor-xyz-456",
+          "name": "Radar Sensor 1",
+          "type": "radar",
+          "status": "ACTIVE",
+          "config": {
+            "detectionZones": [],
+            "sensitivity": 50,
+            "range": 10
+          },
+          "createdAt": "2025-12-22T08:00:00Z",
+          "updatedAt": "2025-12-22T08:00:00Z"
+        }
+      ]
     }
   }
 }
@@ -121,20 +145,21 @@ Body:
 ## Device Implementation Pattern
 
 ### Initialization Flow
-```
-1. Device Starts
-   ↓
-2. Check if workings/controller/radar.json exists
-   ↓
-   No → Call GET /api/device/controller?type=radar
-      ↓
-      Save controller.id to radar.json
-   ↓
-3. Load controllerId from radar.json
-   ↓
-4. Call POST /api/device/controller/mqtt/mint { controllerId }
-   ↓
-5. Connect to MQTT with credentials
+
+```mermaid
+flowchart TD
+    A[Device Starts] --> B{radar.json exists?}
+    B -->|Yes| C[Load saved config]
+    B -->|No| D[GET /api/device/controller?type=radar]
+    D --> E[API returns controller + sensors]
+    E --> F[Save to radar.json]
+    F --> C
+    C --> G[Extract controllerId]
+    G --> H[POST /mqtt/mint with controllerId]
+    H --> I[Receive MQTT credentials]
+    I --> J[Connect to MQTT Broker]
+    J --> K[Subscribe to controller topics]
+    K --> L[Ready for commands]
 ```
 
 ### File Structure
@@ -150,8 +175,27 @@ workings/
 ### radar.json Format
 ```json
 {
-  "controllerId": "ctrl-abc-123",
-  "lastUpdated": "2025-12-22T08:00:00Z"
+  "controller": {
+    "id": "ctrl-abc-123",
+    "name": "Auto-created Radar Controller",
+    "type": "radar",
+    "serialNumber": "RADAR-DEV123AB-LV8X2M",
+    "status": "ACTIVE",
+    "sensors": [
+      {
+        "id": "sensor-xyz-456",
+        "name": "Radar Sensor 1",
+        "type": "radar",
+        "status": "ACTIVE",
+        "config": {
+          "detectionZones": [],
+          "sensitivity": 50,
+          "range": 10
+        }
+      }
+    ]
+  },
+  "savedAt": "2025-12-22T08:00:00Z"
 }
 ```
 
@@ -160,6 +204,27 @@ workings/
 ## Topic Structure
 
 For radar controller `ctrl-abc` on device `dev-123`:
+
+```mermaid
+graph LR
+    subgraph "Radar Controller Publishes"
+        P1["replies"]
+        P2["requests"]
+        P3["data"]
+        P4["loopback"]
+    end
+    
+    subgraph "Server Publishes (Controller Subscribes)"
+        S1["response"]
+        S2["notifications"]
+        S3["loopback"]
+    end
+    
+    RC[Radar Controller] --> P1 & P2 & P3 & P4
+    W[Worker] --> S1 & S2 & S3
+    S1 & S2 & S3 --> RC
+    P1 & P2 & P3 & P4 --> W
+```
 
 **Publish (Controller → Server)**:
 - `device:dev-123/controller/radar:ctrl-abc/replies`
