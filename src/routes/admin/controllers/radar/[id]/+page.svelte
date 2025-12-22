@@ -579,6 +579,9 @@
   bind:open={showSensorConfigDialog}
   {config}
   sensorName={data.radarSensor.name}
+  sensorId={data.radarSensor.id || ""}
+  syncStatus={data.radarSensor.syncStatus || "SYNCED"}
+  isDeviceOnline={data.radarSensor.controller?.device?.connected || false}
   trackingAreaForm={$trackingAreaForm}
   zoneForm={$zoneForm}
   dwellBucketForm={$dwellBucketForm}

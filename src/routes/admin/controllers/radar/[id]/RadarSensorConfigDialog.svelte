@@ -8,6 +8,10 @@
         Pencil,
         Trash,
         X,
+        Upload,
+        CheckCircle2,
+        AlertCircle,
+        Clock,
     } from "lucide-svelte";
     import { toast } from "svelte-sonner";
     import { Button } from "$lib/components/ui/button";
@@ -32,11 +36,17 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import RadarVisualEditor from "$lib/components/ui_components_sveltekit/radar/RadarVisualEditor.svelte";
+    import { mqttStore } from "$lib/stores/mqtt-store";
 
     // Props from parent
     export let open = false;
     export let config: any;
     export let sensorName: string;
+
+    // Sensor info for MQTT operations
+    export let sensorId: string = "";
+    export let syncStatus: string = "SYNCED";
+    export let isDeviceOnline: boolean = false;
 
     // Form Data Bindings (from SuperForms stores)
     export let trackingAreaForm: any;
@@ -64,10 +74,81 @@
         color: "#10b981",
         description: "",
     };
+    let isPushing = false;
+
+    // Subscribe to MQTT status
+    $: mqttStatus = $mqttStore.status;
+    $: isMqttConnected = mqttStatus === "OPEN";
 
     // Dispatch events
     import { createEventDispatcher } from "svelte";
     const dispatch = createEventDispatcher();
+
+    // Push config to device via MQTT RPC
+    async function handlePushToDevice() {
+        const userSub = mqttStore.subject;
+        if (!sensorId || !isMqttConnected || !userSub) {
+            toast.error("Not connected to MQTT");
+            return;
+        }
+
+        isPushing = true;
+        try {
+            const requestId = crypto.randomUUID();
+            const requestPayload = {
+                op: "sensor.config.push",
+                params: { sensorId },
+                requestId,
+                timestamp: new Date().toISOString(),
+            };
+
+            // Set up response listener
+            const responsePromise = new Promise<any>((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    cleanup();
+                    reject(new Error("Request timed out"));
+                }, 10000);
+
+                const cleanup = mqttStore.on(
+                    `user/${userSub}/response`,
+                    (msg) => {
+                        const payload = msg.payload as any;
+                        if (payload?.requestId === requestId) {
+                            clearTimeout(timeout);
+                            cleanup();
+                            resolve(payload);
+                        }
+                    },
+                );
+            });
+
+            // Publish the request
+            await mqttStore.publish(
+                `user/${userSub}/requests`,
+                requestPayload,
+                { qos: 1 },
+            );
+
+            // Wait for response
+            const response = await responsePromise;
+            const result = response.result?.result || response.result;
+
+            if (result?.synced) {
+                toast.success("Config pushed to device!");
+                syncStatus = "SYNCED";
+                dispatch("synced");
+            } else {
+                toast.error(result?.error || "Push failed");
+                syncStatus = "FAILED";
+                syncStatus = "FAILED";
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Push failed");
+            syncStatus = "FAILED";
+        } finally {
+            isPushing = false;
+        }
+    }
 
     function handleArenaChange(event: any) {
         editorArena = event.detail;
@@ -135,7 +216,7 @@
     // We need to proxy the delete actions up
     export let onDeleteZone: (id: string, name: string) => void;
     export let onDeleteDwellBucket: (id: string, name: string) => void;
-    export let onSaveLayout: () => void; // Explicit save layout action
+    export let onSaveLayout: (data: { arena: any; zones: any[] }) => void; // Explicit save layout action with data
 </script>
 
 <Dialog bind:open>
@@ -144,18 +225,61 @@
         <div
             class="px-6 py-4 border-b flex items-center justify-between bg-muted/20"
         >
-            <div>
-                <DialogTitle>Configure Sensor: {sensorName}</DialogTitle>
-                <DialogDescription
-                    >Manage tracking area, zones, and dwell buckets.</DialogDescription
-                >
+            <div class="flex items-center gap-3">
+                <div>
+                    <DialogTitle>Configure Sensor: {sensorName}</DialogTitle>
+                    <DialogDescription
+                        >Manage tracking area, zones, and dwell buckets.</DialogDescription
+                    >
+                </div>
+                <!-- Sync Status Badge -->
+                {#if syncStatus === "SYNCED"}
+                    <Badge
+                        variant="outline"
+                        class="bg-green-100 text-green-700 border-green-300"
+                    >
+                        <CheckCircle2 class="h-3 w-3 mr-1" /> Synced
+                    </Badge>
+                {:else if syncStatus === "PENDING"}
+                    <Badge
+                        variant="outline"
+                        class="bg-yellow-100 text-yellow-700 border-yellow-300"
+                    >
+                        <Clock class="h-3 w-3 mr-1" /> Pending
+                    </Badge>
+                {:else if syncStatus === "FAILED"}
+                    <Badge
+                        variant="outline"
+                        class="bg-red-100 text-red-700 border-red-300"
+                    >
+                        <AlertCircle class="h-3 w-3 mr-1" /> Failed
+                    </Badge>
+                {/if}
             </div>
             <div class="flex items-center gap-2">
                 <Button variant="outline" on:click={() => (open = false)}
                     >Close</Button
                 >
-                <Button on:click={onSaveLayout}>
+                <Button
+                    on:click={() =>
+                        onSaveLayout({
+                            arena: editorArena,
+                            zones: editorZones,
+                        })}
+                >
                     <Save class="h-4 w-4 mr-2" /> Save Layout
+                </Button>
+                <Button
+                    variant="default"
+                    class="bg-blue-600 hover:bg-blue-700"
+                    on:click={handlePushToDevice}
+                    disabled={isPushing || !sensorId}
+                    title={!isDeviceOnline
+                        ? "Device is offline (debug enabled)"
+                        : "Push config to device"}
+                >
+                    <Upload class="h-4 w-4 mr-2" />
+                    {isPushing ? "Pushing..." : "Push to Device"}
                 </Button>
             </div>
         </div>
@@ -179,7 +303,7 @@
                         >
                             DB
                         </div>
-                         Dwell Buckets</TabsTrigger
+                        Dwell Buckets</TabsTrigger
                     >
                 </TabsList>
 

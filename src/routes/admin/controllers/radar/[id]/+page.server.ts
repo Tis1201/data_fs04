@@ -86,7 +86,7 @@ export const load = restrict(
         try {
             // First find the controller by ID
             const controller = await locals.prisma.controller.findUnique({
-                where: { 
+                where: {
                     id,
                     isDeleted: false // Only find non-deleted controllers
                 },
@@ -95,7 +95,8 @@ export const load = restrict(
                         select: {
                             id: true,
                             name: true,
-                            hardwareId: true
+                            hardwareId: true,
+                            connected: true
                         }
                     },
                     sensors: {
@@ -123,7 +124,7 @@ export const load = restrict(
 
             // Get the radar sensor from the controller
             const sensor = controller.sensors.find(s => s.type === 'radar');
-            
+
             if (!sensor) {
                 throw error(404, {
                     message: 'Radar sensor not found for this controller',
@@ -132,7 +133,7 @@ export const load = restrict(
             }
 
             const config = (sensor.config as unknown as RadarConfig) || {};
-            
+
             // Add controller reference to sensor object for compatibility
             const sensorWithController = {
                 ...sensor,
@@ -580,7 +581,7 @@ export const actions: Actions = {
             try {
                 // First find the controller by ID
                 const controller = await locals.prisma.controller.findUnique({
-                    where: { 
+                    where: {
                         id,
                         isDeleted: false // Only find non-deleted controllers
                     },
@@ -592,14 +593,14 @@ export const actions: Actions = {
                         }
                     }
                 });
-                
+
                 if (!controller) {
                     return fail(404, { error: 'Controller not found' });
                 }
-                
+
                 // Get the radar sensor from the controller
                 const sensor = controller.sensors.find(s => s.type === 'radar');
-                
+
                 if (!sensor) {
                     return fail(404, { error: 'Radar sensor not found for this controller' });
                 }
@@ -611,17 +612,17 @@ export const actions: Actions = {
                         where: { id: controller.id },
                         data: { isDeleted: true }
                     });
-                    
+
                     // Then delete the sensor
                     const deletedSensor = await tx.sensor.delete({
                         where: { id: sensor.id }
                     });
-                    
+
                     return { sensor: deletedSensor, controller: updatedController };
                 });
-                
+
                 logger.info(`Sensor deleted: ${result.sensor.id}, Controller marked as deleted: ${result.controller.id}`);
-                
+
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Sensor',

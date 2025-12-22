@@ -172,8 +172,8 @@ export async function handleSensorConfigPush(
         flowId,
         {
             sensorId,
-            config: sensor.config,
             configVersion: sensor.configVersion
+            // Note: config is NOT included - device should re-fetch via API
         },
         '5m'
     );

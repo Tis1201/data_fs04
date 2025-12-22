@@ -80,51 +80,39 @@ sequenceDiagram
 
 ## Message Formats
 
-### Save Request (Offline-Safe)
-
+### Web → Worker (RPC)
 ```json
 {
-  "op": "sensor.config.save",
-  "params": {
-    "sensorId": "...",
-    "config": { "mode": "tracking", "sensitivity": 0.8, ... }
-  }
+    "op": "sensor.config.push",
+    "params": { "sensorId": "sen_xxx" },
+    "requestId": "uuid",
+    "timestamp": "ISO8601"
 }
 ```
 
-### Save Response
+### Worker → Controller (Notification)
+The `config.update` notification signals the device to re-fetch config via API.
+Device should call the same config endpoint used during initial boot (e.g., `/api/controllers/{id}/radar.json`).
 
 ```json
 {
-  "result": {
-    "saved": true,
-    "configVersion": 4,
-    "syncStatus": "PENDING"
-  }
+    "ticket": "JWT containing config.update notification"
 }
 ```
 
-### Push Request
-
+**JWT Ticket Payload:**
 ```json
 {
-  "op": "sensor.config.push",
-  "params": { "sensorId": "..." }
+    "type": "config.update",
+    "recipient": "device:<did>/controller/radar:<cid>",
+    "flowId": "uuid",
+    "params": {
+        "sensorId": "sen_xxx",
+        "configVersion": 5
+    }
 }
 ```
-
-### Push Response
-
-```json
-{
-  "result": {
-    "synced": true,
-    "syncStatus": "SYNCED",
-    "appliedAt": "2024-12-22T10:00:00Z"
-  },
-  "error": null  // or { "code": "DEVICE_OFFLINE", "message": "..." }
-}
-```
+> **Note:** `config` is NOT included in the notification. Device fetches full config via existing API endpoint.
 
 ---
 
