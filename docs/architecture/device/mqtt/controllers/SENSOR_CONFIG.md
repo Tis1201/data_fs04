@@ -176,10 +176,10 @@ stateDiagram-v2
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `sensor.config.save` RPC | ⬜ | Save to DB, mark pending |
-| `sensor.config.push` RPC | ⬜ | Push to device, update status |
+| `sensor.config.save` RPC | ✅ | [handle_sensor_config.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/web/handle_sensor_config.ts) |
+| `sensor.config.push` RPC | ✅ | Same file |
 | Auto-sync on device connect | ⬜ | Listen for connection events |
-| Config versioning | ⬜ | Increment on each save |
+| Config versioning | ✅ | `configVersion` field in Sensor model |
 
 ### Controller (Device)
 

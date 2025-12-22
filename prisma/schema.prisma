@@ -1196,23 +1196,27 @@ model Controller {
 }
 
 model Sensor {
-  id           String     @id() @default(cuid())
-  name         String
-  type         String
-  serialNumber String     @unique()
-  status       String     @default("INACTIVE")
-  controllerId String
-  controller   Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
-  accountId    String
-  account      Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt()
-  createdBy    String?
-  creator      User?      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
-  description  String?
-  location     String?
-  firmware     String?
-  config       Json?
+  id            String     @id() @default(cuid())
+  name          String
+  type          String
+  serialNumber  String     @unique()
+  status        String     @default("INACTIVE")
+  controllerId  String
+  controller    Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt()
+  createdBy     String?
+  creator       User?      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  description   String?
+  location      String?
+  firmware      String?
+  config        Json?
+  configVersion Int        @default(0)
+  syncStatus    String     @default("SYNCED")
+  lastSyncedAt  DateTime?
+  lastSyncError String?
 
   @@index([controllerId])
   @@index([accountId])

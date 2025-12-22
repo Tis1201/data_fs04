@@ -1795,6 +1795,12 @@ model Sensor {
   // Camera: { resolution: "1080p", fps: 30, ... }
   config        Json?
   
+  // Config sync tracking (for offline-first save/push pattern)
+  configVersion Int       @default(0)       // Incremented on each save
+  syncStatus    String    @default("SYNCED") // SYNCED, PENDING, FAILED
+  lastSyncedAt  DateTime?                    // When config was last pushed to device
+  lastSyncError String?                      // Error message if sync failed
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
