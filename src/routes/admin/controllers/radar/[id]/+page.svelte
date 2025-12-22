@@ -19,7 +19,14 @@
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import { Separator } from "$lib/components/ui/separator";
-  import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "$lib/components/ui/dialog";
+  import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogFooter,
+  } from "$lib/components/ui/dialog";
   import { Label } from "$lib/components/ui/label";
   import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
   import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
@@ -28,6 +35,7 @@
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
   import RadarSensorConfigDialog from "./RadarSensorConfigDialog.svelte";
+  import RadarPreview from "$lib/components/ui_components_sveltekit/radar/RadarPreview.svelte";
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
 
@@ -150,13 +158,16 @@
 
   function getStatusColor(status: string) {
     switch (status) {
-      case "ACTIVE": return "bg-green-500";
-      case "INACTIVE": return "bg-gray-500";
-      case "MAINTENANCE": return "bg-yellow-500";
-      default: return "bg-gray-500";
+      case "ACTIVE":
+        return "bg-green-500";
+      case "INACTIVE":
+        return "bg-gray-500";
+      case "MAINTENANCE":
+        return "bg-yellow-500";
+      default:
+        return "bg-gray-500";
     }
   }
-
 </script>
 
 <div class="w-full space-y-4">
@@ -182,18 +193,19 @@
     contentSpacing="space-y-4"
   >
     <!-- Controller Overview Card -->
-    <AdminCard
-      title="Radar Controller"
-      icon={Radio}
-      compact={true}
-    >
+    <AdminCard title="Radar Controller" icon={Radio} compact={true}>
       <div class="space-y-4">
         <!-- Controller Header with Status -->
         <div class="flex items-start justify-between">
           <div class="flex-1">
             <div class="flex items-center gap-3 mb-2">
               <h3 class="text-lg font-semibold">{data.radarSensor.name}</h3>
-              <Badge variant="outline" class="{getStatusColor(data.radarSensor.status)} text-white border-0">
+              <Badge
+                variant="outline"
+                class="{getStatusColor(
+                  data.radarSensor.status,
+                )} text-white border-0"
+              >
                 {data.radarSensor.status}
               </Badge>
             </div>
@@ -201,10 +213,10 @@
               Serial: {data.radarSensor.serialNumber}
             </div>
           </div>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
-            on:click={() => showControllerEditDialog = true}
+            on:click={() => (showControllerEditDialog = true)}
           >
             <Pencil class="h-4 w-4 mr-2" />
             Edit
@@ -215,11 +227,13 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
           <div>
             <div class="text-xs text-muted-foreground mb-1">Account</div>
-            <div class="font-medium">{data.radarSensor.account?.name || 'N/A'}</div>
+            <div class="font-medium">
+              {data.radarSensor.account?.name || "N/A"}
+            </div>
           </div>
           <div>
             <div class="text-xs text-muted-foreground mb-1">Firmware</div>
-            <div class="font-medium">{data.radarSensor.firmware || 'N/A'}</div>
+            <div class="font-medium">{data.radarSensor.firmware || "N/A"}</div>
           </div>
           {#if data.radarSensor.location}
             <div>
@@ -232,7 +246,9 @@
           {/if}
           {#if data.radarSensor.device}
             <div>
-              <div class="text-xs text-muted-foreground mb-1">Linked Device</div>
+              <div class="text-xs text-muted-foreground mb-1">
+                Linked Device
+              </div>
               <div class="font-medium">{data.radarSensor.device.name}</div>
             </div>
           {/if}
@@ -248,11 +264,7 @@
     </AdminCard>
 
     <!-- Sensor Configuration Card -->
-    <AdminCard
-      title="Integrated Radar Sensor"
-      icon={Activity}
-      compact={true}
-    >
+    <AdminCard title="Integrated Radar Sensor" icon={Activity} compact={true}>
       <div class="space-y-4">
         <!-- Sensor Header -->
         <div class="flex items-start justify-between">
@@ -262,13 +274,14 @@
               <span class="text-sm font-medium">Single Integrated Sensor</span>
             </div>
             <div class="text-xs text-muted-foreground">
-              This radar controller includes one built-in sensor for area monitoring
+              This radar controller includes one built-in sensor for area
+              monitoring
             </div>
           </div>
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="sm"
-            on:click={() => showSensorConfigDialog = true}
+            on:click={() => (showSensorConfigDialog = true)}
           >
             <Settings class="h-4 w-4 mr-2" />
             Configure
@@ -278,17 +291,25 @@
         <!-- Configuration Status -->
         <div class="grid gap-3">
           <!-- Tracking Area Status -->
-          <div class="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+          <div
+            class="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
+          >
             <div class="flex items-center gap-3">
-              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <div
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10"
+              >
                 <MapPin class="h-4 w-4 text-primary" />
               </div>
               <div>
                 <div class="text-sm font-medium">Tracking Area</div>
                 {#if config?.trackingArea}
-                  <div class="text-xs text-muted-foreground">{config.trackingArea.name}</div>
+                  <div class="text-xs text-muted-foreground">
+                    {config.trackingArea.name}
+                  </div>
                 {:else}
-                  <div class="text-xs text-muted-foreground">Not configured</div>
+                  <div class="text-xs text-muted-foreground">
+                    Not configured
+                  </div>
                 {/if}
               </div>
             </div>
@@ -298,9 +319,13 @@
           </div>
 
           <!-- Zones Status -->
-          <div class="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+          <div
+            class="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
+          >
             <div class="flex items-center gap-3">
-              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <div
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10"
+              >
                 <Grid3x3 class="h-4 w-4 text-primary" />
               </div>
               <div>
@@ -314,23 +339,34 @@
               {#if config?.zones && config.zones.length > 0}
                 <div class="flex gap-1">
                   {#each config.zones.slice(0, 3) as zone}
-                    <span class="h-2 w-2 rounded-full" style="background-color: {zone.color || '#10b981'}"></span>
+                    <span
+                      class="h-2 w-2 rounded-full"
+                      style="background-color: {zone.color || '#10b981'}"
+                    ></span>
                   {/each}
                   {#if config.zones.length > 3}
-                    <span class="text-xs text-muted-foreground">+{config.zones.length - 3}</span>
+                    <span class="text-xs text-muted-foreground"
+                      >+{config.zones.length - 3}</span
+                    >
                   {/if}
                 </div>
               {/if}
-              <Badge variant={config?.zones?.length > 0 ? "default" : "secondary"}>
+              <Badge
+                variant={config?.zones?.length > 0 ? "default" : "secondary"}
+              >
                 {config?.zones?.length || 0} Zones
               </Badge>
             </div>
           </div>
 
           <!-- Dwell Buckets Status -->
-          <div class="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+          <div
+            class="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
+          >
             <div class="flex items-center gap-3">
-              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <div
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10"
+              >
                 <Clock class="h-4 w-4 text-primary" />
               </div>
               <div>
@@ -340,13 +376,45 @@
                 </div>
               </div>
             </div>
-            <Badge variant={config?.dwellBuckets?.length > 0 ? "default" : "secondary"}>
+            <Badge
+              variant={config?.dwellBuckets?.length > 0
+                ? "default"
+                : "secondary"}
+            >
               {config?.dwellBuckets?.length || 0} Buckets
             </Badge>
           </div>
         </div>
       </div>
     </AdminCard>
+
+    <!-- Live Sensor Preview Card -->
+    {#if data.radarSensor.controller?.device?.id}
+      <AdminCard title="Live Sensor Preview" icon={Activity} compact={true}>
+        <div class="space-y-4">
+          <div class="text-sm text-muted-foreground">
+            View real-time radar data from this sensor. Requires the device to
+            be online and connected.
+          </div>
+          <RadarPreview
+            deviceId={data.radarSensor.controller.device.id}
+            controllerId={data.radarSensor.controller.id}
+            sensorId={data.radarSensor.id}
+            duration={60}
+            width={400}
+            height={400}
+          />
+        </div>
+      </AdminCard>
+    {:else}
+      <AdminCard title="Live Sensor Preview" icon={Activity} compact={true}>
+        <div class="p-4 text-center text-muted-foreground">
+          <Info class="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p class="text-sm">No device linked to this controller.</p>
+          <p class="text-xs">Link a device to enable live sensor preview.</p>
+        </div>
+      </AdminCard>
+    {/if}
   </AdminPageLayout>
 </div>
 
@@ -356,8 +424,8 @@
       <DialogTitle>Edit Controller Information</DialogTitle>
       <DialogDescription>Update the radar controller details</DialogDescription>
     </DialogHeader>
-    
-    <FormContainer method="POST" action="?/updateSensor" enhance={enhance} novalidate>
+
+    <FormContainer method="POST" action="?/updateSensor" {enhance} novalidate>
       <div class="space-y-4">
         <FormRow columns={2}>
           <FormField
@@ -480,112 +548,120 @@
           >
             <Textarea
               id="description"
-                name="description"
-                bind:value={$form.description}
-                placeholder="Enter sensor description"
-                class="w-full h-24"
-              />
-            </FormField>
-          </FormRow>
-        </div>
+              name="description"
+              bind:value={$form.description}
+              placeholder="Enter sensor description"
+              class="w-full h-24"
+            />
+          </FormField>
+        </FormRow>
+      </div>
 
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            on:click={() => {
-              showControllerEditDialog = false;
-            }}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={$submitting}>
-            {$submitting ? "Saving..." : "Save Changes"}
-          </Button>
-        </DialogFooter>
-      </FormContainer>
-    </DialogContent>
-  </Dialog>
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="outline"
+          on:click={() => {
+            showControllerEditDialog = false;
+          }}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" disabled={$submitting}>
+          {$submitting ? "Saving..." : "Save Changes"}
+        </Button>
+      </DialogFooter>
+    </FormContainer>
+  </DialogContent>
+</Dialog>
 
-  <RadarSensorConfigDialog
-    bind:open={showSensorConfigDialog}
-    config={config}
-    sensorName={data.radarSensor.name}
-    trackingAreaForm={$trackingAreaForm}
-    zoneForm={$zoneForm}
-    dwellBucketForm={$dwellBucketForm}
-    {formStates}
-    editorArena={config?.trackingArea ? {
-      startX: config.trackingArea.startX,
-      startY: config.trackingArea.startY,
-      endX: config.trackingArea.endX,
-      endY: config.trackingArea.endY,
-    } : {
-      startX: -4,
-      startY: 0,
-      endX: 4,
-      endY: 4,
-    }}
-    editorZones={config?.zones?.map((z) => ({
-      id: z.id,
-      name: z.name,
-      startX: z.startX,
-      startY: z.startY,
-      endX: z.endX,
-      endY: z.endY,
-    })) || []}
-    onDeleteZone={(zoneId, zoneName) => {
-      if (!confirm(`Are you sure you want to delete zone "${zoneName}"?`)) return;
-      const formData = new FormData();
-      formData.append("zoneId", zoneId);
-      fetch(`?/deleteZone`, { method: "POST", body: formData })
-        .then(response => {
-          if (response.ok) {
-            toast.success("Zone deleted successfully!");
-            invalidateAll();
-          } else {
-            toast.error("Failed to delete zone");
-          }
-        });
-    }}
-    onDeleteDwellBucket={(bucketId, bucketName) => {
-      if (!confirm(`Are you sure you want to delete dwell bucket "${bucketName}"?`)) return;
-      const formData = new FormData();
-      formData.append("bucketId", bucketId);
-      fetch(`?/deleteDwellBucket`, { method: "POST", body: formData })
-        .then(response => {
-          if (response.ok) {
-            toast.success("Dwell Bucket deleted successfully!");
-            invalidateAll();
-          } else {
-            toast.error("Failed to delete dwell bucket");
-          }
-        });
-    }}
-    onSaveLayout={(layoutData) => {
-      const formData = new FormData();
-      formData.append("layout", JSON.stringify(layoutData));
-      fetch("?/saveLayout", { method: "POST", body: formData })
-        .then(response => {
-          if (response.ok) {
-            toast.success("Layout saved");
-            invalidateAll();
-          } else {
-            toast.error("Failed to save layout");
-          }
-        });
-    }}
-    on:success={() => {
-      toast.success("Sensor configuration updated!");
-      invalidateAll();
-    }}
-  />
+<RadarSensorConfigDialog
+  bind:open={showSensorConfigDialog}
+  {config}
+  sensorName={data.radarSensor.name}
+  trackingAreaForm={$trackingAreaForm}
+  zoneForm={$zoneForm}
+  dwellBucketForm={$dwellBucketForm}
+  {formStates}
+  editorArena={config?.trackingArea
+    ? {
+        startX: config.trackingArea.startX,
+        startY: config.trackingArea.startY,
+        endX: config.trackingArea.endX,
+        endY: config.trackingArea.endY,
+      }
+    : {
+        startX: -4,
+        startY: 0,
+        endX: 4,
+        endY: 4,
+      }}
+  editorZones={config?.zones?.map((z) => ({
+    id: z.id,
+    name: z.name,
+    startX: z.startX,
+    startY: z.startY,
+    endX: z.endX,
+    endY: z.endY,
+  })) || []}
+  onDeleteZone={(zoneId, zoneName) => {
+    if (!confirm(`Are you sure you want to delete zone "${zoneName}"?`)) return;
+    const formData = new FormData();
+    formData.append("zoneId", zoneId);
+    fetch(`?/deleteZone`, { method: "POST", body: formData }).then(
+      (response) => {
+        if (response.ok) {
+          toast.success("Zone deleted successfully!");
+          invalidateAll();
+        } else {
+          toast.error("Failed to delete zone");
+        }
+      },
+    );
+  }}
+  onDeleteDwellBucket={(bucketId, bucketName) => {
+    if (
+      !confirm(`Are you sure you want to delete dwell bucket "${bucketName}"?`)
+    )
+      return;
+    const formData = new FormData();
+    formData.append("bucketId", bucketId);
+    fetch(`?/deleteDwellBucket`, { method: "POST", body: formData }).then(
+      (response) => {
+        if (response.ok) {
+          toast.success("Dwell Bucket deleted successfully!");
+          invalidateAll();
+        } else {
+          toast.error("Failed to delete dwell bucket");
+        }
+      },
+    );
+  }}
+  onSaveLayout={(layoutData) => {
+    const formData = new FormData();
+    formData.append("layout", JSON.stringify(layoutData));
+    fetch("?/saveLayout", { method: "POST", body: formData }).then(
+      (response) => {
+        if (response.ok) {
+          toast.success("Layout saved");
+          invalidateAll();
+        } else {
+          toast.error("Failed to save layout");
+        }
+      },
+    );
+  }}
+  on:success={() => {
+    toast.success("Sensor configuration updated!");
+    invalidateAll();
+  }}
+/>
 
-  <RecordDeleteDialog
-    state={deleteState}
-    action="?/deleteSensor"
-    actionName="deleteSensor"
-    onConfirm={() => {
-      goto("/admin/controllers/radar");
-    }}
-  />
+<RecordDeleteDialog
+  state={deleteState}
+  action="?/deleteSensor"
+  actionName="deleteSensor"
+  onConfirm={() => {
+    goto("/admin/controllers/radar");
+  }}
+/>

@@ -1,5 +1,4 @@
 import type { RpcHandlerArgs, RpcResponse } from '$lib/server/mqtt/handlers/index';
-import { sendNotificationWithTicket } from '$lib/server/mqtt/core/publish';
 import { logger } from '$lib/server/logger';
 import { checkDeviceAccess } from './access_checker';
 import { createPreviewSession, getPreviewSession, removePreviewSession, getActiveSessionsForUser } from '../../sessions/preview_sessions';
@@ -112,51 +111,31 @@ export async function handleSensorPreviewStart(
 
     // For now, let's try to pass the full controller subject as recipient?
     // The controller subscribes to `device:<did>/controller/<type>:<cid>/notifications`.
-    // The `sendNotificationWithTicket` might not support this custom path easily.
+    // The controller subscribes to: device:<did>/controller/<type>:<cid>/notifications
+    // We need to match this exactly. The sendNotificationWithTicket helper produces wrong format,
+    // so we publish directly with the correct topic.
 
-    // Let's look at `sendNotificationWithTicket` implementation briefly.
-    // If difficult, we'll import `createTicket` and publish manually.
+    const { createTicket } = await import('../../core/publish');
+    const { getMqttTransport } = await import('../../core/transport');
 
-    try {
-        await sendNotificationWithTicket({
-            prisma,
-            sub, // The user initiating it
-            recipient: `device:${deviceId}/controller/${params.controllerId}`, // HACK: Try to forge the path?
-            // Wait, if recipient is "device:123", topic is "device/device:123/notifications"
-            // If we want "device:123/controller/radar:456/notifications"
-            // We might need to manually publish.
-            type: 'preview.start',
-            flowId,
-            params: {
-                sensorId: params.sensorId,
-                duration,
-                sessionId
-            },
-            expiresIn: '5m'
-        });
-    } catch (err) {
-        // If the helper throws or constructs wrong topic, we will fix in next step.
-        // For now let's assume we need to patch `sendNotificationWithTicket` or do it manually.
-        // Let's do it manually here to be safe since we know the exact topic structure we need.
+    // Build the correct topic: device:<did>/controller/radar:<cid>/notifications
+    // Note: No extra "device/" prefix at start, and controllerId needs "radar:" prefix
+    const notificationTopic = `device:${deviceId}/controller/radar:${params.controllerId}/notifications`;
+    const recipient = `device:${deviceId}/controller/radar:${params.controllerId}`;
 
-        // Manual publish:
-        const { createTicket } = await import('../../core/publish');
-        const { getMqttTransport } = await import('../../core/transport');
+    const ticket = await createTicket(
+        prisma,
+        sub,
+        recipient,
+        'preview.start',
+        flowId,
+        { sensorId: params.sensorId, duration, sessionId },
+        '5m'
+    );
 
-        const ticket = await createTicket(
-            prisma,
-            sub,
-            `device:${deviceId}/controller/${params.controllerId}`,
-            'preview.start',
-            flowId,
-            { sensorId: params.sensorId, duration, sessionId },
-            '5m'
-        );
-
-        const notificationTopic = `device:${deviceId}/controller/${params.controllerId}/notifications`;
-        const transport = getMqttTransport();
-        await transport.publish(notificationTopic, JSON.stringify({ ticket }), { qos: 1 });
-    }
+    logger.info(`[SensorPreview] Publishing to ${notificationTopic}`);
+    const transport = getMqttTransport();
+    await transport.publish(notificationTopic, JSON.stringify({ ticket }), { qos: 1 });
 
     // 7. Return Result to User
     return {

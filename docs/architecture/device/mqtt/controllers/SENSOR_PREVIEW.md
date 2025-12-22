@@ -146,11 +146,21 @@ sequenceDiagram
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Handle `preview.start` notification | ❌ | Store ticket, start streaming |
-| Handle `preview.stop` notification | ❌ | Stop streaming, reply |
-| Echo ticket in each data frame | ❌ | `{ ticket, type: "preview.frame", data }` |
-| Duration-based auto-stop | ❌ | Use `exp` from ticket |
+| Handle `preview.start` notification | ✅ | [radar.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_device/emulators/node/devices/controllers/radar/radar.ts) |
+| Handle `preview.stop` notification | ✅ | Same file |
+| Echo ticket in each data frame | ✅ | `{ ticket, type: "preview.frame", data }` |
+| Duration-based auto-stop | ✅ | Extracts duration from ticket claims |
 
+### User (Browser)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Connect to MQTT | ✅ | Via SvelteKit MQTT client |
+| Call `sensor.preview.start` RPC | ✅ | [sensor-preview-store.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/stores/sensor-preview-store.ts) |
+| Store `flowId` from response | ✅ | Same file |
+| Listen for `preview.data` notifications | ✅ | Filters by `flowId` |
+| Render data frames | ✅ | [RadarPreview.svelte](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/components/ui_components_sveltekit/radar/RadarPreview.svelte) |
+| Call `sensor.preview.stop` RPC | ✅ | Same store |
 ### Tests
 
 | Item | Status | Notes |

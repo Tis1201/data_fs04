@@ -423,11 +423,13 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     // Verify ticket and extract routing claims
                     const claims = await decodeNotificationTicket(prisma, data.ticket);
 
-                    // Forward to user using claims from ticket
-                    await sendNotificationWithTicket({
-                        prisma,
-                        sub: claims.sub || `device:unknown`,
-                        recipient: claims.recipient,
+                    // Forward to USER (not device) - the sub contains the user subject
+                    // Topic format: user/{sub}/notifications
+                    const userNotificationTopic = `user/${claims.sub}/notifications`;
+                    const { getMqttTransport } = await import('../core/transport');
+                    const transport = getMqttTransport();
+
+                    const notification = {
                         type: 'preview.data',
                         flowId: claims.flowId,
                         params: {
@@ -435,13 +437,14 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                             sensorId: claims.params?.sensorId,
                             timestamp: data.timestamp || Date.now(),
                             data: data.data || data
-                        },
-                        expiresIn: '1m'
-                    });
+                        }
+                    };
 
-                    logger.debug('[Preview] Forwarded data frame using ticket-based routing', {
+                    await transport.publish(userNotificationTopic, JSON.stringify(notification), { qos: 0 });
+
+                    logger.debug('[Preview] Forwarded data frame to user', {
                         flowId: claims.flowId,
-                        recipient: claims.recipient
+                        topic: userNotificationTopic
                     });
                 } catch (ticketErr) {
                     // Ticket verification failed (expired, invalid signature, etc.)

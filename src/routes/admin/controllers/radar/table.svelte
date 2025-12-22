@@ -77,10 +77,13 @@
             label: "Name",
             sortable: true,
             width: "15%",
-            render: (record: Sensor) => ({
+            render: (record: any) => ({
                 component: NameWithIdLink,
                 props: {
-                    record,
+                    record: {
+                        ...record,
+                        id: record.controller?.id || record.id,
+                    },
                     baseUrl: "/admin/controllers/radar",
                     showId: true,
                 },
@@ -148,13 +151,14 @@
             id: "actions",
             label: "Actions",
             width: "10%",
-            render: (record: Sensor) => {
+            render: (record: any) => {
+                const controllerId = record.controller?.id || record.id;
                 const actionItems = [
                     {
                         label: "Configure",
                         icon: Pencil,
                         onClick: () =>
-                            goto(`/admin/controllers/radar/${record.id}`),
+                            goto(`/admin/controllers/radar/${controllerId}`),
                     },
                     {
                         label: "Delete",
