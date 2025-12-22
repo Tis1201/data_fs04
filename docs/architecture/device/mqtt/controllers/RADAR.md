@@ -273,3 +273,11 @@ For devices with multiple controllers of the same type:
 ✅ **Simplicity**: Devices can auto-create on first run  
 ✅ **RESTful**: Clear, predictable API design  
 ✅ **Extensible**: Easy to add camera, BLE, etc.  
+
+---
+
+## See Also
+
+- [SENSOR_PREVIEW.md](./SENSOR_PREVIEW.md) - Live sensor data streaming architecture
+- [CONTROLLER.md](./CONTROLLER.md) - General controller MQTT patterns
+- [E2E Test](file:///Users/bernard/CascadeProjects/fs04/fs04_web/tests/integrations/controller_mqtt_mint_e2e.test.ts) - Controller MQTT mint integration test

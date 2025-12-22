@@ -1,242 +1,144 @@
 # Sensor Preview Architecture
 
-This document describes how **web users** request and receive **live sensor data streams** from controllers (e.g., radar point clouds, camera frames).
+Live sensor data streaming from controllers to web users via **Worker-Mediated Relay**.
 
 ---
 
-## 1. Overview
-
-The sensor preview flow enables a web user to temporarily receive real-time sensor data from a controller using a **Worker-Mediated Relay** pattern.
-
-```mermaid
-graph LR
-    U[Web User] -->|RPC| W[Worker]
-    W -->|Notification| C[Controller]
-    C -->|Data| W
-    W -->|Forward| U
-```
-
-### 1.1 Design Goals
-
-- **Bounded Duration**: Previews are time-limited (e.g., 60 seconds)
-- **No New Connection**: Uses existing MQTT connection
-- **Secure**: Worker validates user access before starting
-- **Scalable**: Worker can throttle/aggregate data
-
----
-
-## 2. Complete Flow
+## Flow Overview
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant U as Web UI (MQTT)
+    participant U as Web UI
     participant W as Worker
-    participant B as MQTT Broker
-    participant C as Radar Controller
+    participant C as Controller
 
-    Note over U: User already connected via user:<userId>:<accountId>
+    U->>W: RPC sensor.preview.start
+    W->>W: Validate access + create ticket
+    W->>C: Notification { ticket }
+    C->>W: Reply { ticket, started: true }
+    W->>U: Response { flowId, sessionId }
 
-    U->>W: RPC sensor.preview.start<br/>{ controllerId, sensorId, duration: 60 }
-    W->>W: Validate user access
-    W->>W: Generate flowId = UUID
-    W->>W: Create preview session (in-memory)
-    
-    W->>B: Publish notification to controller<br/>{ ticket (contains flowId), type: "preview.start" }
-    B->>C: Deliver notification
-    C->>B: Reply { ticket, result: { started: true } }
-    B->>W: Deliver reply
-    
-    W->>U: RPC response { flowId, sessionId, status: "started" }
-    Note over U: User stores flowId to correlate notifications
-    
     rect rgb(200, 230, 255)
-        Note over C,W: Preview Active (60 seconds)
-        loop Every 100ms
-            C->>B: Publish to .../data<br/>{ type: "preview.frame", sessionId, points: [...] }
-            B->>W: Deliver data (worker subscribed)
-            W->>B: Notification to user/<sub>/notifications<br/>{ flowId, type: "preview.data", data: {...} }
-            B->>U: Deliver (user matches flowId)
+        Note over C,U: Preview Active
+        loop Data Stream
+            C->>W: Data { ticket, data }
+            W->>W: Verify ticket, extract routing
+            W->>U: Notify user/<sub>/notifications { flowId, data }
         end
     end
-    
-    Note over C: Duration expires
-    C->>B: Publish { type: "preview.complete", sessionId }
-    B->>W: Deliver completion
-    W->>U: Notification { flowId, type: "preview.complete" }
+
+    alt User stops early
+        U->>W: RPC sensor.preview.stop
+        W->>C: Notification { ticket, type: stop }
+    else Duration expires
+        C->>W: { ticket, type: complete }
+    end
+    W->>U: Notification { flowId, complete }
 ```
 
 ---
 
-## 3. Message Formats
+## Message Formats
 
-### 3.1 RPC: `sensor.preview.start`
-
-**Request** (User → Worker via `user/<sub>/requests`):
+### Start Request (User → Worker)
 
 ```json
 {
-  "requestId": "uuid...",
+  "requestId": "uuid",
   "op": "sensor.preview.start",
-  "params": {
-    "deviceId": "device-123",
-    "controllerId": "ctrl-abc",
-    "sensorId": "sensor-xyz",
-    "duration": 60
-  }
+  "params": { "deviceId": "...", "controllerId": "...", "sensorId": "...", "duration": 60 }
 }
 ```
 
-**Response**:
+### Start Response
 
 ```json
 {
-  "requestId": "uuid...",
-  "flowId": "flow-uuid...",
-  "result": {
-    "sessionId": "preview-session-123",
-    "status": "started",
-    "expiresAt": "2025-12-22T17:35:00Z"
-  }
+  "requestId": "uuid",
+  "flowId": "flow-uuid",
+  "result": { "sessionId": "session-uuid", "status": "started", "expiresAt": "..." }
 }
 ```
 
-### 3.2 Notification: `preview.start`
+### Controller Notification (Worker → Controller)
 
-**Worker → Controller** (via `.../notifications`):
+```json
+{ "ticket": "<signed-jwt>" }
+```
+
+**Ticket Claims**: `type`, `flowId`, `recipient`, `deviceId`, `controllerId`, `sensorId`, `duration`, `exp`
+
+### Data Frame (Controller → Worker)
 
 ```json
 {
   "ticket": "<signed-jwt>",
-  "type": "preview.start",
-  "params": {
-    "sensorId": "sensor-xyz",
-    "duration": 60,
-    "sessionId": "preview-session-123"
-  }
-}
-```
-
-**Ticket Claims**:
-| Claim | Description |
-|-------|-------------|
-| `type` | `"preview.start"` |
-| `flowId` | Correlation ID for entire flow |
-| `deviceId` | Device the controller belongs to |
-| `controllerId` | Target controller |
-| `sensorId` | Sensor to preview |
-| `userId` | Requesting user |
-| `sessionId` | Unique session ID |
-| `duration` | Duration in seconds |
-| `exp` | Short expiry (5 min) |
-
-**Controller Reply**:
-
-```json
-{
-  "ticket": "<signed-jwt>",
-  "result": { "started": true, "frequency": 100 }
-}
-```
-
-### 3.3 Data Messages
-
-**Controller → Worker** (via `.../data`):
-
-```json
-{
   "type": "preview.frame",
-  "sessionId": "preview-session-123",
-  "sensorId": "sensor-xyz",
-  "timestamp": 1703264100000,
-  "data": {
-    "points": [{ "x": 1.2, "y": 3.4, "z": 0.5, "velocity": 1.1 }]
-  }
-}
-```
-
-**Worker → User** (via `user/<sub>/notifications`):
-
-```json
-{
-  "flowId": "flow-uuid...",
-  "type": "preview.data",
-  "sessionId": "preview-session-123",
-  "sensorId": "sensor-xyz",
   "timestamp": 1703264100000,
   "data": { "points": [...] }
 }
 ```
 
-### 3.4 RPC: `sensor.preview.stop`
-
-User can stop early:
+### User Notification (Worker → User)
 
 ```json
 {
-  "op": "sensor.preview.stop",
-  "params": { "sessionId": "preview-session-123" }
+  "flowId": "flow-uuid",
+  "type": "preview.data",
+  "timestamp": 1703264100000,
+  "data": { "points": [...] }
 }
 ```
 
 ---
 
-## 4. Worker Session Management
+## Stateless Routing
 
-```typescript
-type PreviewSession = {
-  sessionId: string;
-  flowId: string;       // Correlates entire flow
-  userId: string;
-  accountId: string;
-  deviceId: string;
-  controllerId: string;
-  sensorId: string;
-  startedAt: Date;
-  expiresAt: Date;
-  userTopic: string;    // user/<userId>:<accountId>/notifications
-};
+> [!IMPORTANT]
+> Workers are **stateless**. The controller echoes the ticket with each data frame. Workers verify the ticket and extract routing from claims.
 
-const activePreviews = new Map<string, PreviewSession>();
-```
-
-**Data Routing Logic**:
-1. Data arrives on `.../controller/<type>:<id>/data`
-2. Extract `sessionId` from payload
-3. Look up session in map
-4. If valid → forward to `userTopic`
-5. If expired → send `preview.stop` to controller
+**Worker Logic**:
+1. Receive data on `.../controller/<type>:<id>/data`
+2. Verify `ticket` signature + check `exp`
+3. Extract `recipient` and `flowId` from claims
+4. Forward data to recipient
 
 ---
 
-## 5. Topic Summary
+## Topics
 
 | Topic | Direction | Purpose |
 |-------|-----------|---------|
 | `user/<sub>/requests` | User → Worker | Start/stop RPC |
 | `user/<sub>/response` | Worker → User | RPC response |
-| `user/<sub>/notifications` | Worker → User | Preview data |
-| `.../controller/.../notifications` | Worker → Controller | Start/stop |
-| `.../controller/.../replies` | Controller → Worker | Replies |
-| `.../controller/.../data` | Controller → Worker | Data stream |
+| `user/<sub>/notifications` | Worker → User | Data stream |
+| `.../controller/.../notifications` | Worker → Controller | Commands |
+| `.../controller/.../data` | Controller → Worker | Data frames |
 
 ---
 
-## 6. Security
+## Security
 
-- **Authorization**: Worker validates user access before starting
-- **Duration Caps**: Max 5 minutes per preview
-- **Rate Limits**: Max 2 concurrent previews per user
-- **Ticket Verification**: Controller verifies signature
+- User access validated before starting
+- Max 5 min duration, max 2 concurrent sessions per user
+- Ticket signature verification on all data frames
+- Auto-expiry via `exp` claim
 
 ---
 
-## 7. Implementation Checklist
+## Implementation
 
-- [ ] Worker: `sensor.preview.start` RPC handler
-- [ ] Worker: `sensor.preview.stop` RPC handler  
-- [ ] Worker: Preview session management
-- [ ] Worker: Data forwarding from `.../data`
-- [ ] Controller: Handle `preview.start/stop` notifications
-- [ ] Controller: Publish data frames with sessionId
-- [ ] E2E test: `sensor_preview_e2e.test.ts`
+| Component | File | Status |
+|-----------|------|--------|
+| Start/Stop RPC | [handle_sensor_preview.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/web/handle_sensor_preview.ts) | ✅ |
+| Data Forwarding | [index.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/server/mqtt/handlers/index.ts) | ✅ |
+| E2E Test | [sensor_preview_e2e.test.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/tests/integrations/sensor_preview_e2e.test.ts) | ✅ |
+| Controller Handler | TBD | ⏳ |
+
+---
+
+## See Also
+
+- [Device Notification Reply Pattern](../DEVICE_NOTIFICATION_REPLY.md) - Stateless ticket pattern
+- [RADAR.md](./RADAR.md) - Radar controller configuration
