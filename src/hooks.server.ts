@@ -2,18 +2,17 @@ import type { Handle } from "@sveltejs/kit";
 import { error } from "@sveltejs/kit";
 import redis from "$lib/server/redis";
 import { building } from "$app/environment";
-import { whatsAppAccountManager } from "$lib/server/whatsapp/WhatsAppAccountManager";
 import { authMiddleware } from "$lib/server/auth/middleware";
 // Pushpin middleware removed - all device communication now uses MQTT
 import { logger } from "$lib/server/logger";
 import { ensureActiveSetting } from "$lib/server/settings";
 import prisma from "$lib/server/prisma";
 import { initializeMainProcess } from "$lib/server/processes/main";
-import { 
-    createRequestContext, 
-    enrichRequestContext, 
+import {
+    createRequestContext,
+    enrichRequestContext,
     formatRequestLog,
-    requestContextStore 
+    requestContextStore
 } from "$lib/server/context/requestContext";
 import { handleDeprecatedEndpoint } from "$lib/server/api/deprecation";
 
@@ -30,9 +29,9 @@ if (!building) {
             await initializeMainProcess();
         } catch (error: unknown) {
             const e = error as any;
-            logger.error('❌ Error in main process initialization', { 
-                error: e?.message, 
-                stack: e?.stack 
+            logger.error('❌ Error in main process initialization', {
+                error: e?.message,
+                stack: e?.stack
             });
         }
     })();
@@ -78,7 +77,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     const requestContext = createRequestContext(event);
     event.locals.requestId = requestContext.requestId;
     event.locals.requestContext = requestContext;
-    
+
     // Store context for access in nested functions
     requestContextStore.set(requestContext.requestId, requestContext);
 

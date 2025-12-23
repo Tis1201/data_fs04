@@ -11,6 +11,7 @@ interface ScreenshotResult {
   format?: string;
   width?: number;
   height?: number;
+  downloadUrl?: string;
 }
 
 export async function waitForScreenshotResult(
@@ -52,19 +53,41 @@ export async function waitForScreenshotResult(
     // Subscribe to device.screenshot notifications
     const unsubscribe = mqttClient.onNotification('device.screenshot', async (payload: any) => {
       console.log('[MQTT ScreenshotFlow] Handler called with payload:', payload);
-      
+
       // mqttClient already decoded the JWT, so payload is the decoded params
-      // payload contains: { objectPath, downloadUrl, format, payload: {...}, requestId, scope, ... }
+      // payload can contain either:
+      // - downloadUrl: URL to fetch the screenshot from server storage
+      // - data: direct base64 image data from device
       const downloadUrl = payload?.downloadUrl;
+      const directData = payload?.data;
 
       console.log('[MQTT ScreenshotFlow] Received screenshot notification', {
         expectedFlowId: flowId,
         hasDownloadUrl: !!downloadUrl,
+        hasDirectData: !!directData,
         downloadUrl: downloadUrl ? downloadUrl.substring(0, 100) + '...' : undefined
       });
 
+      // Handle direct base64 data from device
+      if (directData && !downloadUrl) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+
+        console.log('[MQTT ScreenshotFlow] Using direct base64 data from device');
+
+        resolve({
+          data: directData,
+          format: payload?.format || 'jpeg',
+          width: payload?.width,
+          height: payload?.height
+        });
+        return;
+      }
+
       if (!downloadUrl) {
-        console.warn('[MQTT ScreenshotFlow] No downloadUrl in notification', payload);
+        console.warn('[MQTT ScreenshotFlow] No downloadUrl or data in notification', payload);
         return;
       }
 
@@ -73,12 +96,12 @@ export async function waitForScreenshotResult(
       clearTimeout(timer);
       unsubscribe();
 
-      console.log('[MQTT ScreenshotFlow] Screenshot URL received, returning directly');
+      console.log('[MQTT ScreenshotFlow] Screenshot URL received, fetching from server');
 
       try {
         // Server already generated the download URL, just use it directly
         // The UI can use this as <img src={downloadUrl} /> or fetch and convert to base64 if needed
-        
+
         // For compatibility with existing UI that expects base64, we'll still fetch and convert
         // But this could be simplified to just return the URL
         const imageResponse = await fetch(downloadUrl);
@@ -88,16 +111,16 @@ export async function waitForScreenshotResult(
 
         const blob = await imageResponse.blob();
         const reader = new FileReader();
-        
+
         reader.onloadend = () => {
           const base64data = reader.result as string;
           // Remove data:image/jpeg;base64, prefix if present
           const data = base64data.split(',')[1] || base64data;
-          
+
           console.log('[MQTT ScreenshotFlow] Screenshot downloaded and converted to base64');
 
-      resolve({
-        data,
+          resolve({
+            data,
             format: payload?.format || 'jpeg',
             width: payload?.width,
             height: payload?.height,
