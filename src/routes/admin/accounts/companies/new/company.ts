@@ -4,7 +4,7 @@ import { validatePhoneNumber, getPhoneValidationMessage } from '$lib/utils/valid
 // Define the schema for company creation
 export const companySchema = z.object({
     name: z.string()
-        .min(1, { message: 'Company name is required' })
+        .min(2, { message: 'Company name must be at least 2 characters' })
         .max(100, { message: 'Name must be 100 characters or less' }),
     status: z.enum(['ACTIVE', 'INACTIVE', 'PENDING'])
         .default('ACTIVE'),
