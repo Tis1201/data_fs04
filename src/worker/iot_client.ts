@@ -185,6 +185,9 @@ export async function connectWorkerClient(): Promise<void> {
         // Only log non-data topics to reduce spam
         if (!topic.endsWith('/data')) {
             logger.debug(`[MQTT Transport] Received message on ${topic}`);
+        } else {
+            // TEMP DEBUG: Log data topic messages to diagnose radar preview issue
+            logger.info(`[MQTT Transport] [DEBUG] Received /data message on ${topic}, payload length=${payload.length}`);
         }
         await handleIncoming(topic, payload, adminPrisma);
     });
