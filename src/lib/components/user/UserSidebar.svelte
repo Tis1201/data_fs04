@@ -98,6 +98,14 @@
                 },
             ],
         },
+        {
+            label: "Analytics",
+            icon: ActivitySquare,
+            initialExpanded: false,
+            subItems: [
+                { href: "/user/analytics/radar", label: "Radar", icon: Radio },
+            ],
+        },
 
         // {
         //     label: "Integrations",
