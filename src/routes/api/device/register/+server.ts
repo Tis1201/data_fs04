@@ -21,6 +21,7 @@ import {
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
 import { PreclaimProfileService } from '$lib/server/device/profile';
+import { getClientIp } from '$lib/utils/request-utils';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -33,10 +34,43 @@ import { PreclaimProfileService } from '$lib/server/device/profile';
  * Handles PIN validation and device registration
  * Devices now use MQTT for communication after registration
  */
-export const GET: RequestHandler = async ({ locals, request }: any) => {
+export const GET: RequestHandler = async (event) => {
+    const { locals, request } = event;
     try {
-        // Verify Factory JWT (signature, audience, typ, scope)
-        await verifyFactoryJWT(locals, request);
+        // Verify Factory JWT (signature, audience, typ, scope) and get token string
+        const { claims, token: factoryTokenString } = await verifyFactoryJWT(locals, request);
+
+        // Get client IP address
+        const clientIp = getClientIp(event);
+
+        // Update FactoryToken record to mark it as used
+        try {
+            const factoryToken = await locals.prisma.factoryToken.findFirst({
+                where: { 
+                    token: factoryTokenString,
+                    isUsed: false,
+                    expiresAt: { gt: new Date() }
+                }
+            });
+
+            if (factoryToken) {
+                await locals.prisma.factoryToken.update({
+                    where: { id: factoryToken.id },
+                    data: {
+                        isUsed: true,
+                        usedAt: new Date(),
+                        usedByIp: clientIp
+                    }
+                });
+                logger.info(`Factory token ${factoryToken.id} marked as used from IP ${clientIp || 'unknown'}`);
+            } else {
+                // Token not found or already used - log warning but continue with registration
+                logger.warn(`Factory token not found or already used: token=${factoryTokenString.substring(0, 20)}..., jti=${claims.jti || 'unknown'}`);
+            }
+        } catch (error) {
+            // Log error but don't fail registration
+            logger.error(`Failed to update FactoryToken: ${error instanceof Error ? error.message : String(error)}`);
+        }
 
         // Validate the PIN
         const pin = request.headers.get('X-Device-PIN');
