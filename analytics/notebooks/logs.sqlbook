@@ -1,0 +1,7 @@
+-- SQLBook: Code
+select * from fs_04.logs_raw order by c1 desc;
+
+-- SQLBook: Code
+select * from fs_04.logs_raw;
+-- SQLBook: Code
+select distinct c17 from fs_04.logs_raw;
