@@ -16,6 +16,15 @@ This document describes the complete WebRTC implementation for terminal and remo
 
 **This document reflects the CURRENT (problematic) state. See `REFACTORING_PLAN.md` for the proposed clean architecture.**
 
+## 📝 Outstanding Checklist
+
+The following items are critical technical debt that must be addressed:
+
+- [ ] **Externalize TURN Credentials**: Move hardcoded Xirsys credentials from `WebRTCClient.ts` to `.env` variables (e.g., `PUBLIC_TURN_URL`, `PUBLIC_TURN_USERNAME`, `PUBLIC_TURN_PASSWORD`).
+- [ ] **Migrate to Cloudflare**: Replace Xirsys with Cloudflare Calls/Stream/Zero Trust for better scalability and global coverage.
+- [ ] **Update Device Side**: Implement TURN support in `fs04_device` (Go client currently only uses public Google STUN servers).
+
+
 ## System Components
 
 ### 1. Client-Side (Browser) - TypeScript/Svelte
@@ -38,6 +47,12 @@ sendRDPStart()              // Initiates remote desktop session
 sendMouseClick()            // Sends mouse events
 sendKeyPress()              // Sends keyboard events
 ```
+
+> [!WARNING]
+> **Configuration**: Currently uses **hardcoded Xirsys TURN credentials**. This is technical debt that must be resolved.
+> - **Current**: Hardcoded in `src/lib/webrtc/WebRTCClient.ts`
+> - **Required**: Externalize to environment variables
+> - **Future**: Migrate to Cloudflare
 
 **Message Flow**:
 - Sends `type: 'device'` messages with `payload.type: 'webrtc:connect'`
@@ -278,49 +293,55 @@ func (ts *TerminalSession) readFromTerminal() {
 
 ### 1. Connection Initiation (Mixed WebSocket + SSE)
 
-```
-Client (Browser)                    Server (Node.js)                    Device (Go)
-     |                                      |                               |
-     |-- WebSocket: webrtc:connect ------->|                               |
-     |                                      |-- WebSocket: webrtc:connect ->|
-     |                                      |                               |
-     |                                      |<-- SSE: webrtc:offer ---------|
-     |<-- SSE: webrtc:offer ---------------|                               |
-     |                                      |                               |
-     |-- WebSocket: webrtc:answer --------->|                               |
-     |                                      |-- WebSocket: webrtc:answer -->|
-     |                                      |                               |
-     |<-- SSE: webrtc:ice-candidate -------|                               |
-     |                                      |<-- SSE: webrtc:ice-candidate -|
-     |                                      |                               |
-     |-- WebSocket: webrtc:ice-candidate ->|                               |
-     |                                      |-- WebSocket: webrtc:ice-cand->|
+```mermaid
+sequenceDiagram
+    participant C as Client (Browser)
+    participant S as Server (Node.js)
+    participant D as Device (Go)
+
+    Note over C, D: 1. Connection Initiation (Mixed WebSocket + SSE)
+    
+    C->>S: WebSocket: webrtc:connect
+    S->>D: WebSocket: webrtc:connect
+    D-->>S: SSE: webrtc:offer
+    S-->>C: SSE: webrtc:offer
+    C->>S: WebSocket: webrtc:answer
+    S->>D: WebSocket: webrtc:answer
+    
+    par ICE Candidate Exchange
+        D-->>S: SSE: webrtc:ice-candidate
+        S-->>C: SSE: webrtc:ice-candidate
+        S->>D: WebSocket: webrtc:ice-candidate
+        C->>S: WebSocket: webrtc:ice-candidate
+    end
 ```
 
 **⚠️ PROBLEM**: Mixed WebSocket (client→server) and SSE (server→client) creates confusion and debugging issues.
 
 ### 2. Terminal Communication
 
-```
-Client (Browser)                    Server (Node.js)                    Device (Go)
-     |                                      |                               |
-     |-- terminal:input (data channel) --->|                               |
-     |                                      |-- terminal:input ------------>|
-     |                                      |                               |
-     |                                      |<-- terminal:output ----------|
-     |<-- terminal:output (data channel) --|                               |
+```mermaid
+sequenceDiagram
+    participant C as Client (Browser)
+    participant D as Device (Go)
+
+    Note over C, D: 2. Terminal Communication (Direct P2P Data Channel)
+
+    C->>D: terminal:input
+    D-->>C: terminal:output
 ```
 
 ### 3. Screen Sharing
 
-```
-Client (Browser)                    Server (Node.js)                    Device (Go)
-     |                                      |                               |
-     |-- rdp:start (data channel) -------->|                               |
-     |                                      |-- rdp:start ------------------>|
-     |                                      |                               |
-     |                                      |<-- video stream (RTP) --------|
-     |<-- video stream (RTP) --------------|                               |
+```mermaid
+sequenceDiagram
+    participant C as Client (Browser)
+    participant D as Device (Go)
+
+    Note over C, D: 3. Screen Sharing (Direct P2P Data Channel & RTP)
+
+    C->>D: rdp:start (Data Channel)
+    D-->>C: video stream (RTP)
 ```
 
 ## Message Types and Payloads
