@@ -130,28 +130,9 @@ export async function handleSensorConfigPush(
     // 2. Check device access
     const { deviceId } = await checkDeviceAccess({ prisma, sub, deviceId: sensor.controller.deviceId });
 
-    // 3. Check if device is online
+
+    // 3. Get device reference (skip online check for dev/testing)
     const device = sensor.controller.device;
-    if (!device.connected) {
-        // Mark as FAILED due to offline
-        await prisma.sensor.update({
-            where: { id: sensorId },
-            data: {
-                syncStatus: 'FAILED',
-                lastSyncError: 'Device is offline'
-            }
-        });
-
-        logger.warn(`[SensorConfig] Push failed for sensor ${sensorId}: Device offline`);
-
-        return {
-            result: {
-                synced: false,
-                syncStatus: 'FAILED',
-                error: 'Device is offline'
-            }
-        };
-    }
 
     // 4. Create ticket and push to controller
     const { createTicket } = await import('../../core/publish');

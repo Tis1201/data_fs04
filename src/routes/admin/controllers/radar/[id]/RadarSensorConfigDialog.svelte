@@ -36,7 +36,11 @@
     import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
     import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
     import RadarVisualEditor from "$lib/components/ui_components_sveltekit/radar/RadarVisualEditor.svelte";
-    import { mqttStore } from "$lib/stores/mqtt-store";
+    import {
+        mqttClient,
+        type UserMqttStatus,
+    } from "$lib/client/mqtt/mqttClient";
+    import { onMount, onDestroy } from "svelte";
 
     // Props from parent
     export let open = false;
@@ -76,9 +80,24 @@
     };
     let isPushing = false;
 
-    // Subscribe to MQTT status
-    $: mqttStatus = $mqttStore.status;
-    $: isMqttConnected = mqttStatus === "OPEN";
+    // Connection status from mqttClient
+    let mqttStatus: UserMqttStatus = "idle";
+    let statusCleanup: (() => void) | null = null;
+    $: isMqttConnected = mqttStatus === "connected";
+
+    // Subscribe to MQTT status on mount
+    onMount(() => {
+        statusCleanup = mqttClient.onStatus((status) => {
+            mqttStatus = status;
+        });
+    });
+
+    onDestroy(() => {
+        if (statusCleanup) {
+            statusCleanup();
+            statusCleanup = null;
+        }
+    });
 
     // Dispatch events
     import { createEventDispatcher } from "svelte";
@@ -86,51 +105,19 @@
 
     // Push config to device via MQTT RPC
     async function handlePushToDevice() {
-        const userSub = mqttStore.subject;
-        if (!sensorId || !isMqttConnected || !userSub) {
-            toast.error("Not connected to MQTT");
+        if (!sensorId) {
+            toast.error("No sensor ID");
             return;
         }
 
         isPushing = true;
         try {
-            const requestId = crypto.randomUUID();
-            const requestPayload = {
-                op: "sensor.config.push",
-                params: { sensorId },
-                requestId,
-                timestamp: new Date().toISOString(),
-            };
-
-            // Set up response listener
-            const responsePromise = new Promise<any>((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    cleanup();
-                    reject(new Error("Request timed out"));
-                }, 10000);
-
-                const cleanup = mqttStore.on(
-                    `user/${userSub}/response`,
-                    (msg) => {
-                        const payload = msg.payload as any;
-                        if (payload?.requestId === requestId) {
-                            clearTimeout(timeout);
-                            cleanup();
-                            resolve(payload);
-                        }
-                    },
-                );
-            });
-
-            // Publish the request
-            await mqttStore.publish(
-                `user/${userSub}/requests`,
-                requestPayload,
-                { qos: 1 },
+            const response = await mqttClient.request(
+                "sensor.config.push",
+                { sensorId },
+                { timeoutMs: 10000 },
             );
 
-            // Wait for response
-            const response = await responsePromise;
             const result = response.result?.result || response.result;
 
             if (result?.synced) {
@@ -139,7 +126,6 @@
                 dispatch("synced");
             } else {
                 toast.error(result?.error || "Push failed");
-                syncStatus = "FAILED";
                 syncStatus = "FAILED";
             }
         } catch (err: any) {

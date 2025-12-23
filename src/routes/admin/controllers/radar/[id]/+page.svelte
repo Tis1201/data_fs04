@@ -35,7 +35,7 @@
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
   import RadarSensorConfigDialog from "./RadarSensorConfigDialog.svelte";
-  import RadarPreview from "$lib/components/ui_components_sveltekit/radar/RadarPreview.svelte";
+  import RadarPreview from "./RadarPreview.svelte";
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
 
