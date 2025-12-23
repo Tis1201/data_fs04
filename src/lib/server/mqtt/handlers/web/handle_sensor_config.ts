@@ -1,6 +1,7 @@
 import type { RpcHandlerArgs, RpcResponse } from '$lib/server/mqtt/handlers/index';
 import { logger } from '$lib/server/logger';
-import { checkDeviceAccess } from './access_checker';
+import { checkDeviceAccess } from './shared/access_checker';
+import crypto from 'crypto';
 
 /**
  * Sensor Config Save Parameters
