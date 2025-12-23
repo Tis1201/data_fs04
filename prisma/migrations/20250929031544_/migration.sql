@@ -1,5 +1,6 @@
 -- CreateTable
-CREATE TABLE "PinRule" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "PinRule" (
     "id" TEXT NOT NULL,
     "ruleType" TEXT NOT NULL,
     "createdBy" TEXT NOT NULL,
@@ -18,7 +19,9 @@ CREATE TABLE "PinRule" (
 );
 
 -- CreateTable
-CREATE TABLE "DeviceAppPin" (
+-- Idempotent: Check if table exists before creating
+-- Note: This table is dropped in migration 20250930144132_
+CREATE TABLE IF NOT EXISTS "DeviceAppPin" (
     "id" TEXT NOT NULL,
     "deviceId" TEXT NOT NULL,
     "packageName" TEXT NOT NULL,
@@ -29,7 +32,8 @@ CREATE TABLE "DeviceAppPin" (
 );
 
 -- CreateTable
-CREATE TABLE "UserAppAction" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "UserAppAction" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "deviceId" TEXT NOT NULL,
@@ -42,61 +46,144 @@ CREATE TABLE "UserAppAction" (
 );
 
 -- CreateIndex
-CREATE INDEX "PinRule_ruleType_idx" ON "PinRule"("ruleType");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PinRule_ruleType_idx" ON "PinRule"("ruleType");
 
 -- CreateIndex
-CREATE INDEX "PinRule_accountId_idx" ON "PinRule"("accountId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PinRule_accountId_idx" ON "PinRule"("accountId");
 
 -- CreateIndex
-CREATE INDEX "PinRule_createdBy_idx" ON "PinRule"("createdBy");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PinRule_createdBy_idx" ON "PinRule"("createdBy");
 
 -- CreateIndex
-CREATE INDEX "PinRule_priority_idx" ON "PinRule"("priority");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PinRule_priority_idx" ON "PinRule"("priority");
 
 -- CreateIndex
-CREATE INDEX "PinRule_isActive_idx" ON "PinRule"("isActive");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PinRule_isActive_idx" ON "PinRule"("isActive");
 
 -- CreateIndex
-CREATE INDEX "DeviceAppPin_deviceId_idx" ON "DeviceAppPin"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceAppPin_deviceId_idx" ON "DeviceAppPin"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "DeviceAppPin_packageName_idx" ON "DeviceAppPin"("packageName");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceAppPin_packageName_idx" ON "DeviceAppPin"("packageName");
 
 -- CreateIndex
-CREATE INDEX "DeviceAppPin_pinnedByRuleId_idx" ON "DeviceAppPin"("pinnedByRuleId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceAppPin_pinnedByRuleId_idx" ON "DeviceAppPin"("pinnedByRuleId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "DeviceAppPin_deviceId_packageName_key" ON "DeviceAppPin"("deviceId", "packageName");
+-- Idempotent: Check if unique index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "DeviceAppPin_deviceId_packageName_key" ON "DeviceAppPin"("deviceId", "packageName");
 
 -- CreateIndex
-CREATE INDEX "UserAppAction_userId_idx" ON "UserAppAction"("userId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "UserAppAction_userId_idx" ON "UserAppAction"("userId");
 
 -- CreateIndex
-CREATE INDEX "UserAppAction_deviceId_idx" ON "UserAppAction"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "UserAppAction_deviceId_idx" ON "UserAppAction"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "UserAppAction_action_idx" ON "UserAppAction"("action");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "UserAppAction_action_idx" ON "UserAppAction"("action");
 
 -- CreateIndex
-CREATE INDEX "UserAppAction_createdAt_idx" ON "UserAppAction"("createdAt");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "UserAppAction_createdAt_idx" ON "UserAppAction"("createdAt");
 
 -- AddForeignKey
-ALTER TABLE "PinRule" ADD CONSTRAINT "PinRule_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'PinRule_createdBy_fkey'
+    ) THEN
+        ALTER TABLE "PinRule" ADD CONSTRAINT "PinRule_createdBy_fkey" 
+        FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "PinRule" ADD CONSTRAINT "PinRule_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'PinRule_accountId_fkey'
+    ) THEN
+        ALTER TABLE "PinRule" ADD CONSTRAINT "PinRule_accountId_fkey" 
+        FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DeviceAppPin" ADD CONSTRAINT "DeviceAppPin_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'DeviceAppPin_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "DeviceAppPin" ADD CONSTRAINT "DeviceAppPin_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DeviceAppPin" ADD CONSTRAINT "DeviceAppPin_pinnedByRuleId_fkey" FOREIGN KEY ("pinnedByRuleId") REFERENCES "PinRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'DeviceAppPin_pinnedByRuleId_fkey'
+    ) THEN
+        ALTER TABLE "DeviceAppPin" ADD CONSTRAINT "DeviceAppPin_pinnedByRuleId_fkey" 
+        FOREIGN KEY ("pinnedByRuleId") REFERENCES "PinRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "UserAppAction" ADD CONSTRAINT "UserAppAction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'UserAppAction_userId_fkey'
+    ) THEN
+        ALTER TABLE "UserAppAction" ADD CONSTRAINT "UserAppAction_userId_fkey" 
+        FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "UserAppAction" ADD CONSTRAINT "UserAppAction_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'UserAppAction_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "UserAppAction" ADD CONSTRAINT "UserAppAction_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "UserAppAction" ADD CONSTRAINT "UserAppAction_ruleId_fkey" FOREIGN KEY ("ruleId") REFERENCES "PinRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'UserAppAction_ruleId_fkey'
+    ) THEN
+        ALTER TABLE "UserAppAction" ADD CONSTRAINT "UserAppAction_ruleId_fkey" 
+        FOREIGN KEY ("ruleId") REFERENCES "PinRule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
