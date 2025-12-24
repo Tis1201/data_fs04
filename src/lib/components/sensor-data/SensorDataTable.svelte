@@ -11,6 +11,7 @@
 
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
+    import DateRangeFilter from "$lib/components/ui_components_sveltekit/table/filter/DateRangeFilter.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import { page } from "$app/stores";
@@ -36,6 +37,7 @@
     export let targetId: string | undefined = undefined;
     export let pageSize: number = 25;
     export let customColumns: ColumnDef[] | undefined = undefined;
+    export let showDateFilter: boolean = true;
 
     // =========================================================================
     // State
@@ -179,14 +181,24 @@
         </div>
     {:else}
         <!-- Filters -->
-        <div class="flex items-center gap-2">
-            <div class="w-1/3">
+        <div class="flex flex-wrap items-center gap-2">
+            <div class="w-64">
                 <DebouncedTextFilter
                     placeholder="Search..."
                     paramName="search"
                     value={$page.url.searchParams.get("search") || ""}
                 />
             </div>
+
+            {#if showDateFilter}
+                <DateRangeFilter
+                    label="Time Range"
+                    startParamName="startTime"
+                    endParamName="endTime"
+                    format_string="yyyy-MM-dd'T'HH:mm:ss"
+                />
+            {/if}
+
             <!-- Subtle loading indicator for refetches -->
             {#if fetching}
                 <div class="text-sm text-muted-foreground animate-pulse">
