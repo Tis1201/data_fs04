@@ -12,6 +12,7 @@ import { SystemRole } from '$lib/types/roles';
 import { generateId } from 'lucia';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // Define table options for API Keys
 const table_options = {
@@ -157,6 +158,18 @@ export const actions = {
                 });
 
                 logger.info('API key created successfully:', { apiKeyId: apiKey.id });
+
+                // Create cronjob for API key expiration (only if expiresAt is set)
+                if (apiKey.expiresAt) {
+                    await upsertEntityExpirationCronjob(locals.prisma, {
+                        entityType: 'apiKey',
+                        entityId: apiKey.id,
+                        expiresAt: apiKey.expiresAt,
+                        action: 'deactivate',
+                        userId: userId,
+                        accountId: apiKey.accountId
+                    });
+                }
 
                 await logAudit({
                     actionType: AuditActionType.INSERT,

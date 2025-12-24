@@ -12,6 +12,7 @@ import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import jwt from 'jsonwebtoken';
+import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // Define the license renewal schema
 const licenseRenewalSchema = z.object({
@@ -190,6 +191,16 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`License renewed: ${result.updatedLicense.id} by user ${userInfo.id}`);
+
+                // Update cronjob for new expiration date
+                await upsertEntityExpirationCronjob(locals.prisma, {
+                    entityType: 'license',
+                    entityId: result.updatedLicense.id,
+                    expiresAt: result.updatedLicense.expiresAt,
+                    action: 'mark',
+                    userId: userInfo.id,
+                    accountId: result.updatedLicense.accountId
+                });
 
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
