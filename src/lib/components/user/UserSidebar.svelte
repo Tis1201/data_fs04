@@ -106,6 +106,14 @@
                 { href: "/user/analytics/radar", label: "Radar", icon: Radio },
             ],
         },
+        {
+            label: "Logs",
+            icon: Logs,
+            initialExpanded: false,
+            subItems: [
+                { href: "/user/analytics/radar", label: "Sensor", icon: Radio },
+            ],
+        },
 
         // {
         //     label: "Integrations",
