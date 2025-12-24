@@ -85,9 +85,9 @@ SENSOR_RADAR_PATH,1.0,2025-07-12T18:32:44Z,480,America/New_York,radar-001,Lobby 
 
 ---
 
-## 3. ClickHouse Routing
+## 3. ClickHouse Materialized Views
 
-Each log type routes to its own materialized view:
+Each log type routes to its own materialized view with **named columns**.
 
 ```mermaid
 flowchart LR
@@ -98,6 +98,54 @@ flowchart LR
     MV2 --> T2[radar_path]
 ```
 
+### 3.1 Session MV: `mv_radar_session`
+
+```sql
+CREATE MATERIALIZED VIEW fs_04.mv_radar_session TO fs_04.radar_session AS
+SELECT
+    c1  AS processed_at,
+    c2  AS account_id,
+    c4  AS device_id,
+    -- Parsed types for efficient queries
+    parseDateTimeBestEffort(c12) AS log_creation_time,
+    toInt16OrZero(c13)           AS timezone_offset,
+    c14 AS timezone_label,
+    c15 AS sensor_id,
+    c16 AS sensor_name,
+    c17 AS mac_address,
+    c18 AS target_id,
+    toFloat32OrZero(c19)         AS dwell_tracking_area_sec,
+    c20 AS zone_dwell_times_json,
+    toFloat32OrNull(c21)         AS proximity_m
+FROM fs_04.logs_raw
+WHERE c10 = 'SENSOR_RADAR_SESSION';
+```
+
+### 3.2 Path MV: `mv_radar_path`
+
+```sql
+CREATE MATERIALIZED VIEW fs_04.mv_radar_path TO fs_04.radar_path AS
+SELECT
+    c1  AS processed_at,
+    c2  AS account_id,
+    c4  AS device_id,
+    -- Parsed types for efficient queries
+    parseDateTimeBestEffort(c12) AS log_creation_time,
+    toInt16OrZero(c13)           AS timezone_offset,
+    c14 AS timezone_label,
+    c15 AS sensor_id,
+    c16 AS sensor_name,
+    c17 AS mac_address,
+    c18 AS target_id,
+    toFloat32OrZero(c19)         AS x_m,
+    toFloat32OrZero(c20)         AS y_m
+FROM fs_04.logs_raw
+WHERE c10 = 'SENSOR_RADAR_PATH';
+```
+
+> [!NOTE]
+> The target tables (`radar_session`, `radar_path`) need matching column names. MVs transform the generic `c*` columns to semantic names for easier querying.
+
 ---
 
 ## 4. Future Considerations
@@ -106,3 +154,4 @@ flowchart LR
 - [ ] **v1.1 (SESSION)** — Add entry/exit timestamps separately
 - [ ] **Batching guidance** — Document recommended batch sizes for path uploads
 - [ ] **Compression** — Document GZIP expectations for high-frequency path data
+
