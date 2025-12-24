@@ -17,7 +17,6 @@
         Router,
         Radio,
         Users2,
-        Logs,
         LucideActivity,
         ActivitySquare,
         File,
