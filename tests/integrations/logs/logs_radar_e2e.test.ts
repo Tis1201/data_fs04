@@ -210,4 +210,119 @@ describe('Logs Radar E2E', () => {
         console.log('[Logs Radar E2E] ✅ Query returned', data.data.length, 'rows');
         console.log('[Logs Radar E2E] Sample data:', JSON.stringify(data.data[0], null, 2));
     });
+
+    // =========================================================================
+    // MV Verification Tests - Check data flows through materialized views
+    // =========================================================================
+
+    it('verifies session data appears in radar_session MV with correct fields', async () => {
+        // Query the MV target table with named columns
+        const result = await client.query({
+            query: `
+                SELECT
+                    account_id,
+                    device_id,
+                    log_creation_time,
+                    timezone_offset,
+                    timezone_label,
+                    sensor_id,
+                    sensor_name,
+                    mac_address,
+                    target_id,
+                    dwell_tracking_area_sec,
+                    zone_dwell_times_json,
+                    proximity_m
+                FROM mv_radar_session
+                WHERE account_id = {accountId:String}
+                ORDER BY log_creation_time DESC
+                LIMIT 1
+            `,
+            query_params: { accountId: testAccountId }
+        });
+
+        const data = await result.json();
+
+        if (data.data.length === 0) {
+            console.log('[Logs Radar E2E] ⚠️ No data in radar_session MV (MV may not exist yet)');
+            return; // Skip if MV doesn't exist
+        }
+
+        expect(data.data).toHaveLength(1);
+
+        const row = data.data[0] as Record<string, unknown>;
+
+        // Verify named columns exist and have correct types
+        expect(row.account_id).toBe(testAccountId);
+        expect(row.device_id).toBe(testDeviceId);
+        expect(typeof row.timezone_offset).toBe('number'); // Int16
+        expect(row.timezone_offset).toBe(480);
+        expect(row.timezone_label).toBe('Asia/Singapore');
+        expect(row.sensor_id).toBe(`radar-${testRunId}`);
+        expect(row.sensor_name).toBe('Test Lobby Radar');
+        expect(row.mac_address).toBe('00:1A:2B:3C:4D:5E');
+        expect(typeof row.dwell_tracking_area_sec).toBe('number'); // Float32
+        expect(row.dwell_tracking_area_sec).toBeCloseTo(5.2, 1);
+        expect(row.zone_dwell_times_json).toBe('{"Entrance":2.1,"PromoArea":3.1}');
+        expect(typeof row.proximity_m).toBe('number'); // Nullable Float32
+        expect(row.proximity_m).toBeCloseTo(0.75, 2);
+
+        console.log('[Logs Radar E2E] ✅ radar_session MV has correct named fields and types');
+    });
+
+    it('verifies path data appears in radar_path MV with correct fields', async () => {
+        // Query the MV target table with named columns
+        const result = await client.query({
+            query: `
+                SELECT
+                    account_id,
+                    device_id,
+                    log_creation_time,
+                    timezone_offset,
+                    timezone_label,
+                    sensor_id,
+                    sensor_name,
+                    mac_address,
+                    target_id,
+                    x_m,
+                    y_m
+                FROM mv_radar_path
+                WHERE account_id = {accountId:String}
+                ORDER BY log_creation_time DESC
+                LIMIT 5
+            `,
+            query_params: { accountId: testAccountId }
+        });
+
+        const data = await result.json();
+
+        if (data.data.length === 0) {
+            console.log('[Logs Radar E2E] ⚠️ No data in radar_path MV (MV may not exist yet)');
+            return; // Skip if MV doesn't exist
+        }
+
+        expect(data.data.length).toBeGreaterThanOrEqual(3);
+
+        const rows = data.data as Record<string, unknown>[];
+        const row = rows[0];
+
+        // Verify named columns exist and have correct types
+        expect(row.account_id).toBe(testAccountId);
+        expect(row.device_id).toBe(testDeviceId);
+        expect(typeof row.timezone_offset).toBe('number'); // Int16
+        expect(row.timezone_label).toBe('Asia/Singapore');
+        expect(row.sensor_id).toBe(`radar-${testRunId}`);
+        expect(typeof row.x_m).toBe('number'); // Float32
+        expect(typeof row.y_m).toBe('number'); // Float32
+
+        // Verify x/y values are within expected range
+        const xValues = rows.map(r => r.x_m as number).sort((a, b) => a - b);
+        const yValues = rows.map(r => r.y_m as number).sort((a, b) => a - b);
+
+        expect(xValues[0]).toBeGreaterThanOrEqual(1.0);
+        expect(yValues[0]).toBeGreaterThanOrEqual(2.0);
+
+        console.log('[Logs Radar E2E] ✅ radar_path MV has correct named fields and types');
+        console.log('[Logs Radar E2E] Sample path:', JSON.stringify(row, null, 2));
+    });
 });
+

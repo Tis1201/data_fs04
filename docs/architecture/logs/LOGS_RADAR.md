@@ -87,26 +87,26 @@ SENSOR_RADAR_PATH,1.0,2025-07-12T18:32:44Z,480,America/New_York,radar-001,Lobby 
 
 ## 3. ClickHouse Materialized Views
 
-Each log type routes to its own materialized view with **named columns**.
+Each log type routes to its own materialized view with **named columns** and **parsed types**.
 
 ```mermaid
 flowchart LR
     CSV[CSV Payload] --> Vector
-    Vector -->|SENSOR_RADAR_SESSION| MV1[mv_radar_session]
-    Vector -->|SENSOR_RADAR_PATH| MV2[mv_radar_path]
-    MV1 --> T1[radar_session]
-    MV2 --> T2[radar_path]
+    Vector --> logs_raw
+    logs_raw -->|SENSOR_RADAR_SESSION| mv_radar_session
+    logs_raw -->|SENSOR_RADAR_PATH| mv_radar_path
 ```
 
 ### 3.1 Session MV: `mv_radar_session`
 
 ```sql
-CREATE MATERIALIZED VIEW fs_04.mv_radar_session TO fs_04.radar_session AS
-SELECT
+CREATE MATERIALIZED VIEW fs_04.mv_radar_session
+ENGINE = MergeTree()
+ORDER BY (account_id, log_creation_time)
+AS SELECT
     c1  AS processed_at,
     c2  AS account_id,
     c4  AS device_id,
-    -- Parsed types for efficient queries
     parseDateTimeBestEffort(c12) AS log_creation_time,
     toInt16OrZero(c13)           AS timezone_offset,
     c14 AS timezone_label,
@@ -124,12 +124,13 @@ WHERE c10 = 'SENSOR_RADAR_SESSION';
 ### 3.2 Path MV: `mv_radar_path`
 
 ```sql
-CREATE MATERIALIZED VIEW fs_04.mv_radar_path TO fs_04.radar_path AS
-SELECT
+CREATE MATERIALIZED VIEW fs_04.mv_radar_path
+ENGINE = MergeTree()
+ORDER BY (account_id, log_creation_time)
+AS SELECT
     c1  AS processed_at,
     c2  AS account_id,
     c4  AS device_id,
-    -- Parsed types for efficient queries
     parseDateTimeBestEffort(c12) AS log_creation_time,
     toInt16OrZero(c13)           AS timezone_offset,
     c14 AS timezone_label,
@@ -143,8 +144,8 @@ FROM fs_04.logs_raw
 WHERE c10 = 'SENSOR_RADAR_PATH';
 ```
 
-> [!NOTE]
-> The target tables (`radar_session`, `radar_path`) need matching column names. MVs transform the generic `c*` columns to semantic names for easier querying.
+> [!TIP]
+> Query directly from `mv_radar_session` and `mv_radar_path`. No separate target tables needed.
 
 ---
 

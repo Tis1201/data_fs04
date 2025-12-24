@@ -5,3 +5,48 @@ select * from fs_04.logs_raw order by c1 desc;
 select * from fs_04.logs_raw;
 -- SQLBook: Code
 select * from fs_04.logs_raw where c10 = 'SENSOR_RADAR_SESSION' order by c1 desc;
+-- SQLBook: Code
+DROP VIEW IF EXISTS fs_04.mv_radar_session;
+DROP VIEW IF EXISTS fs_04.mv_radar_path;
+-- Then run the CREATE statements from the doc
+-- SQLBook: Code
+CREATE MATERIALIZED VIEW fs_04.mv_radar_session
+ENGINE = MergeTree()
+ORDER BY (account_id, log_creation_time)
+AS SELECT
+    c1  AS processed_at,
+    c2  AS account_id,
+    c4  AS device_id,
+    parseDateTimeBestEffort(c12) AS log_creation_time,
+    toInt16OrZero(c13)           AS timezone_offset,
+    c14 AS timezone_label,
+    c15 AS sensor_id,
+    c16 AS sensor_name,
+    c17 AS mac_address,
+    c18 AS target_id,
+    toFloat32OrZero(c19)         AS dwell_tracking_area_sec,
+    c20 AS zone_dwell_times_json,
+    toFloat32OrNull(c21)         AS proximity_m
+FROM fs_04.logs_raw
+WHERE c10 = 'SENSOR_RADAR_SESSION';
+-- SQLBook: Code
+CREATE MATERIALIZED VIEW fs_04.mv_radar_path
+ENGINE = MergeTree()
+ORDER BY (account_id, log_creation_time)
+AS SELECT
+    c1  AS processed_at,
+    c2  AS account_id,
+    c4  AS device_id,
+    parseDateTimeBestEffort(c12) AS log_creation_time,
+    toInt16OrZero(c13)           AS timezone_offset,
+    c14 AS timezone_label,
+    c15 AS sensor_id,
+    c16 AS sensor_name,
+    c17 AS mac_address,
+    c18 AS target_id,
+    toFloat32OrZero(c19)         AS x_m,
+    toFloat32OrZero(c20)         AS y_m
+FROM fs_04.logs_raw
+WHERE c10 = 'SENSOR_RADAR_PATH';
+-- SQLBook: Code
+select * from fs_04.mv_radar_session
