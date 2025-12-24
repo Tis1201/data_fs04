@@ -85,7 +85,8 @@ The `log_type` (L1/c10) value determines which Materialized View routes the log.
 | `DEVICE` | General device telemetry | `mv_device_information` |
 | `DEVICE_APPS` | Installed app lists | `mv_device_apps` |
 | `BUNDLE` | Bundle/OTA installation events | `mv_bundle_logs` |
-| `SENSOR_RADAR` | Radar sensor events | `radar` |
+| `SENSOR_RADAR_SESSION` | Radar session (1 row per target) | `mv_radar_session` |
+| `SENSOR_RADAR_PATH` | Radar path samples (N rows per target) | `mv_radar_path` |
 | `AUDIT` | User action audit trail | `mv_audit_logs` (TBD) |
 
 ---
