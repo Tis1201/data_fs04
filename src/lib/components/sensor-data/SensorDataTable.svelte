@@ -6,6 +6,7 @@
      * - Server-side pagination, sorting, filtering via API
      * - Uses URL state for filters (shareable, back-button works)
      * - Account-scoped security (enforced at API level)
+     * - No flashing on filter/sort changes (only shows skeleton on initial load)
      */
 
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
@@ -13,6 +14,7 @@
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import { page } from "$app/stores";
+    import { browser } from "$app/environment";
     import { onMount } from "svelte";
     import {
         handleTableSort,
@@ -39,8 +41,10 @@
     // State
     // =========================================================================
 
-    let loading = true;
+    let initialLoading = true; // Only true on first load
+    let fetching = false; // True during any fetch (for subtle loading indicator)
     let error: string | null = null;
+    let mounted = false;
 
     let props = {
         records: [] as Record<string, unknown>[],
@@ -90,24 +94,34 @@
     // Data Fetching
     // =========================================================================
 
+    // Track the last URL string to prevent duplicate fetches
+    let lastFetchUrl = "";
+
     async function fetchData() {
-        loading = true;
+        if (!browser) return;
+
+        // Build query params from URL
+        const urlParams = new URLSearchParams($page.url.searchParams);
+
+        // Override with component props
+        urlParams.set("per_page", String(pageSize));
+        if (sensorId) urlParams.set("sensorId", sensorId);
+        if (deviceId) urlParams.set("deviceId", deviceId);
+        if (targetId) urlParams.set("targetId", targetId);
+
+        const fetchUrl = `/api/sensor-data/${dataType}?${urlParams}`;
+
+        // Skip if we just fetched this exact URL
+        if (fetchUrl === lastFetchUrl && !initialLoading) {
+            return;
+        }
+        lastFetchUrl = fetchUrl;
+
+        fetching = true;
         error = null;
 
         try {
-            // Build query params from URL
-            const urlParams = new URLSearchParams($page.url.searchParams);
-
-            // Override with component props
-            urlParams.set("per_page", String(pageSize));
-            if (sensorId) urlParams.set("sensorId", sensorId);
-            if (deviceId) urlParams.set("deviceId", deviceId);
-            if (targetId) urlParams.set("targetId", targetId);
-
-            const response = await fetch(
-                `/api/sensor-data/${dataType}?${urlParams}`,
-            );
-
+            const response = await fetch(fetchUrl);
             const result = await response.json();
 
             if (!response.ok) {
@@ -134,23 +148,30 @@
             error = err instanceof Error ? err.message : "Unknown error";
             console.error("[SensorDataTable]", err);
         } finally {
-            loading = false;
+            fetching = false;
+            initialLoading = false;
         }
     }
 
-    // Fetch on mount and when URL changes
+    // Fetch on mount
     onMount(() => {
+        mounted = true;
         fetchData();
     });
 
-    // Re-fetch when URL search params change
-    $: if ($page.url.searchParams) {
-        fetchData();
+    // Track URL search params changes - only refetch when they actually change
+    let prevSearchParams = "";
+    $: if (browser && mounted) {
+        const currentSearchParams = $page.url.searchParams.toString();
+        if (currentSearchParams !== prevSearchParams) {
+            prevSearchParams = currentSearchParams;
+            fetchData();
+        }
     }
 </script>
 
 <div class="space-y-4">
-    {#if loading}
+    {#if initialLoading}
         <LoadingSkeleton />
     {:else if error}
         <div class="rounded-md bg-red-50 p-4">
@@ -166,7 +187,12 @@
                     value={$page.url.searchParams.get("search") || ""}
                 />
             </div>
-            <!-- Add more filters here as needed -->
+            <!-- Subtle loading indicator for refetches -->
+            {#if fetching}
+                <div class="text-sm text-muted-foreground animate-pulse">
+                    Loading...
+                </div>
+            {/if}
         </div>
 
         <!-- Data table -->

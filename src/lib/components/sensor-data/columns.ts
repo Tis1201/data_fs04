@@ -32,7 +32,6 @@ export const RadarSessionColumns: ColumnDef<RadarSessionRow>[] = [
         label: 'Target ID',
         sortable: true,
         width: '22%',
-        render: (row) => row.target_id.slice(0, 8) + '...',
     },
     {
         id: 'dwell_tracking_area_sec',
@@ -78,7 +77,6 @@ export const RadarPathColumns: ColumnDef<RadarPathRow>[] = [
         label: 'Target ID',
         sortable: true,
         width: '25%',
-        render: (row) => row.target_id.slice(0, 8) + '...',
     },
     {
         id: 'x_m',

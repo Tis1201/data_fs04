@@ -23,18 +23,6 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
     const isAdmin = user.systemRole === 'ADMIN';
     const accountIdParam = url.searchParams.get('accountId');
 
-    // DEBUG: Log auth info for troubleshooting
-    console.log('[API sensor-data] DEBUG Auth Info:', {
-        userId: user.id,
-        userEmail: user.email,
-        systemRole: user.systemRole,
-        primaryAccountId: user.primaryAccountId,
-        currentAccountId: auth.currentAccount?.account?.id,
-        currentAccountIdAlt: auth.currentAccount?.accountId,
-        isAdmin,
-        accountIdParam,
-    });
-
     let accountId: string | undefined;
     if (isAdmin && accountIdParam) {
         // Admin can query specific account
@@ -49,8 +37,6 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
         // Fallback to primary account
         accountId = user.primaryAccountId;
     }
-
-    console.log('[API sensor-data] DEBUG Resolved accountId:', accountId);
 
     if (!accountId) {
         return json({ error: 'Account ID required. Please select an account.' }, { status: 400 });
@@ -68,8 +54,9 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
         endTime: url.searchParams.get('endTime') || undefined,
         page: parseInt(url.searchParams.get('page') || '1', 10),
         perPage: parseInt(url.searchParams.get('per_page') || '25', 10),
-        sortBy: url.searchParams.get('sort_by') || undefined,
-        sortOrder: (url.searchParams.get('sort_order') as 'asc' | 'desc') || undefined,
+        // Support both legacy (sort_by, sort_order) and new (sort, order) parameter names
+        sortBy: url.searchParams.get('sort_by') || url.searchParams.get('sort') || undefined,
+        sortOrder: (url.searchParams.get('sort_order') || url.searchParams.get('order')) as 'asc' | 'desc' || undefined,
     };
 
     try {
