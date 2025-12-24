@@ -39,6 +39,7 @@
 		"process:main": "dotenv -- tsx scripts/processes/main-process.ts",
 		"bundle:process": "dotenv -- tsx scripts/processes/bundle-process.ts",
 		"mqtt:worker": "dotenv -- tsx src/worker/index.ts",
+		"cron:worker": "dotenv -- tsx src/worker/cron/index.ts",
 		"gcloud:cleanup": "dotenv -- tsx scripts/processes/gcloud-cleanup.ts",
 		"dev:all-processes": "concurrently \"npm run dev\" \"npm run bundle:process\" \"npm run gcloud:cleanup\""
 	},
@@ -112,6 +113,7 @@
 		"baileys": "^6.7.18",
 		"chart.js": "^4.4.6",
 		"class-variance-authority": "^0.7.0",
+		"croner": "^9.1.0",
 		"dotenv": "^16.4.5",
 		"generate-password": "^1.7.1",
 		"ioredis": "^5.7.0",
