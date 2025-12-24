@@ -195,6 +195,11 @@
                     icon: Settings2,
                 },
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
+                {
+                    href: "/admin/settings/cron-jobs",
+                    label: "Cron Jobs",
+                    icon: Activity,
+                },
             ],
         },
         {

@@ -336,6 +336,90 @@ flowchart LR
 
 ---
 
+## Multi-Pod CronJob Synchronization
+
+When running multiple Web and Worker pods, a common question is: **who syncs the cron schedule from DB to BullMQ?**
+
+### Sync Triggers
+
+| Trigger | Location | When |
+|---------|----------|------|
+| **Worker Startup** | `src/worker/jobs/index.ts` | Every worker pod on boot |
+| **Admin Create** | `/admin/settings/cron-jobs` action | After `prisma.cronJob.create()` |
+| **Admin Update** | `/admin/settings/cron-jobs` action | After `prisma.cronJob.update()` |
+| **Admin Toggle** | `/admin/settings/cron-jobs` action | After status change |
+| **Admin Delete** | `/admin/settings/cron-jobs` action | Calls `removeCronJob()` directly |
+
+### Why It's Safe (No Race Conditions)
+
+BullMQ's `upsertJobScheduler()` is **idempotent by design**:
+
+```typescript
+// cron-sync.ts
+await queue.upsertJobScheduler(
+    cronJob.id,  // Unique scheduler ID
+    { pattern: cronJob.cronExpression, tz: cronJob.timezone ?? 'UTC' },
+    { name: cronJob.functionName, data: jobData, opts: { ... } }
+);
+```
+
+- **Same ID + Same schedule** → No-op (already exists)
+- **Same ID + Different schedule** → Updates atomically
+- **New ID** → Creates new scheduler
+
+Even if 5 worker pods start simultaneously and all call `syncCronJobs()`, they all attempt to upsert the same schedulers, and Redis guarantees atomic execution.
+
+### Coordination Flow
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin UI
+    participant Web1 as Web Pod #1
+    participant Web2 as Web Pod #2
+    participant Redis as Redis (BullMQ)
+    participant W1 as Worker Pod #1
+    participant W2 as Worker Pod #2
+
+    Note over W1,W2: Both workers start simultaneously
+    W1->>Redis: upsertJobScheduler("cleanup-tokens", "0 0 * * *")
+    W2->>Redis: upsertJobScheduler("cleanup-tokens", "0 0 * * *")
+    Note over Redis: Atomic upsert - only one scheduler exists ✓
+
+    Admin->>Web1: Enable new CronJob
+    Web1->>Redis: upsertJobScheduler("new-job", "*/15 * * * *")
+    Note over Redis: Scheduler added ✓
+
+    Note over Redis: Schedule triggers...
+    Redis->>W1: Job ready (claimed)
+    Redis--xW2: (Already claimed by W1)
+    W1->>W1: Execute handler
+```
+
+### Source of Truth
+
+| Layer | Responsibility |
+|-------|----------------|
+| **PostgreSQL (`CronJob` table)** | What jobs *should* exist (admin-managed) |
+| **Redis (BullMQ Schedulers)** | Actual scheduling and execution state |
+| **Sync Logic** | Keeps them aligned via idempotent upserts |
+
+> [!NOTE]
+> No distributed locks or leader election are needed. BullMQ's idempotent operations and Redis's atomic guarantees handle all concurrency concerns.
+
+### Alternative Patterns (Not Required)
+
+For reference, other systems might use:
+
+| Pattern | Use Case |
+|---------|----------|
+| **Distributed Lock** | When sync has expensive side effects |
+| **Leader Election** | When only one node should perform admin tasks |
+| **Dedicated Scheduler Pod** | Cleaner separation (single replica handles all scheduling) |
+
+Our current approach (idempotent upsert on every sync) is the **recommended BullMQ pattern** and is production-ready.
+
+---
+
 ## Deliverables
 
 1.  **Prisma Migration**: Add `CronJob` table to `schema.prisma`.
@@ -357,3 +441,38 @@ flowchart LR
 | **Redis Cleanup** | Use `removeOnComplete: { age: 86400 }` (24h) and `removeOnFail: { count: 1000 }`. |
 | **Monitoring**    | Consider BullMQ Dashboard (e.g., `bull-arena` or `taskforce.sh`) for visibility.  |
 | **Idempotency**   | Design job handlers to be idempotent where possible (safe to retry).             |
+
+---
+
+## Admin Dashboard
+
+The Admin UI provides full visibility and management of CronJobs.
+
+### Location
+`/admin/settings/cron-jobs`
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Table View** | Lists all CronJobs with status, schedule, last run, result, and stats |
+| **Status Badges** | Visual indicators for ACTIVE/PAUSED/INACTIVE and running state |
+| **Run Now** | Trigger any job immediately (ad-hoc execution) |
+| **Pause/Resume** | Toggle job status without deleting |
+| **Create/Edit** | Modal dialogs for job configuration |
+| **Delete** | Remove job from DB and BullMQ |
+
+### Default System Jobs
+
+Seed with: `npx tsx scripts/seed-cron-jobs.ts`
+
+| Job Name | Function | Schedule | Default Status |
+|----------|----------|----------|----------------|
+| Cleanup Expired Tokens | `system:cleanup-tokens` | Daily @ midnight | ACTIVE |
+| Bundle Status Check | `system:bundle-status-check` | Every 15 min | INACTIVE |
+| GCloud Orphan Cleanup | `system:gcloud-cleanup` | Weekly Sunday 3am | INACTIVE |
+| Device Presence Reconcile | `system:device-presence-reconcile` | Every 5 min | INACTIVE |
+
+> [!NOTE]
+> INACTIVE jobs are placeholders. Implement the handler in `src/lib/server/jobs/handlers/` then enable via Admin UI.
+
