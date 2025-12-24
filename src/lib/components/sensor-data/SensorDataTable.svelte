@@ -7,6 +7,7 @@
      * - Uses URL state for filters (shareable, back-button works)
      * - Account-scoped security (enforced at API level)
      * - No flashing on filter/sort changes (only shows skeleton on initial load)
+     * - CSV export functionality
      */
 
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
@@ -14,6 +15,8 @@
     import DateRangeFilter from "$lib/components/ui_components_sveltekit/table/filter/DateRangeFilter.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import { Button } from "$lib/components/ui/button";
+    import { Download } from "lucide-svelte";
     import { page } from "$app/stores";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
@@ -38,13 +41,15 @@
     export let pageSize: number = 25;
     export let customColumns: ColumnDef[] | undefined = undefined;
     export let showDateFilter: boolean = true;
+    export let showExport: boolean = true;
 
     // =========================================================================
     // State
     // =========================================================================
 
-    let initialLoading = true; // Only true on first load
-    let fetching = false; // True during any fetch (for subtle loading indicator)
+    let initialLoading = true;
+    let fetching = false;
+    let exporting = false;
     let error: string | null = null;
     let mounted = false;
 
@@ -63,12 +68,11 @@
         loading: false,
     };
 
-    // Get columns for this data type (or use custom)
     $: columns =
         customColumns ?? enhanceColumns(getColumnsForDataType(dataType));
 
     // =========================================================================
-    // Column Enhancement (add RelativeDate rendering for timestamps)
+    // Column Enhancement
     // =========================================================================
 
     function enhanceColumns(cols: ColumnDef[]): ColumnDef[] {
@@ -96,16 +100,12 @@
     // Data Fetching
     // =========================================================================
 
-    // Track the last URL string to prevent duplicate fetches
     let lastFetchUrl = "";
 
     async function fetchData() {
         if (!browser) return;
 
-        // Build query params from URL
         const urlParams = new URLSearchParams($page.url.searchParams);
-
-        // Override with component props
         urlParams.set("per_page", String(pageSize));
         if (sensorId) urlParams.set("sensorId", sensorId);
         if (deviceId) urlParams.set("deviceId", deviceId);
@@ -113,7 +113,6 @@
 
         const fetchUrl = `/api/sensor-data/${dataType}?${urlParams}`;
 
-        // Skip if we just fetched this exact URL
         if (fetchUrl === lastFetchUrl && !initialLoading) {
             return;
         }
@@ -155,13 +154,96 @@
         }
     }
 
+    // =========================================================================
+    // CSV Export
+    // =========================================================================
+
+    async function exportToCsv() {
+        if (!browser) return;
+
+        exporting = true;
+
+        try {
+            // Build query params but request more data for export
+            const urlParams = new URLSearchParams($page.url.searchParams);
+            urlParams.set("per_page", "10000"); // Export up to 10,000 rows
+            urlParams.set("page", "1");
+            if (sensorId) urlParams.set("sensorId", sensorId);
+            if (deviceId) urlParams.set("deviceId", deviceId);
+            if (targetId) urlParams.set("targetId", targetId);
+
+            const response = await fetch(
+                `/api/sensor-data/${dataType}?${urlParams}`,
+            );
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    result.error || "Failed to fetch data for export",
+                );
+            }
+
+            const data = result.data || [];
+            if (data.length === 0) {
+                alert("No data to export");
+                return;
+            }
+
+            // Get column headers from the columns config
+            const exportColumns = getColumnsForDataType(dataType);
+            const headers = exportColumns.map((col) => col.label);
+            const columnIds = exportColumns.map((col) => col.id);
+
+            // Build CSV content
+            const csvRows: string[] = [];
+
+            // Header row
+            csvRows.push(headers.map((h) => `"${h}"`).join(","));
+
+            // Data rows
+            for (const row of data) {
+                const values = columnIds.map((id) => {
+                    const value = row[id];
+                    if (value === null || value === undefined) return "";
+                    const strValue = String(value).replace(/"/g, '""');
+                    return `"${strValue}"`;
+                });
+                csvRows.push(values.join(","));
+            }
+
+            const csvContent = csvRows.join("\n");
+
+            // Create and download file
+            const blob = new Blob([csvContent], {
+                type: "text/csv;charset=utf-8;",
+            });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute(
+                "download",
+                `${dataType}_export_${new Date().toISOString().split("T")[0]}.csv`,
+            );
+            link.style.visibility = "hidden";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("[SensorDataTable Export]", err);
+            alert(err instanceof Error ? err.message : "Export failed");
+        } finally {
+            exporting = false;
+        }
+    }
+
     // Fetch on mount
     onMount(() => {
         mounted = true;
         fetchData();
     });
 
-    // Track URL search params changes - only refetch when they actually change
+    // Track URL search params changes
     let prevSearchParams = "";
     $: if (browser && mounted) {
         const currentSearchParams = $page.url.searchParams.toString();
@@ -199,7 +281,26 @@
                 />
             {/if}
 
-            <!-- Subtle loading indicator for refetches -->
+            <!-- Spacer -->
+            <div class="flex-1"></div>
+
+            {#if showExport}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    on:click={exportToCsv}
+                    disabled={exporting || props.records.length === 0}
+                    class="gap-2"
+                >
+                    <Download class="h-4 w-4" />
+                    {#if exporting}
+                        Exporting...
+                    {:else}
+                        Export CSV
+                    {/if}
+                </Button>
+            {/if}
+
             {#if fetching}
                 <div class="text-sm text-muted-foreground animate-pulse">
                     Loading...
