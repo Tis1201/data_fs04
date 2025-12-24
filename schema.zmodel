@@ -1891,3 +1891,51 @@ model Sensor {
   @@index([type])
   @@index([status])
 }
+
+// ========================================
+// Background Job System
+// ========================================
+
+// CronJob model for database-driven scheduled tasks
+// These are synced to BullMQ repeatable jobs on worker startup
+model CronJob {
+  id             String    @id @default(cuid())
+  name           String    // Human-readable name (e.g., "Daily Token Cleanup")
+  functionName   String    // Registry key (e.g., "system:cleanup-tokens")
+  args           Json?     // Arguments passed to the handler function
+  cronExpression String    // Standard cron format (e.g., "0 0 * * *" for daily at midnight)
+  timezone       String?   @default("UTC")
+  status         String    @default("ACTIVE") // ACTIVE, INACTIVE, PAUSED
+  
+  // Execution Tracking
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  lastResult     String?   // "success" or error message
+  lastError      String?   // Full error stack if failed
+  isRunning      Boolean   @default(false)
+  
+  // Retry Configuration
+  retryCount     Int       @default(0)    // Current retry count for last failure
+  maxRetries     Int       @default(3)
+  timeout        Int?                     // Execution timeout in ms
+  
+  // Audit Fields
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  accountId      String?
+  
+  // Stats
+  totalRuns      Int       @default(0)
+  successCount   Int       @default(0)
+  failureCount   Int       @default(0)
+  
+  // Authorization
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null)
+  
+  @@index([status])
+  @@index([nextRunAt])
+  @@index([functionName])
+}
+

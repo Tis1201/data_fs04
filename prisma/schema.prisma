@@ -1270,3 +1270,32 @@ model Sensor {
   @@index([type])
   @@index([status])
 }
+
+model CronJob {
+  id             String    @id() @default(cuid())
+  name           String
+  functionName   String
+  args           Json?
+  cronExpression String
+  timezone       String?   @default("UTC")
+  status         String    @default("ACTIVE")
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  lastResult     String?
+  lastError      String?
+  isRunning      Boolean   @default(false)
+  retryCount     Int       @default(0)
+  maxRetries     Int       @default(3)
+  timeout        Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt()
+  createdBy      String?
+  accountId      String?
+  totalRuns      Int       @default(0)
+  successCount   Int       @default(0)
+  failureCount   Int       @default(0)
+
+  @@index([status])
+  @@index([nextRunAt])
+  @@index([functionName])
+}
