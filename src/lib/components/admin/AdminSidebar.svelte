@@ -163,28 +163,6 @@
             ],
         },
         {
-            label: "Integrations",
-            icon: Link2,
-            initialExpanded: false,
-            subItems: [
-                {
-                    href: "/admin/settings/webhook",
-                    label: "Webhook",
-                    icon: Link2,
-                },
-                {
-                    href: "/admin/settings/whatsapp/accounts",
-                    label: "Whatsapp",
-                    icon: MessageCircle,
-                },
-                {
-                    href: "/admin/settings/listeners",
-                    label: "Listeners",
-                    icon: Ear,
-                },
-            ],
-        },
-        {
             label: "Settings",
             icon: Settings,
             initialExpanded: true,
@@ -261,20 +239,12 @@
             icon: BugOff,
             initialExpanded: false,
             subItems: [
-                { href: "/admin/debug/sse", label: "SSE", icon: Zap },
-                {
-                    href: "/admin/debug/messaging",
-                    label: "Messaging",
-                    icon: MessageCircle,
-                },
                 { href: "/admin/debug/redis", label: "Redis", icon: Database },
                 {
                     href: "/admin/debug/dashboard/superset",
                     label: "Superset",
                     icon: Book,
                 },
-
-                // { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap }
             ],
         },
     ];
