@@ -70,9 +70,10 @@ Log posters send a CSV payload. These map to columns `c10+`. For clarity, we use
 |---|---|---|---|---|
 | **L1** | `c10` | `String` | ✅ | `log_type` — Routing key (see enum below) |
 | **L2** | `c11` | `String` | ✅ | `log_type_version` — Schema version (semver: `1.0`, `1.1`, `2.0`, etc.) |
-| **L3** | `c12` | `DateTime` | ✅ | `log_creation_time` — When the log event occurred on device |
+| **L3** | `c12` | `DateTime` | ✅ | `log_creation_time` — When the log event occurred (**UTC**) |
 | **L4** | `c13` | `Int16` | ✅ | `timezone_offset` — Device timezone offset in minutes (e.g., `480` for UTC+8) |
-| **L5+** | `c14+` | `String` | Varies | Payload fields (varies by `log_type` × `version`) |
+| **L5** | `c14` | `String` | ✅ | `timezone_label` — IANA timezone name (e.g., `America/New_York`) |
+| **L6+** | `c15+` | `String` | Varies | Payload fields (varies by `log_type` × `version`) |
 
 #### Log Type Enum
 
@@ -101,11 +102,11 @@ L1,L2,L3,L4,L5,...
 > [!TIP]
 > **Example Payload (DEVICE_APPS, v2)**:
 > ```csv
-> DEVICE_APPS,2,2025-12-23 14:30:00,480,com.example.app,Example App,1.0.0,Normal
+> DEVICE_APPS,2,2025-12-23 14:30:00,480,Asia/Singapore,com.example.app,Example App,1.0.0,Normal
 > ```
 > Maps to:
-> - `c10`=DEVICE_APPS, `c11`=2, `c12`=2025-12-23 14:30:00, `c13`=480
-> - `c14`=com.example.app, `c15`=Example App, `c16`=1.0.0, `c17`=Normal
+> - `c10`=DEVICE_APPS, `c11`=2, `c12`=2025-12-23 14:30:00, `c13`=480, `c14`=Asia/Singapore
+> - `c15`=com.example.app, `c16`=Example App, `c17`=1.0.0, `c18`=Normal
 
 ---
 
