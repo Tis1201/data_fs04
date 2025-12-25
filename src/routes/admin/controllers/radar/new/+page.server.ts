@@ -2,21 +2,19 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { radarSensorSchema } from './radar-sensor';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import type { Prisma } from '@prisma/client';
 
 export const load = restrict(
-    async ({ locals }) => {
+    async ({ locals }: AuthenticatedLoadEvent) => {
         try {
             const form = await superValidate(zod(radarSensorSchema), {
-                id: 'radar-sensor-form',
-                defaults: {
-                    status: 'INACTIVE'
-                }
+                id: 'radar-sensor-form'
             });
 
             const accounts = await locals.prisma.account.findMany({
@@ -62,7 +60,7 @@ export const load = restrict(
 
 export const actions: Actions = {
     forceCreate: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedLoadEvent) => {
             const form = await superValidate(request, zod(radarSensorSchema));
             
             if (!form.valid) {
@@ -70,37 +68,44 @@ export const actions: Actions = {
                 return fail(400, { form });
             }
 
+            if (!form.data.deviceId) {
+                return fail(400, { form, error: 'Device is required to create a radar controller' });
+            }
+            const deviceId = form.data.deviceId as string;
+
             try {
-                // First, check if there's an existing controller+sensor that's causing the constraint issue
-                const existingController = await locals.prisma.controller.findFirst({
+                // First, check if there's an existing ACTIVE controller+sensor that's causing the constraint issue
+                // Only check for non-deleted controllers
+                const existingActiveController = await locals.prisma.controller.findFirst({
                     where: {
-                        deviceId: form.data.deviceId,
-                        type: 'radar'
+                        deviceId,
+                        type: 'radar',
+                        isDeleted: false // Only check for active controllers
                     },
                     include: {
                         sensors: true
                     }
                 });
 
-                if (existingController) {
+                if (existingActiveController && 'sensors' in existingActiveController) {
                     // Log what we found before attempting cleanup
-                    logger.warn(`Force create: Found existing controller ${existingController.id} for device ${form.data.deviceId}`);
+                    logger.warn(`Force create: Found existing active controller ${existingActiveController.id} for device ${form.data.deviceId}`);
                     
                     // Try to remove the old one in a transaction along with sensors
-                    await locals.prisma.$transaction(async (tx) => {
+                    await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
                         // Delete all sensors attached to this controller
-                        for (const sensor of existingController.sensors) {
+                        for (const sensor of existingActiveController.sensors ?? []) {
                             await tx.sensor.delete({
                                 where: { id: sensor.id }
                             });
                             logger.info(`Force delete: Removed sensor ${sensor.id}`);
                         }
                         
-                        // Delete the controller
+                        // Hard delete the controller to free the serialNumber constraint
                         await tx.controller.delete({
-                            where: { id: existingController.id }
+                            where: { id: existingActiveController.id }
                         });
-                        logger.info(`Force delete: Removed controller ${existingController.id}`);
+                        logger.info(`Force delete: Hard deleted controller ${existingActiveController.id}`);
                     });
 
                     logger.info(`Successfully cleaned up old controller and sensors`);
@@ -108,8 +113,31 @@ export const actions: Actions = {
 
                 // Now proceed with creation as normal
                 const controllerSerial = `${form.data.serialNumber}-CTRL`;
+
+                // Also clean up any soft-deleted controllers with the same serial
+                const softDeletedControllersWithSerial = await locals.prisma.controller.findMany({
+                    where: {
+                        serialNumber: controllerSerial,
+                        isDeleted: true
+                    },
+                    include: { sensors: true }
+                });
+
+                if (softDeletedControllersWithSerial.length > 0) {
+                    logger.info(`Force create: Cleaning up ${softDeletedControllersWithSerial.length} soft-deleted controller(s) with serial ${controllerSerial}`);
+                    for (const ctrl of softDeletedControllersWithSerial) {
+                        // Delete sensors first
+                        for (const s of ctrl.sensors) {
+                            await locals.prisma.sensor.delete({ where: { id: s.id } });
+                            logger.info(`Force delete: Removed orphan sensor ${s.id}`);
+                        }
+                        // Hard delete the soft-deleted controller
+                        await locals.prisma.controller.delete({ where: { id: ctrl.id } });
+                        logger.info(`Force delete: Hard deleted soft-deleted controller ${ctrl.id}`);
+                    }
+                }
                 
-                const result = await locals.prisma.$transaction(async (tx) => {
+                const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
                     // Create Controller
                     const controller = await tx.controller.create({
                         data: {
@@ -117,8 +145,8 @@ export const actions: Actions = {
                             serialNumber: controllerSerial,
                             status: form.data.status,
                             accountId: form.data.accountId,
-                            deviceId: form.data.deviceId || null,
-                            createdBy: locals.user.id,
+                            deviceId,
+                            createdBy: locals.user?.id ?? 'unknown',
                             type: 'radar'
                         }
                     });
@@ -135,7 +163,7 @@ export const actions: Actions = {
                             status: form.data.status,
                             accountId: form.data.accountId,
                             controllerId: controller.id,
-                            createdBy: locals.user.id,
+                            createdBy: locals.user?.id ?? 'unknown',
                             config: {} // Empty config initially
                         }
                     });
@@ -151,8 +179,8 @@ export const actions: Actions = {
                     recordId: result.sensor.id,
                     oldData: null,
                     newData: result.sensor,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
                 });
 
@@ -177,11 +205,15 @@ export const actions: Actions = {
         ['ADMIN']
     ),
     create: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedLoadEvent) => {
             const form = await superValidate(request, zod(radarSensorSchema));
 
             if (!form.valid) {
                 return fail(400, { form });
+            }
+
+            if (!form.data.deviceId) {
+                return fail(400, { form, error: 'Device is required to create a radar controller' });
             }
 
             try {
@@ -198,8 +230,19 @@ export const actions: Actions = {
                 }
 
                 // 2. Validate Serial Number Uniqueness (Sensor level)
-                const existingSensor = await locals.prisma.sensor.findUnique({
-                    where: { serialNumber: form.data.serialNumber }
+                // First, clean up any sensors whose controllers have been soft-deleted to free the serial.
+                await locals.prisma.sensor.deleteMany({
+                    where: {
+                        serialNumber: form.data.serialNumber,
+                        controller: { isDeleted: true }
+                    }
+                });
+
+                const existingSensor = await locals.prisma.sensor.findFirst({
+                    where: { serialNumber: form.data.serialNumber },
+                    include: {
+                        controller: true
+                    }
                 });
 
                 if (existingSensor) {
@@ -254,18 +297,46 @@ export const actions: Actions = {
                 // or we append suffix. Let's use suffix to avoid collision if tables merged later or shared index.
                 const controllerSerial = `${form.data.serialNumber}-CTRL`;
 
-                // Check if controller serial exists (unlikely but possible)
-                const existingController = await locals.prisma.controller.findUnique({
-                    where: { serialNumber: controllerSerial }
+                const deviceId = form.data.deviceId as string;
+
+                // Clean up soft-deleted controllers with the same serial to free the unique constraint
+                const softDeletedControllersWithSerial = await locals.prisma.controller.findMany({
+                    where: {
+                        serialNumber: controllerSerial,
+                        isDeleted: true
+                    },
+                    include: { sensors: true }
                 });
-                if (existingController) {
+
+                if (softDeletedControllersWithSerial.length > 0) {
+                    logger.info(`Cleaning up ${softDeletedControllersWithSerial.length} soft-deleted controller(s) with serial ${controllerSerial}`);
+                    for (const ctrl of softDeletedControllersWithSerial) {
+                        // Delete sensors first
+                        for (const s of ctrl.sensors) {
+                            await locals.prisma.sensor.delete({ where: { id: s.id } });
+                            logger.info(`Deleted orphan sensor ${s.id} from soft-deleted controller ${ctrl.id}`);
+                        }
+                        // Hard delete the soft-deleted controller to free the serial
+                        await locals.prisma.controller.delete({ where: { id: ctrl.id } });
+                        logger.info(`Hard deleted soft-deleted controller ${ctrl.id} to free serial ${controllerSerial}`);
+                    }
+                }
+
+                // Check if controller serial exists for active controllers (unlikely but possible)
+                const existingControllerWithSerial = await locals.prisma.controller.findFirst({
+                    where: { 
+                        serialNumber: controllerSerial,
+                        isDeleted: false // Only check active controllers
+                    }
+                });
+                if (existingControllerWithSerial) {
                     return fail(400, {
                         form,
                         error: 'Controller generation failed (Duplicate Serial). Please contact support.'
                     });
                 }
 
-                const result = await locals.prisma.$transaction(async (tx) => {
+                const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
                     // Create Controller
                     const controller = await tx.controller.create({
                         data: {
@@ -273,8 +344,8 @@ export const actions: Actions = {
                             serialNumber: controllerSerial,
                             status: form.data.status,
                             accountId: form.data.accountId,
-                            deviceId: form.data.deviceId || null,
-                            createdBy: locals.user.id,
+                            deviceId,
+                            createdBy: locals.user?.id ?? 'unknown',
                             type: 'radar'
                         }
                     });
@@ -291,7 +362,7 @@ export const actions: Actions = {
                             status: form.data.status,
                             accountId: form.data.accountId,
                             controllerId: controller.id,
-                            createdBy: locals.user.id,
+                            createdBy: locals.user?.id ?? 'unknown',
                             config: {} // Empty config initially
                         }
                     });
@@ -307,8 +378,8 @@ export const actions: Actions = {
                     recordId: result.sensor.id,
                     oldData: null,
                     newData: result.sensor,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
                 });
 
@@ -322,28 +393,37 @@ export const actions: Actions = {
                         details: `Controller '${result.controller.name}' has been created. Proceeding to sensor configuration.`
                     }
                 };
-            } catch (err: any) {
+            } catch (err: unknown) {
                 logger.error(`Error creating radar sensor: ${err}`);
 
                 // Handle specific Prisma constraint errors
-                if (err.code === 'P2002') {
-                    const target = err.meta?.target;
-                    if (target?.includes('deviceId') && target?.includes('type')) {
-                        return fail(400, {
-                            form,
-                            error: 'This device already has a radar sensor. Each device can only have one radar sensor.'
-                        });
-                    } else if (target?.includes('serialNumber')) {
-                        return fail(400, {
-                            form,
-                            error: 'A sensor with this serial number already exists. Please use a unique serial number.'
-                        });
+                if (err && typeof err === 'object' && 'code' in err) {
+                    const prismaError = err as { code: string; meta?: { target?: string[] } };
+                    if (prismaError.code === 'P2002') {
+                        const target = prismaError.meta?.target;
+                        if (target && Array.isArray(target)) {
+                            if (target.includes('deviceId') && target.includes('type')) {
+                                return fail(400, {
+                                    form,
+                                    error: 'This device already has a radar controller configured. Only one active radar controller is allowed per device. Use "Force Create" option if you want to replace it.'
+                                });
+                            } else if (target.includes('serialNumber')) {
+                                return fail(400, {
+                                    form,
+                                    error: 'A sensor with this serial number already exists. Please use a unique serial number.'
+                                });
+                            }
+                        }
                     }
                 }
 
+                // Log full error for debugging
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                logger.error(`Full error details: ${JSON.stringify(err)}`);
+
                 return fail(500, {
                     form,
-                    error: 'Failed to register radar sensor. Please try again.'
+                    error: `Failed to create radar controller: ${errorMessage}. Please check the logs for more details.`
                 });
             }
         },

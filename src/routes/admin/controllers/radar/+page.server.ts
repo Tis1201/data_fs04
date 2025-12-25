@@ -1,13 +1,14 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import type { Prisma } from '@prisma/client';
 
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             const search = url.searchParams.get('search') || '';
             const page = parseInt(url.searchParams.get('page') || '1');
@@ -20,7 +21,12 @@ export const load = restrict(
             const skip = (page - 1) * perPage;
             const take = perPage;
 
-            const where: any = {
+            const where: {
+                type: string;
+                OR?: Array<{ [key: string]: { contains: string; mode: 'insensitive' } }>;
+                status?: { in: string[] };
+                accountId?: string;
+            } = {
                 type: 'radar'
             };
 
@@ -128,42 +134,71 @@ export const load = restrict(
 
 export const actions: Actions = {
     deleteRadarSensor: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedLoadEvent) => {
             const formData = await request.formData();
-            const id = formData.get('id')?.toString();
+            const id = formData.get('id')?.toString(); // sensor id
 
             if (!id) {
                 return fail(400, { error: 'Sensor ID is required' });
             }
 
             try {
-                const existingSensor = await locals.prisma.sensor.findUnique({
-                    where: { id },
-                    select: {
-                        id: true,
-                        name: true,
-                        serialNumber: true
+                // Load sensor with controller (non-deleted controller)
+                const sensor = await locals.prisma.sensor.findFirst({
+                    where: {
+                        id,
+                        type: 'radar',
+                        controller: {
+                            isDeleted: false
+                        }
+                    },
+                    include: {
+                        controller: true
                     }
                 });
 
-                if (!existingSensor) {
-                    return fail(404, { error: 'Sensor not found' });
+                if (!sensor || !sensor.controller) {
+                    return fail(404, { error: 'Sensor or controller not found' });
                 }
 
-                const deletedSensor = await locals.prisma.sensor.delete({
-                    where: { id }
+                // Hard delete both sensor and controller in a transaction
+                const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+                    // First delete the sensor
+                    const deletedSensor = await tx.sensor.delete({
+                        where: { id: sensor.id }
+                    });
+
+                    // Then hard delete the controller to free the serialNumber constraint
+                    const deletedController = await tx.controller.delete({
+                        where: { id: sensor.controllerId }
+                    });
+
+                    return { controller: deletedController, sensor: deletedSensor };
                 });
 
-                logger.info(`Radar Sensor successfully deleted: ${deletedSensor.id} (${deletedSensor.name})`);
+                logger.info(
+                    `Radar Sensor deleted: ${result.sensor.id} (${result.sensor.name}), controller deleted: ${result.controller.id}`
+                );
 
                 await logAudit({
                     actionType: AuditActionType.DELETE,
                     tableName: 'Sensor',
                     recordId: id,
-                    oldData: deletedSensor,
+                    oldData: sensor,
                     newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
+                    userId: locals.user?.id ?? 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
+                    prisma: locals.prisma
+                });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Controller',
+                    recordId: result.controller.id,
+                    oldData: sensor.controller,
+                    newData: null,
+                    userId: locals.user?.id ?? 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
                     prisma: locals.prisma
                 });
 
