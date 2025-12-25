@@ -372,6 +372,14 @@ export const actions = {
                     });
                 }
 
+                // Delete the associated expiration cronjob first
+                try {
+                    await deleteEntityExpirationCronjob(locals.prisma, 'apiKey', id);
+                    logger.info(`Deleted expiration cronjob for API key: ${id}`);
+                } catch (cronError) {
+                    logger.warn(`Failed to delete cronjob for API key ${id}:`, cronError);
+                }
+
                 // Delete the API key
                 await locals.prisma.apiKey.delete({
                     where: { id }

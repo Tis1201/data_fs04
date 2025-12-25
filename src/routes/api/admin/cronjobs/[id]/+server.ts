@@ -14,7 +14,7 @@ const updateCronJobSchema = z.object({
   functionName: z.string().min(1).optional(),
   args: z.any().optional(),
   cronExpression: z.string().min(1).optional(),
-  status: z.enum(['SCHEDULED', 'COMPLETED', 'FAILED', 'PAUSED']).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'PAUSED', 'COMPLETED']).optional(),
   maxRetries: z.number().int().min(0).max(10).optional(),
   timeout: z.number().int().min(0).optional().nullable(),
   accountId: z.string().optional().nullable()

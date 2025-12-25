@@ -72,7 +72,7 @@
         formData = {
             name: job.name,
             functionName: job.functionName,
-            cronExpression: job.cronExpression,
+            cronExpression: job.cronExpression ?? "",
             timezone: job.timezone ?? "UTC",
             status: job.status,
             maxRetries: job.maxRetries,
@@ -209,8 +209,15 @@
                                 >
                             </Table.Cell>
                             <Table.Cell>
-                                <code class="text-xs">{job.cronExpression}</code
-                                >
+                                {#if !job.isRecurring}
+                                    <Badge variant="outline" class="text-xs">
+                                        One-time job
+                                    </Badge>
+                                {:else if job.cronExpression}
+                                    <code class="text-xs">{job.cronExpression}</code>
+                                {:else}
+                                    <span class="text-muted-foreground text-xs">—</span>
+                                {/if}
                             </Table.Cell>
                             <Table.Cell>
                                 <Badge
@@ -245,104 +252,110 @@
                                 >
                             </Table.Cell>
                             <Table.Cell>
-                                <DropdownMenu.Root>
-                                    <DropdownMenu.Trigger asChild let:builder>
-                                        <Button
-                                            builders={[builder]}
-                                            variant="ghost"
-                                            size="icon"
-                                        >
-                                            <MoreHorizontal class="w-4 h-4" />
-                                        </Button>
-                                    </DropdownMenu.Trigger>
-                                    <DropdownMenu.Content align="end">
-                                        <form
-                                            method="POST"
-                                            action="?/trigger"
-                                            use:enhance
-                                        >
-                                            <input
-                                                type="hidden"
-                                                name="id"
-                                                value={job.id}
-                                            />
-                                            <DropdownMenu.Item asChild>
-                                                <button
-                                                    type="submit"
-                                                    class="w-full flex items-center gap-2 cursor-pointer"
-                                                >
-                                                    <Play class="w-4 h-4" /> Run Now
-                                                </button>
+                                {#if !job.isRecurring}
+                                    <!-- One-time jobs: No actions - auto-managed by system -->
+                                    <span class="text-muted-foreground text-xs">Auto-managed</span>
+                                {:else}
+                                    <!-- Recurring jobs: Show all actions -->
+                                    <DropdownMenu.Root>
+                                        <DropdownMenu.Trigger asChild let:builder>
+                                            <Button
+                                                builders={[builder]}
+                                                variant="ghost"
+                                                size="icon"
+                                            >
+                                                <MoreHorizontal class="w-4 h-4" />
+                                            </Button>
+                                        </DropdownMenu.Trigger>
+                                        <DropdownMenu.Content align="end">
+                                            <form
+                                                method="POST"
+                                                action="?/trigger"
+                                                use:enhance
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="id"
+                                                    value={job.id}
+                                                />
+                                                <DropdownMenu.Item asChild>
+                                                    <button
+                                                        type="submit"
+                                                        class="w-full flex items-center gap-2 cursor-pointer"
+                                                    >
+                                                        <Play class="w-4 h-4" /> Run Now
+                                                    </button>
+                                                </DropdownMenu.Item>
+                                            </form>
+                                            <DropdownMenu.Item
+                                                on:click={() => openEdit(job)}
+                                            >
+                                                <RefreshCw class="w-4 h-4 mr-2" /> Edit
                                             </DropdownMenu.Item>
-                                        </form>
-                                        <DropdownMenu.Item
-                                            on:click={() => openEdit(job)}
-                                        >
-                                            <RefreshCw class="w-4 h-4 mr-2" /> Edit
-                                        </DropdownMenu.Item>
-                                        <DropdownMenu.Separator />
-                                        {#if job.status === "ACTIVE"}
-                                            <form
-                                                method="POST"
-                                                action="?/toggleStatus"
-                                                use:enhance
+                                            <DropdownMenu.Separator />
+                                            {#if job.status === "ACTIVE"}
+                                                <form
+                                                    method="POST"
+                                                    action="?/toggleStatus"
+                                                    use:enhance
+                                                >
+                                                    <input
+                                                        type="hidden"
+                                                        name="id"
+                                                        value={job.id}
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="status"
+                                                        value="PAUSED"
+                                                    />
+                                                    <DropdownMenu.Item asChild>
+                                                        <button
+                                                            type="submit"
+                                                            class="w-full flex items-center gap-2 cursor-pointer"
+                                                        >
+                                                            <Pause
+                                                                class="w-4 h-4"
+                                                            /> Pause
+                                                        </button>
+                                                    </DropdownMenu.Item>
+                                                </form>
+                                            {:else}
+                                                <form
+                                                    method="POST"
+                                                    action="?/toggleStatus"
+                                                    use:enhance
+                                                >
+                                                    <input
+                                                        type="hidden"
+                                                        name="id"
+                                                        value={job.id}
+                                                    />
+                                                    <input
+                                                        type="hidden"
+                                                        name="status"
+                                                        value="ACTIVE"
+                                                    />
+                                                    <DropdownMenu.Item asChild>
+                                                        <button
+                                                            type="submit"
+                                                            class="w-full flex items-center gap-2 cursor-pointer"
+                                                        >
+                                                            <Play class="w-4 h-4" /> Activate
+                                                        </button>
+                                                    </DropdownMenu.Item>
+                                                </form>
+                                            {/if}
+                                            <DropdownMenu.Separator />
+                                            <DropdownMenu.Item
+                                                class="text-destructive focus:text-destructive"
+                                                on:click={() => openDelete(job)}
                                             >
-                                                <input
-                                                    type="hidden"
-                                                    name="id"
-                                                    value={job.id}
-                                                />
-                                                <input
-                                                    type="hidden"
-                                                    name="status"
-                                                    value="PAUSED"
-                                                />
-                                                <DropdownMenu.Item asChild>
-                                                    <button
-                                                        type="submit"
-                                                        class="w-full flex items-center gap-2 cursor-pointer"
-                                                    >
-                                                        <Pause
-                                                            class="w-4 h-4"
-                                                        /> Pause
-                                                    </button>
-                                                </DropdownMenu.Item>
-                                            </form>
-                                        {:else}
-                                            <form
-                                                method="POST"
-                                                action="?/toggleStatus"
-                                                use:enhance
-                                            >
-                                                <input
-                                                    type="hidden"
-                                                    name="id"
-                                                    value={job.id}
-                                                />
-                                                <input
-                                                    type="hidden"
-                                                    name="status"
-                                                    value="ACTIVE"
-                                                />
-                                                <DropdownMenu.Item asChild>
-                                                    <button
-                                                        type="submit"
-                                                        class="w-full flex items-center gap-2 cursor-pointer"
-                                                    >
-                                                        <Play class="w-4 h-4" /> Activate
-                                                    </button>
-                                                </DropdownMenu.Item>
-                                            </form>
-                                        {/if}
-                                        <DropdownMenu.Separator />
-                                        <DropdownMenu.Item
-                                            class="text-destructive focus:text-destructive"
-                                            on:click={() => openDelete(job)}
-                                        >
-                                            <Trash2 class="w-4 h-4 mr-2" /> Delete
-                                        </DropdownMenu.Item>
-                                    </DropdownMenu.Content>
-                                </DropdownMenu.Root>
+                                                <Trash2 class="w-4 h-4 mr-2" /> Delete
+                                            </DropdownMenu.Item>
+                                        </DropdownMenu.Content>
+                                    </DropdownMenu.Root>
+                                {/if}
                             </Table.Cell>
                         </Table.Row>
                     {/each}

@@ -65,7 +65,7 @@ export const POST: RequestHandler = restrict(
       const updated = await (locals.prisma as any).cronJob.update({
         where: { id },
         data: {
-          status: 'SCHEDULED',
+          status: 'ACTIVE',
           nextRunAt: nextRunAt
         }
       });

@@ -57,6 +57,10 @@ export function listRegisteredJobs(): { name: string; description?: string }[] {
 // Register handlers here (or import from handlers/)
 // ============================================================
 
+// Entity expiration handler
+import { entityExpireHandler } from './handlers/entity-expire';
+registerJob('entity-expire', entityExpireHandler, 'Generic entity expiration handler');
+
 // System jobs
 import { cleanupExpiredTokens } from './handlers/cleanup-tokens';
 registerJob('system:cleanup-tokens', cleanupExpiredTokens, 'Remove expired refresh tokens and sessions');

@@ -24,19 +24,26 @@ export interface CronJobOptions {
   
   /**
    * Cron expression (e.g., "0 0 * * *" for daily at midnight)
+   * Required for recurring jobs, optional for one-time jobs
    */
   cronExpression?: string;
   
   /**
    * Optional: Target date/time for one-time execution
-   * If provided, cronExpression will be calculated to run at this time
+   * If provided, creates a one-time job (isRecurring = false)
    */
   targetDate?: Date;
   
   /**
+   * Whether this is a recurring job (default: true)
+   * Set to false for one-time jobs
+   */
+  isRecurring?: boolean;
+  
+  /**
    * Status of the cronjob
    */
-  status?: 'SCHEDULED' | 'COMPLETED' | 'FAILED' | 'PAUSED';
+  status?: 'ACTIVE' | 'INACTIVE' | 'PAUSED' | 'COMPLETED';
   
   /**
    * Maximum retries on failure
@@ -76,14 +83,15 @@ export async function upsertCronJob(
   prisma: any,
   options: CronJobOptions
 ): Promise<any | null> {
-  try {
+  try {  
     const {
       name,
       functionName,
       args = {},
       cronExpression,
       targetDate,
-      status = 'SCHEDULED',
+      isRecurring,
+      status = 'ACTIVE',
       maxRetries = 3,
       timeout = null,
       userId = null,
@@ -97,14 +105,15 @@ export async function upsertCronJob(
       return null;
     }
 
-    // Determine cron expression and next run time
-    let finalCronExpression: string;
+    // Determine job type, cron expression, and next run time
+    let finalCronExpression: string | null;
+    let finalIsRecurring: boolean;
     let nextRunAt: Date | null;
 
     if (targetDate) {
-      // If targetDate is provided, use daily cron starting from that date
-      // Default to daily at midnight UTC
-      finalCronExpression = '0 0 * * *'; // Daily at midnight UTC
+      // One-time job with target date
+      finalIsRecurring = isRecurring ?? false; // Default to one-time if targetDate provided
+      finalCronExpression = null; // No cron expression for one-time jobs
       
       // Ensure targetDate is treated as UTC
       const target = targetDate instanceof Date ? targetDate : new Date(targetDate);
@@ -115,24 +124,14 @@ export async function upsertCronJob(
         // Target is in the past, run in 1 minute
         nextRunAt = new Date(now.getTime() + 60 * 1000);
       } else {
-        // Create date in UTC explicitly
-        // Get UTC components from target date
-        const targetUTC = new Date(Date.UTC(
-          target.getUTCFullYear(),
-          target.getUTCMonth(),
-          target.getUTCDate(),
-          0, 0, 0, 0
-        ));
-        
-        // If target is today, ensure it runs at least 1 minute from now
-        if (targetUTC <= now) {
-          nextRunAt = new Date(now.getTime() + 60 * 1000);
-        } else {
-          nextRunAt = targetUTC;
-        }
+        // Use the target date as-is
+        nextRunAt = target;
       }
     } else if (cronExpression) {
-      // Use provided cron expression
+      // Recurring job with cron expression
+      finalIsRecurring = isRecurring ?? true; // Default to recurring if cronExpression provided
+      
+      // Validate cron expression
       if (!validateCronExpression(cronExpression)) {
         logger.error(`[CronJobService] Invalid cron expression: ${cronExpression}`);
         return null;
@@ -161,6 +160,7 @@ export async function upsertCronJob(
       functionName,
       args,
       cronExpression: finalCronExpression,
+      isRecurring: finalIsRecurring,
       status,
       nextRunAt,
       maxRetries,
@@ -194,10 +194,13 @@ export async function upsertCronJob(
 
     return cronjob;
   } catch (error) {
-    logger.error(`[CronJobService] Error upserting cronjob '${options.name}':`, {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    logger.error(`[CronJobService] Error upserting cronjob '${options.name}': ${errorMessage}`, {
+      error: errorMessage,
+      stack: errorStack
     });
+    console.error('[CronJobService] Full error:', error);
     return null;
   }
 }
@@ -270,7 +273,7 @@ export async function deleteCronJobById(
 export async function updateCronJobStatus(
   prisma: any,
   name: string,
-  status: 'SCHEDULED' | 'COMPLETED' | 'FAILED' | 'PAUSED'
+  status: 'ACTIVE' | 'INACTIVE' | 'PAUSED' | 'COMPLETED'
 ): Promise<void> {
   try {
     const cronjob = await (prisma as any).cronJob.findFirst({

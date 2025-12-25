@@ -250,6 +250,14 @@ export const actions: Actions = {
             }
 
             try {
+                // Delete the associated expiration cronjob first
+                try {
+                    await deleteEntityExpirationCronjob(locals.prisma, 'refreshToken', id);
+                    logger.info(`Deleted expiration cronjob for refresh token: ${id}`);
+                } catch (cronError) {
+                    logger.warn(`Failed to delete cronjob for refresh token ${id}:`, cronError);
+                }
+
                 const token = await locals.prisma.refreshToken.delete({
                     where: { id }
                 });

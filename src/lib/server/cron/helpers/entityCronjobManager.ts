@@ -1,5 +1,6 @@
 import { logger } from '$lib/server/logger';
 import { upsertCronJob, deleteCronJobByName } from '$lib/server/cron/cronjobService';
+import { syncCronJobs, removeCronJob } from '$lib/server/jobs/cron-sync';
 
 /**
  * Generic helper to create/update a cronjob for any entity expiration
@@ -49,7 +50,8 @@ export async function upsertEntityExpirationCronjob(
   }
 
   // Use generic entity-expire function
-  return await upsertCronJob(prisma, {
+  // Entity expiration jobs are one-time jobs (isRecurring = false)
+  const cronjob = await upsertCronJob(prisma, {
     name: cronJobName,
     functionName: 'entity-expire', // Generic function for all entity types
     args: {
@@ -58,13 +60,24 @@ export async function upsertEntityExpirationCronjob(
       action
     },
     targetDate,
-    status: 'SCHEDULED',
+    isRecurring: false, // One-time job - runs once then marks as COMPLETED
+    status: 'ACTIVE',
     maxRetries: 3,
     timeout: 60000, // 1 minute timeout (processing just one entity)
     userId,
     accountId,
     description: `Auto-expire ${entityType} ${entityId}`
   });
+
+  // Sync to BullMQ after creating/updating cronjob
+  try {
+    await syncCronJobs();
+  } catch (error) {
+    logger.error('[EntityCronjobManager] Failed to sync cronjob to BullMQ:', error);
+    // Don't throw - cronjob is created, sync can be retried
+  }
+
+  return cronjob;
 }
 
 /**
@@ -80,6 +93,24 @@ export async function deleteEntityExpirationCronjob(
   entityId: string
 ): Promise<void> {
   const cronJobName = `${entityType}-expire-${entityId}`;
+  
+  // Find the cronjob first to get its ID for BullMQ cleanup
+  const cronjob = await (prisma as any).cronJob.findFirst({
+    where: { name: cronJobName },
+    select: { id: true }
+  });
+  
+  // Delete from database
   await deleteCronJobByName(prisma, cronJobName);
+  
+  // Remove from BullMQ if cronjob was found
+  if (cronjob) {
+    try {
+      await removeCronJob(cronjob.id);
+    } catch (error) {
+      logger.error('[EntityCronjobManager] Failed to remove cronjob from BullMQ:', error);
+      // Don't throw - cronjob is deleted from DB, BullMQ cleanup can be retried
+    }
+  }
 }
 
