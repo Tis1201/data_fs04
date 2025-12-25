@@ -68,7 +68,7 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
         let sensors: Sensor[] = [];
 
         if (!controller) {
-            // Auto-create controller
+            // Auto-create controller and sensor
             logger.info(
                 `[ControllerConfigAPI] Auto-creating new ${type} controller for device ${device.id}`
             );
@@ -87,7 +87,23 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
                     account: {
                         connect: { id: device.accountId }
                     },
-                    description: 'Auto-created during config retrieval'
+                    description: 'Auto-created during config retrieval',
+                    // Auto-create sensor when creating controller
+                    sensors: {
+                        create: {
+                            name: `Auto-created ${type.charAt(0).toUpperCase() + type.slice(1)} Sensor`,
+                            type: type,
+                            serialNumber: `${serialNumber}-SENSOR`,
+                            status: 'ACTIVE',
+                            account: {
+                                connect: { id: device.accountId }
+                            },
+                            description: 'Auto-created sensor for controller',
+                            config: getDefaultSensorConfig(type),
+                            configVersion: 1,
+                            syncStatus: 'PENDING'
+                        }
+                    }
                 },
                 include: {
                     sensors: true
@@ -95,9 +111,9 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
             });
 
             logger.info(
-                `[ControllerConfigAPI] Created controller: ${controller.id} (${controller.type})`
+                `[ControllerConfigAPI] Created controller: ${controller.id} (${controller.type}) with sensor`
             );
-            sensors = [];
+            sensors = controller.sensors;
         } else {
             logger.info(
                 `[ControllerConfigAPI] Found existing controller: ${controller.id} (${controller.type})`
