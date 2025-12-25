@@ -688,7 +688,112 @@ Located under `Account Settings`.
 
 ---
 
-## 10. Plan Evolution Strategy
+## 10. Coupons & Promotion Codes
+
+Stripe handles coupon logic entirely. Your platform just needs to:
+1. Allow users to enter a promo code at checkout.
+2. Optionally display applied discounts in the billing UI.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Web as Web App
+    participant Stripe
+
+    User->>Web: Enter promo code "LAUNCH50"
+    Web->>Stripe: Create Checkout Session with discounts
+    Note right of Web: discounts: [{ promotion_code: "promo_xxx" }]
+    Stripe->>Stripe: Validate code, apply discount
+    Stripe-->>User: Checkout shows discounted price
+    User->>Stripe: Complete payment
+    Stripe->>Web: Webhook: checkout.session.completed
+    Note right of Web: session.discount contains coupon details
+```
+
+### Creating Coupons (Stripe Dashboard or API)
+
+| Coupon Type | Use Case | Example |
+|-------------|----------|---------|
+| **Percent Off** | "50% off first 3 months" | `percent_off: 50, duration: 'repeating', duration_in_months: 3` |
+| **Amount Off** | "$20 off forever" | `amount_off: 2000, currency: 'usd', duration: 'forever'` |
+| **One-Time** | "Free first month" | `percent_off: 100, duration: 'once'` |
+
+### Promotion Codes vs Coupons
+
+| Concept | Description |
+|---------|-------------|
+| **Coupon** | The discount definition (internal ID like `coupon_abc123`) |
+| **Promotion Code** | The user-facing code (e.g., `"LAUNCH50"`) that maps to a Coupon |
+
+> [!TIP]
+> Create Promotion Codes in Stripe Dashboard under **Products > Coupons > + New promotion code**.
+
+### Implementation
+
+```typescript
+// POST /api/billing/checkout
+export async function POST({ request, locals }) {
+  const { priceId, promoCode } = await request.json();
+  const accountId = locals.session.accountId;
+  
+  // Look up promotion code if provided
+  let discounts: Stripe.Checkout.SessionCreateParams.Discount[] = [];
+  if (promoCode) {
+    const promoCodes = await stripe.promotionCodes.list({ code: promoCode, active: true });
+    if (promoCodes.data.length > 0) {
+      discounts = [{ promotion_code: promoCodes.data[0].id }];
+    }
+  }
+  
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    client_reference_id: accountId,
+    metadata: { accountId },
+    line_items: [{ price: priceId, quantity: 1 }],
+    discounts,  // Apply promo code
+    allow_promotion_codes: !promoCode,  // Show promo input if not pre-filled
+    success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/billing/cancel`,
+  });
+  
+  return json({ url: session.url });
+}
+```
+
+### Displaying Applied Discounts
+
+After checkout, you can show the user their active discount:
+
+```typescript
+// In billing page load function
+const sub = await stripe.subscriptions.retrieve(stripeSubscriptionId, {
+  expand: ['discount.coupon']
+});
+
+if (sub.discount?.coupon) {
+  const coupon = sub.discount.coupon;
+  const discountText = coupon.percent_off 
+    ? `${coupon.percent_off}% off` 
+    : `$${(coupon.amount_off! / 100).toFixed(2)} off`;
+  // Display: "You have LAUNCH50 applied: 50% off for 3 months"
+}
+```
+
+### Admin Coupon Management
+
+Coupons are managed entirely in **Stripe Dashboard**. No need to sync to local DB.
+
+| Admin Action | Where |
+|--------------|-------|
+| Create coupon | Stripe Dashboard > Products > Coupons |
+| Create promo code | Stripe Dashboard > Products > Coupons > [Coupon] > Promotion codes |
+| View redemptions | Stripe Dashboard > Customers > [Customer] > Invoices |
+
+---
+
+## 11. Plan Evolution Strategy
 
 ### A. The "Generous Global Lift" (Value Change)
 *   **Action**: Update `maxDevices` in the `Plan` table row.
@@ -702,7 +807,7 @@ Located under `Account Settings`.
 
 ---
 
-## 11. Implementation Checklist
+## 12. Implementation Checklist
 
 ### Phase 1: Foundation
 - [ ] Add `Plan` and `Subscription` models to `schema.zmodel`
@@ -740,7 +845,7 @@ Located under `Account Settings`.
 
 ---
 
-## 12. User Interface & Experience
+## 13. User Interface & Experience
 
 ### User Billing Portal
 ![User Billing Portal](/Users/bernard/.gemini/antigravity/brain/29a59016-bd61-4084-969d-34d4f2a99dbf/user_billing_portal_mockup_1766633083968.png)
@@ -750,7 +855,7 @@ Located under `Account Settings`.
 
 ---
 
-## 13. Best Practices & Reference
+## 14. Best Practices & Reference
 
 | Topic | Recommendation |
 |-------|----------------|
@@ -768,7 +873,7 @@ Located under `Account Settings`.
 
 ---
 
-## 14. Future Considerations (V2+)
+## 15. Future Considerations (V2+)
 
 - [ ] **Per-Seat Pricing**: Charge per `maxUsers` instead of flat.
 - [ ] **Usage-Based Billing**: Meter API calls or device-hours via Stripe Metered Billing.
