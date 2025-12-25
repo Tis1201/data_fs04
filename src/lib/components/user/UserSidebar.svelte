@@ -40,7 +40,9 @@
 
         Package2,
 
-        TagIcon
+        TagIcon,
+
+        Radio
 
 
 
@@ -91,6 +93,14 @@
                 { href: "/user/iot/bundles", label: "Bundles", icon: Package2 },
                 { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus },
                 { href: "/user/iot/pin-rules", label: "Pin Rules", icon: Settings }
+            ]
+        },
+        {
+            label: "Controllers",
+            icon: Radio,
+            initialExpanded: false,
+            subItems: [
+                { href: "/user/controllers/radar", label: "Radar", icon: Radio }
             ]
         },
 
