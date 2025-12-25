@@ -3,6 +3,7 @@ import type { RequestEvent, RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByApiKey, userInfoByUserId } from '$lib/server/security/auth-utils';
+import { getEnhancedPrisma } from '$lib/server/prisma';
 import type { Device } from '@prisma/client';
 
 /**
@@ -139,7 +140,10 @@ export async function restrict_device(
     };
   }
 
-  const prisma = locals.prisma;
+  // IMPORTANT: device auth must not depend on the request's session/user context.
+  // Using locals.prisma here can apply RLS / anon restrictions and cause valid
+  // device API keys to appear "invalid". Use the raw (unenhanced) Prisma client.
+  const prisma = getEnhancedPrisma(null);
 
   // Find device by apiKey
   const device = await prisma.device.findFirst({
