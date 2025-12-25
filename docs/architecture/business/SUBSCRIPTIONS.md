@@ -1,5 +1,15 @@
 # Subscription & Billing System Design
 
+## Design Rationale
+
+> [!NOTE]
+> **Why this architecture?**
+> 1. **Billing ≠ Entitlements**: Stripe is the source of truth for *payments*; your platform is the source of truth for *what users can do*. This separation lets you handle edge cases (grace periods, enterprise deals, offline licenses) without hacking Stripe.
+> 2. **Database-First Entitlements**: Limits live in DB columns (`maxDevices`), not config files. Sales can create custom deals via `overrideMaxDevices` without deploying code.
+> 3. **Unified Subscription Model**: Both SaaS (Stripe) and Self-Hosted (License Key) flow into the same `Subscription` table. Business logic only checks `getEntitlements()`.
+
+---
+
 ## Overview
 
 This document outlines the design for implementing subscriptions, plans, and entitlement enforcement for the FS04 platform. The design supports both **Hosted SaaS** (cloud) and **Self-Hosted** (on-premise/enterprise) models, utilizing **Stripe** as the payment processor and source of truth for billing.
@@ -53,6 +63,7 @@ erDiagram
     
     Plan {
         string id PK
+        string code UK "free, pro, enterprise"
         string name
         string stripeProductId UK
         string stripePriceId
@@ -67,6 +78,7 @@ erDiagram
         string id PK
         string accountId FK,UK
         string planId FK
+        string source "stripe, license"
         string status
         string stripeCustomerId
         string stripeSubscriptionId UK
@@ -85,7 +97,8 @@ erDiagram
 // Represents a billing tier (Syncs from Stripe Product/Price)
 model Plan {
   id              String   @id @default(cuid())
-  name            String   // e.g., "Free", "Pro", "Enterprise"
+  code            String   @unique // 'free', 'pro', 'enterprise' - stable lookup key
+  name            String   // Display name: "Free Tier", "Pro Plan"
   stripeProductId String?  @unique
   stripePriceId   String?  // Monthly price ID for Checkout
   isActive        Boolean  @default(true)
@@ -105,6 +118,7 @@ model Plan {
   @@allow('read', auth() != null && isActive == true)
   
   @@index([isActive])
+  @@index([code])
 }
 
 // Connects an Account to a Plan
@@ -116,21 +130,23 @@ model Subscription {
   planId          String
   plan            Plan     @relation(fields: [planId], references: [id])
   
+  source          String   @default("stripe") // 'stripe' | 'license'
   status          String   @default("active") // See state diagram below
   
-  // Stripe Data (for SaaS)
+  // Stripe Data (for SaaS, source='stripe')
   stripeCustomerId     String?
   stripeSubscriptionId String? @unique
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean @default(false)
   trialEndsAt          DateTime? // For trial periods
   
-  // License Data (for Self-Hosted)
+  // License Data (for Self-Hosted, source='license')
   licenseKey           String?
   licenseExpiresAt     DateTime? // Expiration for offline validation
   
   // Overrides (for custom deals)
   overrideMaxDevices   Int?
+  overrideMaxUsers     Int?
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -140,6 +156,7 @@ model Subscription {
   
   @@index([status])
   @@index([planId])
+  @@index([source])
 }
 ```
 
@@ -173,14 +190,25 @@ stateDiagram-v2
 
 ### Status Definitions
 
-| Status | Description | User Access |
-|--------|-------------|-------------|
-| `active` | Subscription is current and paid | Full access |
-| `trialing` | Within trial period | Full access |
-| `past_due` | Payment failed, retrying | Full access (grace period) |
-| `pending_cancel` | Will cancel at period end | Full access until period ends |
-| `canceled` | Subscription ended | Downgrade to Free |
-| `incomplete` | Initial payment failed | No paid access |
+| Status | Source | Description | User Access |
+|--------|--------|-------------|-------------|
+| `active` | Both | Subscription is current | Full access |
+| `trialing` | Both | Within trial period | Full access |
+| `past_due` | Stripe | Payment failed, retrying | Full access (grace) |
+| `pending_cancel` | Stripe | Will cancel at period end | Full access |
+| `canceled` | Both | Subscription ended | Downgrade to Free |
+| `incomplete` | Stripe | Initial payment failed | No paid access |
+| `expired` | License | License expired (self-hosted) | Downgrade to Free |
+
+### Self-Hosted Status Semantics
+
+For `source = 'license'`:
+- **Active**: `licenseExpiresAt > now()` → `status = 'active'`
+- **Trialing**: License JWT contains `trial: true` → `status = 'trialing'`
+- **Expired**: `licenseExpiresAt <= now()` → `status = 'expired'`, auto-downgrade to Free
+
+> [!IMPORTANT]
+> Self-hosted instances check `licenseExpiresAt` on startup and periodically. No phone-home required.
 
 ---
 
@@ -196,12 +224,13 @@ sequenceDiagram
     Note over User,Stripe: 1. Account Registration
     User->>Web: Register Account
     Web->>DB: Create Account
-    Web->>DB: Create Subscription (planId: "free", status: "active")
+    Web->>DB: Create Subscription (planId: "free", source: "stripe", status: "active")
     Web-->>User: Welcome! You're on Free Plan
 
     Note over User,Stripe: 2. Upgrade to Paid Plan
     User->>Web: Click "Upgrade to Pro"
-    Web->>Stripe: Create Checkout Session (priceId, accountId)
+    Web->>Stripe: Create Checkout Session
+    Note right of Web: client_reference_id = accountId<br/>metadata.accountId = accountId
     Stripe-->>Web: Checkout URL
     Web-->>User: Redirect to Stripe Checkout
     User->>Stripe: Enter Payment Details
@@ -211,6 +240,7 @@ sequenceDiagram
     Stripe->>Web: POST /api/webhook/stripe (checkout.session.completed)
     Web->>Web: Verify Signature
     Web->>DB: Update Subscription (planId: "pro", stripeCustomerId, stripeSubscriptionId)
+    Web->>Web: Invalidate entitlements cache
     Web-->>Stripe: 200 OK
 ```
 
@@ -234,6 +264,7 @@ sequenceDiagram
         User->>Stripe: Select new plan
         Stripe->>Web: Webhook: customer.subscription.updated
         Web->>DB: Update planId, status
+        Web->>Web: Invalidate cache
     else User Updates Payment
         User->>Stripe: Update card
         Note over Stripe: No webhook needed
@@ -257,28 +288,30 @@ sequenceDiagram
 
     Note over Admin,DB: License Generation (Your Admin Console)
     Admin->>Console: Generate License for Account X
-    Console->>Console: Create JWT { sub: accountId, plan, maxDevices, exp }
+    Console->>Console: Create JWT with KID header
+    Note right of Console: { sub: accountId, plan: "enterprise",<br/>maxDevices: 500, exp: unix_ts }
     Console->>Console: Sign with Private Key
     Console-->>Admin: License Key (JWT string)
 
     Note over Admin,DB: License Activation (Customer's Instance)
     Admin->>Web: Input License Key in /settings/license
-    Web->>Web: Decode JWT
-    Web->>Web: Verify signature with Public Key
+    Web->>Web: Decode JWT, extract KID
+    Web->>Web: Fetch public key from JWKS (or embedded)
+    Web->>Web: Verify signature
     Web->>Web: Check exp > now()
     alt Valid License
-        Web->>DB: Update Subscription (planId, licenseExpiresAt)
+        Web->>DB: Update Subscription (planId, source: "license", licenseExpiresAt)
         Web-->>Admin: License Activated!
     else Invalid/Expired
         Web-->>Admin: Error: Invalid License
     end
 
-    Note over Admin,DB: Periodic Validation
-    loop Every Request
-        Web->>DB: Get Subscription
+    Note over Admin,DB: Periodic Validation (No Phone-Home)
+    loop On App Startup + Every Hour
+        Web->>DB: Get Subscription where source = 'license'
         Web->>Web: Check licenseExpiresAt > now()
         alt Expired
-            Web->>DB: Downgrade to Free Plan
+            Web->>DB: Set status = 'expired', downgrade to Free
         end
     end
 ```
@@ -287,15 +320,34 @@ sequenceDiagram
 
 ```json
 {
-  "iss": "fs04.io",
-  "sub": "account_cuid123",
-  "plan": "enterprise",
-  "maxDevices": 500,
-  "features": ["sso", "audit_logs"],
-  "exp": 1735689600,
-  "iat": 1704067200
+  "header": {
+    "alg": "RS256",
+    "kid": "key-2024-01"
+  },
+  "payload": {
+    "iss": "fs04.io",
+    "sub": "account_cuid123",
+    "plan": "enterprise",
+    "maxDevices": 500,
+    "maxUsers": 100,
+    "features": ["sso", "audit_logs"],
+    "trial": false,
+    "exp": 1735689600,
+    "iat": 1704067200
+  }
 }
 ```
+
+### License Signing Keys (JWKS)
+
+For production-grade license validation:
+
+| Field | Description |
+|-------|-------------|
+| `kid` | Key ID in JWT header (e.g., `key-2024-01`) |
+| **Public Keys** | Embedded in app binary OR fetched from `https://license.fs04.io/.well-known/jwks.json` |
+| **Rotation Policy** | Rotate annually; old keys remain valid for existing licenses |
+| **Compromise Response** | Revoke kid, issue new licenses with new key |
 
 ---
 
@@ -332,14 +384,28 @@ import { redis } from '$lib/server/redis';
 import { prisma } from '$lib/server/prisma';
 
 interface AccountEntitlements {
-  planId: string;
+  planCode: string;
   maxDevices: number;
   maxUsers: number;
   features: string[];
   status: string;
+  source: 'stripe' | 'license';
 }
 
 const CACHE_TTL = 300; // 5 minutes
+
+// Cache the free plan baseline to avoid hardcoding defaults
+let freePlanCache: { maxDevices: number; maxUsers: number } | null = null;
+
+async function getFreePlanDefaults() {
+  if (freePlanCache) return freePlanCache;
+  const freePlan = await prisma.plan.findUnique({ where: { code: 'free' } });
+  freePlanCache = {
+    maxDevices: freePlan?.maxDevices ?? 5,
+    maxUsers: freePlan?.maxUsers ?? 1
+  };
+  return freePlanCache;
+}
 
 export async function getEntitlements(accountId: string): Promise<AccountEntitlements> {
   const cacheKey = `entitlements:${accountId}`;
@@ -355,16 +421,25 @@ export async function getEntitlements(accountId: string): Promise<AccountEntitle
   });
   
   if (!sub) {
-    // Default to free tier
-    return { planId: 'free', maxDevices: 5, maxUsers: 1, features: [], status: 'active' };
+    // Default to free tier (fetch from DB, not hardcoded)
+    const defaults = await getFreePlanDefaults();
+    return { 
+      planCode: 'free', 
+      maxDevices: defaults.maxDevices, 
+      maxUsers: defaults.maxUsers, 
+      features: [], 
+      status: 'active',
+      source: 'stripe'
+    };
   }
   
   const entitlements: AccountEntitlements = {
-    planId: sub.planId,
+    planCode: sub.plan.code,
     maxDevices: sub.overrideMaxDevices ?? sub.plan.maxDevices,
-    maxUsers: sub.plan.maxUsers,
+    maxUsers: sub.overrideMaxUsers ?? sub.plan.maxUsers,
     features: sub.plan.features as string[],
-    status: sub.status
+    status: sub.status,
+    source: sub.source as 'stripe' | 'license'
   };
   
   // Cache result
@@ -375,7 +450,8 @@ export async function getEntitlements(accountId: string): Promise<AccountEntitle
 
 export async function checkFeature(accountId: string, feature: string): Promise<boolean> {
   const entitlements = await getEntitlements(accountId);
-  if (entitlements.status !== 'active' && entitlements.status !== 'trialing') return false;
+  const validStatuses = ['active', 'trialing', 'past_due', 'pending_cancel'];
+  if (!validStatuses.includes(entitlements.status)) return false;
   return entitlements.features.includes(feature);
 }
 
@@ -389,9 +465,41 @@ export async function checkDeviceLimit(accountId: string): Promise<{ allowed: bo
   };
 }
 
+export async function checkUserLimit(accountId: string): Promise<{ allowed: boolean; current: number; max: number }> {
+  const entitlements = await getEntitlements(accountId);
+  const current = await prisma.accountMembership.count({ where: { accountId } });
+  return {
+    allowed: current < entitlements.maxUsers,
+    current,
+    max: entitlements.maxUsers
+  };
+}
+
 // Invalidate cache when subscription changes
 export async function invalidateEntitlements(accountId: string): Promise<void> {
   await redis.del(`entitlements:${accountId}`);
+}
+```
+
+### Usage Examples
+
+```typescript
+// In device creation API
+const { allowed, current, max } = await checkDeviceLimit(accountId);
+if (!allowed) {
+  throw error(403, `Device limit reached (${current}/${max}). Please upgrade your plan.`);
+}
+
+// In user invitation flow
+const { allowed } = await checkUserLimit(accountId);
+if (!allowed) {
+  throw error(403, 'User limit reached. Please upgrade to add more team members.');
+}
+
+// In SSO login check
+const hasSSO = await checkFeature(accountId, 'sso');
+if (!hasSSO) {
+  throw redirect(302, '/settings/billing?upgrade=sso');
 }
 ```
 
@@ -401,6 +509,23 @@ export async function invalidateEntitlements(accountId: string): Promise<void> {
 
 > [!IMPORTANT]
 > Always verify Stripe webhook signatures to prevent spoofing attacks.
+
+### Stripe Binding Best Practice
+
+Always set these when creating Checkout Sessions:
+```typescript
+const session = await stripe.checkout.sessions.create({
+  client_reference_id: accountId,  // For webhook matching
+  customer_email: user.email,
+  metadata: { accountId },         // For reconciliation from Stripe Dashboard
+  subscription_data: {
+    metadata: { accountId }        // Also on the subscription object
+  },
+  // ...
+});
+```
+
+### Webhook Handler
 
 ```typescript
 // routes/api/webhook/stripe/+server.ts
@@ -447,8 +572,14 @@ export async function POST({ request }) {
         break;
     }
     
-    // 4. Mark as processed
-    await prisma.webhookEvent.create({ data: { id: event.id, type: event.type } });
+    // 4. Mark as processed (with event type for debugging)
+    await prisma.webhookEvent.create({ 
+      data: { 
+        id: event.id, 
+        type: event.type,
+        objectId: (event.data.object as any).id
+      } 
+    });
     
   } catch (err) {
     console.error('Webhook handler error:', err);
@@ -459,14 +590,14 @@ export async function POST({ request }) {
 }
 
 async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
-  const accountId = session.client_reference_id!;
-  const subscriptionId = session.subscription as string;
+  const accountId = session.client_reference_id ?? session.metadata?.accountId;
+  if (!accountId) throw new Error('No accountId in session');
   
-  // Fetch subscription to get plan
+  const subscriptionId = session.subscription as string;
   const stripeSub = await stripe.subscriptions.retrieve(subscriptionId);
   const priceId = stripeSub.items.data[0].price.id;
   
-  // Find matching plan
+  // Find matching plan by stable code or priceId
   const plan = await prisma.plan.findFirst({ where: { stripePriceId: priceId } });
   if (!plan) throw new Error(`No plan found for price ${priceId}`);
   
@@ -474,6 +605,7 @@ async function handleCheckoutComplete(session: Stripe.Checkout.Session) {
     where: { accountId },
     data: {
       planId: plan.id,
+      source: 'stripe',
       status: stripeSub.status,
       stripeCustomerId: session.customer as string,
       stripeSubscriptionId: subscriptionId,
@@ -498,7 +630,7 @@ async function handleSubscriptionUpdated(stripeSub: Stripe.Subscription) {
     where: { id: sub.id },
     data: {
       planId: plan?.id ?? sub.planId,
-      status: stripeSub.status,
+      status: stripeSub.cancel_at_period_end ? 'pending_cancel' : stripeSub.status,
       currentPeriodEnd: new Date(stripeSub.current_period_end * 1000),
       cancelAtPeriodEnd: stripeSub.cancel_at_period_end
     }
@@ -513,8 +645,8 @@ async function handleSubscriptionDeleted(stripeSub: Stripe.Subscription) {
   });
   if (!sub) return;
   
-  // Downgrade to free
-  const freePlan = await prisma.plan.findFirst({ where: { name: 'Free Tier' } });
+  // Downgrade to free using stable code lookup
+  const freePlan = await prisma.plan.findUnique({ where: { code: 'free' } });
   
   await prisma.subscription.update({
     where: { id: sub.id },
@@ -529,8 +661,8 @@ async function handleSubscriptionDeleted(stripeSub: Stripe.Subscription) {
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
-  // Send notification, update status to past_due handled by subscription.updated
-  console.log('Payment failed for invoice:', invoice.id);
+  console.warn('Payment failed for invoice:', invoice.id, invoice.customer);
+  // TODO: Send notification email to account owner
 }
 ```
 
@@ -564,7 +696,7 @@ Located under `Account Settings`.
 *   **Use Case**: Minor improvements, inflation adjustments.
 
 ### B. The "Legacy Plan" Pattern (New Definition)
-*   **Action**: Mark old plan `isActive: false`, create new `Plan` record.
+*   **Action**: Mark old plan `isActive: false`, create new `Plan` record with new `code`.
 *   **Effect**: Existing users grandfathered. New users see new plan.
 *   **Use Case**: Price increases, breaking changes.
 
@@ -576,21 +708,23 @@ Located under `Account Settings`.
 - [ ] Add `Plan` and `Subscription` models to `schema.zmodel`
 - [ ] Add `WebhookEvent` model for idempotency
 - [ ] Run `npx zenstack generate && npx prisma db push`
-- [ ] Create `scripts/seed-plans.ts` with Free, Pro, Enterprise
+- [ ] Create `scripts/seed-plans.ts` with Free, Pro, Enterprise (using `code` field)
 - [ ] Run seed script
 
 ### Phase 2: Stripe Integration
 - [ ] Set up Stripe account (Test Mode)
 - [ ] Create Products and Prices in Stripe Dashboard
 - [ ] Update `Plan` records with `stripeProductId` and `stripePriceId`
-- [ ] Implement `POST /api/billing/checkout`
+- [ ] Implement `POST /api/billing/checkout` (with `metadata.accountId`)
 - [ ] Implement `POST /api/billing/portal`
 - [ ] Implement `POST /api/webhook/stripe` with signature verification
+- [ ] Test webhook locally with Stripe CLI
 
 ### Phase 3: Entitlements
 - [ ] Implement `lib/server/entitlements.ts` with Redis caching
-- [ ] Add entitlement checks to Device creation
-- [ ] Add entitlement checks to User invitation
+- [ ] Add `checkDeviceLimit()` call to Device creation API
+- [ ] Add `checkUserLimit()` call to User invitation flow
+- [ ] Add feature checks where needed (SSO, Audit Logs)
 
 ### Phase 4: Frontend
 - [ ] Build `/user/settings/billing` page
@@ -599,9 +733,10 @@ Located under `Account Settings`.
 - [ ] Add upgrade prompts when limits reached
 
 ### Phase 5: Self-Hosted (Optional)
-- [ ] Create license generation script
+- [ ] Create license generation script with JWKS support
 - [ ] Build `/settings/license` page
 - [ ] Implement license validation middleware
+- [ ] Add periodic license expiry check (cron job)
 
 ---
 
@@ -619,11 +754,13 @@ Located under `Account Settings`.
 
 | Topic | Recommendation |
 |-------|----------------|
-| **Idempotency** | Store `event.id` in DB to prevent double-processing webhooks |
+| **Idempotency** | Store `event.id` + `objectId` in DB to prevent double-processing |
 | **Grace Periods** | Handle `past_due` gracefully - warn 3 days before locking out |
 | **Signature Verification** | Always verify Stripe webhook signatures |
 | **Caching** | Cache entitlements in Redis (5 min TTL), invalidate on sub change |
 | **Trial Abuse** | Limit one trial per email/payment method |
+| **Plan Lookup** | Use `code` field, never display `name` for logic |
+| **Stripe Metadata** | Always set `accountId` in session, customer, and subscription metadata |
 
 ### Comparison with Industry Leaders
 *   **Supabase / Vercel**: Usage-based billing. We start with flat tiers (simpler).
@@ -634,14 +771,15 @@ Located under `Account Settings`.
 ## 14. Future Considerations (V2+)
 
 - [ ] **Per-Seat Pricing**: Charge per `maxUsers` instead of flat.
-- [ ] **Usage-Based Billing**: Meter API calls or device-hours.
-- [ ] **Coupons/Discounts**: Handle promo codes via Stripe.
-- [ ] **Multi-Currency**: Support regional pricing.
-- [ ] **Annual Billing**: Offer discounted yearly plans.
+- [ ] **Usage-Based Billing**: Meter API calls or device-hours via Stripe Metered Billing.
+- [ ] **Coupons/Discounts**: Handle promo codes via Stripe Coupons API.
+- [ ] **Multi-Currency**: Support regional pricing with Stripe Price localization.
+- [ ] **Annual Billing**: Offer discounted yearly plans (separate `stripePriceId`).
+- [ ] **Invoicing for Enterprise**: Wire transfer + manual invoice via Stripe Invoicing.
 
 ---
 
-## Appendix: WebhookEvent Model
+## Appendix A: WebhookEvent Model
 
 Add this to `schema.zmodel` for idempotency:
 
@@ -649,8 +787,31 @@ Add this to `schema.zmodel` for idempotency:
 model WebhookEvent {
   id        String   @id // Stripe event ID
   type      String
+  objectId  String?  // For debugging (e.g., subscription ID)
   createdAt DateTime @default(now())
   
   @@allow('all', auth().systemRole == 'ADMIN')
+  @@index([type])
+}
+```
+
+---
+
+## Appendix B: Default Plans Seed
+
+```typescript
+// scripts/seed-plans.ts
+const defaultPlans = [
+  { code: 'free', name: 'Free Tier', maxDevices: 5, maxUsers: 1, dataRetentionDays: 7, features: [] },
+  { code: 'pro', name: 'Pro Plan', maxDevices: 50, maxUsers: 5, dataRetentionDays: 30, features: ['priority_support', 'email_alerts'] },
+  { code: 'enterprise', name: 'Enterprise', maxDevices: 999999, maxUsers: 999999, dataRetentionDays: 365, features: ['sso', 'audit_logs', 'white_label', 'sla'] }
+];
+
+for (const plan of defaultPlans) {
+  await prisma.plan.upsert({
+    where: { code: plan.code },
+    create: { ...plan, features: JSON.stringify(plan.features) },
+    update: { name: plan.name, maxDevices: plan.maxDevices, maxUsers: plan.maxUsers, dataRetentionDays: plan.dataRetentionDays }
+  });
 }
 ```
