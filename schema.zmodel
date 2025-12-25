@@ -1978,3 +1978,4 @@ model CronJobExecution {
   @@index([status])
   @@index([startedAt])
 }
+
