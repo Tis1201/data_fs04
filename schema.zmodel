@@ -1923,16 +1923,21 @@ model CronJob {
   id            String         @id @default(cuid())
   name          String
   functionName  String
-  args          Json
+  args          Json?
   cronExpression String
+  timezone      String?        @default("UTC")
   status        CronJobStatus  @default(ACTIVE)
   lastRunAt     DateTime?
   nextRunAt     DateTime?
   lastResult    String?
+  lastError     String?
   retryCount    Int            @default(0)
   maxRetries    Int            @default(3)
   timeout       Int?
   isRunning     Boolean        @default(false)
+  totalRuns     Int            @default(0)
+  successCount  Int            @default(0)
+  failureCount  Int            @default(0)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   createdBy     String?
