@@ -1,5 +1,6 @@
 -- CreateTable
-CREATE TABLE "RadarSensor" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "RadarSensor" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "serialNumber" TEXT NOT NULL,
@@ -17,7 +18,8 @@ CREATE TABLE "RadarSensor" (
 );
 
 -- CreateTable
-CREATE TABLE "TrackingArea" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "TrackingArea" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "startX" DOUBLE PRECISION NOT NULL,
@@ -33,7 +35,8 @@ CREATE TABLE "TrackingArea" (
 );
 
 -- CreateTable
-CREATE TABLE "Zone" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "Zone" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "zoneNumber" INTEGER NOT NULL,
@@ -51,7 +54,8 @@ CREATE TABLE "Zone" (
 );
 
 -- CreateTable
-CREATE TABLE "DwellBucket" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "DwellBucket" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "minDuration" INTEGER NOT NULL,
@@ -65,49 +69,119 @@ CREATE TABLE "DwellBucket" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "RadarSensor_serialNumber_key" ON "RadarSensor"("serialNumber");
+-- Idempotent: Check if index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "RadarSensor_serialNumber_key" ON "RadarSensor"("serialNumber");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "RadarSensor_deviceId_key" ON "RadarSensor"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "RadarSensor_deviceId_key" ON "RadarSensor"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "RadarSensor_accountId_idx" ON "RadarSensor"("accountId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "RadarSensor_accountId_idx" ON "RadarSensor"("accountId");
 
 -- CreateIndex
-CREATE INDEX "RadarSensor_deviceId_idx" ON "RadarSensor"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "RadarSensor_deviceId_idx" ON "RadarSensor"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "RadarSensor_status_idx" ON "RadarSensor"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "RadarSensor_status_idx" ON "RadarSensor"("status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "TrackingArea_radarSensorId_key" ON "TrackingArea"("radarSensorId");
+-- Idempotent: Check if index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "TrackingArea_radarSensorId_key" ON "TrackingArea"("radarSensorId");
 
 -- CreateIndex
-CREATE INDEX "TrackingArea_radarSensorId_idx" ON "TrackingArea"("radarSensorId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "TrackingArea_radarSensorId_idx" ON "TrackingArea"("radarSensorId");
 
 -- CreateIndex
-CREATE INDEX "Zone_trackingAreaId_idx" ON "Zone"("trackingAreaId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "Zone_trackingAreaId_idx" ON "Zone"("trackingAreaId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Zone_trackingAreaId_zoneNumber_key" ON "Zone"("trackingAreaId", "zoneNumber");
+-- Idempotent: Check if index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "Zone_trackingAreaId_zoneNumber_key" ON "Zone"("trackingAreaId", "zoneNumber");
 
 -- CreateIndex
-CREATE INDEX "DwellBucket_radarSensorId_idx" ON "DwellBucket"("radarSensorId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DwellBucket_radarSensorId_idx" ON "DwellBucket"("radarSensorId");
 
 -- AddForeignKey
-ALTER TABLE "RadarSensor" ADD CONSTRAINT "RadarSensor_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'RadarSensor_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "RadarSensor" ADD CONSTRAINT "RadarSensor_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "RadarSensor" ADD CONSTRAINT "RadarSensor_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'RadarSensor_accountId_fkey'
+    ) THEN
+        ALTER TABLE "RadarSensor" ADD CONSTRAINT "RadarSensor_accountId_fkey" 
+        FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "RadarSensor" ADD CONSTRAINT "RadarSensor_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'RadarSensor_createdBy_fkey'
+    ) THEN
+        ALTER TABLE "RadarSensor" ADD CONSTRAINT "RadarSensor_createdBy_fkey" 
+        FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "TrackingArea" ADD CONSTRAINT "TrackingArea_radarSensorId_fkey" FOREIGN KEY ("radarSensorId") REFERENCES "RadarSensor"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'TrackingArea_radarSensorId_fkey'
+    ) THEN
+        ALTER TABLE "TrackingArea" ADD CONSTRAINT "TrackingArea_radarSensorId_fkey" 
+        FOREIGN KEY ("radarSensorId") REFERENCES "RadarSensor"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "Zone" ADD CONSTRAINT "Zone_trackingAreaId_fkey" FOREIGN KEY ("trackingAreaId") REFERENCES "TrackingArea"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'Zone_trackingAreaId_fkey'
+    ) THEN
+        ALTER TABLE "Zone" ADD CONSTRAINT "Zone_trackingAreaId_fkey" 
+        FOREIGN KEY ("trackingAreaId") REFERENCES "TrackingArea"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DwellBucket" ADD CONSTRAINT "DwellBucket_radarSensorId_fkey" FOREIGN KEY ("radarSensorId") REFERENCES "RadarSensor"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'DwellBucket_radarSensorId_fkey'
+    ) THEN
+        ALTER TABLE "DwellBucket" ADD CONSTRAINT "DwellBucket_radarSensorId_fkey" 
+        FOREIGN KEY ("radarSensorId") REFERENCES "RadarSensor"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;

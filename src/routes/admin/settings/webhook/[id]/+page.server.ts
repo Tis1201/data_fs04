@@ -8,6 +8,7 @@ import { logger } from '$lib/server/logger';
 import { webhookSchema } from '../new/webhook';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { upsertEntityExpirationCronjob, deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 export const load = restrict(
     async (event: AuthenticatedEvent) => {
@@ -90,6 +91,21 @@ export const actions: Actions = {
                 
                 logger.info(`Webhook updated: ${id} (${updatedWebhook.name}) - Status: ${updatedWebhook.status}`);
                 
+                // Update cronjob for webhook expiration (only if expiresAt is set)
+                if (updatedWebhook.expiresAt) {
+                    await upsertEntityExpirationCronjob(locals.prisma, {
+                        entityType: 'webhookEndpoint',
+                        entityId: updatedWebhook.id,
+                        expiresAt: updatedWebhook.expiresAt,
+                        action: 'deactivate',
+                        userId: (locals as any).user.id,
+                        accountId: null
+                    });
+                } else if (!updatedWebhook.expiresAt && existingWebhook.expiresAt) {
+                    // If expiresAt was removed, delete the cronjob
+                    await deleteEntityExpirationCronjob(locals.prisma, 'webhookEndpoint', updatedWebhook.id);
+                }
+                
                 // Audit logging
                 await logAudit({
                     actionType: AuditActionType.UPDATE,
@@ -151,6 +167,9 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Webhook successfully deleted from database: ${deletedWebhook.id} (${deletedWebhook.name})`);
+                
+                // Delete cronjob for webhook expiration
+                await deleteEntityExpirationCronjob(locals.prisma, 'webhookEndpoint', id);
                 
                 // Audit logging with better error handling
                 try {

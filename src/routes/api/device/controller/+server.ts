@@ -68,52 +68,62 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
         let sensors: Sensor[] = [];
 
         if (!controller) {
-            // Auto-create controller and sensor
+            // Auto-create controller AND sensor in a transaction
             logger.info(
-                `[ControllerConfigAPI] Auto-creating new ${type} controller for device ${device.id}`
+                `[ControllerConfigAPI] Auto-creating new ${type} controller with sensor for device ${device.id}`
             );
 
             const serialNumber = `${type.toUpperCase()}-${device.id.slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
 
-            controller = await locals.prisma.controller.create({
-                data: {
-                    name: `Auto-created ${type.charAt(0).toUpperCase() + type.slice(1)} Controller`,
-                    type: type,
-                    serialNumber: serialNumber,
-                    status: 'ACTIVE',
-                    device: {
-                        connect: { id: device.id }
-                    },
-                    account: {
-                        connect: { id: device.accountId }
-                    },
-                    description: 'Auto-created during config retrieval',
-                    // Auto-create sensor when creating controller
-                    sensors: {
-                        create: {
-                            name: `Auto-created ${type.charAt(0).toUpperCase() + type.slice(1)} Sensor`,
-                            type: type,
-                            serialNumber: `${serialNumber}-SENSOR`,
-                            status: 'ACTIVE',
-                            account: {
-                                connect: { id: device.accountId }
-                            },
-                            description: 'Auto-created sensor for controller',
-                            config: getDefaultSensorConfig(type),
-                            configVersion: 1,
-                            syncStatus: 'PENDING'
-                        }
+            // Use transaction to create both controller and sensor atomically
+            const result = await locals.prisma.$transaction(async (tx) => {
+                const newController = await tx.controller.create({
+                    data: {
+                        name: `Auto-created ${type.charAt(0).toUpperCase() + type.slice(1)} Controller`,
+                        type: type,
+                        serialNumber: serialNumber,
+                        status: 'ACTIVE',
+                        device: {
+                            connect: { id: device.id }
+                        },
+                        account: {
+                            connect: { id: device.accountId! }
+                        },
+                        description: 'Auto-created during config retrieval'
                     }
-                },
-                include: {
-                    sensors: true
-                }
+                });
+
+                // Auto-create sensor for this controller
+                const sensorSerialNumber = `${type.toUpperCase()}-SENSOR-${device.id.slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
+                const newSensor = await tx.sensor.create({
+                    data: {
+                        name: `${type.charAt(0).toUpperCase() + type.slice(1)} Sensor`,
+                        type: type,
+                        serialNumber: sensorSerialNumber,
+                        status: 'ACTIVE',
+                        controller: {
+                            connect: { id: newController.id }
+                        },
+                        account: {
+                            connect: { id: device.accountId! }
+                        },
+                        config: getDefaultSensorConfig(type) as any,
+                        description: 'Auto-created with controller'
+                    }
+                });
+
+                return { controller: newController, sensor: newSensor };
             });
 
+            controller = await locals.prisma.controller.findUnique({
+                where: { id: result.controller.id },
+                include: { sensors: true }
+            }) as typeof controller;
+
             logger.info(
-                `[ControllerConfigAPI] Created controller: ${controller.id} (${controller.type}) with sensor`
+                `[ControllerConfigAPI] Created controller: ${result.controller.id} with sensor: ${result.sensor.id}`
             );
-            sensors = controller.sensors;
+            sensors = controller!.sensors;
         } else {
             logger.info(
                 `[ControllerConfigAPI] Found existing controller: ${controller.id} (${controller.type})`

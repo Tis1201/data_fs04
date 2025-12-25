@@ -80,7 +80,7 @@ export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
 
     try {
-        const claims = await verifyFactoryJWT(locals, request);
+        const { claims, token: factoryTokenString } = await verifyFactoryJWT(locals, request);
         const hardwareFingerprint = (claims.hw as string | undefined) ?? (claims.serialNumber as string | undefined) ?? null;
         const factoryJwtId = (claims.jti as string | undefined) ?? null;
         const userAgent = request.headers.get('user-agent') ?? null;
@@ -90,6 +90,35 @@ export const POST: RequestHandler = async (event) => {
             hw: hardwareFingerprint,
             claims
         };
+
+        // Update FactoryToken record to mark it as used
+        try {
+            const factoryToken = await locals.prisma.factoryToken.findFirst({
+                where: { 
+                    token: factoryTokenString,
+                    isUsed: false,
+                    expiresAt: { gt: new Date() }
+                }
+            });
+
+            if (factoryToken) {
+                await locals.prisma.factoryToken.update({
+                    where: { id: factoryToken.id },
+                    data: {
+                        isUsed: true,
+                        usedAt: new Date(),
+                        usedByIp: clientIp
+                    }
+                });
+                logger.info(`[FactoryMqttMintAPI] Factory token ${factoryToken.id} marked as used from IP ${clientIp || 'unknown'}`);
+            } else {
+                // Token not found or already used - log warning but continue
+                logger.warn(`[FactoryMqttMintAPI] Factory token not found or already used: token=${factoryTokenString.substring(0, 20)}..., jti=${factoryJwtId || 'unknown'}`);
+            }
+        } catch (error) {
+            // Log error but don't fail MQTT mint
+            logger.error(`[FactoryMqttMintAPI] Failed to update FactoryToken: ${error instanceof Error ? error.message : String(error)}`);
+        }
 
         const timestamp = new Date();
 

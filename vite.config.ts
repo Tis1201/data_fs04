@@ -48,7 +48,6 @@ export default defineConfig({
 			'@xterm/addon-serialize',
 			'@xterm/addon-unicode11',
 			'@xterm/addon-webgl'
-		],
-		force: true
+		]
 	}
 });

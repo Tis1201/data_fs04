@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import { DeviceModel } from '$lib/constants/device';
 import { getActiveTokenKey } from '$lib/server/jwt_issuer/keys/token-key';
 import { randomUUID } from 'crypto';
+import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
@@ -193,6 +194,16 @@ export const actions: Actions = {
                         createdBy: auth.user.id,
                         updatedBy: auth.user.id
                     }
+                });
+
+                // Create cronjob for license expiration
+                await upsertEntityExpirationCronjob(locals.prisma, {
+                    entityType: 'license',
+                    entityId: license.id,
+                    expiresAt: license.expiresAt,
+                    action: 'mark',
+                    userId: auth.user.id,
+                    accountId: license.accountId
                 });
                 
                 // Use device name for the message

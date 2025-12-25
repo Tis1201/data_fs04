@@ -11,6 +11,7 @@ import { createSuccessResponse } from '$lib/types/api';
 import { FormValidationError } from '$lib/server/errors/FormValidationError';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { upsertFactoryTokenCronjob } from '$lib/server/factory-tokens/cronjobManager';
 
 export const actions: Actions = {
     updateToken: restrict(
@@ -79,6 +80,27 @@ export const actions: Actions = {
                 });
                 
                 logger.info(`Factory token updated: ${factoryToken.id} by user ${auth.user.id}`);
+
+                // Always update cronjob when token is updated (handles expiration changes and status updates)
+                await upsertFactoryTokenCronjob(
+                    locals.prisma,
+                    factoryToken.id,
+                    factoryToken.expiresAt,
+                    auth.user.id
+                );
+                
+                // If token is already expired and not used, mark it as used
+                const now = new Date();
+                if (factoryToken.expiresAt <= now && !factoryToken.isUsed) {
+                    await locals.prisma.factoryToken.update({
+                        where: { id: factoryToken.id },
+                        data: { 
+                            isUsed: true,
+                            usedAt: new Date()
+                        }
+                    });
+                    logger.info(`Auto-marked expired factory token as used: ${factoryToken.id}`);
+                }
 
                 await logAudit({
                     actionType: AuditActionType.UPDATE,

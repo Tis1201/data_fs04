@@ -8,6 +8,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { registerSchema } from '$lib/schemas/auth';
 import { logger } from '$lib/server/logger';
 import { logSessionActivity } from '$lib/server/session-logger';
+import { createSessionWithCronjob } from '$lib/server/auth/session-helper';
 import prisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack for settings
 import { validatePassword } from '$lib/server/auth/password-validation';
 
@@ -191,8 +192,8 @@ export const actions: Actions = {
                 accountName: defaultAccount.name
             });
 
-            // Create session for the new user
-            const session = await lucia.createSession(user.id, {});
+            // Create session for the new user with automatic expiration cronjob
+            const session = await createSessionWithCronjob(user.id, {}, authPrisma);
             const sessionCookie = lucia.createSessionCookie(session.id);
             cookies.set(sessionCookie.name, sessionCookie.value, {
                 path: ".",

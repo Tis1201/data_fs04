@@ -222,5 +222,23 @@ export const LOCK_CONFIG = {
     RESOURCE: 'lock:scheduler:bundle-status',
     TTL: 8000, // 8 seconds (80% of 10s interval)
     INTERVAL: 10000 // 10 seconds
+  },
+  
+  // Cronjob worker
+  CRONJOB_WORKER: {
+    RESOURCE: 'lock:cronjob:worker',
+    TTL: 60000, // 1 minute
   }
 } as const;
+
+/**
+ * Get lock configuration for cronjob execution
+ * @param jobId - The cronjob ID
+ * @returns Lock configuration for the specific job
+ */
+export function getCronJobExecutionLock(jobId: string) {
+  return {
+    RESOURCE: `lock:cronjob:${jobId}`,
+    TTL: 300000 // 5 minutes (adjust based on max job duration)
+  };
+}

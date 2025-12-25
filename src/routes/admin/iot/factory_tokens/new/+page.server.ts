@@ -13,6 +13,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'crypto';
+import { upsertFactoryTokenCronjob } from '$lib/server/factory-tokens/cronjobManager';
 
 export const load = restrict(
     async ({ locals }:any) => {
@@ -103,13 +104,13 @@ export const actions: Actions = {
                 }
                 
                 // Build factory JWT claims for mass production
-                const now = Math.floor(Date.now() / 1000);
+                const iat = Math.floor(Date.now() / 1000);
                 const exp = Math.floor(new Date(expiresAt).getTime() / 1000);
                 const jti = randomUUID();
                 const payload: Record<string, unknown> = {
                     aud: 'device-register',
                     typ: 'factory',
-                    iat: now,
+                    iat,
                     exp,
                     jti,
                     scope: 'device:register',
@@ -140,6 +141,27 @@ export const actions: Actions = {
                 });
 
                 logger.info(`Factory token created: ${factoryToken.id} by user ${userInfo.id}`);
+
+                // Check if token is already expired and mark as used if so
+                const currentTime = new Date();
+                if (factoryToken.expiresAt <= currentTime && !factoryToken.isUsed) {
+                    await locals.prisma.factoryToken.update({
+                        where: { id: factoryToken.id },
+                        data: { 
+                            isUsed: true,
+                            usedAt: new Date()
+                        }
+                    });
+                    logger.info(`Auto-marked expired factory token as used on creation: ${factoryToken.id}`);
+                }
+
+                // Create cronjob for token expiration (always create, even if expired - handles future updates)
+                await upsertFactoryTokenCronjob(
+                    locals.prisma,
+                    factoryToken.id,
+                    factoryToken.expiresAt,
+                    userInfo.id
+                );
 
                 await logAudit({
                     actionType: AuditActionType.INSERT,

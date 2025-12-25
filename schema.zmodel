@@ -39,13 +39,14 @@ model Account {
   apiKeys       ApiKey[] // API keys associated with this account
   primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
   resources     Resource[] // Resources owned by this account
-  bunles     Bundle[] // Bundles owned by this account
+  bundles       Bundle[] // Bundles owned by this account
   refreshTokens RefreshToken[]
   tokenUsageLogs TokenUsageLog[]
   whatsappAccounts WhatsAppAccount[]
   preclaimSets  PreclaimSet[]
   preclaimDevices PreclaimDevice[]
   factoryDevices FactoryDevice[] @relation("AccountFactoryDevices")
+  cronJobs      CronJob[] // CronJobs associated with this account
   // Licensing & entitlements
   licenses      License[]
   entitlements  Entitlement[]
@@ -78,14 +79,15 @@ model Account {
 
 model AuditLog {
   id            String    @id @default(cuid())
-  userId       String
-  ipAddress      String?
-  actionType          String
-  tableName          String
-  recordId        String   
-  oldData Json?
-  newData Json?
-  changeSummary   String?
+  userId        String
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ipAddress     String?
+  actionType    String
+  tableName     String
+  recordId      String   
+  oldData       Json?
+  newData       Json?
+  changeSummary String?
   timestamp     DateTime  @default(now())
   
   // Relationships
@@ -95,6 +97,10 @@ model AuditLog {
   @@allow('update,delete', false)
   
   @@index([userId])
+  @@index([actionType])
+  @@index([tableName])
+  @@index([timestamp])
+  @@index([tableName, actionType, timestamp])
 }
 
 
@@ -280,6 +286,7 @@ model User {
   // Relations to action logs (user as initiator)
   actionLogs     DeviceActionLog[] @relation("UserToActionLogs")
   bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
+  cronJobs       CronJob[] // CronJobs created by this user
   
   // Pin management relations
   pinRules       PinRule[]
@@ -291,6 +298,9 @@ model User {
   // Controller and Sensor relations
   createdControllers Controller[]
   createdSensors     Sensor[]
+  
+  // Audit log relation
+  auditLogs          AuditLog[]
 
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
@@ -306,6 +316,7 @@ model Session {
   id        String   @id
   userId    String
   expiresAt DateTime
+  status    String?  @default("ACTIVE")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -318,6 +329,8 @@ model Session {
   @@allow('all', auth().systemRole == 'ADMIN')
 
   @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
 }
 
 model Key {
@@ -520,8 +533,8 @@ model Device {
   status        String   @default("ACTIVE")
   expiresAt     DateTime?
   lastUsedAt    DateTime?
-  createdBy     String
-  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  createdBy     String?
+  user          User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
   // Account & Company ownership
   accountId     String?
@@ -597,6 +610,9 @@ model Device {
   @@index([status])
   @@index([accountId])
   @@index([companyId])
+  @@index([name])
+  @@index([connected])
+  @@index([claimedAt])
 }
 
 model FactoryDevice {
@@ -675,6 +691,8 @@ model DeviceActionLog {
   @@index([status])
   @@index([initiatedBy])
   @@index([initiatedAt])
+  @@index([deviceId, actionType, status])
+  @@index([deviceId, initiatedAt])
 
   // Access policies
   // Admins can do everything
@@ -691,9 +709,9 @@ model Setting {
   data        String?
   
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  updatedBy String
+  updatedBy   String
   createdBy   String
   
   // Admin has full access
@@ -737,7 +755,7 @@ model EmailServiceProvider {
 
   // Tracking
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   createdBy   String
   updatedBy   String
   lastUsedAt  DateTime?
@@ -924,6 +942,7 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@index([isRevoked])
+  @@index([expiresAt, isRevoked])
   
   // Users can manage their own tokens, admins can manage all
   @@allow('create,read,update,delete', auth().id == userId)
@@ -1066,6 +1085,7 @@ model Bundle {
   @@index([version])
   @@index([createdBy])
   @@index([status])
+  @@index([createdAt])
 }
 
 model BundleApp {
@@ -1891,3 +1911,76 @@ model Sensor {
   @@index([type])
   @@index([status])
 }
+
+// CronJob System - Database-driven task scheduler
+enum CronJobStatus {
+  ACTIVE
+  INACTIVE
+  PAUSED
+}
+
+model CronJob {
+  id            String         @id @default(cuid())
+  name          String
+  functionName  String
+  args          Json?
+  cronExpression String
+  timezone      String?        @default("UTC")
+  status        CronJobStatus  @default(ACTIVE)
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  lastResult    String?
+  lastError     String?
+  retryCount    Int            @default(0)
+  maxRetries    Int            @default(3)
+  timeout       Int?
+  isRunning     Boolean        @default(false)
+  totalRuns     Int            @default(0)
+  successCount  Int            @default(0)
+  failureCount  Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  createdBy     String?
+  creator       User?          @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  accountId     String?
+  account       Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  
+  // Execution history
+  executions    CronJobExecution[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([status])
+  @@index([nextRunAt])
+  @@index([isRunning])
+  @@index([accountId])
+  @@index([createdBy])
+  @@index([functionName])
+}
+
+model CronJobExecution {
+  id          String    @id @default(cuid())
+  cronJobId   String
+  cronJob     CronJob   @relation(fields: [cronJobId], references: [id], onDelete: Cascade)
+  status      String    @default("PENDING")
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  duration    Int?
+  result      String?
+  error       String?
+  metadata    Json?
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && cronJob.account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([cronJobId])
+  @@index([status])
+  @@index([startedAt])
+}
+

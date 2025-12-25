@@ -3,7 +3,9 @@
     import DataTable from "$lib/components/ui_components_sveltekit/table/DataTable.svelte";
     import DebouncedTextFilter from "$lib/components/ui_components_sveltekit/table/filter/DebouncedTextFilter.svelte";
     import PopoverFilter from "$lib/components/ui_components_sveltekit/table/filter/PopoverFilter.svelte";
-    import RecordActions, { type ActionItem } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
+    import RecordActions, {
+        type ActionItem,
+    } from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
@@ -18,20 +20,22 @@
     import { api_post, api_delete, api_patch } from "$lib/utils/ApiUtils";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
-    import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import {
+        handleTableSort,
+        handleTablePagination,
+    } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import { enhance } from "$app/forms";
     import { Badge } from "$lib/components/ui/badge";
     import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
     import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
-    
-    import { invalidate } from '$app/navigation';
-    
+
+    import { invalidate } from "$app/navigation";
+
     // Simple function to refresh data from the server
     async function refreshData() {
         // This will trigger a reload of the page data without a full page refresh
-        await invalidate('app:factoryTokens');
+        await invalidate("app:factoryTokens");
     }
-    
 
     // Props for DataTable component
     export let props = {
@@ -40,19 +44,19 @@
             page: 1,
             per_page: 10,
             total_records: 0,
-            total_pages: 0
+            total_pages: 0,
         },
         sort: {
             field: "issuedAt",
-            order: "desc" as "asc" | "desc"
+            order: "desc" as "asc" | "desc",
         },
-        loading: false
+        loading: false,
     };
-    
+
     // State for confirmation dialog
     let state = {
         selectedRecord: null as FactoryToken | null,
-        confirmationOpen: false
+        confirmationOpen: false,
     };
 
     // Function to open delete confirmation dialog
@@ -60,12 +64,12 @@
         state.selectedRecord = token;
         state.confirmationOpen = true;
     }
-    
+
     // Token to be toggled (for status change)
     let tokenToToggle: FactoryToken | null = null;
     let isTogglingStatus = false;
     let statusToggleDialogOpen = false;
-    
+
     // Function to prepare for status toggle
     function prepareToggleStatus(token: FactoryToken) {
         tokenToToggle = token;
@@ -77,36 +81,48 @@
 
     // Stores for filters and table state
     const selectedIsUsed = writable<string[]>(
-        $page.url.searchParams.get("isUsed")?.split(",").filter(Boolean) ?? []
+        $page.url.searchParams.get("isUsed")?.split(",").filter(Boolean) ?? [],
     );
-    
+
     $: {
         // Keep selectedIsUsed in sync with URL changes
-        const urlIsUsed = $page.url.searchParams.get("isUsed")?.split(",").filter(Boolean) ?? [];
+        const urlIsUsed =
+            $page.url.searchParams.get("isUsed")?.split(",").filter(Boolean) ??
+            [];
         if (JSON.stringify(urlIsUsed) !== JSON.stringify($selectedIsUsed)) {
             selectedIsUsed.set(urlIsUsed);
         }
     }
-    
+
     const selectedHardwareModels = writable<string[]>(
-        $page.url.searchParams.get("hardwareModels")?.split(",").filter(Boolean) ?? []
+        $page.url.searchParams
+            .get("hardwareModels")
+            ?.split(",")
+            .filter(Boolean) ?? [],
     );
 
     $: {
         // Keep selectedHardwareModels in sync with URL changes
-        const urlHardwareModels = $page.url.searchParams.get("hardwareModels")?.split(",").filter(Boolean) ?? [];
-        if (JSON.stringify(urlHardwareModels) !== JSON.stringify($selectedHardwareModels)) {
+        const urlHardwareModels =
+            $page.url.searchParams
+                .get("hardwareModels")
+                ?.split(",")
+                .filter(Boolean) ?? [];
+        if (
+            JSON.stringify(urlHardwareModels) !==
+            JSON.stringify($selectedHardwareModels)
+        ) {
             selectedHardwareModels.set(urlHardwareModels);
         }
     }
-    
+
     // Clean up legacy URL parameters
     onMount(() => {
         if (!browser) return;
-        
+
         const url = new URL(window.location.href);
         let needsRedirect = false;
-        
+
         if (needsRedirect) {
             goto(url.toString(), { replaceState: true, noScroll: true });
         }
@@ -124,12 +140,12 @@
                 props: {
                     record: {
                         id: record.id,
-                        name: record.name || 'Unnamed Token'
+                        name: record.name || "Unnamed Token",
                     },
-                    baseUrl: '/admin/iot/factory_tokens',
-                    showId: true
-                }
-            })
+                    baseUrl: "/admin/iot/factory_tokens",
+                    showId: true,
+                },
+            }),
         },
         // {
         //     id: "serialNumber",
@@ -143,7 +159,7 @@
             label: "Hardware Model",
             sortable: true,
             width: "10%",
-            render: (record: FactoryToken) => record.hardwareModel || "N/A"
+            render: (record: FactoryToken) => record.hardwareModel || "N/A",
         },
 
         {
@@ -151,19 +167,19 @@
             label: "Token",
             sortable: true,
             field: "token",
-            width: "50%",
+            width: "25%",
             render: (record: FactoryToken) => ({
                 component: SecureKeyDisplay,
                 props: {
                     apiKey: record.token || "",
-                   
                     showCopyButton: true,
                     showVisibilityToggle: true,
-                    className: "py-1"
-                }
-            })
+                    truncate: true,
+                    className: "py-1",
+                },
+            }),
         },
-       
+
         {
             id: "status",
             label: "Status",
@@ -171,9 +187,9 @@
             render: (record: FactoryToken) => ({
                 component: StatusBadge,
                 props: {
-                    status:record.isUsed ? "active" : "inactive"
-                }
-            })
+                    status: record.isUsed ? "active" : "inactive",
+                },
+            }),
         },
         {
             id: "expiresAt",
@@ -187,9 +203,9 @@
                     format: "relative",
                     showTooltip: true,
                     useHoverCard: true,
-                    iconSize: 12
-                }
-            })
+                    iconSize: 12,
+                },
+            }),
         },
         {
             id: "issuedAt",
@@ -203,9 +219,9 @@
                     format: "relative",
                     showTooltip: true,
                     useHoverCard: true,
-                    iconSize: 12
-                }
-            })
+                    iconSize: 12,
+                },
+            }),
         },
         {
             id: "actions",
@@ -217,23 +233,24 @@
                     {
                         label: "Edit",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/iot/factory_tokens/${record.id}`)
+                        onClick: () =>
+                            goto(`/admin/iot/factory_tokens/${record.id}`),
                     },
                     {
                         label: "Delete",
                         icon: Trash,
-                        onClick: () => confirmDelete(record)
-                    }
+                        onClick: () => confirmDelete(record),
+                    },
                 ];
-                
+
                 return {
                     component: RecordActions,
                     props: {
-                        items: actionItems
-                    }
+                        items: actionItems,
+                    },
                 };
-            }
-        }
+            },
+        },
     ];
 </script>
 
@@ -243,30 +260,36 @@
         state={{
             selectedRecord: state.selectedRecord,
             confirmationOpen: state.confirmationOpen,
-            title: 'Delete Factory Token',
-            message: state.selectedRecord ? `Are you sure you want to delete factory token ${state.selectedRecord.name || state.selectedRecord.id}?` : '',
-            confirmButtonText: 'Delete',
-            cancelButtonText: 'Cancel'
+            title: "Delete Factory Token",
+            message: state.selectedRecord
+                ? `Are you sure you want to delete factory token ${state.selectedRecord.name || state.selectedRecord.id}?`
+                : "",
+            confirmButtonText: "Delete",
+            cancelButtonText: "Cancel",
         }}
         useFormSubmission={false}
         onConfirm={async () => {
             if (!state.selectedRecord) return;
-            
+
             try {
                 // Use the generic API delete function
                 const result = await api_delete(
-                    '/admin/iot/factory_tokens',
-                    state.selectedRecord.id
+                    "/admin/iot/factory_tokens",
+                    state.selectedRecord.id,
                 );
-                
+
                 // If we got here, the operation was successful
-                toast.success('Factory token deleted successfully');
-                
+                toast.success("Factory token deleted successfully");
+
                 // Refresh data from the server
                 await refreshData();
             } catch (error) {
-                console.error('Error deleting factory token:', error);
-                toast.error(error instanceof Error ? error.message : 'Failed to delete factory token');
+                console.error("Error deleting factory token:", error);
+                toast.error(
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to delete factory token",
+                );
             }
         }}
         on:close={() => {
@@ -279,13 +302,13 @@
     <RecordUpdateDialog
         state={{
             open: statusToggleDialogOpen,
-            title: tokenToToggle?.isUsed ? 'Mark as Available' : 'Mark as Used',
-            message: tokenToToggle 
-                ? `Are you sure you want to mark factory token ${tokenToToggle.tokenId || tokenToToggle.id} as ${tokenToToggle.isUsed ? 'available' : 'used'}?`
-                : '',
-            confirmButtonText: 'Update',
-            cancelButtonText: 'Cancel',
-            loading: isTogglingStatus
+            title: tokenToToggle?.isUsed ? "Mark as Available" : "Mark as Used",
+            message: tokenToToggle
+                ? `Are you sure you want to mark factory token ${tokenToToggle.tokenId || tokenToToggle.id} as ${tokenToToggle.isUsed ? "available" : "used"}?`
+                : "",
+            confirmButtonText: "Update",
+            cancelButtonText: "Cancel",
+            loading: isTogglingStatus,
         }}
         on:close={() => {
             statusToggleDialogOpen = false;
@@ -293,24 +316,30 @@
         }}
         on:confirm={async () => {
             if (!tokenToToggle) return;
-            
+
             isTogglingStatus = true;
-            
+
             try {
                 // Use the generic API patch function
-                const result = await api_patch(
-                    '/admin/iot/factory_tokens',
-                    { id: tokenToToggle.id, isUsed: !tokenToToggle.isUsed }
-                );
-                
+                const result = await api_patch("/admin/iot/factory_tokens", {
+                    id: tokenToToggle.id,
+                    isUsed: !tokenToToggle.isUsed,
+                });
+
                 // If we got here, the operation was successful
-                toast.success(`Factory token ${tokenToToggle.isUsed ? 'marked as available' : 'marked as used'} successfully`);
-                
+                toast.success(
+                    `Factory token ${tokenToToggle.isUsed ? "marked as available" : "marked as used"} successfully`,
+                );
+
                 // Refresh data from the server
                 await refreshData();
             } catch (error) {
-                console.error('Error updating factory token status:', error);
-                toast.error(error instanceof Error ? error.message : 'Failed to update factory token status');
+                console.error("Error updating factory token status:", error);
+                toast.error(
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to update factory token status",
+                );
             } finally {
                 isTogglingStatus = false;
                 statusToggleDialogOpen = false;
@@ -328,28 +357,31 @@
                 <DebouncedTextFilter
                     placeholder="Search by token ID or serial number..."
                     paramName="search"
-                    value={$page.url.searchParams.get('search') || ''}
+                    value={$page.url.searchParams.get("search") || ""}
                 />
             </div>
-            
+
             <!-- Status filter -->
             <PopoverFilter
                 label="Status"
                 options={[
                     { label: "Used", value: "true" },
-                    { label: "Available", value: "false" }
+                    { label: "Available", value: "false" },
                 ]}
                 selectedValues={$selectedIsUsed}
                 onChange={(values) => {
                     selectedIsUsed.set(values);
                     const url = new URL(window.location.href);
-                    url.searchParams.set('isUsed', values.join(','));
-                    if (!values.length) url.searchParams.delete('isUsed');
-                    url.searchParams.set('page', '1');
-                    goto(url.toString(), { replaceState: true, noScroll: true });
+                    url.searchParams.set("isUsed", values.join(","));
+                    if (!values.length) url.searchParams.delete("isUsed");
+                    url.searchParams.set("page", "1");
+                    goto(url.toString(), {
+                        replaceState: true,
+                        noScroll: true,
+                    });
                 }}
             />
-            
+
             <!-- Hardware Model filter -->
             <!-- <PopoverFilter
                 label="Hardware Model"
@@ -370,7 +402,7 @@
 
         <DataTable
             {columns}
-            props={props}
+            {props}
             on:sort={handleTableSort}
             on:pagination={handleTablePagination}
         />
