@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import Redis, { type RedisOptions } from 'ioredis';
 import { logger } from '$lib/server/logger';
 
 // Use Node.js environment check instead of SvelteKit's $app/environment
@@ -27,9 +27,9 @@ function createRedisClient(): Redis | null {
 
     logger.info(connectionUrl ? `Creating Redis client from URL` : `Creating Redis client for ${host}:${port}`);
 
-    const options: Redis.RedisOptions = {
+    const options: RedisOptions = {
         maxRetriesPerRequest: 3,
-        retryStrategy(times) {
+        retryStrategy(times: number) {
             const delay = Math.min(times * 50, 2000);
             return delay;
         }

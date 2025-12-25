@@ -149,7 +149,11 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
       // Mark cronjob as inactive since entity no longer exists
       await (prisma as any).cronJob.update({
         where: { id: jobId },
-        data: { status: 'COMPLETED', lastResult: 'Entity not found - job completed' }
+        data: { 
+          status: 'COMPLETED', 
+          lastResult: 'success',
+          lastError: 'Entity not found'
+        }
       });
       return;
     }
@@ -160,7 +164,11 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
       logger.warn(`[EntityExpire] Entity has no expiration date: ${entityType}/${entityId}`);
       await (prisma as any).cronJob.update({
         where: { id: jobId },
-        data: { status: 'COMPLETED', lastResult: 'No expiration date - job completed' }
+        data: { 
+          status: 'COMPLETED', 
+          lastResult: 'success',
+          lastError: 'No expiration date'
+        }
       });
       return;
     }
@@ -202,10 +210,14 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
           updates: processedMarkData
         });
         
-        // Mark cronjob as inactive since entity is now processed
+        // Mark cronjob as completed since entity is now processed
         await (prisma as any).cronJob.update({
           where: { id: jobId },
-          data: { status: 'COMPLETED', lastResult: 'Entity marked as expired - job completed' }
+          data: { 
+            status: 'COMPLETED', 
+            lastResult: 'success',
+            lastError: null
+          }
         });
         break;
 
@@ -221,10 +233,14 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
           updates: deactivateData
         });
         
-        // Mark cronjob as inactive since entity is now processed
+        // Mark cronjob as completed since entity is now processed
         await (prisma as any).cronJob.update({
           where: { id: jobId },
-          data: { status: 'COMPLETED', lastResult: 'Entity deactivated - job completed' }
+          data: { 
+            status: 'COMPLETED', 
+            lastResult: 'success',
+            lastError: null
+          }
         });
         break;
 
@@ -249,10 +265,14 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
         });
         logger.info(`[EntityExpire] Deleted entity: ${entityType}/${entityId}`);
         
-        // Mark cronjob as inactive since entity is now deleted
+        // Mark cronjob as completed since entity is now deleted
         await (prisma as any).cronJob.update({
           where: { id: jobId },
-          data: { status: 'COMPLETED', lastResult: 'Entity deleted - job completed' }
+          data: { 
+            status: 'COMPLETED', 
+            lastResult: 'success',
+            lastError: null
+          }
         });
         break;
 

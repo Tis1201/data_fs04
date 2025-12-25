@@ -60,7 +60,7 @@ export async function getActiveCronjobs(): Promise<CachedCronJob[]> {
     // Type assertion needed until Prisma generates types after migration
     const cronjobs = await (prisma as any).cronJob.findMany({
       where: {
-        status: 'SCHEDULED'
+        status: 'ACTIVE'
       },
       orderBy: {
         nextRunAt: 'asc'

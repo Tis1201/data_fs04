@@ -36,6 +36,7 @@ const table_options = {
         name: true,
         functionName: true,
         cronExpression: true,
+        isRecurring: true,
         timezone: true,
         status: true,
         lastRunAt: true,

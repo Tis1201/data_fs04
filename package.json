@@ -39,7 +39,6 @@
 		"process:main": "dotenv -- tsx scripts/processes/main-process.ts",
 		"bundle:process": "dotenv -- tsx scripts/processes/bundle-process.ts",
 		"mqtt:worker": "dotenv -- tsx src/worker/index.ts",
-		"cron:worker": "dotenv -- tsx src/worker/cron/index.ts",
 		"job:worker": "dotenv -- tsx src/worker/jobs/index.ts",
 		"gcloud:cleanup": "dotenv -- tsx scripts/processes/gcloud-cleanup.ts",
 		"dev:all-processes": "concurrently \"npm run dev\" \"npm run bundle:process\" \"npm run gcloud:cleanup\""

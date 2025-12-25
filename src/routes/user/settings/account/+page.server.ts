@@ -10,6 +10,7 @@ import prisma from '$lib/server/prisma';
 import { userAccountSchema, notificationSchema, passwordSchema, companyCreateSchema, relationshipSchema } from './schema';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 /**
  * Load user account settings data

@@ -2,11 +2,11 @@
  * Background Job System - BullMQ Queue Client
  * 
  * Exports the shared queue instance and helper functions for adding jobs.
- * Reuses the existing Redis connection from $lib/server/redis.
+ * Creates a separate Redis connection for BullMQ with required configuration.
  */
 
 import { Queue, type JobsOptions } from 'bullmq';
-import redis from '$lib/server/redis';
+import Redis from 'ioredis';
 import { logger } from '$lib/server/logger';
 import type { AddJobOptions } from './types';
 
@@ -20,14 +20,56 @@ const DEFAULT_JOB_OPTIONS: JobsOptions = {
     removeOnFail: { count: 1000 },
 };
 
-// Create queue only if Redis is available
+// BullMQ requires maxRetriesPerRequest: null
+// Create a separate Redis connection for BullMQ
+let bullmqRedis: Redis | null = null;
 let jobQueue: Queue | null = null;
+
+function getBullMQRedis(): Redis {
+    if (!bullmqRedis) {
+        const connectionUrl = process.env.REDIS_URL;
+        const host = process.env.REDIS_HOST || 'localhost';
+        const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+        const password = process.env.REDIS_PASSWORD;
+
+        if (!connectionUrl && !host) {
+            throw new Error('Redis is not available. Cannot create job queue.');
+        }
+
+        // BullMQ requires maxRetriesPerRequest: null
+        const options: Redis.RedisOptions = {
+            maxRetriesPerRequest: null, // Required by BullMQ
+            retryStrategy(times) {
+                const delay = Math.min(times * 50, 2000);
+                return delay;
+            }
+        };
+
+        bullmqRedis = connectionUrl
+            ? new Redis(connectionUrl, options)
+            : new Redis({
+                host,
+                port,
+                password: password || undefined,
+                ...options
+            });
+
+        bullmqRedis.on('error', (err) => {
+            logger.error(`[Jobs/BullMQ] Redis client error: ${err.message}`);
+        });
+
+        bullmqRedis.on('connect', () => {
+            logger.info('[Jobs/BullMQ] Redis client connected');
+        });
+
+        logger.info('[Jobs/BullMQ] Created Redis connection for BullMQ');
+    }
+    return bullmqRedis;
+}
 
 function getQueue(): Queue {
     if (!jobQueue) {
-        if (!redis) {
-            throw new Error('Redis is not available. Cannot create job queue.');
-        }
+        const redis = getBullMQRedis();
         jobQueue = new Queue(QUEUE_NAME, {
             connection: redis,
             defaultJobOptions: DEFAULT_JOB_OPTIONS,

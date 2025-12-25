@@ -21,9 +21,9 @@ export async function upsertFactoryTokenCronjob(
     entityType: 'factoryToken',
     entityId: factoryTokenId,
     expiresAt,
-    action: 'mark', // Mark expired tokens as used
+        action: 'mark', // Mark expired tokens as used
     userId,
-    accountId: null
+      accountId: null
   });
 }
 
