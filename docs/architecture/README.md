@@ -65,6 +65,16 @@ Complete WebRTC implementation for terminal and remote desktop functionality:
 - **Screen Sharing**: Real-time video streaming with RDP
 - **Cross-Platform**: macOS and Linux input injection support
 
+### [Audit Log Architecture](./audit/AUDIT_LOG.md)
+**Last updated: 2025-01-26 – Comprehensive audit logging system**
+
+Complete audit logging system for traceability and compliance:
+- **Comprehensive Logging**: All CRUD operations logged with full context
+- **Role-Based Access**: Admin has full access, users are account-scoped
+- **Performance Optimized**: Indexed queries and pagination for scalability
+- **User-Friendly UI**: Color-coded actions, detailed views, and comprehensive filtering
+- **Production Ready**: Complete implementation across all modules
+
 ## 🏗️ Architecture Principles
 
 ### Modular Design
