@@ -44,6 +44,7 @@
         Pin,
         Book,
         Radio,
+        FileText,
     } from "lucide-svelte";
 
     export let className = "";
@@ -244,6 +245,11 @@
                     href: "/admin/debug/dashboard/superset",
                     label: "Superset",
                     icon: Book,
+                },
+                {
+                    href: "/admin/debug/audit-logs",
+                    label: "Audit Logs",
+                    icon: FileText,
                 },
             ],
         },
