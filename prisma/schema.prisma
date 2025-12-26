@@ -1301,10 +1301,10 @@ model CronJob {
   name           String
   functionName   String
   args           Json?
-  cronExpression String?            // Nullable - null for one-time jobs
+  cronExpression String?
   timezone       String?            @default("UTC")
-  isRecurring    Boolean            @default(true) // false for one-time jobs
   status         CronJobStatus      @default(ACTIVE)
+  isRecurring    Boolean            @default(true)
   lastRunAt      DateTime?
   nextRunAt      DateTime?
   lastResult     String?
