@@ -13,6 +13,7 @@ import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { getStatusBeforeToggled } from '$lib/utils';
+import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // Define table options for Webhook Endpoints
 const table_options = {

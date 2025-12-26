@@ -1,14 +1,9 @@
-/*
-  Warnings:
+-- CreateTable: FactoryDevice
+-- Note: signingKeyId was already added in migrations 20251017000000 and 20251017000001
+-- This migration only creates the FactoryDevice table and its relationships
 
-  - Added the required column `signingKeyId` to the `License` table without a default value. This is not possible if the table is not empty.
-
-*/
--- AlterTable
-ALTER TABLE "License" ADD COLUMN     "signingKeyId" TEXT NOT NULL;
-
--- CreateTable
-CREATE TABLE "FactoryDevice" (
+-- Create FactoryDevice table if it doesn't exist
+CREATE TABLE IF NOT EXISTS "FactoryDevice" (
     "id" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -27,29 +22,78 @@ CREATE TABLE "FactoryDevice" (
     CONSTRAINT "FactoryDevice_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "FactoryDevice_hardwareFingerprint_key" ON "FactoryDevice"("hardwareFingerprint");
+-- CreateIndex: FactoryDevice unique indexes (idempotent)
+-- Prisma expects simple unique indexes for @unique() fields, not conditional ones
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE tablename = 'FactoryDevice' AND indexname = 'FactoryDevice_hardwareFingerprint_key'
+    ) THEN
+        CREATE UNIQUE INDEX "FactoryDevice_hardwareFingerprint_key" ON "FactoryDevice"("hardwareFingerprint");
+    END IF;
+END $$;
 
--- CreateIndex
-CREATE UNIQUE INDEX "FactoryDevice_claimedDeviceId_key" ON "FactoryDevice"("claimedDeviceId");
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE tablename = 'FactoryDevice' AND indexname = 'FactoryDevice_claimedDeviceId_key'
+    ) THEN
+        CREATE UNIQUE INDEX "FactoryDevice_claimedDeviceId_key" ON "FactoryDevice"("claimedDeviceId");
+    END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "FactoryDevice_accountId_idx" ON "FactoryDevice"("accountId");
+-- CreateIndex: FactoryDevice regular indexes (idempotent)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE tablename = 'FactoryDevice' AND indexname = 'FactoryDevice_accountId_idx'
+    ) THEN
+        CREATE INDEX "FactoryDevice_accountId_idx" ON "FactoryDevice"("accountId");
+    END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "FactoryDevice_status_idx" ON "FactoryDevice"("status");
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE tablename = 'FactoryDevice' AND indexname = 'FactoryDevice_status_idx'
+    ) THEN
+        CREATE INDEX "FactoryDevice_status_idx" ON "FactoryDevice"("status");
+    END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "FactoryDevice_createdAt_idx" ON "FactoryDevice"("createdAt");
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes 
+        WHERE tablename = 'FactoryDevice' AND indexname = 'FactoryDevice_createdAt_idx'
+    ) THEN
+        CREATE INDEX "FactoryDevice_createdAt_idx" ON "FactoryDevice"("createdAt");
+    END IF;
+END $$;
 
--- CreateIndex
-CREATE INDEX "License_signingKeyId_idx" ON "License"("signingKeyId");
+-- AddForeignKey: FactoryDevice foreign keys (idempotent)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'FactoryDevice_accountId_fkey'
+    ) THEN
+        ALTER TABLE "FactoryDevice" ADD CONSTRAINT "FactoryDevice_accountId_fkey" 
+        FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
--- AddForeignKey
-ALTER TABLE "FactoryDevice" ADD CONSTRAINT "FactoryDevice_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FactoryDevice" ADD CONSTRAINT "FactoryDevice_claimedDeviceId_fkey" FOREIGN KEY ("claimedDeviceId") REFERENCES "Device"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "License" ADD CONSTRAINT "License_signingKeyId_fkey" FOREIGN KEY ("signingKeyId") REFERENCES "JwtSigningKey"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'FactoryDevice_claimedDeviceId_fkey'
+    ) THEN
+        ALTER TABLE "FactoryDevice" ADD CONSTRAINT "FactoryDevice_claimedDeviceId_fkey" 
+        FOREIGN KEY ("claimedDeviceId") REFERENCES "Device"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;

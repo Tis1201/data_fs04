@@ -44,6 +44,7 @@
         Pin,
         Book,
         Radio,
+        FileText,
     } from "lucide-svelte";
 
     export let className = "";
@@ -163,28 +164,6 @@
             ],
         },
         {
-            label: "Integrations",
-            icon: Link2,
-            initialExpanded: false,
-            subItems: [
-                {
-                    href: "/admin/settings/webhook",
-                    label: "Webhook",
-                    icon: Link2,
-                },
-                {
-                    href: "/admin/settings/whatsapp/accounts",
-                    label: "Whatsapp",
-                    icon: MessageCircle,
-                },
-                {
-                    href: "/admin/settings/listeners",
-                    label: "Listeners",
-                    icon: Ear,
-                },
-            ],
-        },
-        {
             label: "Settings",
             icon: Settings,
             initialExpanded: true,
@@ -195,6 +174,11 @@
                     icon: Settings2,
                 },
                 { href: "/admin/settings/email", label: "Email", icon: Mail },
+                {
+                    href: "/admin/settings/cron-jobs",
+                    label: "Cron Jobs",
+                    icon: Activity,
+                },
             ],
         },
         {
@@ -256,20 +240,17 @@
             icon: BugOff,
             initialExpanded: false,
             subItems: [
-                { href: "/admin/debug/sse", label: "SSE", icon: Zap },
-                {
-                    href: "/admin/debug/messaging",
-                    label: "Messaging",
-                    icon: MessageCircle,
-                },
                 { href: "/admin/debug/redis", label: "Redis", icon: Database },
                 {
                     href: "/admin/debug/dashboard/superset",
                     label: "Superset",
                     icon: Book,
                 },
-
-                // { href: "/admin/debug/websocket", label: "WebSocket", icon: Zap }
+                {
+                    href: "/admin/debug/audit-logs",
+                    label: "Audit Logs",
+                    icon: FileText,
+                },
             ],
         },
     ];

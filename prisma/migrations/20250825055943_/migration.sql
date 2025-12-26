@@ -5,18 +5,55 @@
 
 */
 -- CreateEnum
-CREATE TYPE "ClaimStatus" AS ENUM ('PENDING', 'FULFILLED', 'EXPIRED', 'REVOKED');
+-- Idempotent: Check if enum exists before creating
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ClaimStatus') THEN
+        CREATE TYPE "ClaimStatus" AS ENUM ('PENDING', 'FULFILLED', 'EXPIRED', 'REVOKED');
+    END IF;
+END $$;
 
 -- CreateEnum
-CREATE TYPE "SetStatus" AS ENUM ('ACTIVE', 'INACTIVE');
+-- Idempotent: Check if enum exists before creating
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'SetStatus') THEN
+        CREATE TYPE "SetStatus" AS ENUM ('ACTIVE', 'INACTIVE');
+    END IF;
+END $$;
 
 -- AlterTable
-ALTER TABLE "Bundle" DROP COLUMN "updateStrategy",
-ADD COLUMN     "autoOpen" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN     "forceUpdate" BOOLEAN NOT NULL DEFAULT false;
+-- Idempotent: Drop column only if it exists, add columns only if they don't exist
+DO $$ 
+BEGIN
+    -- Drop updateStrategy column if it exists
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'Bundle' AND column_name = 'updateStrategy'
+    ) THEN
+        ALTER TABLE "Bundle" DROP COLUMN "updateStrategy";
+    END IF;
+    
+    -- Add autoOpen column if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'Bundle' AND column_name = 'autoOpen'
+    ) THEN
+        ALTER TABLE "Bundle" ADD COLUMN "autoOpen" BOOLEAN NOT NULL DEFAULT false;
+    END IF;
+    
+    -- Add forceUpdate column if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'Bundle' AND column_name = 'forceUpdate'
+    ) THEN
+        ALTER TABLE "Bundle" ADD COLUMN "forceUpdate" BOOLEAN NOT NULL DEFAULT false;
+    END IF;
+END $$;
 
 -- CreateTable
-CREATE TABLE "DeviceActionLog" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "DeviceActionLog" (
     "id" TEXT NOT NULL,
     "deviceId" TEXT NOT NULL,
     "actionType" TEXT NOT NULL,
@@ -37,7 +74,8 @@ CREATE TABLE "DeviceActionLog" (
 );
 
 -- CreateTable
-CREATE TABLE "BundleInstallSession" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "BundleInstallSession" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
@@ -61,7 +99,8 @@ CREATE TABLE "BundleInstallSession" (
 );
 
 -- CreateTable
-CREATE TABLE "BundleInstallBatch" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "BundleInstallBatch" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "batchNumber" INTEGER NOT NULL,
@@ -81,7 +120,8 @@ CREATE TABLE "BundleInstallBatch" (
 );
 
 -- CreateTable
-CREATE TABLE "BundleInstallDevice" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "BundleInstallDevice" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "batchId" TEXT NOT NULL,
@@ -104,7 +144,8 @@ CREATE TABLE "BundleInstallDevice" (
 );
 
 -- CreateTable
-CREATE TABLE "BundleInstallBundle" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "BundleInstallBundle" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "batchId" TEXT NOT NULL,
@@ -124,7 +165,8 @@ CREATE TABLE "BundleInstallBundle" (
 );
 
 -- CreateTable
-CREATE TABLE "BundleInstallError" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "BundleInstallError" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "batchId" TEXT,
@@ -142,7 +184,8 @@ CREATE TABLE "BundleInstallError" (
 );
 
 -- CreateTable
-CREATE TABLE "PreclaimSet" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "PreclaimSet" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
@@ -157,7 +200,8 @@ CREATE TABLE "PreclaimSet" (
 );
 
 -- CreateTable
-CREATE TABLE "PreclaimDevice" (
+-- Idempotent: Check if table exists before creating
+CREATE TABLE IF NOT EXISTS "PreclaimDevice" (
     "id" TEXT NOT NULL,
     "macId" TEXT NOT NULL,
     "name" TEXT,
@@ -176,157 +220,362 @@ CREATE TABLE "PreclaimDevice" (
 );
 
 -- CreateIndex
-CREATE INDEX "DeviceActionLog_deviceId_idx" ON "DeviceActionLog"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceActionLog_deviceId_idx" ON "DeviceActionLog"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "DeviceActionLog_actionType_idx" ON "DeviceActionLog"("actionType");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceActionLog_actionType_idx" ON "DeviceActionLog"("actionType");
 
 -- CreateIndex
-CREATE INDEX "DeviceActionLog_status_idx" ON "DeviceActionLog"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceActionLog_status_idx" ON "DeviceActionLog"("status");
 
 -- CreateIndex
-CREATE INDEX "DeviceActionLog_initiatedBy_idx" ON "DeviceActionLog"("initiatedBy");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceActionLog_initiatedBy_idx" ON "DeviceActionLog"("initiatedBy");
 
 -- CreateIndex
-CREATE INDEX "DeviceActionLog_initiatedAt_idx" ON "DeviceActionLog"("initiatedAt");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "DeviceActionLog_initiatedAt_idx" ON "DeviceActionLog"("initiatedAt");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallSession_initiatedBy_idx" ON "BundleInstallSession"("initiatedBy");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallSession_initiatedBy_idx" ON "BundleInstallSession"("initiatedBy");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallSession_status_idx" ON "BundleInstallSession"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallSession_status_idx" ON "BundleInstallSession"("status");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallSession_initiatedAt_idx" ON "BundleInstallSession"("initiatedAt");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallSession_initiatedAt_idx" ON "BundleInstallSession"("initiatedAt");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBatch_sessionId_idx" ON "BundleInstallBatch"("sessionId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBatch_sessionId_idx" ON "BundleInstallBatch"("sessionId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBatch_batchNumber_idx" ON "BundleInstallBatch"("batchNumber");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBatch_batchNumber_idx" ON "BundleInstallBatch"("batchNumber");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBatch_status_idx" ON "BundleInstallBatch"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBatch_status_idx" ON "BundleInstallBatch"("status");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallDevice_sessionId_idx" ON "BundleInstallDevice"("sessionId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallDevice_sessionId_idx" ON "BundleInstallDevice"("sessionId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallDevice_batchId_idx" ON "BundleInstallDevice"("batchId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallDevice_batchId_idx" ON "BundleInstallDevice"("batchId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallDevice_deviceId_idx" ON "BundleInstallDevice"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallDevice_deviceId_idx" ON "BundleInstallDevice"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallDevice_status_idx" ON "BundleInstallDevice"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallDevice_status_idx" ON "BundleInstallDevice"("status");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBundle_sessionId_idx" ON "BundleInstallBundle"("sessionId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBundle_sessionId_idx" ON "BundleInstallBundle"("sessionId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBundle_batchId_idx" ON "BundleInstallBundle"("batchId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBundle_batchId_idx" ON "BundleInstallBundle"("batchId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBundle_deviceId_idx" ON "BundleInstallBundle"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBundle_deviceId_idx" ON "BundleInstallBundle"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBundle_bundleId_idx" ON "BundleInstallBundle"("bundleId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBundle_bundleId_idx" ON "BundleInstallBundle"("bundleId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallBundle_status_idx" ON "BundleInstallBundle"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallBundle_status_idx" ON "BundleInstallBundle"("status");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallError_sessionId_idx" ON "BundleInstallError"("sessionId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallError_sessionId_idx" ON "BundleInstallError"("sessionId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallError_batchId_idx" ON "BundleInstallError"("batchId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallError_batchId_idx" ON "BundleInstallError"("batchId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallError_deviceId_idx" ON "BundleInstallError"("deviceId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallError_deviceId_idx" ON "BundleInstallError"("deviceId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallError_bundleId_idx" ON "BundleInstallError"("bundleId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallError_bundleId_idx" ON "BundleInstallError"("bundleId");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallError_errorType_idx" ON "BundleInstallError"("errorType");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallError_errorType_idx" ON "BundleInstallError"("errorType");
 
 -- CreateIndex
-CREATE INDEX "BundleInstallError_timestamp_idx" ON "BundleInstallError"("timestamp");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "BundleInstallError_timestamp_idx" ON "BundleInstallError"("timestamp");
 
 -- CreateIndex
-CREATE INDEX "PreclaimSet_accountId_idx" ON "PreclaimSet"("accountId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimSet_accountId_idx" ON "PreclaimSet"("accountId");
 
 -- CreateIndex
-CREATE INDEX "PreclaimSet_status_idx" ON "PreclaimSet"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimSet_status_idx" ON "PreclaimSet"("status");
 
 -- CreateIndex
-CREATE INDEX "PreclaimSet_expiresAt_idx" ON "PreclaimSet"("expiresAt");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimSet_expiresAt_idx" ON "PreclaimSet"("expiresAt");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PreclaimSet_accountId_name_key" ON "PreclaimSet"("accountId", "name");
+-- Idempotent: Check if unique index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "PreclaimSet_accountId_name_key" ON "PreclaimSet"("accountId", "name");
 
 -- CreateIndex
-CREATE INDEX "PreclaimDevice_macId_idx" ON "PreclaimDevice"("macId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimDevice_macId_idx" ON "PreclaimDevice"("macId");
 
 -- CreateIndex
-CREATE INDEX "PreclaimDevice_status_idx" ON "PreclaimDevice"("status");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimDevice_status_idx" ON "PreclaimDevice"("status");
 
 -- CreateIndex
-CREATE INDEX "PreclaimDevice_expiresAt_idx" ON "PreclaimDevice"("expiresAt");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimDevice_expiresAt_idx" ON "PreclaimDevice"("expiresAt");
 
 -- CreateIndex
-CREATE INDEX "PreclaimDevice_accountId_idx" ON "PreclaimDevice"("accountId");
+-- Idempotent: Check if index exists before creating
+CREATE INDEX IF NOT EXISTS "PreclaimDevice_accountId_idx" ON "PreclaimDevice"("accountId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "PreclaimDevice_setId_macId_key" ON "PreclaimDevice"("setId", "macId");
+-- Idempotent: Check if unique index exists before creating
+CREATE UNIQUE INDEX IF NOT EXISTS "PreclaimDevice_setId_macId_key" ON "PreclaimDevice"("setId", "macId");
 
 -- AddForeignKey
-ALTER TABLE "DeviceActionLog" ADD CONSTRAINT "DeviceActionLog_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'DeviceActionLog_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "DeviceActionLog" ADD CONSTRAINT "DeviceActionLog_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "DeviceActionLog" ADD CONSTRAINT "DeviceActionLog_initiatedBy_fkey" FOREIGN KEY ("initiatedBy") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'DeviceActionLog_initiatedBy_fkey'
+    ) THEN
+        ALTER TABLE "DeviceActionLog" ADD CONSTRAINT "DeviceActionLog_initiatedBy_fkey" 
+        FOREIGN KEY ("initiatedBy") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "Bundle" ADD CONSTRAINT "Bundle_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'Bundle_accountId_fkey'
+    ) THEN
+        ALTER TABLE "Bundle" ADD CONSTRAINT "Bundle_accountId_fkey" 
+        FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallSession" ADD CONSTRAINT "BundleInstallSession_initiatedBy_fkey" FOREIGN KEY ("initiatedBy") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallSession_initiatedBy_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallSession" ADD CONSTRAINT "BundleInstallSession_initiatedBy_fkey" 
+        FOREIGN KEY ("initiatedBy") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallBatch" ADD CONSTRAINT "BundleInstallBatch_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallBatch_sessionId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallBatch" ADD CONSTRAINT "BundleInstallBatch_sessionId_fkey" 
+        FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallDevice" ADD CONSTRAINT "BundleInstallDevice_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallDevice_sessionId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallDevice" ADD CONSTRAINT "BundleInstallDevice_sessionId_fkey" 
+        FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallDevice" ADD CONSTRAINT "BundleInstallDevice_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "BundleInstallBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallDevice_batchId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallDevice" ADD CONSTRAINT "BundleInstallDevice_batchId_fkey" 
+        FOREIGN KEY ("batchId") REFERENCES "BundleInstallBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallDevice" ADD CONSTRAINT "BundleInstallDevice_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallDevice_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallDevice" ADD CONSTRAINT "BundleInstallDevice_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallBundle_sessionId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_sessionId_fkey" 
+        FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "BundleInstallBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallBundle_batchId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_batchId_fkey" 
+        FOREIGN KEY ("batchId") REFERENCES "BundleInstallBatch"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "BundleInstallDevice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallBundle_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "BundleInstallDevice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_bundleId_fkey" FOREIGN KEY ("bundleId") REFERENCES "Bundle"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallBundle_bundleId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallBundle" ADD CONSTRAINT "BundleInstallBundle_bundleId_fkey" 
+        FOREIGN KEY ("bundleId") REFERENCES "Bundle"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "BundleInstallError" ADD CONSTRAINT "BundleInstallError_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'BundleInstallError_sessionId_fkey'
+    ) THEN
+        ALTER TABLE "BundleInstallError" ADD CONSTRAINT "BundleInstallError_sessionId_fkey" 
+        FOREIGN KEY ("sessionId") REFERENCES "BundleInstallSession"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "PreclaimSet" ADD CONSTRAINT "PreclaimSet_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'PreclaimSet_accountId_fkey'
+    ) THEN
+        ALTER TABLE "PreclaimSet" ADD CONSTRAINT "PreclaimSet_accountId_fkey" 
+        FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "PreclaimDevice" ADD CONSTRAINT "PreclaimDevice_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'PreclaimDevice_accountId_fkey'
+    ) THEN
+        ALTER TABLE "PreclaimDevice" ADD CONSTRAINT "PreclaimDevice_accountId_fkey" 
+        FOREIGN KEY ("accountId") REFERENCES "Account"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "PreclaimDevice" ADD CONSTRAINT "PreclaimDevice_setId_fkey" FOREIGN KEY ("setId") REFERENCES "PreclaimSet"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'PreclaimDevice_setId_fkey'
+    ) THEN
+        ALTER TABLE "PreclaimDevice" ADD CONSTRAINT "PreclaimDevice_setId_fkey" 
+        FOREIGN KEY ("setId") REFERENCES "PreclaimSet"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "PreclaimDevice" ADD CONSTRAINT "PreclaimDevice_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- Idempotent: Check if constraint exists before adding
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE constraint_name = 'PreclaimDevice_deviceId_fkey'
+    ) THEN
+        ALTER TABLE "PreclaimDevice" ADD CONSTRAINT "PreclaimDevice_deviceId_fkey" 
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END $$;

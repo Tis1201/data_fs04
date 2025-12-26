@@ -9,6 +9,9 @@ import { logger } from '$lib/server/logger';
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
+import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // PreclaimSet upload schema (file validated in action)
 const preclaimSetSchema = z.object({
@@ -234,9 +237,11 @@ export const actions: Actions = {
                             }
                         });
 
+                        const deviceIds: string[] = [];
+                        const devices: any[] = [];
                         for (const r of rows) {
                             const rowExpiresAt = r.expiresAt ? new Date(`${r.expiresAt}T00:00:00`) : null;
-                            await tx.preclaimDevice.create({
+                            const device = await tx.preclaimDevice.create({
                                 data: {
                                     macId: r.macId,
                                     name: r.name || null,
@@ -246,14 +251,70 @@ export const actions: Actions = {
                                     accountId
                                 }
                             });
+                            deviceIds.push(device.id);
+                            devices.push(device);
                         }
-                        return set;
+                        return { set, deviceIds, devices };
                     });
 
-                    logger.info(`PreclaimSet created ${result.id} with ${rows.length} devices`);
+                    // Log audit for PreclaimSet creation
+                    await logAudit({
+                        actionType: AuditActionType.INSERT,
+                        tableName: 'PreclaimSet',
+                        recordId: result.set.id,
+                        oldData: null,
+                        newData: result.set,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    });
+
+                    // Log audit for each PreclaimDevice creation
+                    for (const device of result.devices) {
+                        await logAudit({
+                            actionType: AuditActionType.INSERT,
+                            tableName: 'PreclaimDevice',
+                            recordId: device.id,
+                            oldData: null,
+                            newData: device,
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: locals.prisma
+                        });
+                    }
+
+                    // Create cronjob for PreclaimSet expiration (if expiresAt is set)
+                    if (result.set.expiresAt) {
+                        await upsertEntityExpirationCronjob(locals.prisma, {
+                            entityType: 'preclaimSet',
+                            entityId: result.set.id,
+                            expiresAt: result.set.expiresAt,
+                            action: 'mark',
+                            userId: locals.user.id,
+                            accountId: accountId
+                        });
+                    }
+
+                    // Create cronjobs for PreclaimDevice expiration (for devices with expiresAt)
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (row.expiresAt) {
+                            const rowExpiresAt = new Date(`${row.expiresAt}T00:00:00`);
+                            await upsertEntityExpirationCronjob(locals.prisma, {
+                                entityType: 'preclaimDevice',
+                                entityId: result.deviceIds[i],
+                                expiresAt: rowExpiresAt,
+                                action: 'mark',
+                                userId: locals.user.id,
+                                accountId: accountId
+                            });
+                        }
+                    }
+
+                    logger.info(`PreclaimSet created ${result.set.id} with ${rows.length} devices`);
                     return message(
                         form,
-                        createSuccessResponse('Preclaim set created successfully', { data: { id: result.id } })
+                        createSuccessResponse('Preclaim set created successfully', { data: { id: result.set.id } })
                     );
                 } catch (err) {
                     return handleFormError({

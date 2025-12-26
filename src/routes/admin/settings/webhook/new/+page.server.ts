@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 
 
@@ -126,6 +127,18 @@ export const actions = {
                     name,
                     postfix
                 });
+
+                // Create cronjob for webhook expiration (only if expiresAt is set)
+                if (webhook.expiresAt) {
+                    await upsertEntityExpirationCronjob(locals.prisma, {
+                        entityType: 'webhookEndpoint',
+                        entityId: webhook.id,
+                        expiresAt: webhook.expiresAt,
+                        action: 'deactivate',
+                        userId: auth.user.id,
+                        accountId: null
+                    });
+                }
 
                 await logAudit({
                     actionType: AuditActionType.INSERT,

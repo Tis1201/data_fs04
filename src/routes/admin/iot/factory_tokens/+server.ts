@@ -5,6 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 /**
  * Factory Tokens API Endpoint
@@ -31,6 +32,13 @@ export const DELETE = restrict(
             
             if (!factoryToken) {
                 throw error(404, 'Factory token not found');
+            }
+            
+            try {
+                await deleteEntityExpirationCronjob(prisma, 'factoryToken', id);
+                logger.info(`Deleted expiration cronjob for factory token: ${id}`);
+            } catch (cronError) {
+                logger.warn(`Failed to delete cronjob for factory token ${id}:`, cronError);
             }
             
             // Delete the factory token

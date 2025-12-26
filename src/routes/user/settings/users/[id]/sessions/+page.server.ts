@@ -8,6 +8,7 @@ import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma'; // Raw Prisma client
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 export const load: PageServerLoad = restrict(
     async ({ params, url, locals, cookies }: AuthenticatedEvent) => {
@@ -245,6 +246,14 @@ export const actions: Actions = {
                 
                 if (session.userId !== userId) {
                     return fail(400, { message: 'Session does not belong to this user' });
+                }
+                
+                // Delete the associated expiration cronjob first
+                try {
+                    await deleteEntityExpirationCronjob(prisma, 'session', sessionId);
+                    logger.info(`Deleted expiration cronjob for session: ${sessionId}`);
+                } catch (cronError) {
+                    logger.warn(`Failed to delete cronjob for session ${sessionId}:`, cronError);
                 }
                 
                 // Delete the session using RAW Prisma

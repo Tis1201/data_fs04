@@ -32,8 +32,12 @@ export async function logFactoryJWTClaims(locals: App.Locals, request: Request):
  * - Verifies signature (RS/ES algorithms per stored key)
  * - Enforces aud: 'device-register', typ: 'factory', scope: includes 'device:register'
  * - Relies on jsonwebtoken to validate exp/iat
+ * @returns Object containing both the verified claims and the token string for database lookup
  */
-export async function verifyFactoryJWT(locals: App.Locals, request: Request): Promise<FactoryJWTClaims> {
+export async function verifyFactoryJWT(
+  locals: App.Locals, 
+  request: Request
+): Promise<{ claims: FactoryJWTClaims; token: string }> {
   try {
     const { token, header } = extractAndDecodeJwtFromRequest(request, 'Factory JWT');
 
@@ -72,7 +76,7 @@ export async function verifyFactoryJWT(locals: App.Locals, request: Request): Pr
     }
 
     logger.debug('Factory JWT verified successfully');
-    return payload as FactoryJWTClaims;
+    return { claims: payload as FactoryJWTClaims, token };
   } catch (err) {
     logger.warn(
       `Factory JWT verification failed: ${err instanceof Error ? err.message : String(err)}`

@@ -2,6 +2,8 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * GET /api/v2/device-profiles/[id]
@@ -153,10 +155,29 @@ export const PUT = unifiedEndpoint(
         }
       });
 
+      // Get existing settings for audit log before deletion
+      const existingSettings = await tx.deviceProfileSetting.findMany({
+        where: { profileId: id }
+      });
+
       // Delete existing settings
       await tx.deviceProfileSetting.deleteMany({
         where: { profileId: id }
       });
+
+      // Log audit for deleted settings
+      for (const setting of existingSettings) {
+        await logAudit({
+          actionType: AuditActionType.DELETE,
+          tableName: 'DeviceProfileSetting',
+          recordId: setting.id,
+          oldData: setting,
+          newData: null,
+          userId: session.user.id,
+          ipAddress: context.ipAddress,
+          prisma: tx
+        });
+      }
 
       // Create new settings
       await tx.deviceProfileSetting.createMany({
@@ -170,6 +191,25 @@ export const PUT = unifiedEndpoint(
           order: setting.order ?? index
         }))
       });
+
+      // Get created settings for audit log
+      const createdSettings = await tx.deviceProfileSetting.findMany({
+        where: { profileId: id }
+      });
+
+      // Log audit for created settings
+      for (const setting of createdSettings) {
+        await logAudit({
+          actionType: AuditActionType.INSERT,
+          tableName: 'DeviceProfileSetting',
+          recordId: setting.id,
+          oldData: null,
+          newData: setting,
+          userId: session.user.id,
+          ipAddress: context.ipAddress,
+          prisma: tx
+        });
+      }
 
       // Return updated profile with settings
       return await tx.deviceProfile.findUnique({
