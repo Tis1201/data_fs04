@@ -3,13 +3,17 @@
     import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
     import { PUBLIC_VANNA_API_URL } from "$env/static/public";
 
-    const vannaApiBase = PUBLIC_VANNA_API_URL || "http://localhost:8000";
+    // Vanna server URL (for loading the component script)
+    const vannaServerUrl = PUBLIC_VANNA_API_URL || "http://localhost:8000";
+
+    // API goes through our proxy (for session auth)
+    const apiBase = ""; // Same origin
 
     onMount(() => {
         const script = document.createElement("script");
         script.type = "module";
-        // Load custom styled component from local Vanna server
-        script.src = `${vannaApiBase}/static/vanna-components.js`;
+        // Load custom styled component from Vanna server
+        script.src = `${vannaServerUrl}/static/vanna-components.js`;
         document.head.appendChild(script);
 
         return () => {
@@ -31,10 +35,10 @@
             title="FS Analytics"
             subtitle="Ask questions about your sensor data in plain English"
             placeholder="Ask about devices, sensors, or usage patterns..."
-            api-base={vannaApiBase}
-            sse-endpoint={`${vannaApiBase}/api/vanna/v2/chat_sse`}
-            ws-endpoint={`${vannaApiBase}/api/vanna/v2/chat_websocket`}
-            poll-endpoint={`${vannaApiBase}/api/vanna/v2/chat_poll`}
+            api-base={apiBase}
+            sse-endpoint="/api/vanna/v2/chat_sse"
+            ws-endpoint="/api/vanna/v2/chat_websocket"
+            poll-endpoint="/api/vanna/v2/chat_poll"
         />
     </div>
 </UserPageLayout>
