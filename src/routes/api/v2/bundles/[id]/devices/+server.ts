@@ -2,6 +2,8 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * POST /api/v2/bundles/[id]/devices
@@ -17,10 +19,10 @@ import { logger } from '$lib/server/logger';
  * - Device cannot already be in the bundle
  */
 export const POST = unifiedEndpoint(
-  async ({ context, params, event }) => {
+  async ({ context, params }) => {
     const { prisma, session } = context;
     const { id: bundleId } = params;
-    const { deviceId, status = 'PENDING' } = await event.request.json();
+    const { deviceId, status = 'PENDING' } = await context.request.json();
 
     // Validate input
     if (!deviceId) {
@@ -98,6 +100,18 @@ export const POST = unifiedEndpoint(
     });
 
     logger.info(`Device ${deviceId} added to bundle ${bundleId} by user ${session.user.id}`);
+
+    // Log audit for bundle device creation
+    await logAudit({
+      actionType: AuditActionType.INSERT,
+      tableName: 'BundleDevice',
+      recordId: bundleDevice.id,
+      oldData: null,
+      newData: bundleDevice,
+      userId: session.user.id,
+      ipAddress: context.ipAddress,
+      prisma
+    });
 
     return successResponse(
       { bundleDevice },

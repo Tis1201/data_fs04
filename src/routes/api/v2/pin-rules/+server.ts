@@ -1,6 +1,8 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // GET /api/v2/pin-rules - Get all pin rules (filtered by user permissions)
 export const GET = unifiedEndpoint(async ({ context, event }) => {
@@ -264,6 +266,18 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 		ruleType: newRule.ruleType,
 		userId: session.user.id,
 		accountId: newRule.accountId
+	});
+
+	// Log audit for pin rule creation
+	await logAudit({
+		actionType: AuditActionType.INSERT,
+		tableName: 'PinRule',
+		recordId: newRule.id,
+		oldData: null,
+		newData: newRule,
+		userId: session.user.id,
+		ipAddress: event.getClientAddress?.() || 'unknown',
+		prisma
 	});
 
 	return successResponse(

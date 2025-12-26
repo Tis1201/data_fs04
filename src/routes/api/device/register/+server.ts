@@ -22,6 +22,8 @@ import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
 import { PreclaimProfileService } from '$lib/server/device/profile';
 import { getClientIp } from '$lib/utils/request-utils';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 ////Device
 //Device will then disconnect which cases the subscription to disappear
@@ -200,8 +202,13 @@ export const GET: RequestHandler = async (event) => {
                 });
             }
 
+            // Get existing preclaim device for audit log
+            const existingPreclaimDevice = await locals.prisma.preclaimDevice.findUnique({
+                where: { id: preclaim.preclaim.id }
+            });
+
             // Update preclaim record with claim metadata and linkage to device
-            await locals.prisma.preclaimDevice.update({
+            const updatedPreclaimDevice = await locals.prisma.preclaimDevice.update({
                 where: { id: preclaim.preclaim.id },
                 data: {
                     status: ClaimStatus.FULFILLED,
@@ -209,6 +216,18 @@ export const GET: RequestHandler = async (event) => {
                     claimedBy: resolvedClaimUserId,
                     deviceId: deviceId
                 }
+            });
+
+            // Log audit for PreclaimDevice update
+            await logAudit({
+                actionType: AuditActionType.UPDATE,
+                tableName: 'PreclaimDevice',
+                recordId: preclaim.preclaim.id,
+                oldData: existingPreclaimDevice,
+                newData: updatedPreclaimDevice,
+                userId: resolvedClaimUserId || 'system',
+                ipAddress: getClientIp(request),
+                prisma: locals.prisma
             });
 
             // Apply device profile if assigned to preclaim set

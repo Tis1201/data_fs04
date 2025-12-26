@@ -3,6 +3,8 @@ import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { publishBundleCore } from '$lib/server/bundles/bundlePublisher';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * POST /api/v2/bundles/[id]/publish
@@ -23,7 +25,7 @@ import { publishBundleCore } from '$lib/server/bundles/bundlePublisher';
  * all the complex wave management, device messaging via MQTT, and state tracking
  */
 export const POST = unifiedEndpoint(
-  async ({ context, params }) => {
+  async ({ context, event, params }) => {
     const { prisma, session } = context;
     const { id: bundleId } = params;
 
@@ -52,6 +54,26 @@ export const POST = unifiedEndpoint(
     // 5. Set up timeout tracking
     logger.info(`[BundlePublish] Publishing bundle ${bundleId} by user ${session.user.id}`);
     const result = await publishBundleCore(prisma, bundleId, session.user.id);
+
+    // Log audit for bundle publish (status change from DRAFT to PUBLISHED)
+    if (result.status === 200 || result.status === 201) {
+      const updatedBundle = await prisma.bundle.findUnique({
+        where: { id: bundleId }
+      });
+      
+      if (updatedBundle) {
+        await logAudit({
+          actionType: AuditActionType.UPDATE,
+          tableName: 'Bundle',
+          recordId: bundleId,
+          oldData: bundle,
+          newData: updatedBundle,
+          userId: session.user.id,
+          ipAddress: event.getClientAddress?.() || 'unknown',
+          prisma
+        });
+      }
+    }
 
     // Extract wavesCreated from result
     const wavesCreated = result?.body?.wavesCreated ?? 0;

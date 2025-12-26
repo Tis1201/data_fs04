@@ -2,6 +2,8 @@ import { error } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
     async ({ url, locals }) => {
@@ -142,9 +144,30 @@ export const actions = {
                     throw error(400, 'Assignment ID is required');
                 }
 
-                await locals.prisma.accountAssignment.update({
+                // Get existing assignment for audit log
+                const existingAssignment = await locals.prisma.accountAssignment.findUnique({
+                    where: { id: assignmentId }
+                });
+
+                if (!existingAssignment) {
+                    throw error(404, 'Assignment not found');
+                }
+
+                const updatedAssignment = await locals.prisma.accountAssignment.update({
                     where: { id: assignmentId },
                     data: { status: 'SUSPENDED' }
+                });
+
+                // Log audit for assignment update
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'AccountAssignment',
+                    recordId: assignmentId,
+                    oldData: existingAssignment,
+                    newData: updatedAssignment,
+                    userId: locals.auth.user.id,
+                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    prisma: locals.prisma
                 });
 
                 logger.info(`Account assignment ${assignmentId} suspended by user ${locals.auth.user.id}`);
@@ -167,9 +190,30 @@ export const actions = {
                     throw error(400, 'Assignment ID is required');
                 }
 
-                await locals.prisma.accountAssignment.update({
+                // Get existing assignment for audit log
+                const existingAssignment = await locals.prisma.accountAssignment.findUnique({
+                    where: { id: assignmentId }
+                });
+
+                if (!existingAssignment) {
+                    throw error(404, 'Assignment not found');
+                }
+
+                const updatedAssignment = await locals.prisma.accountAssignment.update({
                     where: { id: assignmentId },
                     data: { status: 'ACTIVE' }
+                });
+
+                // Log audit for assignment update
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'AccountAssignment',
+                    recordId: assignmentId,
+                    oldData: existingAssignment,
+                    newData: updatedAssignment,
+                    userId: locals.auth.user.id,
+                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    prisma: locals.prisma
                 });
 
                 logger.info(`Account assignment ${assignmentId} activated by user ${locals.auth.user.id}`);
@@ -192,8 +236,29 @@ export const actions = {
                     throw error(400, 'Assignment ID is required');
                 }
 
+                // Get existing assignment for audit log
+                const existingAssignment = await locals.prisma.accountAssignment.findUnique({
+                    where: { id: assignmentId }
+                });
+
+                if (!existingAssignment) {
+                    throw error(404, 'Assignment not found');
+                }
+
                 await locals.prisma.accountAssignment.delete({
                     where: { id: assignmentId }
+                });
+
+                // Log audit for assignment deletion
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'AccountAssignment',
+                    recordId: assignmentId,
+                    oldData: existingAssignment,
+                    newData: null,
+                    userId: locals.auth.user.id,
+                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    prisma: locals.prisma
                 });
 
                 logger.info(`Account assignment ${assignmentId} deleted by user ${locals.auth.user.id}`);
@@ -264,6 +329,18 @@ export const actions = {
                             select: { id: true, name: true, slug: true }
                         }
                     }
+                });
+
+                // Log audit for assignment creation
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'AccountAssignment',
+                    recordId: assignment.id,
+                    oldData: null,
+                    newData: assignment,
+                    userId: locals.auth.user.id,
+                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    prisma: locals.prisma
                 });
 
                 logger.info(`Account assignment created: ${parentAccount.name} -> ${childAccount.name} (${relationshipType}) by user ${locals.auth.user.id}`);

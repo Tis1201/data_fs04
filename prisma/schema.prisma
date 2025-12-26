@@ -28,6 +28,7 @@ enum CronJobStatus {
   ACTIVE
   INACTIVE
   PAUSED
+  COMPLETED
 }
 
 model Account {
@@ -1300,8 +1301,9 @@ model CronJob {
   name           String
   functionName   String
   args           Json?
-  cronExpression String
+  cronExpression String?            // Nullable - null for one-time jobs
   timezone       String?            @default("UTC")
+  isRecurring    Boolean            @default(true) // false for one-time jobs
   status         CronJobStatus      @default(ACTIVE)
   lastRunAt      DateTime?
   nextRunAt      DateTime?
@@ -1328,6 +1330,7 @@ model CronJob {
   @@index([accountId])
   @@index([createdBy])
   @@index([functionName])
+  @@index([isRecurring])
 }
 
 model CronJobExecution {

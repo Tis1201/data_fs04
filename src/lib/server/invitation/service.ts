@@ -3,6 +3,8 @@ import { addDays } from 'date-fns';
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '$lib/server/logger';
 import { EmailService } from '$lib/server/email/emailService';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * Generate a secure invitation token and store it in the database
@@ -279,16 +281,24 @@ export async function validateInvitationToken(token: string, prisma: PrismaClien
  * @param token Raw token from URL
  * @param password New password for the user
  * @param prisma Prisma client
+ * @param userName Optional user name
+ * @param ipAddress IP address of the user accepting the invitation
  * @returns Updated user data
  */
 export async function acceptInvitation(
   token: string, 
   password: string, 
   prisma: PrismaClient,
-  userName?: string
+  userName?: string,
+  ipAddress?: string
 ) {
   // Validate the invitation token
   const invitation = await validateInvitationToken(token, prisma);
+  
+  // Get the existing invitation token data for audit log
+  const existingInvitationToken = await prisma.invitationToken.findUnique({
+    where: { id: invitation.id }
+  });
   
   // Hash the password (you'll need to import your password hashing function)
   const { hash } = await import('@node-rs/argon2');
@@ -312,9 +322,21 @@ export async function acceptInvitation(
   });
   
   // Mark the invitation token as used
-  await prisma.invitationToken.update({
+  const updatedInvitationToken = await prisma.invitationToken.update({
     where: { id: invitation.id },
     data: { usedAt: new Date() }
+  });
+  
+  // Log audit for invitation token acceptance (UPDATE)
+  await logAudit({
+    actionType: AuditActionType.UPDATE,
+    tableName: 'InvitationToken',
+    recordId: invitation.id,
+    oldData: existingInvitationToken,
+    newData: updatedInvitationToken,
+    userId: invitation.user.id,
+    ipAddress: ipAddress || 'unknown',
+    prisma
   });
   
   logger.info(`User ${updatedUser.email} accepted invitation and activated account`);

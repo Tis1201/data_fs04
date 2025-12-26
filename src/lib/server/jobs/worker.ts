@@ -6,7 +6,7 @@
  */
 
 import { Worker, type Job } from 'bullmq';
-import redis from '$lib/server/redis';
+import Redis from 'ioredis';
 import { getAdminPrisma } from '$lib/server/prisma';
 import { logger } from '$lib/server/logger';
 import { getHandler, hasHandler } from './registry';
@@ -16,7 +16,52 @@ import type { CronJobData } from './types';
 // Worker configuration
 const WORKER_CONCURRENCY = 5;
 
+// BullMQ requires maxRetriesPerRequest: null
+// Create a separate Redis connection for BullMQ worker
+let bullmqRedis: Redis | null = null;
 let worker: Worker | null = null;
+
+function getBullMQRedis(): Redis {
+    if (!bullmqRedis) {
+        const connectionUrl = process.env.REDIS_URL;
+        const host = process.env.REDIS_HOST || 'localhost';
+        const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+        const password = process.env.REDIS_PASSWORD;
+
+        if (!connectionUrl && !host) {
+            throw new Error('Redis is not available. Cannot create job worker.');
+        }
+
+        // BullMQ requires maxRetriesPerRequest: null
+        const options: Redis.RedisOptions = {
+            maxRetriesPerRequest: null, // Required by BullMQ
+            retryStrategy(times) {
+                const delay = Math.min(times * 50, 2000);
+                return delay;
+            }
+        };
+
+        bullmqRedis = connectionUrl
+            ? new Redis(connectionUrl, options)
+            : new Redis({
+                host,
+                port,
+                password: password || undefined,
+                ...options
+            });
+
+        bullmqRedis.on('error', (err) => {
+            logger.error(`[Jobs/Worker] Redis client error: ${err.message}`);
+        });
+
+        bullmqRedis.on('connect', () => {
+            logger.info('[Jobs/Worker] Redis client connected');
+        });
+
+        logger.info('[Jobs/Worker] Created Redis connection for BullMQ');
+    }
+    return bullmqRedis;
+}
 
 /**
  * Create and start the BullMQ worker.
@@ -27,9 +72,7 @@ export function createWorker(): Worker {
         return worker;
     }
 
-    if (!redis) {
-        throw new Error('Redis is not available. Cannot create job worker.');
-    }
+    const redis = getBullMQRedis();
 
     worker = new Worker(
         QUEUE_NAME,

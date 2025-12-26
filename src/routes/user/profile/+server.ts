@@ -9,6 +9,7 @@ import type { RequestHandler } from './$types';
 import { handleApiError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // Define the API key schema
 const apiKeySchema = z.object({
@@ -168,6 +169,14 @@ export const DELETE = restrict(
                 (error as any).status = 404;
                 (error as any).code = 'NOT_FOUND';
                 throw error;
+            }
+
+            // Delete the associated expiration cronjob first
+            try {
+                await deleteEntityExpirationCronjob(locals.prisma, 'apiKey', id);
+                logger.info(`Deleted expiration cronjob for API key: ${id}`);
+            } catch (cronError) {
+                logger.warn(`Failed to delete cronjob for API key ${id}:`, cronError);
             }
 
             // Delete the API key

@@ -6,6 +6,7 @@ import { fail } from '@sveltejs/kit';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logger } from '$lib/server/logger';
+import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // Table options for Licenses
 const table_options = {
@@ -59,6 +60,14 @@ export const actions = {
 
                 if (!license) {
                     return fail(404, { error: 'License not found' });
+                }
+
+                // Delete the associated expiration cronjob first
+                try {
+                    await deleteEntityExpirationCronjob(locals.prisma, 'license', id);
+                    logger.info(`Deleted expiration cronjob for license: ${id}`);
+                } catch (cronError) {
+                    logger.warn(`Failed to delete cronjob for license ${id}:`, cronError);
                 }
 
                 await locals.prisma.license.delete({

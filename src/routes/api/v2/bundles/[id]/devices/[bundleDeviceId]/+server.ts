@@ -2,6 +2,8 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * DELETE /api/v2/bundles/[id]/devices/[bundleDeviceId]
@@ -35,6 +37,18 @@ export const DELETE = unifiedEndpoint(
     logger.info(
       `BundleDevice ${bundleDeviceId} removed from bundle ${bundleId} by user ${session.user.id}`
     );
+
+    // Log audit for bundle device deletion
+    await logAudit({
+      actionType: AuditActionType.DELETE,
+      tableName: 'BundleDevice',
+      recordId: bundleDeviceId,
+      oldData: existing,
+      newData: null,
+      userId: session.user.id,
+      ipAddress: context.ipAddress,
+      prisma
+    });
 
     return successResponse(
       { bundleId, bundleDeviceId },

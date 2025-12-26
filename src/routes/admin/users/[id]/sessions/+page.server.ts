@@ -108,6 +108,14 @@ export const actions: Actions = {
                     return { success: false, error: 'Session does not belong to this user' };
                 }
                 
+                // Delete the associated expiration cronjob first
+                try {
+                    await deleteEntityExpirationCronjob(locals.prisma, 'session', sessionId);
+                    logger.info(`Deleted expiration cronjob for session: ${sessionId}`);
+                } catch (cronError) {
+                    logger.warn(`Failed to delete cronjob for session ${sessionId}:`, cronError);
+                }
+
                 // Delete the session
                 await locals.prisma.session.delete({
                     where: { id: sessionId }
@@ -168,6 +176,14 @@ export const actions: Actions = {
                     return fail(403, { error: 'Session does not belong to this user' });
                 }
                 
+                // Delete the associated expiration cronjob first
+                try {
+                    await deleteEntityExpirationCronjob(locals.prisma, 'session', sessionId);
+                    logger.info(`Deleted expiration cronjob for session: ${sessionId}`);
+                } catch (cronError) {
+                    logger.warn(`Failed to delete cronjob for session ${sessionId}:`, cronError);
+                }
+
                 // Delete the session
                 await locals.prisma.session.delete({
                     where: { id: sessionId }

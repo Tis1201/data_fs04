@@ -1,6 +1,8 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * POST /api/v2/device-profiles/[id]/unassign
@@ -50,6 +52,14 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		}
 	}
 
+	// Get existing assignments for audit log before deletion
+	const existingAssignments = await prisma.deviceProfileAssignment.findMany({
+		where: {
+			deviceId: { in: deviceIds },
+			profileId: profileId
+		}
+	});
+
 	// Delete assignments for specified devices
 	const result = await prisma.deviceProfileAssignment.deleteMany({
 		where: {
@@ -57,6 +67,20 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 			profileId: profileId
 		}
 	});
+
+	// Log audit for deleted assignments
+	for (const assignment of existingAssignments) {
+		await logAudit({
+			actionType: AuditActionType.DELETE,
+			tableName: 'DeviceProfileAssignment',
+			recordId: assignment.id,
+			oldData: assignment,
+			newData: null,
+			userId: session.user.id,
+			ipAddress: context.ipAddress,
+			prisma
+		});
+	}
 
 	logger.info(`Unassigned profile from ${result.count} devices`, {
 		profileId,

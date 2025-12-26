@@ -2,8 +2,10 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
-export const DELETE: RequestHandler = async ({ params, locals }) => {
+export const DELETE: RequestHandler = async ({ params, locals, getClientAddress }) => {
   try {
     const { id: bundleId, bundleDeviceId } = params as { id: string; bundleDeviceId: string };
 
@@ -27,6 +29,18 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
     await locals.prisma.bundleDevice.delete({ where: { id: bundleDeviceId } });
 
     logger.info(`BundleDevice ${bundleDeviceId} removed from bundle ${bundleId} by user ${auth.user.id}`);
+
+    // Log audit for bundle device deletion
+    await logAudit({
+      actionType: AuditActionType.DELETE,
+      tableName: 'BundleDevice',
+      recordId: bundleDeviceId,
+      oldData: existing,
+      newData: null,
+      userId: auth.user.id,
+      ipAddress: (locals as any).ipAddress || getClientAddress?.() || 'unknown',
+      prisma: locals.prisma
+    });
 
     return json({ success: true, message: 'Device removed from bundle' });
   } catch (err) {

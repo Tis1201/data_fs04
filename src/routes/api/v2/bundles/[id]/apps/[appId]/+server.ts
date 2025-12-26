@@ -2,6 +2,8 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * DELETE /api/v2/bundles/[id]/apps/[appId]
@@ -12,8 +14,8 @@ import { logger } from '$lib/server/logger';
  * - Bundle app belongs to the specified bundle
  */
 export const DELETE = unifiedEndpoint(
-  async ({ context, params }) => {
-    const { prisma } = context;
+  async ({ context, event, params }) => {
+    const { prisma, session } = context;
     const { id: bundleId, appId } = params;
 
     // Check if bundle app exists
@@ -42,6 +44,18 @@ export const DELETE = unifiedEndpoint(
     });
 
     logger.info(`Removed app from bundle: ${bundleId}, appId: ${appId}`);
+
+    // Log audit for bundle app deletion
+    await logAudit({
+      actionType: AuditActionType.DELETE,
+      tableName: 'BundleApp',
+      recordId: appId,
+      oldData: bundleApp,
+      newData: null,
+      userId: session.user.id,
+      ipAddress: event.getClientAddress?.() || 'unknown',
+      prisma
+    });
 
     return successResponse(
       { bundleId, appId },

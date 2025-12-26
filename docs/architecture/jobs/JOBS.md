@@ -54,11 +54,17 @@ flowchart TD
 
 ---
 
-## Pattern 1: Database-Driven CronJobs (Recurring)
+## Pattern 1: Database-Driven CronJobs
 
 CronJobs are defined in the database and synced to BullMQ on worker startup. This ensures that job schedules are persistent and manageable via an Admin UI.
 
-### CronJob Flow Diagram
+CronJobs come in two types:
+- **Recurring Jobs**: Run on a schedule (e.g., daily cleanup, hourly reports)
+- **One-time Jobs**: Run once at a specific time (e.g., entity expiration, scheduled notifications)
+
+### CronJob Flow Diagrams
+
+#### Recurring Jobs Flow
 
 ```mermaid
 sequenceDiagram
@@ -68,18 +74,50 @@ sequenceDiagram
     participant Queue as BullMQ (Repeatable)
     participant Worker as Worker
 
-    Admin->>DB: Create/Update CronJob
-    Sync->>DB: Read ACTIVE CronJobs
-    Sync->>Queue: Upsert Repeatable Job
-    Queue-->>Worker: Trigger at schedule
+    Admin->>DB: Create/Update CronJob (isRecurring=true)
+    Sync->>DB: Read ACTIVE Recurring CronJobs
+    Sync->>Queue: Upsert Repeatable Job (cron pattern)
+    Queue-->>Worker: Trigger at schedule (repeats)
     Worker->>Worker: Execute functionName(args)
     Worker->>DB: Update lastRunAt, lastResult
+```
+
+#### One-time Jobs Flow
+
+```mermaid
+sequenceDiagram
+    participant System as System Code
+    participant DB as PostgreSQL (CronJob)
+    participant Sync as Sync Logic
+    participant Queue as BullMQ (Delayed)
+    participant Worker as Worker
+
+    System->>DB: Create CronJob (isRecurring=false, targetDate)
+    Sync->>DB: Read ACTIVE One-time CronJobs
+    Sync->>Queue: Add Delayed Job (delay until targetDate)
+    Queue-->>Worker: Trigger once at targetDate
+    Worker->>Worker: Execute functionName(args)
+    Worker->>DB: Update status=COMPLETED, lastResult
 ```
 
 ### Source of Truth
 -   **Database (`CronJob` table)**: Defines what jobs *should* run.
 -   **BullMQ**: Manages the actual execution schedule.
+  - **Recurring jobs**: Stored as **repeatable jobs** with cron patterns (e.g., `upsertJobScheduler()`)
+  - **One-time jobs**: Stored as **delayed jobs** that run once (e.g., `queue.add()` with `delay` option)
 -   **Sync Logic**: Runs on worker startup and on API hooks (create/update/delete) to keep them aligned.
+
+### Job Type Examples
+
+**Recurring Jobs:**
+- Daily cleanup tasks (`system:cleanup-tokens`)
+- Hourly reports
+- Periodic health checks
+
+**One-time Jobs:**
+- Entity expiration (factory tokens, sessions, licenses)
+- Scheduled notifications
+- One-off data exports
 
 ### Prisma Schema
 
@@ -89,20 +127,27 @@ model CronJob {
   name           String    // Human-readable name
   functionName   String    // Maps to Function Registry key
   args           Json?     // Arguments passed to the function
-  cronExpression String    // Standard cron format (e.g., "0 0 * * *")
-  status         String    @default("ACTIVE") // ACTIVE, INACTIVE, PAUSED
+  cronExpression String?   // Standard cron format (e.g., "0 0 * * *") - null for one-time jobs
+  isRecurring    Boolean   @default(true) // false for one-time jobs
+  status         String    @default("ACTIVE") // ACTIVE, INACTIVE, PAUSED, COMPLETED
   timezone       String?   @default("UTC")
 
   // Execution Tracking
   lastRunAt      DateTime?
   nextRunAt      DateTime?
-  lastResult     String?   // "success" or error message
+  lastResult     String?   // "success" or "failed"
+  lastError      String?   // Error details if failed
   isRunning      Boolean   @default(false)
 
   // Retry Configuration
   retryCount     Int       @default(0)
   maxRetries     Int       @default(3)
   timeout        Int?      // Execution timeout in ms
+
+  // Statistics
+  totalRuns      Int       @default(0)
+  successCount   Int       @default(0)
+  failureCount   Int       @default(0)
 
   // Audit Fields
   createdAt      DateTime  @default(now())
@@ -112,6 +157,7 @@ model CronJob {
 
   @@index([status])
   @@index([nextRunAt])
+  @@index([isRecurring])
 }
 ```
 
@@ -229,7 +275,8 @@ export function createWorker() {
     logger.info({ jobId: job.id, jobName: job.name }, 'Processing job');
 
     // For CronJobs, update DB status
-    if (job.opts.repeat) {
+    const isCronJob = job.data.cronJobId !== undefined;
+    if (isCronJob) {
       await adminPrisma.cronJob.update({
         where: { id: job.data.cronJobId },
         data: { isRunning: true },
@@ -239,19 +286,43 @@ export function createWorker() {
     try {
       const result = await handler(job.data);
       // Update CronJob on success
-      if (job.opts.repeat && job.data.cronJobId) {
+      if (isCronJob) {
+        const cronJob = await adminPrisma.cronJob.findUnique({
+          where: { id: job.data.cronJobId }
+        });
+        
+        const updateData: any = {
+          isRunning: false,
+          lastRunAt: new Date(),
+          lastResult: 'success',
+          lastError: null,
+          totalRuns: { increment: 1 },
+          successCount: { increment: 1 }
+        };
+        
+        // One-time jobs: Mark as COMPLETED after successful execution
+        if (cronJob && !cronJob.isRecurring) {
+          updateData.status = 'COMPLETED';
+        }
+        
         await adminPrisma.cronJob.update({
           where: { id: job.data.cronJobId },
-          data: { isRunning: false, lastRunAt: new Date(), lastResult: 'success' },
+          data: updateData
         });
       }
       return result;
     } catch (error) {
       // Update CronJob on failure
-      if (job.opts.repeat && job.data.cronJobId) {
+      if (isCronJob) {
         await adminPrisma.cronJob.update({
           where: { id: job.data.cronJobId },
-          data: { isRunning: false, lastResult: String(error) },
+          data: {
+            isRunning: false,
+            lastResult: 'failed',
+            lastError: error instanceof Error ? error.stack : String(error),
+            totalRuns: { increment: 1 },
+            failureCount: { increment: 1 }
+          }
         });
       }
       throw error;
@@ -356,18 +427,34 @@ BullMQ's `upsertJobScheduler()` is **idempotent by design**:
 
 ```typescript
 // cron-sync.ts
-await queue.upsertJobScheduler(
+if (cronJob.isRecurring) {
+  // Recurring jobs: Use repeatable scheduler
+  await queue.upsertJobScheduler(
     cronJob.id,  // Unique scheduler ID
     { pattern: cronJob.cronExpression, tz: cronJob.timezone ?? 'UTC' },
     { name: cronJob.functionName, data: jobData, opts: { ... } }
-);
+  );
+} else {
+  // One-time jobs: Use delayed job
+  const delay = Math.max(0, nextRunAt.getTime() - now.getTime());
+  await queue.add(cronJob.functionName, jobData, {
+    jobId: cronJob.id,
+    delay,
+    opts: { ... }
+  });
+}
 ```
 
+**Recurring Jobs:**
 - **Same ID + Same schedule** → No-op (already exists)
 - **Same ID + Different schedule** → Updates atomically
 - **New ID** → Creates new scheduler
 
-Even if 5 worker pods start simultaneously and all call `syncCronJobs()`, they all attempt to upsert the same schedulers, and Redis guarantees atomic execution.
+**One-time Jobs:**
+- Uses `jobId` to prevent duplicates if sync runs multiple times
+- Automatically removed from queue after execution
+
+Even if 5 worker pods start simultaneously and all call `syncCronJobs()`, they all attempt to upsert the same schedulers/add the same jobs, and Redis guarantees atomic execution.
 
 ### Coordination Flow
 
@@ -456,11 +543,13 @@ The Admin UI provides full visibility and management of CronJobs.
 | Feature | Description |
 |---------|-------------|
 | **Table View** | Lists all CronJobs with status, schedule, last run, result, and stats |
-| **Status Badges** | Visual indicators for ACTIVE/PAUSED/INACTIVE and running state |
-| **Run Now** | Trigger any job immediately (ad-hoc execution) |
-| **Pause/Resume** | Toggle job status without deleting |
-| **Create/Edit** | Modal dialogs for job configuration |
-| **Delete** | Remove job from DB and BullMQ |
+| **Schedule Display** | Shows cron expression for recurring jobs, "One-time job" badge for one-time jobs |
+| **Status Badges** | Visual indicators for ACTIVE/PAUSED/INACTIVE/COMPLETED and running state |
+| **Run Now** | Trigger recurring jobs immediately (ad-hoc execution) - not available for one-time jobs |
+| **Pause/Resume** | Toggle recurring job status without deleting - not available for one-time jobs |
+| **Create/Edit** | Modal dialogs for job configuration (recurring jobs only) |
+| **Delete** | Remove job from DB and BullMQ (recurring jobs only) |
+| **Auto-managed** | One-time jobs show "Auto-managed" - no manual actions available |
 
 ### Default System Jobs
 

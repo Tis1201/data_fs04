@@ -42,18 +42,9 @@
 
         TagIcon,
 
-        Radio
+        Radio,
 
-
-
-
-
-
-
-
-
-
-
+        BugOff,
     } from "lucide-svelte";
 
     export let className = "";
@@ -161,6 +152,18 @@
                 { href: "/user/profile", label: "Profile", icon: User },
                 
             ]
+        },
+        {
+            label: "Debug",
+            icon: BugOff,
+            initialExpanded: false,
+            subItems: [
+                {
+                    href: "/user/debug/audit-logs",
+                    label: "Audit Logs",
+                    icon: FileText,
+                },
+            ],
         },
         //TODO use group to hide later
         // {

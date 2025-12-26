@@ -14,7 +14,7 @@ const createCronJobSchema = z.object({
   functionName: z.string().min(1, 'Function name is required'),
   args: z.any().optional().default({}),
   cronExpression: z.string().min(1, 'Cron expression is required'),
-  status: z.enum(['SCHEDULED', 'COMPLETED', 'FAILED', 'PAUSED']).optional().default('SCHEDULED'),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'PAUSED', 'COMPLETED']).optional().default('ACTIVE'),
   maxRetries: z.number().int().min(0).max(10).optional().default(3),
   timeout: z.number().int().min(0).optional(),
   accountId: z.string().optional().nullable()

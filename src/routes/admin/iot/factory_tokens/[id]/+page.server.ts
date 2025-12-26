@@ -82,12 +82,12 @@ export const actions: Actions = {
                 logger.info(`Factory token updated: ${factoryToken.id} by user ${auth.user.id}`);
 
                 // Always update cronjob when token is updated (handles expiration changes and status updates)
-                await upsertFactoryTokenCronjob(
-                    locals.prisma,
-                    factoryToken.id,
-                    factoryToken.expiresAt,
-                    auth.user.id
-                );
+                    await upsertFactoryTokenCronjob(
+                        locals.prisma,
+                        factoryToken.id,
+                        factoryToken.expiresAt,
+                        auth.user.id
+                    );
                 
                 // If token is already expired and not used, mark it as used
                 const now = new Date();

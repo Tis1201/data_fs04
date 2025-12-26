@@ -16,7 +16,7 @@ export function createDeviceTagActions(options: {
     checkOwnership?: boolean;
 }): {
     update: (args: { params: { id: string }; request: Request; locals: any }) => Promise<any>;
-    delete?: (args: { request: Request; locals: any }) => Promise<any>;
+    delete: (args: { request: Request; locals: any }) => Promise<any>;
 } {
     return {
         /**
@@ -151,6 +151,80 @@ export function createDeviceTagActions(options: {
                     defaultMessage: 'Failed to update device tag. Please try again later.',
                     action: 'Device tag update'
                 });
+            }
+        },
+
+        /**
+         * Delete device tag action
+         * Used by both list pages (admin and user)
+         */
+        delete: async ({ request, locals }: { request: Request; locals: any }) => {
+            try {
+                const data = await request.formData();
+                const id = data.get('id')?.toString();
+
+                if (!id) {
+                    return fail(400, { error: 'Device Tag ID is required' });
+                }
+
+                // Get the authenticated user
+                const auth = await locals.auth.validate();
+                if (!auth?.user) {
+                    return fail(401, { error: 'Unauthorized' });
+                }
+
+                // Get account ID for ownership check (user routes)
+                let accountId: string | undefined;
+                if (options.checkOwnership) {
+                    if (!auth.currentAccount || !auth.currentAccount.account) {
+                        return fail(400, { error: 'No current account selected. Please select an account first.' });
+                    }
+                    accountId = auth.currentAccount.account.id;
+                }
+
+                // Check if device tag exists and get it for audit log
+                const deviceTag = await locals.prisma.deviceTag.findUnique({
+                    where: { id }
+                });
+
+                if (!deviceTag) {
+                    return fail(404, { 
+                        error: 'Device Tag not found' 
+                    });
+                }
+
+                // Check ownership if required
+                if (options.checkOwnership && accountId) {
+                    if (deviceTag.accountId !== accountId) {
+                        return fail(403, { 
+                            error: 'You do not have permission to delete this device tag' 
+                        });
+                    }
+                }
+
+                // Delete the device tag
+                await locals.prisma.deviceTag.delete({
+                    where: { id }
+                });
+
+                logger.info(`Device tag ${id} deleted by user ${auth.user.id}`);
+
+                // Log audit for deletion
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'DeviceTag',
+                    recordId: id,
+                    oldData: deviceTag,
+                    newData: null,
+                    userId: auth.user.id,
+                    ipAddress: (locals as any).ipAddress,
+                    prisma: locals.prisma
+                });
+
+                return { success: true };
+            } catch (err) {
+                logger.error(`Error deleting device tag: ${err}`);
+                return fail(500, { error: 'Failed to delete device tag' });
             }
         }
     };
