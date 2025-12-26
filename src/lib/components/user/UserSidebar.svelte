@@ -13,37 +13,21 @@
         Calendar,
         HelpCircle,
         Activity,
-
         Network,
-
         Router,
-
         Users2,
-
         Logs,
-
         LucideActivity,
-
         ActivitySquare,
-
         File,
-
         Files,
-
         Building2,
-
         MessageCircle,
-
         ClipboardList,
-
         ShieldPlus,
-
         Package2,
-
         TagIcon,
-
         Radio,
-
         BugOff,
     } from "lucide-svelte";
 
@@ -66,33 +50,66 @@
     }
 
     const mainMenuItems: MenuItem[] = [
-        { 
-            href: "/user/dashboard", 
-            label: "Dashboard", 
+        {
+            href: "/user/dashboard",
+            label: "Dashboard",
             icon: LayoutDashboard,
-            subItems: [] 
+            subItems: [],
         },
-        
+
         {
             label: "IOT",
             icon: Network,
             initialExpanded: false,
             subItems: [
                 { href: "/user/iot/devices", label: "Devices", icon: Router },
-                { href: "/user/iot/device_tags", label: "Device Tags", icon: TagIcon },
-                { href: "/user/iot/device-profiles", label: "Device Profiles", icon: TagIcon },
+                {
+                    href: "/user/iot/device_tags",
+                    label: "Device Tags",
+                    icon: TagIcon,
+                },
+                {
+                    href: "/user/iot/device-profiles",
+                    label: "Device Profiles",
+                    icon: TagIcon,
+                },
                 { href: "/user/iot/bundles", label: "Bundles", icon: Package2 },
-                { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus },
-                { href: "/user/iot/pin-rules", label: "Pin Rules", icon: Settings }
-            ]
+                {
+                    href: "/user/iot/preclaims",
+                    label: "Preclaims",
+                    icon: ShieldPlus,
+                },
+                {
+                    href: "/user/iot/pin-rules",
+                    label: "Pin Rules",
+                    icon: Settings,
+                },
+            ],
         },
         {
             label: "Controllers",
             icon: Radio,
             initialExpanded: false,
             subItems: [
-                { href: "/user/controllers/radar", label: "Radar", icon: Radio }
-            ]
+                {
+                    href: "/user/controllers/radar",
+                    label: "Radar",
+                    icon: Radio,
+                },
+            ],
+        },
+        {
+            label: "Analytics",
+            icon: ActivitySquare,
+            initialExpanded: false,
+            subItems: [
+                {
+                    href: "/user/analytics/chat",
+                    label: "Ask AI",
+                    icon: MessageSquare,
+                },
+                { href: "/user/analytics/radar", label: "Radar", icon: Radio },
+            ],
         },
 
         // {
@@ -104,27 +121,26 @@
         //     ]
         // },
 
-
-        // { 
-        //     label: "Communications", 
-        //     icon: MessageSquare, 
+        // {
+        //     label: "Communications",
+        //     icon: MessageSquare,
         //     initialExpanded: false,
         //     subItems: [
         //         { href: "/user/communications/messages", label: "Messages", icon: MessageSquare },
         //         { href: "/user/communications/notifications", label: "Notifications", icon: Bell }
         //     ]
         // },
-        // { 
-        //     href: "/user/calendar", 
-        //     label: "Calendar", 
+        // {
+        //     href: "/user/calendar",
+        //     label: "Calendar",
         //     icon: Calendar,
-        //     subItems: [] 
+        //     subItems: []
         // },
-        // { 
-        //     href: "/user/documents", 
-        //     label: "Documents", 
+        // {
+        //     href: "/user/documents",
+        //     label: "Documents",
         //     icon: FileText,
-        //     subItems: [] 
+        //     subItems: []
         // },
         // {
         //     label: "Analytics",
@@ -134,24 +150,25 @@
         //         { href: "/user/analytics/logs", label: "Logs", icon: Logs },
         //     ]
         // },
-        { 
-            label: "Resources", 
-            icon: Files, 
+        {
+            label: "Resources",
+            icon: Files,
             initialExpanded: false,
-            subItems: [
-                { href: "/user/resources", label: "Files", icon: File },
-            ]
+            subItems: [{ href: "/user/resources", label: "Files", icon: File }],
         },
-         { 
-            label: "Settings", 
-            icon: Settings, 
+        {
+            label: "Settings",
+            icon: Settings,
             initialExpanded: false,
             subItems: [
-                { href: "/user/settings/account", label: "Account", icon: Building2 },
+                {
+                    href: "/user/settings/account",
+                    label: "Account",
+                    icon: Building2,
+                },
                 { href: "/user/settings/users", label: "Users", icon: Users2 },
                 { href: "/user/profile", label: "Profile", icon: User },
-                
-            ]
+            ],
         },
         {
             label: "Debug",
@@ -183,6 +200,6 @@
         {title}
         items={mainMenuItems}
         initialCollapsed={collapsed}
-        on:toggle={(e) => collapsed = e.detail}
+        on:toggle={(e) => (collapsed = e.detail)}
     />
 </div>
