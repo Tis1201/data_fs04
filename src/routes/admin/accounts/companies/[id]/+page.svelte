@@ -21,17 +21,18 @@
   import RelationshipSection from "$lib/components/ui_components_sveltekit/relationships/RelationshipSection.svelte";
   import { Users } from "lucide-svelte";
   import type { PageData } from "./$types";
+  import { truncateText } from "$lib/utils/text-utils";
   
   // Import page data
   export let data: PageData;
   
   // Page title and breadcrumbs
-  const title = `Edit Company: ${data.company.name}`;
+  const title = `Edit Company: ${truncateText(data.company.name, 40)}`;
   const pageCrumbs = [
     ["Admin", "/admin"],
     ["Accounts", ""],
     ["Companies", "/admin/accounts/companies"],
-    data.company.name,
+    truncateText(data.company.name, 40),
   ];
 
   // State for delete confirmation dialog

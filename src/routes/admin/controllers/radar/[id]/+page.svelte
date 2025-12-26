@@ -38,17 +38,18 @@
   import RadarPreview from "./RadarPreview.svelte";
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
+  import { truncateText } from "$lib/utils/text-utils";
 
   export let data: PageData;
 
-  const title = `Radar Controller: ${data.radarSensor.name}`;
+  const title = `Radar Controller: ${truncateText(data.radarSensor.name, 40)}`;
   $: config = data.radarSensor.config as any;
 
   const pageCrumbs = [
     ["Admin", "/admin"],
     ["Controllers", "/admin/controllers"],
     ["Radar", "/admin/controllers/radar"],
-    data.radarSensor.name,
+    truncateText(data.radarSensor.name, 40),
   ];
 
   let deleteState = {

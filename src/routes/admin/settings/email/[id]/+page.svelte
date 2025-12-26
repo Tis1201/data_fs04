@@ -19,15 +19,16 @@
     import ResendSettings from './settings_resend.svelte';
     
     export let data;
+    import { truncateText } from "$lib/utils/text-utils";
     const { emailSettings } = data;
-    const title = emailSettings.name;
+    const title = truncateText(emailSettings.name, 40);
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Home", "/"],
         ["Settings", "/admin/settings"],
         ["Email", "/admin/settings/email"],
-        emailSettings.name
+        truncateText(emailSettings.name, 40)
     ];
     
     // Handle delete

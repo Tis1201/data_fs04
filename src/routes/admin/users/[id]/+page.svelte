@@ -27,6 +27,7 @@
     // Import form utilities and schema
     import {getDetailPageFormConfig, getFieldProps, processFormMessages, getSelectProps} from "$lib/utils/formHelpers";
     import { userEditSchema, SYSTEM_ROLES, USER_STATUSES } from "./schema";
+    import { truncateText } from "$lib/utils/text-utils";
 
     import type {PageData} from "./$types";
 
@@ -52,11 +53,11 @@
     }
     
     // Page title and breadcrumbs
-    const title = `Edit ${entityName}: ${user?.email || 'User Details'}`;
+    const title = `Edit ${entityName}: ${truncateText(user?.email || 'User Details', 40)}`;
     const pageCrumbs = [
         ["Admin", "/admin"],
         ["Users", listUrl],
-        user?.email || "Edit User"
+        truncateText(user?.email || "Edit User", 40)
     ];
     
     // Enhanced SuperForms setup - best practice approach
