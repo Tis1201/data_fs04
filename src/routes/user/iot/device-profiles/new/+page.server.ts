@@ -3,6 +3,8 @@ import { fail, redirect } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define the form schema (settings handled as string, converted later)
 const profileSchema = z.object({
@@ -110,7 +112,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-    create: async ({ request, locals }) => {
+    create: async ({ request, locals, getClientAddress }) => {
         // Check authentication
         const auth = await locals.auth.validate();
         if (!auth?.user) {
@@ -194,6 +196,18 @@ export const actions: Actions = {
                         }))
                     }
                 }
+            });
+
+            // Log audit for device profile creation
+            await logAudit({
+                actionType: AuditActionType.INSERT,
+                tableName: 'DeviceProfile',
+                recordId: profile.id,
+                oldData: null,
+                newData: profile,
+                userId: auth.user.id,
+                ipAddress: (locals as any).ipAddress || getClientAddress(),
+                prisma: locals.prisma
             });
 
             // Return success response - let the form handler handle the redirect

@@ -9,6 +9,8 @@ import { initializeStateManager, getStateManager } from '$lib/server/state/state
 import { BundleProcessingState } from '$lib/server/state/types';
 import { registerWaveTimeout, setBundleTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 import { calculateBundleTimeout, getTimeoutMinutes } from '$lib/server/config/timeoutConfig';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Core implementation that can be called from HTTP route and from scheduler
 export async function _publishBundleCore(prisma: any, bundleId: string, userId = 'system') {
@@ -303,12 +305,42 @@ export async function _publishBundleCore(prisma: any, bundleId: string, userId =
 
 export const POST: RequestHandler = restrict(
   async (event: any) => {
-    const { params, locals } = event as { params: { id: string }; locals: any };
+    const { params, locals, getClientAddress } = event as { params: { id: string }; locals: any; getClientAddress?: () => string };
     const { id: bundleId } = params;
     try {
+      // Get existing bundle for audit log
+      const existingBundle = await locals.prisma.bundle.findUnique({
+        where: { id: bundleId }
+      });
+
+      if (!existingBundle) {
+        return json({ success: false, error: 'Bundle not found' }, { status: 404 });
+      }
+
       const auth = await locals.auth?.validate?.();
       const userId = auth?.user?.id || locals?.user?.id || 'system';
       const result = await _publishBundleCore(locals.prisma as any, bundleId, userId);
+      
+      // Log audit for bundle publish (status change from DRAFT to PUBLISHED)
+      if (result.status === 200 || result.status === 201) {
+        const updatedBundle = await locals.prisma.bundle.findUnique({
+          where: { id: bundleId }
+        });
+        
+        if (updatedBundle) {
+          await logAudit({
+            actionType: AuditActionType.UPDATE,
+            tableName: 'Bundle',
+            recordId: bundleId,
+            oldData: existingBundle,
+            newData: updatedBundle,
+            userId: userId,
+            ipAddress: (locals as any).ipAddress || getClientAddress?.() || 'unknown',
+            prisma: locals.prisma
+          });
+        }
+      }
+      
       return json(result.body, { status: result.status });
     } catch (err) {
       return json({ success: false, error: 'Failed to publish bundle' }, { status: 500 });

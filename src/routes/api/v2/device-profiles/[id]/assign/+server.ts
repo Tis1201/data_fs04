@@ -2,6 +2,8 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { DeviceProfileService } from '$lib/server/device/profile';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * POST /api/v2/device-profiles/[id]/assign
@@ -86,11 +88,42 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 					return;
 				}
 
-				// 2. Update assignment status to APPLYING
-				await prisma.deviceProfileAssignment.update({
+				// 2. Get existing assignment for audit log
+				const existingAssignment = await prisma.deviceProfileAssignment.findUnique({
+					where: { deviceId: deviceId }
+				});
+
+				// 3. Update assignment status to APPLYING
+				const updatedAssignment = await prisma.deviceProfileAssignment.update({
 					where: { deviceId: deviceId },
 					data: { status: 'APPLYING' }
 				});
+
+				// 4. Log audit for assignment update
+				if (existingAssignment) {
+					await logAudit({
+						actionType: AuditActionType.UPDATE,
+						tableName: 'DeviceProfileAssignment',
+						recordId: updatedAssignment.id,
+						oldData: existingAssignment,
+						newData: updatedAssignment,
+						userId: session.user.id,
+						ipAddress: context.ipAddress,
+						prisma
+					});
+				} else {
+					// New assignment was created by assignProfile
+					await logAudit({
+						actionType: AuditActionType.INSERT,
+						tableName: 'DeviceProfileAssignment',
+						recordId: updatedAssignment.id,
+						oldData: null,
+						newData: updatedAssignment,
+						userId: session.user.id,
+						ipAddress: context.ipAddress,
+						prisma
+					});
+				}
 
 				// 3. Get the global profile with settings for sending config
 				const globalProfile = await prisma.deviceProfile.findUnique({
@@ -107,7 +140,7 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 					return;
 				}
 
-				// 4. Send config to device using ProfileMessagingService
+				// 5. Send config to device using ProfileMessagingService
 				const { ProfileMessagingService, ProfileConfigBuilder } = await import(
 					'$lib/server/device/profile'
 				);

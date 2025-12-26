@@ -1,10 +1,11 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
-import type { AuthenticatedLoadEvent } from '$lib/server/security/guards';
+import type { AuthenticatedLoadEvent, AuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { loadDeviceTagList } from '$lib/server/device-tags/deviceTagLoader';
+import { createDeviceTagActions } from '$lib/server/device-tags/deviceTagActions';
 
 /*******************************************************************************************
  * 
@@ -39,6 +40,22 @@ export const load = restrict(
  *  Actions Block
  * 
  *******************************************************************************************/
-export const actions = {
-    // Actions can be added here if needed (e.g., delete from list page)
+// Create actions with user privileges (ownership check enabled)
+const deviceTagActions = createDeviceTagActions({
+    checkOwnership: true // Users can only delete device tags they have access to
+});
+
+export const actions: Actions = {
+    /**
+     * Delete device tag action
+     */
+    delete: restrict(
+        async ({ request, locals }: AuthenticatedEvent) => {
+            return await deviceTagActions.delete({
+                request,
+                locals
+            });
+        },
+        [SystemRole.USER] // Only allow user role to access this action
+    )
 };

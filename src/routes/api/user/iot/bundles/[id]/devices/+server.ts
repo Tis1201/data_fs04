@@ -2,8 +2,10 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+export const POST: RequestHandler = async ({ params, request, locals, getClientAddress }) => {
   try {
     const { id: bundleId } = params;
     const { deviceId, status = 'PENDING' } = await request.json();
@@ -85,6 +87,18 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
     logger.info(`Device ${deviceId} added to bundle ${bundleId} by user ${auth.user.id}`);
 
+    // Log audit for bundle device creation
+    await logAudit({
+      actionType: AuditActionType.INSERT,
+      tableName: 'BundleDevice',
+      recordId: bundleDevice.id,
+      oldData: null,
+      newData: bundleDevice,
+      userId: auth.user.id,
+      ipAddress: (locals as any).ipAddress || getClientAddress?.() || 'unknown',
+      prisma: locals.prisma
+    });
+
     return json({
       success: true,
       bundleDevice
@@ -95,7 +109,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   }
 };
 
-export const DELETE: RequestHandler = async ({ params, request, locals }) => {
+export const DELETE: RequestHandler = async ({ params, request, locals, getClientAddress }) => {
   try {
     const { id: bundleId } = params;
     const { deviceId } = await request.json();
@@ -111,6 +125,18 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
       return json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get existing bundle devices for audit log before deletion
+    const existingBundleDevices = await locals.prisma.bundleDevice.findMany({
+      where: {
+        bundleId,
+        deviceId
+      }
+    });
+
+    if (existingBundleDevices.length === 0) {
+      return json({ success: false, error: 'Device not found in bundle' }, { status: 404 });
+    }
+
     // Remove device from bundle
     const result = await locals.prisma.bundleDevice.deleteMany({
       where: {
@@ -119,11 +145,21 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
       }
     });
 
-    if (result.count === 0) {
-      return json({ success: false, error: 'Device not found in bundle' }, { status: 404 });
-    }
-
     logger.info(`Device ${deviceId} removed from bundle ${bundleId} by user ${auth.user.id}`);
+
+    // Log audit for each bundle device deletion
+    for (const bundleDevice of existingBundleDevices) {
+      await logAudit({
+        actionType: AuditActionType.DELETE,
+        tableName: 'BundleDevice',
+        recordId: bundleDevice.id,
+        oldData: bundleDevice,
+        newData: null,
+        userId: auth.user.id,
+        ipAddress: (locals as any).ipAddress || getClientAddress?.() || 'unknown',
+        prisma: locals.prisma
+      });
+    }
 
     return json({
       success: true,

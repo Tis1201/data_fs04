@@ -139,6 +139,18 @@ export const actions: Actions = {
                         }
                     });
 
+                    // Log audit for license renewal creation
+                    await logAudit({
+                        actionType: AuditActionType.INSERT,
+                        tableName: 'LicenseRenewal',
+                        recordId: renewal.id,
+                        oldData: null,
+                        newData: renewal,
+                        userId: userInfo.id,
+                        ipAddress: (locals as any).ipAddress,
+                        prisma: tx
+                    });
+
                     // Generate new JWT with updated expiration
                     const now = Math.floor(Date.now() / 1000);
                     const exp = Math.floor(data.newExpiresAt.getTime() / 1000);

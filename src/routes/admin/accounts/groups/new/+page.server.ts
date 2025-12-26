@@ -180,6 +180,31 @@ export const actions: Actions = {
                             }))
                         });
                         logger.info('[CREATE GROUP] Added users to group', { count: userIds.length });
+                        
+                        // Get created memberships for audit logging
+                        const createdMemberships = await tx.groupMembership.findMany({
+                            where: {
+                                groupId: group.id,
+                                membershipId: { in: userIds }
+                            }
+                        });
+                        
+                        // Log audit for each created membership
+                        const auditUserId = locals.user?.id ?? auth?.user?.id ?? '';
+                        const auditIp = (locals as any).ipAddress ?? getClientAddress();
+                        
+                        for (const membership of createdMemberships) {
+                            await logAudit({
+                                actionType: AuditActionType.INSERT,
+                                tableName: 'GroupMembership',
+                                recordId: membership.id,
+                                oldData: null,
+                                newData: membership,
+                                userId: auditUserId,
+                                ipAddress: auditIp,
+                                prisma: tx
+                            });
+                        }
                     }
                     
                     return group;

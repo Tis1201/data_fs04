@@ -1,6 +1,8 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // GET /api/v2/pin-rules/[id] - Get a specific pin rule
 export const GET = unifiedEndpoint(async ({ context, params }) => {
@@ -212,6 +214,18 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 		changes: Object.keys(updateData)
 	});
 
+	// Log audit for pin rule update
+	await logAudit({
+		actionType: AuditActionType.UPDATE,
+		tableName: 'PinRule',
+		recordId: id,
+		oldData: existingRule,
+		newData: updatedRule,
+		userId: session.user.id,
+		ipAddress: event.getClientAddress?.() || 'unknown',
+		prisma
+	});
+
 	return successResponse(
 		{
 			rule: updatedRule,
@@ -222,7 +236,7 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 });
 
 // DELETE /api/v2/pin-rules/[id] - Delete a pin rule
-export const DELETE = unifiedEndpoint(async ({ context, params }) => {
+export const DELETE = unifiedEndpoint(async ({ context, event, params }) => {
 	const { session, prisma } = context;
 	const { id } = params;
 
@@ -281,6 +295,18 @@ export const DELETE = unifiedEndpoint(async ({ context, params }) => {
 		ruleId: id,
 		userId: session.user.id,
 		ruleType: existingRule.ruleType
+	});
+
+	// Log audit for pin rule deletion
+	await logAudit({
+		actionType: AuditActionType.DELETE,
+		tableName: 'PinRule',
+		recordId: id,
+		oldData: existingRule,
+		newData: null,
+		userId: session.user.id,
+		ipAddress: event.getClientAddress?.() || 'unknown',
+		prisma
 	});
 
 	return successResponse(

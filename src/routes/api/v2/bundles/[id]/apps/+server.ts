@@ -3,6 +3,8 @@ import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Schema for adding an app to a bundle
 const addBundleAppSchema = z.object({
@@ -103,6 +105,18 @@ export const POST = unifiedEndpoint(
     });
 
     logger.info(`Added app to bundle: ${bundleId}, resourceId: ${resourceId}`);
+
+    // Log audit for bundle app creation
+    await logAudit({
+      actionType: AuditActionType.INSERT,
+      tableName: 'BundleApp',
+      recordId: bundleApp.id,
+      oldData: null,
+      newData: bundleApp,
+      userId: session.user.id,
+      ipAddress: event.getClientAddress?.() || 'unknown',
+      prisma
+    });
 
     return successResponse(
       { bundleApp },

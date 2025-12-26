@@ -4,6 +4,8 @@ import { fail, redirect, error } from '@sveltejs/kit';
 import { superValidate, message } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // Define the form schema (settings handled as string, converted later)
 const profileSchema = z.object({
@@ -70,7 +72,7 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 };
 
 export const actions: Actions = {
-    update: async ({ params, request, locals, url, fetch }) => {
+    update: async ({ params, request, locals, url, fetch, getClientAddress }) => {
         // Check authentication
         const auth = await locals.auth.validate();
         if (!auth?.user) {
@@ -87,6 +89,15 @@ export const actions: Actions = {
         }
 
         try {
+            // Get existing profile for audit log
+            const existingProfile = await locals.prisma.deviceProfile.findUnique({
+                where: { id: profileId }
+            });
+
+            if (!existingProfile) {
+                return fail(404, { form, error: 'Device profile not found' });
+            }
+
             // Parse settings from JSON string
             let settingsArray = [];
             try {
@@ -120,6 +131,18 @@ export const actions: Actions = {
                         }))
                     }
                 }
+            });
+
+            // Log audit for device profile update
+            await logAudit({
+                actionType: AuditActionType.UPDATE,
+                tableName: 'DeviceProfile',
+                recordId: profileId,
+                oldData: existingProfile,
+                newData: updatedProfile,
+                userId: auth.user.id,
+                ipAddress: (locals as any).ipAddress || getClientAddress(),
+                prisma: locals.prisma
             });
 
             const deviceProfile = await locals.prisma.deviceProfile.findUnique({

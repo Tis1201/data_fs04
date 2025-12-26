@@ -10,6 +10,8 @@ import { getEnhancedPrisma } from '$lib/server/prisma';
 import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 // PreclaimSet upload schema (file validated in action)
 const preclaimSetSchema = z.object({
@@ -236,6 +238,7 @@ export const actions: Actions = {
                         });
 
                         const deviceIds: string[] = [];
+                        const devices: any[] = [];
                         for (const r of rows) {
                             const rowExpiresAt = r.expiresAt ? new Date(`${r.expiresAt}T00:00:00`) : null;
                             const device = await tx.preclaimDevice.create({
@@ -249,9 +252,36 @@ export const actions: Actions = {
                                 }
                             });
                             deviceIds.push(device.id);
+                            devices.push(device);
                         }
-                        return { set, deviceIds };
+                        return { set, deviceIds, devices };
                     });
+
+                    // Log audit for PreclaimSet creation
+                    await logAudit({
+                        actionType: AuditActionType.INSERT,
+                        tableName: 'PreclaimSet',
+                        recordId: result.set.id,
+                        oldData: null,
+                        newData: result.set,
+                        userId: locals.user.id,
+                        ipAddress: locals.ipAddress,
+                        prisma: locals.prisma
+                    });
+
+                    // Log audit for each PreclaimDevice creation
+                    for (const device of result.devices) {
+                        await logAudit({
+                            actionType: AuditActionType.INSERT,
+                            tableName: 'PreclaimDevice',
+                            recordId: device.id,
+                            oldData: null,
+                            newData: device,
+                            userId: locals.user.id,
+                            ipAddress: locals.ipAddress,
+                            prisma: locals.prisma
+                        });
+                    }
 
                     // Create cronjob for PreclaimSet expiration (if expiresAt is set)
                     if (result.set.expiresAt) {

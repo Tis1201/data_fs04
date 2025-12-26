@@ -1,6 +1,8 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { logAudit } from '$lib/server/audit-logger';
+import { AuditActionType } from '$lib/constants/system';
 
 /**
  * POST /api/v2/device-profiles/[id]/assign-by-tag
@@ -89,6 +91,28 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		data: assignments,
 		skipDuplicates: true
 	});
+
+	// Get created assignments for audit log
+	const createdAssignments = await prisma.deviceProfileAssignment.findMany({
+		where: {
+			deviceId: { in: devices.map((d: { id: string }) => d.id) },
+			profileId: profileId
+		}
+	});
+
+	// Log audit for created assignments
+	for (const assignment of createdAssignments) {
+		await logAudit({
+			actionType: AuditActionType.INSERT,
+			tableName: 'DeviceProfileAssignment',
+			recordId: assignment.id,
+			oldData: null,
+			newData: assignment,
+			userId: session.user.id,
+			ipAddress: context.ipAddress,
+			prisma
+		});
+	}
 
 	logger.info(`Created ${result.count} profile assignments by tag`, {
 		profileId,
