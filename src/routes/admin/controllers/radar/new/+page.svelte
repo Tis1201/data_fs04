@@ -37,11 +37,11 @@
     const title = "Create Radar Controller";
 
     // Define breadcrumbs for this page
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
         ["Controllers", "/admin/controllers"],
         ["Radar", "/admin/controllers/radar"],
-        "Create New",
+        ["Create New", ""],
     ];
 
     // Enhanced SuperForms setup - best practice approach
@@ -59,6 +59,7 @@
         ...getDetailPageFormConfig("Radar Controller"),
         onResult: async ({ result }) => {
             if (result.type === "success" && result.data?.controllerId) {
+                toast.success("Radar Controller created successfully!");
                 await goto(
                     `/admin/controllers/radar/${result.data.controllerId}`,
                 );
@@ -67,6 +68,26 @@
                 const errorData = result.data?.error;
                 if (errorData) {
                     serverError = errorData;
+                    toast.error(errorData);
+                    // Show force option if device already has controller
+                    if (errorData.includes("already has a radar controller")) {
+                        showForceOption = true;
+                    }
+                } else {
+                    // Check form errors
+                    const formErrors = result.data?.form?.errors;
+                    if (formErrors) {
+                        const errorMessages: string[] = [];
+                        Object.entries(formErrors).forEach(([field, errors]) => {
+                            if (Array.isArray(errors) && errors.length > 0) {
+                                errorMessages.push(`${field}: ${errors[0]}`);
+                            }
+                        });
+                        if (errorMessages.length > 0) {
+                            serverError = errorMessages.join(", ");
+                            toast.error(serverError);
+                        }
+                    }
                 }
             }
         },
@@ -82,7 +103,16 @@
     $: ({ errorMessage } = processFormMessages($message));
     $: hasChanges = $tainted;
 
-    let selectedDevice: any = null;
+    interface DeviceWithAccount {
+        id: string;
+        name: string;
+        hardwareId: string | null;
+        accountId: string;
+        account?: { id: string; name: string } | null;
+        status?: string;
+    }
+    
+    let selectedDevice: DeviceWithAccount | null = null;
 
     // Server error state
     let serverError = "";
@@ -102,13 +132,29 @@
     }
 
     $: if ($form.deviceId) {
-        selectedDevice = data.devices.find((d) => d.id === $form.deviceId);
+        selectedDevice = data.devices.find((d: DeviceWithAccount) => d.id === $form.deviceId) || null;
+        console.log("selectedDevice", selectedDevice);
         if (selectedDevice) {
             if (selectedDevice.account) {
                 $form.accountId = selectedDevice.accountId;
             }
-            if (selectedDevice.hardwareId && !$form.serialNumber) {
-                $form.serialNumber = selectedDevice.hardwareId;
+            // Auto-fill serial number: prefer hardwareId, fallback to device name or ID
+            if (!$form.serialNumber) {
+                if (selectedDevice.hardwareId) {
+                    $form.serialNumber = selectedDevice.hardwareId;
+                } else if (selectedDevice.name) {
+                    // Extract hardware ID from device name if it contains one (e.g., "device - D6:DB:D3:0E:BC:DE")
+                    const nameMatch = selectedDevice.name.match(/\(([^)]+)\)|-\s*([A-F0-9:]+)$/i);
+                    if (nameMatch) {
+                        $form.serialNumber = nameMatch[1] || nameMatch[2] || selectedDevice.name;
+                    } else {
+                        // Use device name as fallback
+                        $form.serialNumber = selectedDevice.name;
+                    }
+                } else {
+                    // Last resort: use device ID
+                    $form.serialNumber = selectedDevice.id.substring(0, 20);
+                }
             }
             if (selectedDevice.name && !$form.name) {
                 $form.name = `${selectedDevice.name} - Radar`;
@@ -123,6 +169,17 @@
         { value: "INACTIVE", label: "Inactive" },
         { value: "MAINTENANCE", label: "Maintenance" },
     ];
+
+    // Device options for select
+    $: deviceOptions = data.devices.map((device: DeviceWithAccount) => {
+        const label = device.hardwareId 
+            ? `${device.name} (${device.hardwareId})` 
+            : device.name;
+        return {
+            value: device.id,
+            label: label
+        };
+    });
 </script>
 
 <AdminPageLayout
@@ -134,13 +191,11 @@
             icon: ArrowLeft,
             onClick: async () => await goto("/admin/controllers/radar"),
             variant: "outline",
-            class: "h-9",
         },
         {
             label: "Create Controller",
             icon: Save,
             onClick: triggerSubmit,
-            class: "h-9",
         },
     ]}
     loading={isLoading}
@@ -161,7 +216,7 @@
             {isLoading}
             delayed={$delayed}
         >
-            {#if serverError && serverError.includes("already has a radar controller")}
+            {#if serverError}
                 <div
                     class="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-4"
                 >
@@ -220,10 +275,12 @@
                                         class="w-full sm:w-auto"
                                         on:click={() => {
                                             const formSubmit = new FormData();
-                                            formSubmit.append(
-                                                "deviceId",
-                                                $form.deviceId,
-                                            );
+                                            if ($form.deviceId) {
+                                                formSubmit.append(
+                                                    "deviceId",
+                                                    $form.deviceId,
+                                                );
+                                            }
                                             formSubmit.append(
                                                 "name",
                                                 $form.name,
@@ -333,12 +390,10 @@
                             <EnhancedSelect
                                 id="deviceId"
                                 name="deviceId"
-                                bind:value={$form.deviceId}
+                                value={$form.deviceId ?? undefined}
+                                on:change={(e) => { $form.deviceId = e.detail ?? null; }}
                                 placeholder="Select a device..."
-                                options={data.devices.map((device) => ({
-                                    value: device.id,
-                                    label: `${device.name}${device.hardwareId ? ` (${device.hardwareId})` : ""}`,
-                                }))}
+                                options={deviceOptions}
                             />
                         </FormField>
                     </FormRow>
@@ -365,7 +420,7 @@
                                             >Status:</span
                                         >
                                         <div class="font-medium">
-                                            {selectedDevice.status}
+                                            {selectedDevice.status || "N/A"}
                                         </div>
                                     </div>
                                 </div>
@@ -406,13 +461,18 @@
                                     name="serialNumber"
                                     type="text"
                                     bind:value={$form.serialNumber}
-                                    placeholder="Auto-filled from device"
+                                    placeholder={selectedDevice?.hardwareId ? "Auto-filled from device" : "Enter serial number or will be auto-filled from device"}
                                     {...getFieldProps(
                                         $errors,
                                         "serialNumber",
                                         isLoading,
                                     )}
                                 />
+                                {#if selectedDevice && !selectedDevice.hardwareId}
+                                    <p class="text-xs text-muted-foreground mt-1">
+                                        Device doesn't have hardware ID. Please enter a serial number manually or it will be generated from device name.
+                                    </p>
+                                {/if}
                             </FormField>
                         </FormRow>
 
@@ -468,7 +528,7 @@
                                     name="description"
                                     bind:value={$form.description}
                                     placeholder="Additional notes about this controller"
-                                    rows="3"
+                                    rows={3}
                                     class="w-full {$errors.description
                                         ? 'border-destructive focus:border-destructive'
                                         : ''}"

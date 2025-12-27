@@ -202,12 +202,17 @@ export class DeviceAppService {
         limit
       };
     } catch (error) {
-      logger.error('Failed to query device apps from ClickHouse', {
+      // Fail gracefully when ClickHouse is unavailable - return empty data
+      logger.warn('ClickHouse unavailable for device apps query, returning empty data', {
         error: error instanceof Error ? error.message : String(error),
-        deviceId,
-        stack: error instanceof Error ? error.stack : undefined
+        deviceId
       });
-      throw error;
+      return {
+        apps: [],
+        total: 0,
+        page,
+        limit
+      };
     }
   }
 
@@ -251,11 +256,12 @@ export class DeviceAppService {
       const data = response?.data || [];
       return data as unknown as DeviceAppData[];
     } catch (error) {
-      logger.error('Failed to query multiple device apps from ClickHouse', {
+      // Fail gracefully when ClickHouse is unavailable
+      logger.warn('ClickHouse unavailable for multiple device apps query, returning empty data', {
         error: error instanceof Error ? error.message : String(error),
         deviceIds
       });
-      throw error;
+      return {};
     }
   }
 
@@ -292,11 +298,12 @@ export class DeviceAppService {
       const data = response?.data || [];
       return data as unknown as DeviceAppData[];
     } catch (error) {
-      logger.error('Failed to search apps in ClickHouse', {
+      // Fail gracefully when ClickHouse is unavailable
+      logger.warn('ClickHouse unavailable for app search, returning empty data', {
         error: error instanceof Error ? error.message : String(error),
         searchTerm
       });
-      throw error;
+      return [];
     }
   }
 
@@ -353,10 +360,17 @@ export class DeviceAppService {
         last_sync: new Date((stats as any).last_sync)
       };
     } catch (error) {
-      logger.error('Failed to query app stats from ClickHouse', {
+      // Fail gracefully when ClickHouse is unavailable
+      logger.warn('ClickHouse unavailable for app stats, returning zero stats', {
         error: error instanceof Error ? error.message : String(error)
       });
-      throw error;
+      return {
+        totalApps: 0,
+        systemApps: 0,
+        userApps: 0,
+        lastSync: null,
+        topApps: []
+      };
     }
   }
 

@@ -149,11 +149,16 @@ async function getConnectedClientsFromBroker(): Promise<Set<string>> {
                 break;
             }
             
-            // Extract device IDs from clientid (format: "device:UUID")
+            // Extract device IDs from clientid (format: "device:DEVICE_ID_SUFFIX" where suffix is "_XXXXXX")
             for (const client of clients) {
                 const clientId = client.clientid as string;
                 if (clientId && clientId.startsWith('device:')) {
-                    const deviceId = clientId.substring(7); // Remove "device:" prefix
+                    let deviceId = clientId.substring(7); // Remove "device:" prefix
+                    // Strip random suffix if present (format: "DEVICE_ID_XXXXXX" where suffix is _XXXXXX)
+                    const underscoreIndex = deviceId.lastIndexOf('_');
+                    if (underscoreIndex > 0 && deviceId.length - underscoreIndex <= 7) {
+                        deviceId = deviceId.substring(0, underscoreIndex);
+                    }
                     deviceIds.add(deviceId);
                 }
             }

@@ -3,7 +3,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { trackingAreaSchema } from '../tracking-area-schema';
 import type { PageServerLoad, Actions } from './$types';
 
@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
         // Check if user has access to this controller
         const hasAccess = locals.user.systemRole === SystemRole.ADMIN || 
-                         controller.accountId === locals.user.accountId;
+                         controller.accountId === locals.user?.id;
         
         if (!hasAccess) {
             throw error(403, 'Access denied');
@@ -61,7 +61,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 export const actions: Actions = {
     createTrackingArea: restrict(
-        async ({ request, locals, params }) => {
+        async ({ request, locals, params }: AuthenticatedLoadEvent) => {
             const controllerId = params.id;
             if (!controllerId) {
                 return fail(400, { error: 'Controller ID is required' });

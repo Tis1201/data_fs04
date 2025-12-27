@@ -77,7 +77,7 @@
             label: "Name",
             sortable: true,
             width: "15%",
-            render: (record: any) => ({
+            render: (record: Sensor) => ({
                 component: NameWithIdLink,
                 props: {
                     record: {
@@ -125,7 +125,7 @@
             label: "Tracking Area",
             width: "10%",
             render: (record: Sensor) => {
-                const config = record.config as any;
+                const config = record.config as { trackingArea?: { name: string }; zones?: Array<{ name: string }>; dwellBuckets?: Array<{ name: string }> } | null;
                 if (!config?.trackingArea) return "Not configured";
                 const zoneCount = config?.zones?.length || 0;
                 return `${config.trackingArea.name} (${zoneCount} zones)`;
@@ -151,7 +151,7 @@
             id: "actions",
             label: "Actions",
             width: "10%",
-            render: (record: any) => {
+            render: (record: Sensor & { controller?: { id: string } | null }) => {
                 const controllerId = record.controller?.id || record.id;
                 const actionItems = [
                     {

@@ -18,6 +18,7 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
+  import StatusBadge from "$lib/components/ui_components_sveltekit/display/StatusBadge.svelte";
   import { Separator } from "$lib/components/ui/separator";
   import {
     Dialog,
@@ -34,21 +35,23 @@
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-  import RadarSensorConfigDialog from "./RadarSensorConfigDialog.svelte";
-  import RadarPreview from "./RadarPreview.svelte";
+  import RadarSensorConfigDialog from "$lib/components/ui_components_sveltekit/radar/RadarSensorConfigDialog.svelte";
+  import RadarPreview from "$lib/components/ui_components_sveltekit/radar/RadarPreview.svelte";
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
+  import type { RadarConfig } from './+page.server';
 
   export let data: PageData;
 
   const title = `Radar Controller: ${data.radarSensor.name}`;
-  $: config = data.radarSensor.config as any;
 
-  const pageCrumbs = [
+  $: config = (data.radarSensor.config as RadarConfig) || null;
+
+  const pageCrumbs: [string, string][] = [
     ["Admin", "/admin"],
     ["Controllers", "/admin/controllers"],
     ["Radar", "/admin/controllers/radar"],
-    data.radarSensor.name,
+    [data.radarSensor.name, ""],
   ];
 
   let deleteState = {
@@ -66,14 +69,32 @@
 
   const { form, errors, enhance, submitting } = superForm(data.form, {
     onResult: ({ result }) => {
+      console.log('Form result:', result);
       if (result.type === "success") {
         toast.success("Radar Controller updated successfully!");
         showControllerEditDialog = false;
         invalidateAll();
+      } else if (result.type === "failure") {
+        // Handle validation errors
+        const errorMsg = (result as { data?: { error?: string; form?: { message?: { text?: string } } } }).data?.error 
+          || (result as { data?: { error?: string; form?: { message?: { text?: string } } } }).data?.form?.message?.text 
+          || "Validation failed. Please check your input.";
+        toast.error("Failed to update radar controller", {
+          description: errorMsg
+        });
       } else if (result.type === "error") {
-        toast.error("Failed to update radar controller");
+        const errorMsg = (result as { data?: { error?: string } }).data?.error || "An unexpected error occurred";
+        toast.error("Failed to update radar controller", {
+          description: errorMsg
+        });
       }
     },
+    onError: ({ result }) => {
+      console.error('Form submission error:', result);
+      toast.error("Connection Error", {
+        description: "Unable to connect to the server. Please check your connection."
+      });
+    }
   });
 
   const {
@@ -145,10 +166,169 @@
     },
   };
 
-  const accountOptions = data.accounts.map((account: any) => ({
+  const accountOptions = data.accounts.map((account: { id: string; name: string }) => ({
     value: account.id,
     label: account.name,
   }));
+
+  interface ZoneData {
+    id?: string;
+    name: string;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    color?: string;
+    zoneNumber?: number;
+    description?: string;
+  }
+  
+  interface DeviceOption {
+    value: string;
+    label: string;
+  }
+  
+  // Initialize editorZonesValue from config.zones once, then manage locally
+  // Use a flag to prevent reactive re-derivation from overwriting local changes
+  let editorZonesValue: ZoneData[] = [];
+  let zonesInitialized = false;
+  
+  $: if (config?.zones && !zonesInitialized) {
+    editorZonesValue = config.zones.map((z: ZoneData) => ({
+      id: z.id,
+      name: z.name,
+      startX: z.startX,
+      startY: z.startY,
+      endX: z.endX,
+      endY: z.endY,
+      color: z.color,
+      zoneNumber: z.zoneNumber,
+    }));
+    zonesInitialized = true;
+  }
+  
+  // Initialize editorArenaValue from config.trackingArea once, then manage locally
+  interface CoordinateBounds {
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  }
+  
+  let editorArenaValue: CoordinateBounds | null = null;
+  let arenaInitialized = false;
+  
+  $: if (!arenaInitialized) {
+    editorArenaValue = config?.trackingArea
+      ? {
+          startX: config.trackingArea.startX,
+          startY: config.trackingArea.startY,
+          endX: config.trackingArea.endX,
+          endY: config.trackingArea.endY,
+        }
+      : {
+          startX: -4,
+          startY: 0,
+          endX: 4,
+          endY: 4,
+        };
+    arenaInitialized = true;
+  }
+  
+  // Re-initialize when dialog closes (after save) by watching for config changes
+  function reinitializeFromConfig(): void {
+    if (config?.zones) {
+      editorZonesValue = config.zones.map((z: ZoneData) => ({
+        id: z.id,
+        name: z.name,
+        startX: z.startX,
+        startY: z.startY,
+        endX: z.endX,
+        endY: z.endY,
+        color: z.color,
+        zoneNumber: z.zoneNumber,
+      }));
+    }
+    if (config?.trackingArea) {
+      editorArenaValue = {
+        startX: config.trackingArea.startX,
+        startY: config.trackingArea.startY,
+        endX: config.trackingArea.endX,
+        endY: config.trackingArea.endY,
+      };
+    }
+  }
+  
+  // Handle zones change from dialog (Visual Editor or Zone List)
+  function handleZonesChange(event: CustomEvent<ZoneData[]>): void {
+    editorZonesValue = event.detail;
+  }
+
+  // Device options - filter by selected account, radar controller must be linked to a device
+  let deviceOptions: DeviceOption[] = [];
+  $: deviceOptions = (data.devices || [])
+    .filter((device) => {
+      // If account is selected, only show devices from that account
+      // Otherwise show all devices (for initial load)
+      if ($form.accountId) {
+        return device.account?.id === $form.accountId;
+      }
+      return true;
+    })
+    .map((device) => ({
+      value: device.id,
+      label: `${device.name}${device.hardwareId ? ` (${device.hardwareId})` : ""}${device.account ? ` - ${device.account.name}` : ""}`,
+    }));
+
+  function handleDeleteZone(zoneId: string, zoneName: string): void {
+    if (!confirm(`Are you sure you want to delete zone "${zoneName}"?`)) return;
+    const formData = new FormData();
+    formData.append("zoneId", zoneId);
+    fetch(`?/deleteZone`, { method: "POST", body: formData }).then(
+      (response) => {
+        if (response.ok) {
+          toast.success("Zone deleted successfully!");
+          invalidateAll();
+        } else {
+          toast.error("Failed to delete zone");
+        }
+      },
+    );
+  }
+
+  function handleDeleteDwellBucket(bucketId: string, bucketName: string): void {
+    if (
+      !confirm(`Are you sure you want to delete dwell bucket "${bucketName}"?`)
+    )
+      return;
+    const formData = new FormData();
+    formData.append("bucketId", bucketId);
+    fetch(`?/deleteDwellBucket`, { method: "POST", body: formData }).then(
+      (response) => {
+        if (response.ok) {
+          toast.success("Dwell Bucket deleted successfully!");
+          invalidateAll();
+        } else {
+          toast.error("Failed to delete dwell bucket");
+        }
+      },
+    );
+  }
+
+  function handleSaveLayout(layoutData: { arena: { startX: number; startY: number; endX: number; endY: number } | null; zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number }> }): void {
+    const formData = new FormData();
+    formData.append("layout", JSON.stringify(layoutData));
+    fetch(`?/saveLayout`, { method: "POST", body: formData }).then(
+      (response) => {
+        if (response.ok) {
+          toast.success("Layout saved successfully!");
+          invalidateAll();
+        } else {
+          toast.error("Failed to save layout");
+        }
+      },
+    );
+  }
 
   const statusOptions = [
     { value: "ACTIVE", label: "Active" },
@@ -156,18 +336,6 @@
     { value: "MAINTENANCE", label: "Maintenance" },
   ];
 
-  function getStatusColor(status: string) {
-    switch (status) {
-      case "ACTIVE":
-        return "bg-green-500";
-      case "INACTIVE":
-        return "bg-gray-500";
-      case "MAINTENANCE":
-        return "bg-yellow-500";
-      default:
-        return "bg-gray-500";
-    }
-  }
 </script>
 
 <div class="w-full space-y-4">
@@ -200,14 +368,7 @@
           <div class="flex-1">
             <div class="flex items-center gap-3 mb-2">
               <h3 class="text-lg font-semibold">{data.radarSensor.name}</h3>
-              <Badge
-                variant="outline"
-                class="{getStatusColor(
-                  data.radarSensor.status,
-                )} text-white border-0"
-              >
-                {data.radarSensor.status}
-              </Badge>
+              <StatusBadge status={data.radarSensor.status} />
             </div>
             <div class="text-sm text-muted-foreground">
               Serial: {data.radarSensor.serialNumber}
@@ -244,12 +405,12 @@
               </div>
             </div>
           {/if}
-          {#if data.radarSensor.device}
+          {#if data.radarSensor.controller?.device}
             <div>
               <div class="text-xs text-muted-foreground mb-1">
                 Linked Device
               </div>
-              <div class="font-medium">{data.radarSensor.device.name}</div>
+              <div class="font-medium">{data.radarSensor.controller.device.name}</div>
             </div>
           {/if}
         </div>
@@ -352,7 +513,7 @@
                 </div>
               {/if}
               <Badge
-                variant={config?.zones?.length > 0 ? "default" : "secondary"}
+                variant={(config?.zones?.length || 0) > 0 ? "default" : "secondary"}
               >
                 {config?.zones?.length || 0} Zones
               </Badge>
@@ -377,7 +538,7 @@
               </div>
             </div>
             <Badge
-              variant={config?.dwellBuckets?.length > 0
+              variant={(config?.dwellBuckets?.length || 0) > 0
                 ? "default"
                 : "secondary"}
             >
@@ -403,6 +564,9 @@
             duration={60}
             width={400}
             height={400}
+            trackingArea={config?.trackingArea || null}
+            zones={config?.zones || []}
+            showOverlay={true}
           />
         </div>
       </AdminCard>
@@ -524,18 +688,14 @@
             id="deviceId"
             label="Linked Device"
             error={$errors.deviceId}
+            required={true}
           >
             <EnhancedSelect
               name="deviceId"
-              options={[
-                { value: "", label: "No device linked" },
-                ...data.devices.map((device) => ({
-                  value: device.id,
-                  label: `${device.name}${device.hardwareId ? ` (${device.hardwareId})` : ""}`,
-                })),
-              ]}
-              bind:value={$form.deviceId}
-              placeholder="Select a device (optional)"
+              options={deviceOptions}
+              value={$form.deviceId ?? undefined}
+              on:change={(e) => { $form.deviceId = e.detail ?? null; }}
+              placeholder="Select a device"
             />
           </FormField>
         </FormRow>
@@ -582,80 +742,34 @@
   sensorId={data.radarSensor.id || ""}
   syncStatus={data.radarSensor.syncStatus || "SYNCED"}
   isDeviceOnline={data.radarSensor.controller?.device?.connected || false}
-  trackingAreaForm={$trackingAreaForm}
-  zoneForm={$zoneForm}
-  dwellBucketForm={$dwellBucketForm}
+  trackingAreaForm={{
+    ...$trackingAreaForm,
+    description: $trackingAreaForm.description ?? undefined
+  }}
+  zoneForm={{
+    ...$zoneForm,
+    description: $zoneForm.description ?? undefined,
+    color: $zoneForm.color ?? undefined
+  }}
+  dwellBucketForm={{
+    ...$dwellBucketForm,
+    description: $dwellBucketForm.description ?? undefined
+  }}
   {formStates}
-  editorArena={config?.trackingArea
-    ? {
-        startX: config.trackingArea.startX,
-        startY: config.trackingArea.startY,
-        endX: config.trackingArea.endX,
-        endY: config.trackingArea.endY,
-      }
-    : {
-        startX: -4,
-        startY: 0,
-        endX: 4,
-        endY: 4,
-      }}
-  editorZones={config?.zones?.map((z) => ({
-    id: z.id,
-    name: z.name,
-    startX: z.startX,
-    startY: z.startY,
-    endX: z.endX,
-    endY: z.endY,
-  })) || []}
-  onDeleteZone={(zoneId, zoneName) => {
-    if (!confirm(`Are you sure you want to delete zone "${zoneName}"?`)) return;
-    const formData = new FormData();
-    formData.append("zoneId", zoneId);
-    fetch(`?/deleteZone`, { method: "POST", body: formData }).then(
-      (response) => {
-        if (response.ok) {
-          toast.success("Zone deleted successfully!");
-          invalidateAll();
-        } else {
-          toast.error("Failed to delete zone");
-        }
-      },
-    );
-  }}
-  onDeleteDwellBucket={(bucketId, bucketName) => {
-    if (
-      !confirm(`Are you sure you want to delete dwell bucket "${bucketName}"?`)
-    )
-      return;
-    const formData = new FormData();
-    formData.append("bucketId", bucketId);
-    fetch(`?/deleteDwellBucket`, { method: "POST", body: formData }).then(
-      (response) => {
-        if (response.ok) {
-          toast.success("Dwell Bucket deleted successfully!");
-          invalidateAll();
-        } else {
-          toast.error("Failed to delete dwell bucket");
-        }
-      },
-    );
-  }}
-  onSaveLayout={(layoutData) => {
-    const formData = new FormData();
-    formData.append("layout", JSON.stringify(layoutData));
-    fetch("?/saveLayout", { method: "POST", body: formData }).then(
-      (response) => {
-        if (response.ok) {
-          toast.success("Layout saved");
-          invalidateAll();
-        } else {
-          toast.error("Failed to save layout");
-        }
-      },
-    );
-  }}
+  bind:editorArena={editorArenaValue}
+  bind:editorZones={editorZonesValue}
+  onDeleteZone={handleDeleteZone}
+  onDeleteDwellBucket={handleDeleteDwellBucket}
+  onSaveLayout={handleSaveLayout}
+  on:zonesChange={handleZonesChange}
   on:success={() => {
     toast.success("Sensor configuration updated!");
+    reinitializeFromConfig();
+    invalidateAll();
+  }}
+  on:synced={() => {
+    toast.success("Config synced with device!");
+    reinitializeFromConfig();
     invalidateAll();
   }}
 />
