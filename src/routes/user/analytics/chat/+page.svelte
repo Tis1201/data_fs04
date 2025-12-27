@@ -13,7 +13,7 @@
         const script = document.createElement("script");
         script.type = "module";
         // Load custom styled component from Vanna server
-        script.src = `${vannaServerUrl}/static/vanna-components.js`;
+        script.src = `${vannaServerUrl}/static/vanna-components.js?v=${Date.now()}`;
         document.head.appendChild(script);
 
         return () => {
@@ -39,6 +39,7 @@
             sse-endpoint="/api/vanna/v2/chat_sse"
             ws-endpoint="/api/vanna/v2/chat_websocket"
             poll-endpoint="/api/vanna/v2/chat_poll"
+            show-header="false"
         />
     </div>
 </UserPageLayout>
