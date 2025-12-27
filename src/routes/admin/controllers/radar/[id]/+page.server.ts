@@ -188,7 +188,7 @@ export const load = restrict(
             // Get accounts - Admin can assign to any account including SYSTEM_ACCOUNT
             // Include current account (even if SYSTEM_ACCOUNT), all non-system accounts, and SYSTEM_ACCOUNT
             const deviceAccountId = controller.device?.accountId || sensor.accountId;
-            
+
             const accounts = await locals.prisma.account.findMany({
                 where: {
                     OR: [
@@ -411,8 +411,8 @@ export const actions: Actions = {
                         where: { id: controller.id },
                         data: {
                             accountId: form.data.accountId
-                        }
-                    });
+                    }
+                });
                 }
 
                 logger.info(`Sensor updated: ${sensor.id}`);
@@ -691,7 +691,7 @@ export const actions: Actions = {
         async ({ request, params, locals }: AuthenticatedLoadEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(zoneSchema));
-            
+
             if (!form.valid) return fail(400, { zoneForm: form });
             
             const zoneId = form.data.zoneId;
@@ -773,7 +773,7 @@ export const actions: Actions = {
                 if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
-                
+
                 type LayoutZone = {
                     id?: string;
                     name?: string;
@@ -1086,7 +1086,7 @@ export const actions: Actions = {
                     // Then hard delete the controller to free the serialNumber constraint
                     const deletedController = await tx.controller.delete({
                         where: { id: controller.id }
-                    });
+                });
 
                     return { sensor: deletedSensor, controller: deletedController };
                 });

@@ -44,7 +44,7 @@
   export let data: PageData;
 
   const title = `Radar Controller: ${data.radarSensor.name}`;
-  
+
   $: config = (data.radarSensor.config as RadarConfig) || null;
 
   const pageCrumbs: [string, string][] = [

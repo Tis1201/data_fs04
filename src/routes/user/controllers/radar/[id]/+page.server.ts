@@ -99,6 +99,37 @@ function generateId() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
+// Helper to get sensor from controller ID
+// The URL param [id] is the controller ID, not the sensor ID
+async function getSensorFromControllerId(prisma: PrismaClient, controllerId: string | undefined) {
+    if (!controllerId) {
+        return { error: 'Controller ID is required', sensor: null };
+    }
+    
+    const controller = await prisma.controller.findFirst({
+        where: {
+            id: controllerId,
+            isDeleted: false
+        },
+        include: {
+            sensors: {
+                where: { type: 'radar' }
+            }
+        }
+    });
+    
+    if (!controller) {
+        return { error: 'Controller not found', sensor: null };
+    }
+    
+    const sensor = controller.sensors[0];
+    if (!sensor) {
+        return { error: 'Radar sensor not found for this controller', sensor: null };
+    }
+    
+    return { error: null, sensor };
+}
+
 export const load = restrict(
     async ({ params, locals, cookies }: AuthenticatedLoadEvent) => {
         const { id } = params; // This is the controller ID
@@ -212,23 +243,37 @@ export const load = restrict(
     [SystemRole.USER, SystemRole.ADMIN]
 ) satisfies PageServerLoad;
 
-// Helper function to check account access
+// Helper function to check account access using controller ID
 async function checkAccountAccess(
-    sensorId: string | undefined, 
+    controllerId: string | undefined, 
     userAccountId: string | undefined, 
     prisma: AuthenticatedLoadEvent['locals']['prisma']
 ): Promise<void> {
-    if (!sensorId || !userAccountId) {
+    if (!controllerId || !userAccountId) {
         throw error(403, 'User account not found');
     }
     
-    const sensor = await prisma.sensor.findUnique({
-        where: { id: sensorId },
-        select: { accountId: true }
+    // Find controller and its radar sensor
+    const controller = await prisma.controller.findFirst({
+        where: {
+            id: controllerId,
+            isDeleted: false
+        },
+        include: {
+            sensors: {
+                where: { type: 'radar' },
+                select: { accountId: true }
+            }
+        }
     });
 
+    if (!controller) {
+        throw error(404, 'Controller not found');
+    }
+
+    const sensor = controller.sensors[0];
     if (!sensor) {
-        throw error(404, 'Sensor not found');
+        throw error(404, 'Radar sensor not found for this controller');
     }
 
     if (sensor.accountId !== userAccountId) {
@@ -257,8 +302,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 // Validate and clamp bounds
                 let bounds = normalizeBounds({
@@ -293,7 +339,7 @@ export const actions: Actions = {
                 };
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -336,8 +382,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 // Validate and clamp bounds
                 let bounds = normalizeBounds({
@@ -372,7 +419,7 @@ export const actions: Actions = {
                 };
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -414,8 +461,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 // Validate and clamp bounds
                 let bounds = normalizeBounds({
@@ -457,7 +505,7 @@ export const actions: Actions = {
                 });
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -500,8 +548,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 // Validate and clamp bounds
                 let bounds = normalizeBounds({
@@ -538,7 +587,7 @@ export const actions: Actions = {
                 };
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -579,8 +628,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.zones) return fail(400, { error: 'No zones found' });
@@ -588,7 +638,7 @@ export const actions: Actions = {
                 config.zones = config.zones.filter(z => z.id !== zoneId);
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -632,8 +682,9 @@ export const actions: Actions = {
                 const layout = JSON.parse(layoutJson);
                 const { arena, zones } = layout;
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID (id is controller ID, not sensor ID)
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 
@@ -806,7 +857,7 @@ export const actions: Actions = {
                 }
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -847,8 +898,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.dwellBuckets) config.dwellBuckets = [];
@@ -862,7 +914,7 @@ export const actions: Actions = {
                 });
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,
@@ -903,8 +955,9 @@ export const actions: Actions = {
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.dwellBuckets) return fail(400, { error: 'No dwell buckets found' });
@@ -912,7 +965,7 @@ export const actions: Actions = {
                 config.dwellBuckets = config.dwellBuckets.filter(b => b.id !== bucketId);
 
                 await locals.prisma.sensor.update({
-                    where: { id },
+                    where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
                         configVersion: sensor.configVersion + 1,

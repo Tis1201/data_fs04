@@ -113,7 +113,7 @@ export const actions: Actions = {
 
                 // Now proceed with creation as normal
                 const controllerSerial = `${form.data.serialNumber}-CTRL`;
-
+                
                 // Also clean up any soft-deleted controllers with the same serial
                 const softDeletedControllersWithSerial = await locals.prisma.controller.findMany({
                     where: {
@@ -403,17 +403,17 @@ export const actions: Actions = {
                         const target = prismaError.meta?.target;
                         if (target && Array.isArray(target)) {
                             if (target.includes('deviceId') && target.includes('type')) {
-                                return fail(400, {
-                                    form,
+                        return fail(400, {
+                            form,
                                     error: 'This device already has a radar controller configured. Only one active radar controller is allowed per device. Use "Force Create" option if you want to replace it.'
-                                });
+                        });
                             } else if (target.includes('serialNumber')) {
-                                return fail(400, {
-                                    form,
-                                    error: 'A sensor with this serial number already exists. Please use a unique serial number.'
-                                });
-                            }
-                        }
+                        return fail(400, {
+                            form,
+                            error: 'A sensor with this serial number already exists. Please use a unique serial number.'
+                        });
+                    }
+                }
                     }
                 }
 
