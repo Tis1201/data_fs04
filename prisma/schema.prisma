@@ -1352,19 +1352,20 @@ model CronJobExecution {
 }
 
 model Plan {
-  id                String         @id() @default(cuid())
-  code              String         @unique()
-  name              String
-  stripeProductId   String?        @unique()
-  stripePriceId     String?
-  isActive          Boolean        @default(true)
-  maxDevices        Int            @default(5)
-  maxUsers          Int            @default(1)
-  dataRetentionDays Int            @default(7)
-  features          Json           @default("[]")
-  subscriptions     Subscription[]
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt()
+  id                  String         @id() @default(cuid())
+  code                String         @unique()
+  name                String
+  stripeProductId     String?        @unique()
+  stripePriceId       String?
+  isActive            Boolean        @default(true)
+  maxDevices          Int            @default(5)
+  maxUsers            Int            @default(1)
+  maxLogLinesPerMonth Int            @default(10000)
+  dataRetentionDays   Int            @default(7)
+  features            Json           @default("[]")
+  subscriptions       Subscription[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt()
 
   @@index([isActive])
   @@index([code])

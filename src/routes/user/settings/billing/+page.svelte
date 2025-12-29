@@ -6,6 +6,10 @@
         HardDrive,
         Calendar,
         Check,
+        Crown,
+        Sparkles,
+        Shield,
+        Headphones,
     } from "lucide-svelte";
     import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
     import UserCard from "$lib/components/user/layout/UserCard.svelte";
@@ -24,6 +28,34 @@
         ["Billing", ""],
     ] as [string, string][];
 
+    // Plan metadata (pricing, recommended, description)
+    const planMeta: Record<
+        string,
+        { price: string; recommended?: boolean; tagline: string; icon: any }
+    > = {
+        free: {
+            price: "Free forever",
+            tagline: "For individuals getting started",
+            icon: Sparkles,
+        },
+        starter: {
+            price: "$199/mo",
+            tagline: "For growing teams",
+            icon: Zap,
+        },
+        business: {
+            price: "$499/mo",
+            recommended: true,
+            tagline: "For scaling organizations",
+            icon: Crown,
+        },
+        enterprise: {
+            price: "Custom pricing",
+            tagline: "For large deployments with dedicated support",
+            icon: Shield,
+        },
+    };
+
     // Calculate usage percentages
     $: deviceUsage = Math.min(
         100,
@@ -36,6 +68,26 @@
         ((data.billing?.currentUsers ?? 0) / (data.billing?.maxUsers ?? 1)) *
             100,
     );
+
+    // Usage bar color - green safe, amber warning, only red if over limit
+    function getUsageColor(usage: number): string {
+        if (usage >= 100) return "bg-amber-500"; // At limit = warning, not error
+        if (usage >= 80) return "bg-amber-400"; // Near limit
+        return "bg-primary"; // Safe
+    }
+
+    // Format limit for display
+    function formatLimit(value: number): string {
+        return value >= 999999 ? "Unlimited" : value.toLocaleString();
+    }
+
+    // Format log lines (10K, 500K, 5M, Unlimited)
+    function formatLogs(value: number): string {
+        if (value >= 999999999) return "Unlimited";
+        if (value >= 1000000) return `${(value / 1000000).toFixed(0)}M`;
+        if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+        return value.toLocaleString();
+    }
 
     // Status color helper
     function getStatusColor(status: string) {
@@ -50,10 +102,26 @@
                 return "bg-gray-100 text-gray-800";
         }
     }
+
+    // Get all plans sorted for comparison table
+    $: allPlans = (data.plans || []).sort(
+        (a, b) => a.maxDevices - b.maxDevices,
+    );
+
+    // Get current plan data from the plans list
+    $: currentPlanData = allPlans.find(
+        (p) => p.code === data.billing?.planCode,
+    );
+
+    // Check if user is at a limit
+    $: atDeviceLimit =
+        (data.billing?.currentDevices ?? 0) >= (data.billing?.maxDevices ?? 5);
+    $: atUserLimit =
+        (data.billing?.currentUsers ?? 0) >= (data.billing?.maxUsers ?? 1);
 </script>
 
 <UserPageLayout title={pageTitle} crumbs={pageCrumbs}>
-    <div class="space-y-6">
+    <div class="space-y-8 max-w-5xl">
         <!-- Current Plan Card -->
         <UserCard
             title="Current Plan"
@@ -61,47 +129,69 @@
             icon={CreditCard}
         >
             <div class="space-y-6">
-                <!-- Plan Info -->
+                <!-- Plan Header -->
                 <div
-                    class="flex items-center justify-between p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border"
+                    class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-gradient-to-r from-primary/10 to-primary/5 rounded-lg border"
                 >
-                    <div>
-                        <h3 class="text-2xl font-bold">
-                            {data.billing?.planName || "Free"}
-                        </h3>
-                        <div class="flex items-center gap-2 mt-1">
-                            <Badge
-                                class={getStatusColor(
-                                    data.billing?.status || "active",
-                                )}
-                            >
-                                {data.billing?.status || "active"}
-                            </Badge>
-                            {#if data.subscription?.cancelAtPeriodEnd}
-                                <Badge
-                                    variant="outline"
-                                    class="text-orange-600 border-orange-300"
-                                >
-                                    Cancels at period end
-                                </Badge>
-                            {/if}
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-primary/20 rounded-lg">
+                            <svelte:component
+                                this={planMeta[data.billing?.planCode || "free"]
+                                    ?.icon || Sparkles}
+                                class="h-6 w-6 text-primary"
+                            />
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold">
+                                {data.billing?.planName || "Free"}
+                            </h3>
+                            <p class="text-sm text-muted-foreground">
+                                {planMeta[data.billing?.planCode || "free"]
+                                    ?.tagline || "Your current plan"}
+                            </p>
                         </div>
                     </div>
-                    {#if data.billing?.planCode !== "free" && data.subscription}
-                        <form method="POST" action="/api/billing/portal">
-                            <Button type="submit" variant="outline">
-                                Manage Subscription
-                            </Button>
-                        </form>
-                    {/if}
+                    <div class="flex items-center gap-3">
+                        <Badge
+                            class={getStatusColor(
+                                data.billing?.status || "active",
+                            )}
+                        >
+                            {data.billing?.status || "active"}
+                        </Badge>
+                        {#if data.billing?.planCode !== "free" && data.subscription}
+                            <form method="POST" action="/api/billing/portal">
+                                <Button
+                                    type="submit"
+                                    variant="outline"
+                                    size="sm"
+                                >
+                                    Manage Subscription
+                                </Button>
+                            </form>
+                        {/if}
+                    </div>
                 </div>
 
                 <!-- Usage Stats -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="border rounded-lg p-4">
+                    <!-- Devices -->
+                    <div
+                        class="border rounded-lg p-4 {atDeviceLimit
+                            ? 'border-amber-300 bg-amber-50/50'
+                            : ''}"
+                    >
                         <div class="flex items-center gap-2 mb-3">
                             <HardDrive class="h-4 w-4 text-muted-foreground" />
                             <span class="text-sm font-medium">Devices</span>
+                            {#if atDeviceLimit}
+                                <Badge
+                                    variant="outline"
+                                    class="text-amber-600 border-amber-300 text-xs"
+                                >
+                                    At limit
+                                </Badge>
+                            {/if}
                         </div>
                         <div class="flex justify-between items-center mb-2">
                             <span class="text-2xl font-bold"
@@ -113,21 +203,32 @@
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
                             <div
-                                class="h-2 rounded-full transition-all {deviceUsage >
-                                90
-                                    ? 'bg-red-500'
-                                    : deviceUsage > 70
-                                      ? 'bg-yellow-500'
-                                      : 'bg-primary'}"
+                                class="h-2 rounded-full transition-all {getUsageColor(
+                                    deviceUsage,
+                                )}"
                                 style="width: {deviceUsage}%"
                             ></div>
                         </div>
                     </div>
 
-                    <div class="border rounded-lg p-4">
+                    <!-- Users -->
+                    <div
+                        class="border rounded-lg p-4 {atUserLimit
+                            ? 'border-amber-300 bg-amber-50/50'
+                            : ''}"
+                    >
                         <div class="flex items-center gap-2 mb-3">
                             <Users class="h-4 w-4 text-muted-foreground" />
-                            <span class="text-sm font-medium">Users</span>
+                            <span class="text-sm font-medium">Team Members</span
+                            >
+                            {#if atUserLimit}
+                                <Badge
+                                    variant="outline"
+                                    class="text-amber-600 border-amber-300 text-xs"
+                                >
+                                    At limit
+                                </Badge>
+                            {/if}
                         </div>
                         <div class="flex justify-between items-center mb-2">
                             <span class="text-2xl font-bold"
@@ -139,26 +240,41 @@
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
                             <div
-                                class="h-2 rounded-full transition-all {userUsage >
-                                90
-                                    ? 'bg-red-500'
-                                    : userUsage > 70
-                                      ? 'bg-yellow-500'
-                                      : 'bg-primary'}"
+                                class="h-2 rounded-full transition-all {getUsageColor(
+                                    userUsage,
+                                )}"
                                 style="width: {userUsage}%"
                             ></div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Period Info -->
+                <!-- Limit Warning -->
+                {#if atDeviceLimit || atUserLimit}
+                    <div
+                        class="p-3 bg-amber-50 border border-amber-200 rounded-lg"
+                    >
+                        <p class="text-sm text-amber-800">
+                            <strong>You've reached your plan limit.</strong>
+                            {#if atDeviceLimit && atUserLimit}
+                                Upgrade to add more devices and team members.
+                            {:else if atDeviceLimit}
+                                Upgrade to add more devices to your account.
+                            {:else}
+                                Upgrade to invite more team members.
+                            {/if}
+                        </p>
+                    </div>
+                {/if}
+
+                <!-- Billing Period -->
                 {#if data.subscription?.currentPeriodEnd}
                     <div
-                        class="flex items-center gap-2 text-sm text-muted-foreground"
+                        class="flex items-center gap-2 text-sm text-muted-foreground pt-2 border-t"
                     >
                         <Calendar class="h-4 w-4" />
                         <span
-                            >Current period ends: <RelativeDate
+                            >Current billing period ends: <RelativeDate
                                 date={data.subscription.currentPeriodEnd}
                                 format="full"
                             /></span
@@ -168,40 +284,182 @@
             </div>
         </UserCard>
 
-        <!-- Upgrade Section (only show for free plan) -->
-        {#if data.billing?.planCode === "free"}
+        <!-- Plans Comparison Section -->
+        {#if allPlans.length > 0}
             <UserCard
-                title="Upgrade Your Plan"
-                description="Get more devices, users, and features"
+                title="Compare Plans"
+                description="Choose the plan that fits your needs — scale confidently."
                 icon={Zap}
             >
                 <div
-                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
                 >
-                    {#each data.plans?.filter((p) => p.code !== "free") || [] as plan}
+                    {#each allPlans as plan}
+                        {@const meta = planMeta[plan.code] || {
+                            price: "Contact Sales",
+                            tagline: "",
+                            icon: Sparkles,
+                        }}
+                        {@const isRecommended = meta.recommended}
+                        {@const isCurrentPlan =
+                            plan.code === data.billing?.planCode}
                         <div
-                            class="border rounded-lg p-4 hover:border-primary transition-colors"
+                            class="relative border rounded-xl p-6 transition-all hover:shadow-md {isCurrentPlan
+                                ? 'border-green-500 ring-2 ring-green-200 bg-green-50/50'
+                                : isRecommended
+                                  ? 'border-primary ring-2 ring-primary/20 bg-primary/5'
+                                  : 'hover:border-gray-300'}"
                         >
-                            <h4 class="font-semibold text-lg mb-2">
-                                {plan.name}
-                            </h4>
-                            <ul
-                                class="space-y-2 text-sm text-muted-foreground mb-4"
-                            >
+                            <!-- Plan Badge -->
+                            {#if isCurrentPlan}
+                                <div
+                                    class="absolute -top-3 left-1/2 -translate-x-1/2"
+                                >
+                                    <Badge class="bg-green-600 text-white">
+                                        Current Plan
+                                    </Badge>
+                                </div>
+                            {:else if isRecommended}
+                                <div
+                                    class="absolute -top-3 left-1/2 -translate-x-1/2"
+                                >
+                                    <Badge
+                                        class="bg-primary text-primary-foreground"
+                                    >
+                                        Recommended
+                                    </Badge>
+                                </div>
+                            {/if}
+
+                            <!-- Plan Header -->
+                            <div class="text-center mb-6 pt-2">
+                                <div
+                                    class="inline-flex p-2 bg-gray-100 rounded-lg mb-3"
+                                >
+                                    <svelte:component
+                                        this={meta.icon}
+                                        class="h-5 w-5 text-gray-600"
+                                    />
+                                </div>
+                                <h4 class="font-semibold text-lg">
+                                    {plan.name}
+                                </h4>
+                                <p class="text-2xl font-bold text-primary mt-1">
+                                    {meta.price}
+                                </p>
+                                <p class="text-xs text-muted-foreground mt-1">
+                                    {meta.tagline}
+                                </p>
+                            </div>
+
+                            <!-- Features -->
+                            <ul class="space-y-3 text-sm mb-6">
                                 <li class="flex items-center gap-2">
-                                    <Check class="h-4 w-4 text-green-500" />
-                                    {plan.maxDevices} devices
+                                    <Check
+                                        class="h-4 w-4 text-green-500 flex-shrink-0"
+                                    />
+                                    <span
+                                        ><strong
+                                            >{formatLimit(
+                                                plan.maxDevices,
+                                            )}</strong
+                                        > devices</span
+                                    >
                                 </li>
                                 <li class="flex items-center gap-2">
-                                    <Check class="h-4 w-4 text-green-500" />
-                                    {plan.maxUsers} users
+                                    <Check
+                                        class="h-4 w-4 text-green-500 flex-shrink-0"
+                                    />
+                                    <span
+                                        ><strong
+                                            >{formatLimit(
+                                                plan.maxUsers,
+                                            )}</strong
+                                        > team members</span
+                                    >
                                 </li>
                                 <li class="flex items-center gap-2">
-                                    <Check class="h-4 w-4 text-green-500" />
-                                    {plan.dataRetentionDays} days data retention
+                                    <Check
+                                        class="h-4 w-4 text-green-500 flex-shrink-0"
+                                    />
+                                    <span
+                                        ><strong
+                                            >{plan.dataRetentionDays}-day</strong
+                                        > data retention</span
+                                    >
                                 </li>
+                                <li class="flex items-center gap-2">
+                                    <Check
+                                        class="h-4 w-4 text-green-500 flex-shrink-0"
+                                    />
+                                    <span
+                                        ><strong
+                                            >{formatLogs(
+                                                plan.maxLogLinesPerMonth ||
+                                                    10000,
+                                            )}</strong
+                                        > logs/month</span
+                                    >
+                                </li>
+                                {#if plan.code === "business"}
+                                    <li class="flex items-center gap-2">
+                                        <Check
+                                            class="h-4 w-4 text-green-500 flex-shrink-0"
+                                        />
+                                        <span>Phone support</span>
+                                    </li>
+                                {/if}
+                                {#if plan.code === "enterprise"}
+                                    <li class="flex items-center gap-2">
+                                        <Check
+                                            class="h-4 w-4 text-green-500 flex-shrink-0"
+                                        />
+                                        <span>SSO & SAML integration</span>
+                                    </li>
+                                    <li class="flex items-center gap-2">
+                                        <Check
+                                            class="h-4 w-4 text-green-500 flex-shrink-0"
+                                        />
+                                        <span>Dedicated support & SLA</span>
+                                    </li>
+                                    <li class="flex items-center gap-2">
+                                        <Check
+                                            class="h-4 w-4 text-green-500 flex-shrink-0"
+                                        />
+                                        <span>Custom integrations</span>
+                                    </li>
+                                {/if}
                             </ul>
-                            {#if plan.stripePriceId}
+
+                            <!-- CTA -->
+                            {#if isCurrentPlan}
+                                <Button
+                                    variant="ghost"
+                                    class="w-full bg-green-100 text-green-700 hover:bg-green-100"
+                                    disabled
+                                >
+                                    <Check class="h-4 w-4 mr-2" />
+                                    Your Current Plan
+                                </Button>
+                            {:else if plan.code === "enterprise"}
+                                <a
+                                    href="mailto:sales@example.com?subject=Enterprise Plan Inquiry"
+                                    class="block"
+                                >
+                                    <Button variant="outline" class="w-full">
+                                        <Headphones class="h-4 w-4 mr-2" />
+                                        Contact Sales
+                                    </Button>
+                                </a>
+                            {:else if plan.code === "free"}
+                                <Button
+                                    variant="ghost"
+                                    class="w-full text-muted-foreground"
+                                    disabled
+                                >
+                                    Free forever
+                                </Button>
+                            {:else if plan.stripePriceId}
                                 <form
                                     method="POST"
                                     action="/api/billing/checkout"
@@ -211,17 +469,24 @@
                                         name="planCode"
                                         value={plan.code}
                                     />
-                                    <Button type="submit" class="w-full">
+                                    <Button
+                                        type="submit"
+                                        class="w-full"
+                                        variant={isRecommended
+                                            ? "default"
+                                            : "outline"}
+                                    >
                                         Upgrade to {plan.name}
                                     </Button>
                                 </form>
                             {:else}
                                 <Button
-                                    variant="outline"
                                     class="w-full"
-                                    disabled
+                                    variant={isRecommended
+                                        ? "default"
+                                        : "outline"}
                                 >
-                                    Contact Sales
+                                    Upgrade to {plan.name}
                                 </Button>
                             {/if}
                         </div>

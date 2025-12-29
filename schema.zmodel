@@ -2006,6 +2006,7 @@ model Plan {
   // Entitlements defined by this plan
   maxDevices      Int      @default(5)
   maxUsers        Int      @default(1)
+  maxLogLinesPerMonth Int  @default(10000) // Monthly log line limit
   dataRetentionDays Int    @default(7)
   features        Json     @default("[]") // e.g., ["sso", "audit_logs", "white_label"]
   

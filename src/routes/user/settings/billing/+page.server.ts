@@ -53,6 +53,7 @@ export const load = restrictAccountRole(
                     name: p.name,
                     maxDevices: p.maxDevices,
                     maxUsers: p.maxUsers,
+                    maxLogLinesPerMonth: p.maxLogLinesPerMonth,
                     dataRetentionDays: p.dataRetentionDays,
                     features: p.features as string[],
                     stripePriceId: p.stripePriceId
