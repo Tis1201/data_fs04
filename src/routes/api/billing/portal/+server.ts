@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ locals, url }) => {
         // Create Portal Session
         const session = await stripe.billingPortal.sessions.create({
             customer: subscription.stripeCustomerId,
-            return_url: `${origin}/settings/billing`
+            return_url: `${origin}/user/settings/billing`
         });
 
         return json({ url: session.url });

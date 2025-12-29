@@ -167,6 +167,11 @@
                     icon: CreditCard,
                 },
                 {
+                    href: "/admin/billing/invoices",
+                    label: "Invoices",
+                    icon: FileText,
+                },
+                {
                     href: "/admin/billing/licenses",
                     label: "Licenses",
                     icon: IdCard,

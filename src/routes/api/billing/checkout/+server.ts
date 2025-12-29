@@ -64,8 +64,8 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
             line_items: [{ price: plan.stripePriceId, quantity: 1 }],
             discounts: discounts.length > 0 ? discounts : undefined,
             allow_promotion_codes: discounts.length === 0, // Show input if no pre-filled code
-            success_url: `${origin}/settings/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${origin}/settings/billing?canceled=true`
+            success_url: `${origin}/user/settings/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${origin}/user/settings/billing?canceled=true`
         });
 
         return json({ url: session.url });

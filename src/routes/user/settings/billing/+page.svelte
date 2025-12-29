@@ -124,6 +124,70 @@
         (data.billing?.currentDevices ?? 0) >= (data.billing?.maxDevices ?? 5);
     $: atUserLimit =
         (data.billing?.currentUsers ?? 0) >= (data.billing?.maxUsers ?? 1);
+
+    // Billing service integration
+    import {
+        startCheckout,
+        openBillingPortal,
+        redirectToStripe,
+    } from "$lib/services/billingService";
+
+    import { onMount } from "svelte";
+    import { page } from "$app/stores";
+    import { toast } from "svelte-sonner";
+
+    let upgradeLoading: string | null = null; // Track which plan is loading
+    let portalLoading = false;
+    let errorMessage: string | null = null;
+
+    onMount(() => {
+        const success = $page.url.searchParams.get("success");
+        const canceled = $page.url.searchParams.get("canceled");
+
+        if (success === "true") {
+            toast.success("Subscription updated successfully!", {
+                description:
+                    "Thank you for upgrading. Your new limits are active immediately.",
+            });
+            // Clean up URL
+            const url = new URL(window.location.href);
+            url.searchParams.delete("success");
+            url.searchParams.delete("session_id");
+            window.history.replaceState({}, "", url);
+        } else if (canceled === "true") {
+            toast.info("Checkout canceled", {
+                description: "No changes were made to your subscription.",
+            });
+            // Clean up URL
+            const url = new URL(window.location.href);
+            url.searchParams.delete("canceled");
+            window.history.replaceState({}, "", url);
+        }
+    });
+
+    async function handleUpgrade(planCode: string) {
+        upgradeLoading = planCode;
+        errorMessage = null;
+        try {
+            const { url } = await startCheckout(planCode);
+            redirectToStripe(url);
+        } catch (e) {
+            errorMessage = (e as Error).message;
+            upgradeLoading = null;
+        }
+    }
+
+    async function handleManageBilling() {
+        portalLoading = true;
+        errorMessage = null;
+        try {
+            const { url } = await openBillingPortal();
+            redirectToStripe(url);
+        } catch (e) {
+            errorMessage = (e as Error).message;
+            portalLoading = false;
+        }
+    }
 </script>
 
 <UserPageLayout title={pageTitle} crumbs={pageCrumbs}>
@@ -166,15 +230,16 @@
                             {data.billing?.status || "active"}
                         </Badge>
                         {#if data.billing?.planCode !== "free" && data.subscription}
-                            <form method="POST" action="/api/billing/portal">
-                                <Button
-                                    type="submit"
-                                    variant="outline"
-                                    size="sm"
-                                >
-                                    Manage Subscription
-                                </Button>
-                            </form>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={portalLoading}
+                                on:click={handleManageBilling}
+                            >
+                                {portalLoading
+                                    ? "Loading..."
+                                    : "Manage Billing"}
+                            </Button>
                         {/if}
                     </div>
                 </div>
@@ -557,28 +622,6 @@
                                         Free Forever
                                     </Button>
                                 {:else if plan.stripePriceId}
-                                    <form
-                                        method="POST"
-                                        action="/api/billing/checkout"
-                                    >
-                                        <input
-                                            type="hidden"
-                                            name="planCode"
-                                            value={plan.code}
-                                        />
-                                        <Button
-                                            type="submit"
-                                            class="w-full {isBusiness
-                                                ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-md'
-                                                : ''}"
-                                            variant={isRecommended
-                                                ? "default"
-                                                : "outline"}
-                                        >
-                                            Upgrade
-                                        </Button>
-                                    </form>
-                                {:else}
                                     <Button
                                         class="w-full {isBusiness
                                             ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-md'
@@ -586,8 +629,30 @@
                                         variant={isRecommended
                                             ? "default"
                                             : "outline"}
+                                        disabled={upgradeLoading === plan.code}
+                                        on:click={() =>
+                                            handleUpgrade(plan.code)}
                                     >
-                                        Upgrade to {plan.name}
+                                        {upgradeLoading === plan.code
+                                            ? "Redirecting..."
+                                            : "Upgrade"}
+                                    </Button>
+                                {:else}
+                                    <!-- Plans without stripePriceId can still attempt checkout -->
+                                    <Button
+                                        class="w-full {isBusiness
+                                            ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-md'
+                                            : ''}"
+                                        variant={isRecommended
+                                            ? "default"
+                                            : "outline"}
+                                        disabled={upgradeLoading === plan.code}
+                                        on:click={() =>
+                                            handleUpgrade(plan.code)}
+                                    >
+                                        {upgradeLoading === plan.code
+                                            ? "Redirecting..."
+                                            : `Upgrade to ${plan.name}`}
                                     </Button>
                                 {/if}
                             </div>

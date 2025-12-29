@@ -63,13 +63,14 @@ erDiagram
     
     Plan {
         string id PK
-        string code UK "free, pro, enterprise"
+        string code UK "free, starter, business, enterprise"
         string name
         string stripeProductId UK
         string stripePriceId
         boolean isActive
         int maxDevices
         int maxUsers
+        int maxLogLinesPerMonth
         int dataRetentionDays
         json features
     }
@@ -106,6 +107,7 @@ model Plan {
   // Entitlements defined by this plan
   maxDevices      Int      @default(5)
   maxUsers        Int      @default(1)
+  maxLogLinesPerMonth Int  @default(10000)
   dataRetentionDays Int    @default(7)
   features        Json     @default("[]") // e.g., ["sso", "audit_logs", "white_label"]
   
@@ -809,33 +811,34 @@ Coupons are managed entirely in **Stripe Dashboard**. No need to sync to local D
 
 ## 12. Implementation Checklist
 
-### Phase 1: Foundation
-- [ ] Add `Plan` and `Subscription` models to `schema.zmodel`
-- [ ] Add `WebhookEvent` model for idempotency
-- [ ] Run `npx zenstack generate && npx prisma db push`
-- [ ] Create `scripts/seed-plans.ts` with Free, Pro, Enterprise (using `code` field)
-- [ ] Run seed script
+### Phase 1: Foundation (Completed)
+- [x] Add `Plan` and `Subscription` models to `schema.zmodel`
+- [x] Add `WebhookEvent` model for idempotency
+- [x] Run `npx zenstack generate && npx prisma db push`
+- [x] Create `scripts/seed-plans.ts` with Free, Starter, Business, Enterprise
+- [x] Run seed script
 
-### Phase 2: Stripe Integration
-- [ ] Set up Stripe account (Test Mode)
-- [ ] Create Products and Prices in Stripe Dashboard
+### Phase 2: Stripe Integration (In Progress)
+- [x] Set up Stripe account (Test Mode)
+- [ ] Create Products and Prices in Stripe Dashboard (Starter: $199, Business: $499)
 - [ ] Update `Plan` records with `stripeProductId` and `stripePriceId`
-- [ ] Implement `POST /api/billing/checkout` (with `metadata.accountId`)
-- [ ] Implement `POST /api/billing/portal`
-- [ ] Implement `POST /api/webhook/stripe` with signature verification
-- [ ] Test webhook locally with Stripe CLI
+- [x] Implement `POST /api/billing/checkout` (with `metadata.accountId`)
+- [x] Implement `POST /api/billing/portal`
+- [x] Implement `POST /api/webhook/stripe` with signature verification
+- [x] Test webhook locally with Stripe CLI
 
-### Phase 3: Entitlements
-- [ ] Implement `lib/server/entitlements.ts` with Redis caching
-- [ ] Add `checkDeviceLimit()` call to Device creation API
-- [ ] Add `checkUserLimit()` call to User invitation flow
-- [ ] Add feature checks where needed (SSO, Audit Logs)
+### Phase 3: Entitlements (Completed)
+- [x] Implement `lib/server/entitlements.ts` with Redis caching
+- [x] Add `checkDeviceLimit()` call to Device creation API
+- [x] Add `checkUserLimit()` call to User invitation flow
+- [x] Add `maxLogLinesPerMonth` logic
 
-### Phase 4: Frontend
-- [ ] Build `/user/settings/billing` page
-- [ ] Build `/admin/billing/plans` page
-- [ ] Build `/admin/billing/subscriptions` page
-- [ ] Add upgrade prompts when limits reached
+### Phase 4: Frontend (Completed)
+- [x] Build `/user/settings/billing` page
+- [x] Wire up "Upgrade" buttons to Checkout API (via `billingService.ts`)
+- [x] Wire up "Manage Billing" to Portal API (via `billingService.ts`)
+- [x] Build `/admin/billing/plans` page
+- [x] Build `/admin/billing/subscriptions` page
 
 ### Phase 5: Self-Hosted (Optional)
 - [ ] Create license generation script with JWKS support
@@ -907,9 +910,42 @@ model WebhookEvent {
 ```typescript
 // scripts/seed-plans.ts
 const defaultPlans = [
-  { code: 'free', name: 'Free Tier', maxDevices: 5, maxUsers: 1, dataRetentionDays: 7, features: [] },
-  { code: 'pro', name: 'Pro Plan', maxDevices: 50, maxUsers: 5, dataRetentionDays: 30, features: ['priority_support', 'email_alerts'] },
-  { code: 'enterprise', name: 'Enterprise', maxDevices: 999999, maxUsers: 999999, dataRetentionDays: 365, features: ['sso', 'audit_logs', 'white_label', 'sla'] }
+  { 
+    code: 'free', 
+    name: 'Free', 
+    maxDevices: 5, 
+    maxUsers: 5, 
+    maxLogLinesPerMonth: 10000,
+    dataRetentionDays: 7, 
+    features: ['basic_support'] 
+  },
+  { 
+    code: 'starter', 
+    name: 'Starter', 
+    maxDevices: 50, 
+    maxUsers: 10, 
+    maxLogLinesPerMonth: 500000,
+    dataRetentionDays: 30, 
+    features: ['priority_support', 'email_alerts', 'api_access'] 
+  },
+  { 
+    code: 'business', 
+    name: 'Business', 
+    maxDevices: 1000, 
+    maxUsers: 50, 
+    maxLogLinesPerMonth: 5000000,
+    dataRetentionDays: 90, 
+    features: ['priority_support', 'email_alerts', 'api_access', 'phone_support', 'custom_integrations'] 
+  },
+  { 
+    code: 'enterprise', 
+    name: 'Enterprise', 
+    maxDevices: 999999, 
+    maxUsers: 999999, 
+    maxLogLinesPerMonth: 999999999,
+    dataRetentionDays: 365, 
+    features: ['sso', 'audit_logs', 'sla', 'white_label', 'dedicated_support', 'custom_integrations', 'on_premise'] 
+  }
 ];
 
 for (const plan of defaultPlans) {
