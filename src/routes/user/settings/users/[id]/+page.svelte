@@ -19,6 +19,7 @@
     import { enhance } from '$app/forms';
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
     import { canPerformAdminActions } from '$lib/utils/permissions';
+    import { truncateText } from "$lib/utils/text-utils";
     
     import type { PageData } from "./$types";
     
@@ -26,15 +27,15 @@
     
     
     // Define page metadata
-    const pageTitle = `${data.user?.name || data.user?.email || 'User'} - Profile`;
-    const pageDescription = `View and manage profile for ${data.user?.name || data.user?.email}`;
+    const pageTitle = `${truncateText(data.user?.name || data.user?.email || 'User', 40)} - Profile`;
+    const pageDescription = `View and manage profile for ${truncateText(data.user?.name || data.user?.email, 40)}`;
     
     // Define breadcrumbs
     const pageCrumbs = [
         ["Dashboard", "/user/dashboard"],
         ["Settings", "/user/settings"],
         ["Team Members", "/user/settings/users"],
-        [`${data.user?.name || data.user?.email || 'User'}`, ""]
+        [truncateText(data.user?.name || data.user?.email || 'User', 40), ""]
     ] as [string, string][];
     
     // Get status badge class

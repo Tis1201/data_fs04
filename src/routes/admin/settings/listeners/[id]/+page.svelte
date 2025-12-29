@@ -25,15 +25,16 @@
     import { LISTENER_STATUSES, listenerEditSchema } from "./schema";
 
     export let data: PageData;
+    import { truncateText } from "$lib/utils/text-utils";
     const { listener, webhookEndpoints, whatsappAccounts } = data;
-    const title = `Edit Listener: ${listener?.name || 'Listener'}`;
+    const title = `Edit Listener: ${truncateText(listener?.name || 'Listener', 40)}`;
     
     // Define breadcrumbs for this page
     const pageCrumbs = [
         ["Admin", "/admin"],
         ["Settings", "/admin/settings"],
         ["Event Listeners", "/admin/settings/listeners"],
-        listener?.name || "Edit Listener",
+        truncateText(listener?.name || "Edit Listener", 40),
     ];
     
     const { form, errors, enhance, submitting, message, delayed, timeout } = superForm(data.form, {

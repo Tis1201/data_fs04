@@ -23,17 +23,18 @@
   import ActionButton from "$lib/components/ui_components_sveltekit/buttons/ActionButton.svelte";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import type { PageData } from "./$types";
+  import { truncateText } from "$lib/utils/text-utils";
   
   // Import page data
   export let data: PageData;
   
   // Page title and breadcrumbs
-  const title = `Edit Group: ${data.group.name}`;
+  const title = `Edit Group: ${truncateText(data.group.name, 40)}`;
   const pageCrumbs = [
     ["Admin", "/admin"],
     ["Accounts", "/admin/accounts"],
     ["Groups", "/admin/accounts/groups"],
-    data.group.name,
+    truncateText(data.group.name, 40),
   ];
 
   // State for delete confirmation dialog

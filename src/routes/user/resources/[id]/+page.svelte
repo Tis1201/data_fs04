@@ -10,16 +10,17 @@
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import type { PageData } from './$types';
     import { toast } from 'svelte-sonner';
+    import { truncateText } from "$lib/utils/text-utils";
 
     export let data: PageData;
     const { resource, form } = data;
 
-    const title = `Resource: ${resource.name || 'Unnamed'}`;
+    const title = `Resource: ${truncateText(resource.name || 'Unnamed', 40)}`;
 
     const pageCrumbs = [
         ['Home', '/'],
         ['Resources', '/user/resources'],
-        resource.name || 'Unnamed'
+        truncateText(resource.name || 'Unnamed', 40)
     ];
 
     const { form: formStore, errors, enhance, submitting, constraints, errorMessage } = createFormHandler(form, {
