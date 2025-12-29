@@ -99,5 +99,3 @@ prisma/dev.db
 # .windsurfrules
 __pycache__/
 *.pyc
-
-/docs/tasks/
