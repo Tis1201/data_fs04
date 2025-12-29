@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
+import { buildMqttMintPayload, getMqttBrokerWsUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
@@ -13,12 +13,13 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
     const accountId = auth.currentAccount?.account.id ?? user.primaryAccountId ?? null;
 
     const mqttUsername = `user:${user.id}:${accountId}`;
-    const brokerUrl = getMqttBrokerUrl();
+    // Use WebSocket URL for browser clients
+    const brokerUrl = getMqttBrokerWsUrl();
     if (!brokerUrl) {
-      logger.error('[UserMqttMintAPI] MQTT_BROKER_URL is not configured');
+      logger.error('[UserMqttMintAPI] MQTT WebSocket URL is not configured');
       return json(
-        createErrorResponse('MQTT broker URL is not configured', {
-          details: 'Set MQTT_BROKER_URL in the server environment'
+        createErrorResponse('MQTT broker WebSocket URL is not configured', {
+          details: 'Set MQTT_BROKER_URL or MQTT_BROKER_WS_URL in the server environment'
         }),
         { status: 500 }
       );

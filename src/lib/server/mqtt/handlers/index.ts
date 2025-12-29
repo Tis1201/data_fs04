@@ -838,66 +838,72 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             if (result && typeof result === 'object' && !Array.isArray(result)) {
                 const resultObj = result as Record<string, unknown>;
                 const payload = resultObj.payload as Record<string, unknown> | undefined;
+                
+                // Support both nested payload.objectPath and top-level objectPath
+                const objectPath = (payload?.objectPath ?? resultObj.objectPath) as string | undefined;
+                const format = (payload?.format ?? resultObj.format) as string | undefined;
 
                 // Check if this is a screenshot response
                 isScreenshotResponse = ctx.type === 'device.screenshot' ||
+                    resultObj.type === 'device.screenshot.response' ||
                     (!!payload && (
                         payload.type === 'screenshot:response' ||
                         (typeof payload.objectPath === 'string' && payload.objectPath.includes('/screenshots/'))
-                    ));
+                    )) ||
+                    (typeof objectPath === 'string' && objectPath.includes('/screenshots/'));
 
                 if (isScreenshotResponse) {
                     logger.debug('[MQTT Reply] Detected screenshot response', {
                         ctxType: ctx.type,
-                        payloadType: payload?.type,
-                        hasObjectPath: !!payload?.objectPath,
-                        objectPath: payload?.objectPath
+                        resultType: resultObj.type,
+                        hasObjectPath: !!objectPath,
+                        objectPath
                     });
 
-                    if (payload && payload.objectPath) {
+                    if (objectPath) {
                         // Generate download URL server-side so UI can use it directly as <img src={downloadUrl} />
                         // This is simpler than having UI request download URL separately
                         const { generateDownloadUrl } = await import('$lib/server/storage');
                         const path = await import('path');
 
                         try {
-                            const fileName = path.basename(payload.objectPath as string);
+                            const fileName = path.basename(objectPath);
                             const downloadUrlResult = await generateDownloadUrl(
-                                payload.objectPath as string,
+                                objectPath,
                                 3600, // 1 hour expiry
                                 fileName
                             );
 
                             notificationParams = {
                                 ...resultObj,
-                                objectPath: payload.objectPath,
+                                objectPath,
                                 downloadUrl: downloadUrlResult.url, // Add download URL for direct use
-                                format: payload.format,
+                                format,
                                 // Keep the full payload for backward compatibility
                                 payload
                             };
 
                             logger.info('[MQTT Reply] Generated download URL for screenshot', {
-                                objectPath: payload.objectPath,
-                                format: payload.format,
+                                objectPath,
+                                format,
                                 hasDownloadUrl: true
                             });
                         } catch (err) {
                             logger.error('[MQTT Reply] Failed to generate download URL for screenshot', {
                                 error: err instanceof Error ? err.message : String(err),
-                                objectPath: payload.objectPath
+                                objectPath
                             });
 
                             // Fallback: just include objectPath
                             notificationParams = {
                                 ...resultObj,
-                                objectPath: payload.objectPath,
-                                format: payload.format,
+                                objectPath,
+                                format,
                                 payload
                             };
                         }
                     } else {
-                        logger.warn('[MQTT Reply] Screenshot response missing objectPath in payload', {
+                        logger.warn('[MQTT Reply] Screenshot response missing objectPath', {
                             resultKeys: Object.keys(resultObj),
                             payloadKeys: payload ? Object.keys(payload) : []
                         });

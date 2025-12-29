@@ -15,8 +15,8 @@
         Activity,
         Network,
         Router,
-        Radio,
         Users2,
+        Logs,
         LucideActivity,
         ActivitySquare,
         File,
@@ -27,6 +27,7 @@
         ShieldPlus,
         Package2,
         TagIcon,
+        Radio,
         BugOff,
     } from "lucide-svelte";
 
@@ -85,7 +86,6 @@
                 },
             ],
         },
-
         {
             label: "Controllers",
             icon: Radio,
@@ -103,6 +103,11 @@
             icon: ActivitySquare,
             initialExpanded: false,
             subItems: [
+                {
+                    href: "/user/analytics/chat",
+                    label: "Ask AI",
+                    icon: MessageSquare,
+                },
                 { href: "/user/analytics/radar", label: "Radar", icon: Radio },
             ],
         },

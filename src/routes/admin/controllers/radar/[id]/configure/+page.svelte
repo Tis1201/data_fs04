@@ -29,12 +29,12 @@
     export let data: PageData;
     const title = "Configure Radar Sensor";
 
-    const pageCrumbs = [
+    const pageCrumbs: [string, string][] = [
         ["Admin", "/admin"],
         ["Controllers", "/admin/controllers"],
         ["Radar", "/admin/controllers/radar"],
         [data.controller.name, `/admin/controllers/radar/${data.controller.id}`],
-        ["Configure"],
+        ["Configure", ""],
     ];
 
     import {
@@ -255,7 +255,7 @@
                                     name="description"
                                     bind:value={$form.description}
                                     placeholder="Additional notes about this tracking area"
-                                    rows="2"
+                                    rows={2}
                                     class="w-full {$errors.description ? 'border-destructive focus:border-destructive' : ''}"
                                     disabled={isLoading}
                                     aria-invalid={$errors.description ? true : undefined}

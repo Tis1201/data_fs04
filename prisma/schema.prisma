@@ -63,6 +63,7 @@ model Account {
   deviceProfiles           DeviceProfile[]
   deviceAppSummaries       DeviceAppSummary[]
   pinRules                 PinRule[]
+  subscription             Subscription?
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
   controllers              Controller[]
@@ -1301,10 +1302,10 @@ model CronJob {
   name           String
   functionName   String
   args           Json?
-  cronExpression String?            // Nullable - null for one-time jobs
+  cronExpression String?
   timezone       String?            @default("UTC")
-  isRecurring    Boolean            @default(true) // false for one-time jobs
   status         CronJobStatus      @default(ACTIVE)
+  isRecurring    Boolean            @default(true)
   lastRunAt      DateTime?
   nextRunAt      DateTime?
   lastResult     String?
@@ -1348,4 +1349,35 @@ model CronJobExecution {
   @@index([cronJobId])
   @@index([status])
   @@index([startedAt])
+}
+
+model Plan {
+  id                String         @id() @default(cuid())
+  name              String
+  stripeProductId   String?        @unique()
+  isActive          Boolean        @default(true)
+  maxDevices        Int            @default(5)
+  maxUsers          Int            @default(1)
+  dataRetentionDays Int            @default(7)
+  features          Json           @default("[]")
+  subscriptions     Subscription[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt()
+}
+
+model Subscription {
+  id                   String    @id() @default(cuid())
+  accountId            String    @unique()
+  account              Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 Plan      @relation(fields: [planId], references: [id])
+  status               String    @default("active")
+  stripeCustomerId     String?
+  stripeSubscriptionId String?   @unique()
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  licenseKey           String?
+  overrideMaxDevices   Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt()
 }

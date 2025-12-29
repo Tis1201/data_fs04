@@ -44,17 +44,11 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
             );
         }
 
-        if (!controllerId) {
-            return json(
-                createErrorResponse('Missing required field: controllerId', {
-                    details: 'Request body must include "controllerId". Use GET /api/device/controller?type=<type> to retrieve/create a controller first.'
-                }),
-                { status: 400 }
-            );
-        }
+		let controller;
 
+		if (controllerId) {
         // Validate that the controller exists and belongs to this device
-        const controller = await locals.prisma.controller.findFirst({
+			controller = await locals.prisma.controller.findFirst({
             where: {
                 id: controllerId,
                 deviceId: device.id,
@@ -66,13 +60,111 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
         if (!controller) {
             logger.warn(
                 `[ControllerMqttMintAPI] Controller not found: controllerId=${controllerId}, deviceId=${device.id}, type=${type}`
+				);
+				
+				// Check if controller exists but belongs to different device
+				const controllerExists = await locals.prisma.controller.findFirst({
+					where: {
+						id: controllerId,
+						type: type,
+						isDeleted: false
+					},
+					select: {
+						deviceId: true,
+						device: {
+							select: {
+								name: true
+							}
+						}
+					}
+				});
+				
+				if (controllerExists) {
+					logger.warn(
+						`[ControllerMqttMintAPI] Controller ${controllerId} belongs to different device: ${controllerExists.deviceId}`
             );
             return json(
-                createErrorResponse('Controller not found', {
-                    details: `No ${type} controller with ID ${controllerId} found for this device. Use GET /api/device/controller?type=${type} to retrieve/create one.`
+						createErrorResponse('Controller not found for this device', {
+							details: `Controller ${controllerId} has been assigned to a different device. Please call GET /api/device/controller?type=${type} to retrieve or create a new controller for this device.`
                 }),
                 { status: 404 }
             );
+				}
+				
+				return json(
+					createErrorResponse('Controller not found', {
+						details: `No ${type} controller with ID ${controllerId} found. Use GET /api/device/controller?type=${type} to retrieve/create one.`
+					}),
+					{ status: 404 }
+				);
+			}
+		} else {
+			// Auto-find or create controller if controllerId not provided
+			logger.info(
+				`[ControllerMqttMintAPI] controllerId not provided, finding or creating ${type} controller for device ${device.id}`
+			);
+
+			// Check if device has an account (required for controller creation)
+			if (!device.accountId) {
+				return json(
+					createErrorResponse('Device has no associated account', {
+						details: 'Device must be claimed and associated with an account to create controllers'
+					}),
+					{ status: 400 }
+				);
+			}
+
+			// Find existing controller
+			controller = await locals.prisma.controller.findFirst({
+				where: {
+					deviceId: device.id,
+					type: type,
+					isDeleted: false
+				}
+			});
+
+			// Auto-create if not found
+			if (!controller) {
+				logger.info(`[ControllerMqttMintAPI] Auto-creating new ${type} controller for device ${device.id}`);
+
+				const serialNumber = `${type.toUpperCase()}-${device.id.slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
+
+				controller = await locals.prisma.controller.create({
+					data: {
+						name: `Auto-created ${type.charAt(0).toUpperCase() + type.slice(1)} Controller`,
+						type: type,
+						serialNumber: serialNumber,
+						status: 'ACTIVE',
+						device: {
+							connect: { id: device.id }
+						},
+						account: {
+							connect: { id: device.accountId }
+						},
+						description: 'Auto-created during MQTT mint',
+						// Auto-create sensor when creating controller
+						sensors: {
+							create: {
+								name: `Auto-created ${type.charAt(0).toUpperCase() + type.slice(1)} Sensor`,
+								type: type,
+								serialNumber: `${serialNumber}-SENSOR`,
+								status: 'ACTIVE',
+								account: {
+									connect: { id: device.accountId }
+								},
+								description: 'Auto-created sensor for controller',
+								config: {},
+								configVersion: 1,
+								syncStatus: 'PENDING'
+							}
+						}
+					}
+				});
+
+				logger.info(`[ControllerMqttMintAPI] Created controller: ${controller.id} (${controller.type})`);
+			} else {
+				logger.info(`[ControllerMqttMintAPI] Found existing controller: ${controller.id} (${controller.type})`);
+			}
         }
 
         logger.info(
@@ -81,21 +173,13 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
 
         // Build MQTT username and topic patterns
         const mqttUsername = `device:${device.id}`;
-        const topicPrefix = `${mqttUsername}/controller/${type}:${controllerId}`;
+		const effectiveControllerId = controller.id;
+		const topicPrefix = `${mqttUsername}/controller/${type}:${effectiveControllerId}`;
 
         const mintData = await mintIoTCoreCredentials({
             username: mqttUsername,
-            pubTopics: [
-                `${topicPrefix}/replies`,
-                `${topicPrefix}/requests`,
-                `${topicPrefix}/data`,
-                `${topicPrefix}/loopback`
-            ],
-            subTopics: [
-                `${topicPrefix}/response`,
-                `${topicPrefix}/notifications`,
-                `${topicPrefix}/loopback`
-            ]
+			pubTopics: [`${topicPrefix}/replies`, `${topicPrefix}/requests`, `${topicPrefix}/data`, `${topicPrefix}/loopback`],
+			subTopics: [`${topicPrefix}/response`, `${topicPrefix}/notifications`, `${topicPrefix}/loopback`]
         });
 
         if (!mintData) {
@@ -110,7 +194,7 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
         const { token, clientId, username } = mintData;
 
         logger.info(
-            `[ControllerMqttMintAPI] Minted MQTT credential for controller ${controllerId} (type=${type}, clientId=${clientId})`
+			`[ControllerMqttMintAPI] Minted MQTT credential for controller ${effectiveControllerId} (type=${type}, clientId=${clientId})`
         );
 
         const effectiveUsername = username ?? mqttUsername;
@@ -135,3 +219,5 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
         return json(createErrorResponse('Internal server error'), { status: 500 });
     }
 });
+
+

@@ -2,13 +2,12 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
+import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { radarSensorSchema } from '../new/radar-sensor';
 import { z } from 'zod';
-import { AuditActionType } from '$lib/constants/system';
-import { logAudit } from '$lib/server/audit-logger';
+import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
+import type { PrismaClient, Prisma } from '@prisma/client';
 
 // Type definitions for JSON Config
 interface Zone {
@@ -49,48 +48,101 @@ interface RadarConfig {
 
 const trackingAreaSchema = z.object({
     name: z.string().min(1, { message: 'Name is required' }),
-    startX: z.number(),
-    startY: z.number().min(0, { message: 'Start Y cannot be negative' }),
-    endX: z.number(),
-    endY: z.number().min(0, { message: 'End Y cannot be negative' }),
+    startX: z.coerce.number().min(RADAR_CONSTRAINTS.X_MIN, { message: `Start X must be >= ${RADAR_CONSTRAINTS.X_MIN}` })
+        .max(RADAR_CONSTRAINTS.X_MAX, { message: `Start X must be <= ${RADAR_CONSTRAINTS.X_MAX}` }),
+    startY: z.coerce.number().min(RADAR_CONSTRAINTS.Y_MIN, { message: `Start Y must be >= ${RADAR_CONSTRAINTS.Y_MIN}` })
+        .max(RADAR_CONSTRAINTS.Y_MAX, { message: `Start Y must be <= ${RADAR_CONSTRAINTS.Y_MAX}` }),
+    endX: z.coerce.number().min(RADAR_CONSTRAINTS.X_MIN, { message: `End X must be >= ${RADAR_CONSTRAINTS.X_MIN}` })
+        .max(RADAR_CONSTRAINTS.X_MAX, { message: `End X must be <= ${RADAR_CONSTRAINTS.X_MAX}` }),
+    endY: z.coerce.number().min(RADAR_CONSTRAINTS.Y_MIN, { message: `End Y must be >= ${RADAR_CONSTRAINTS.Y_MIN}` })
+        .max(RADAR_CONSTRAINTS.Y_MAX, { message: `End Y must be <= ${RADAR_CONSTRAINTS.Y_MAX}` }),
     description: z.string().optional().nullable()
+}).refine((data) => data.startX < data.endX, {
+    message: 'Start X must be less than End X',
+    path: ['endX']
+}).refine((data) => data.startY < data.endY, {
+    message: 'Start Y must be less than End Y',
+    path: ['endY']
 });
 
 const zoneSchema = z.object({
+    zoneId: z.string().optional(), // For updates
     name: z.string().min(1, { message: 'Name is required' }),
-    zoneNumber: z.number().int().min(1).max(5),
-    startX: z.number().min(0, { message: 'Start X cannot be negative' }),
-    startY: z.number().min(0, { message: 'Start Y cannot be negative' }),
-    endX: z.number().min(0, { message: 'End X cannot be negative' }),
-    endY: z.number().min(0, { message: 'End Y cannot be negative' }),
+    zoneNumber: z.coerce.number().int().min(1).max(10),
+    startX: z.coerce.number().min(RADAR_CONSTRAINTS.X_MIN, { message: `Start X must be >= ${RADAR_CONSTRAINTS.X_MIN}` })
+        .max(RADAR_CONSTRAINTS.X_MAX, { message: `Start X must be <= ${RADAR_CONSTRAINTS.X_MAX}` }),
+    startY: z.coerce.number().min(RADAR_CONSTRAINTS.Y_MIN, { message: `Start Y must be >= ${RADAR_CONSTRAINTS.Y_MIN}` })
+        .max(RADAR_CONSTRAINTS.Y_MAX, { message: `Start Y must be <= ${RADAR_CONSTRAINTS.Y_MAX}` }),
+    endX: z.coerce.number().min(RADAR_CONSTRAINTS.X_MIN, { message: `End X must be >= ${RADAR_CONSTRAINTS.X_MIN}` })
+        .max(RADAR_CONSTRAINTS.X_MAX, { message: `End X must be <= ${RADAR_CONSTRAINTS.X_MAX}` }),
+    endY: z.coerce.number().min(RADAR_CONSTRAINTS.Y_MIN, { message: `End Y must be >= ${RADAR_CONSTRAINTS.Y_MIN}` })
+        .max(RADAR_CONSTRAINTS.Y_MAX, { message: `End Y must be <= ${RADAR_CONSTRAINTS.Y_MAX}` }),
     description: z.string().optional().nullable(),
     color: z.string().optional().nullable()
+}).refine((data) => data.startX < data.endX, {
+    message: 'Start X must be less than End X',
+    path: ['endX']
+}).refine((data) => data.startY < data.endY, {
+    message: 'Start Y must be less than End Y',
+    path: ['endY']
 });
 
 const dwellBucketSchema = z.object({
     name: z.string().min(1, { message: 'Name is required' }),
-    minDuration: z.number().int().min(0),
-    maxDuration: z.number().int().min(0).optional().nullable(),
-    description: z.string().optional().nullable()
+    minDuration: z.coerce.number().int().min(0),
+    maxDuration: z.coerce.number().int().min(0).optional().nullable(),
+    description: z.string().optional().nullable(),
+    color: z.string().optional().default('#10b981') // Default emerald color
 });
 
-// Helper to generate IDs
 function generateId() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
-export const load = restrict(
-    async ({ params, locals }) => {
-        const { id } = params; // This is the controller ID
-        const accountId = locals.currentAccount?.account?.id;
+// Helper to get sensor from controller ID
+// The URL param [id] is the controller ID, not the sensor ID
+async function getSensorFromControllerId(prisma: PrismaClient, controllerId: string | undefined) {
+    if (!controllerId) {
+        return { error: 'Controller ID is required', sensor: null };
+    }
+    
+    const controller = await prisma.controller.findFirst({
+        where: {
+            id: controllerId,
+            isDeleted: false
+        },
+        include: {
+            sensors: {
+                where: { type: 'radar' }
+            }
+        }
+    });
+    
+    if (!controller) {
+        return { error: 'Controller not found', sensor: null };
+    }
+    
+    const sensor = controller.sensors[0];
+    if (!sensor) {
+        return { error: 'Radar sensor not found for this controller', sensor: null };
+    }
+    
+    return { error: null, sensor };
+}
 
-        if (!accountId) {
-            throw error(403, 'No account selected');
+export const load = restrict(
+    async ({ params, locals, cookies }: AuthenticatedLoadEvent) => {
+        const { id } = params; // This is the controller ID
+
+        // Get current account ID from cookie or locals
+        const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+        if (!currentAccountId) {
+            throw error(403, 'User account not found');
         }
 
         try {
-            // First find the controller by ID
-            const controller = await locals.prisma.controller.findUnique({
+            // First find the controller by ID (only non-deleted)
+            const controller = await locals.prisma.controller.findFirst({
                 where: {
                     id,
                     isDeleted: false
@@ -123,67 +175,28 @@ export const load = restrict(
             if (!controller) {
                 throw error(404, {
                     message: 'Controller not found',
-                    code: 'CONTROLLER_NOT_FOUND'
                 });
             }
 
             // Get the radar sensor from the controller
-            let sensor = controller.sensors.find(s => s.type === 'radar');
+            const sensor = controller.sensors.find((s: { type: string }) => s.type === 'radar');
 
-            // Handle case where controller exists but sensor doesn't
-            // This can happen with legacy controllers - auto-create the sensor
             if (!sensor) {
-                // First verify ownership
-                if (controller.accountId !== accountId) {
-                    throw error(403, {
-                        message: 'You do not have permission to access this controller',
-                        code: 'FORBIDDEN'
-                    });
-                }
-
-                // Auto-create sensor for this controller
-                logger.info(`Auto-creating sensor for controller ${controller.id} (no sensor found)`);
-                const sensorSerialNumber = `RADAR-SENSOR-${controller.id.slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
-
-                sensor = await locals.prisma.sensor.create({
-                    data: {
-                        name: `Radar Sensor`,
-                        type: 'radar',
-                        serialNumber: sensorSerialNumber,
-                        status: 'inactive',
-                        controller: {
-                            connect: { id: controller.id }
-                        },
-                        account: {
-                            connect: { id: accountId }
-                        },
-                        config: {},
-                        description: 'Auto-created when accessing controller'
-                    },
-                    include: {
-                        account: {
-                            select: {
-                                id: true,
-                                name: true
-                            }
-                        }
-                    }
+                throw error(404, {
+                    message: 'Radar sensor not found for this controller',
                 });
+            }
 
-                logger.info(`Created sensor ${sensor.id} for controller ${controller.id}`);
-            } else {
-                // Sensor exists - verify ownership
-                if (sensor.accountId !== accountId) {
-                    throw error(403, {
-                        message: 'You do not have permission to access this controller',
-                        code: 'FORBIDDEN'
-                    });
-                }
+            // Check account access - user can only access their own account's controllers
+            if (sensor.accountId !== currentAccountId) {
+                throw error(403, {
+                    message: 'Access denied',
+                });
             }
 
             const config = (sensor.config as unknown as RadarConfig) || {};
 
-            // Build sensor object with controller reference
+            // Add controller reference to sensor object for compatibility
             const sensorWithController = {
                 ...sensor,
                 controller: {
@@ -191,19 +204,6 @@ export const load = restrict(
                     device: controller.device
                 }
             };
-
-            const form = await superValidate(
-                {
-                    name: sensorWithController.name,
-                    serialNumber: sensorWithController.serialNumber,
-                    description: sensorWithController.description || '',
-                    location: sensorWithController.location || '',
-                    firmware: sensorWithController.firmware || '',
-                    status: sensorWithController.status,
-                    deviceId: controller.deviceId
-                },
-                zod(radarSensorSchema)
-            );
 
             const trackingAreaForm = await superValidate(
                 config.trackingArea ? {
@@ -218,10 +218,12 @@ export const load = restrict(
             );
 
             const zoneForm = await superValidate(zod(zoneSchema));
-            const dwellBucketForm = await superValidate(zod(dwellBucketSchema));
+            const dwellBucketForm = await superValidate(
+                { color: '#10b981', minDuration: 0 }, // Provide defaults
+                zod(dwellBucketSchema)
+            );
 
             return {
-                form,
                 trackingAreaForm,
                 zoneForm,
                 dwellBucketForm,
@@ -229,131 +231,96 @@ export const load = restrict(
                     ...sensorWithController,
                     config
                 },
-                devices: []
             };
-        } catch (err) {
-            if (err.status === 404 || err.status === 403) {
+        } catch (err: unknown) {
+            if (err && typeof err === 'object' && 'status' in err && (err.status === 404 || err.status === 403)) {
                 throw err;
             }
             logger.error(`Error loading sensor: ${err}`);
             throw error(500, 'Failed to load sensor details');
         }
     },
-    [SystemRole.USER]
+    [SystemRole.USER, SystemRole.ADMIN]
 ) satisfies PageServerLoad;
 
-// Helper function to verify ownership - handles both sensor and controller IDs
-async function verifyOwnership(locals: any, id: string) {
-    const accountId = locals.currentAccount?.account?.id;
-    if (!accountId) {
-        return { error: 'No account selected', status: 403 };
+// Helper function to check account access using controller ID
+async function checkAccountAccess(
+    controllerId: string | undefined, 
+    userAccountId: string | undefined, 
+    prisma: AuthenticatedLoadEvent['locals']['prisma']
+): Promise<void> {
+    if (!controllerId || !userAccountId) {
+        throw error(403, 'User account not found');
     }
-
-    // First try to find as a sensor
-    const sensor = await locals.prisma.sensor.findUnique({
-        where: { id },
-        select: { accountId: true, controllerId: true }
-    });
-
-    if (sensor) {
-        if (sensor.accountId !== accountId) {
-            return { error: 'You do not have permission to modify this sensor', status: 403 };
+    
+    // Find controller and its radar sensor
+    const controller = await prisma.controller.findFirst({
+        where: {
+            id: controllerId,
+            isDeleted: false
+        },
+        include: {
+            sensors: {
+                where: { type: 'radar' },
+                select: { accountId: true }
+            }
         }
-        return { accountId, sensorId: id, controllerId: sensor.controllerId };
-    }
-
-    // Not a sensor - try as a controller (for auto-created controllers without sensors)
-    const controller = await locals.prisma.controller.findUnique({
-        where: { id },
-        select: { accountId: true, id: true }
     });
 
     if (!controller) {
-        return { error: 'Controller not found', status: 404 };
+        throw error(404, 'Controller not found');
     }
 
-    if (controller.accountId !== accountId) {
-        return { error: 'You do not have permission to modify this controller', status: 403 };
+    const sensor = controller.sensors[0];
+    if (!sensor) {
+        throw error(404, 'Radar sensor not found for this controller');
     }
 
-    // Return controller info with no sensor
-    return { accountId, sensorId: null, controllerId: id };
+    if (sensor.accountId !== userAccountId) {
+        throw error(403, 'Access denied');
+    }
 }
 
 export const actions: Actions = {
-    updateSensor: restrict(
-        async ({ request, params, locals }) => {
-            const { id } = params;
-            const form = await superValidate(request, zod(radarSensorSchema));
-
-            if (!form.valid) {
-                return fail(400, { form });
-            }
-
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
-            try {
-                const existingSensor = await locals.prisma.sensor.findUnique({
-                    where: { id }
-                });
-
-                if (!existingSensor) {
-                    return fail(404, { error: 'Sensor not found' });
-                }
-
-                const sensor = await locals.prisma.sensor.update({
-                    where: { id },
-                    data: {
-                        name: form.data.name,
-                        serialNumber: form.data.serialNumber,
-                        description: form.data.description,
-                        location: form.data.location,
-                        firmware: form.data.firmware,
-                        status: form.data.status,
-                    }
-                });
-
-                logger.info(`Sensor updated: ${sensor.id}`);
-                await logAudit({
-                    actionType: AuditActionType.UPDATE,
-                    tableName: 'Sensor',
-                    recordId: sensor.id,
-                    oldData: existingSensor,
-                    newData: sensor,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
-                    prisma: locals.prisma
-                });
-
-                return { form };
-            } catch (err) {
-                logger.error(`Error updating sensor: ${err}`);
-                return fail(500, { form, error: 'Failed to update sensor' });
-            }
-        },
-        [SystemRole.USER]
-    ),
-
     createTrackingArea: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
             const form = await superValidate(request, zod(trackingAreaSchema));
 
             if (!form.valid) {
                 return fail(400, { trackingAreaForm: form });
             }
 
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
             try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+
+                // Validate and clamp bounds
+                let bounds = normalizeBounds({
+                    startX: form.data.startX,
+                    startY: form.data.startY,
+                    endX: form.data.endX,
+                    endY: form.data.endY,
+                });
+                const validation = validateBounds(bounds);
+                if (!validation.valid) {
+                    return fail(400, { 
+                        trackingAreaForm: form,
+                        error: `Invalid bounds: ${validation.errors.join(', ')}`
+                    });
+                }
+                bounds = clampBounds(bounds);
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
 
@@ -363,42 +330,77 @@ export const actions: Actions = {
 
                 config.trackingArea = {
                     id: generateId(),
-                    ...form.data,
+                    name: form.data.name,
+                    startX: bounds.startX,
+                    startY: bounds.startY,
+                    endX: bounds.endX,
+                    endY: bounds.endY,
                     description: form.data.description || undefined
                 };
 
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 logger.info(`Tracking Area defined for sensor ${id}`);
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error creating tracking area: ${err}`);
                 return fail(500, { error: 'Failed to create tracking area' });
             }
         },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
     updateTrackingArea: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
             const form = await superValidate(request, zod(trackingAreaSchema));
 
             if (!form.valid) {
                 return fail(400, { trackingAreaForm: form });
             }
 
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
             try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+
+                // Validate and clamp bounds
+                let bounds = normalizeBounds({
+                    startX: form.data.startX,
+                    startY: form.data.startY,
+                    endX: form.data.endX,
+                    endY: form.data.endY,
+                });
+                const validation = validateBounds(bounds);
+                if (!validation.valid) {
+                    return fail(400, { 
+                        trackingAreaForm: form,
+                        error: `Invalid bounds: ${validation.errors.join(', ')}`
+                    });
+                }
+                bounds = clampBounds(bounds);
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
 
@@ -408,41 +410,76 @@ export const actions: Actions = {
 
                 config.trackingArea = {
                     ...config.trackingArea,
-                    ...form.data,
+                    name: form.data.name,
+                    startX: bounds.startX,
+                    startY: bounds.startY,
+                    endX: bounds.endX,
+                    endY: bounds.endY,
                     description: form.data.description || undefined
                 };
 
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error updating tracking area: ${err}`);
                 return fail(500, { error: 'Failed to update tracking area' });
             }
         },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
     createZone: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
             const form = await superValidate(request, zod(zoneSchema));
 
             if (!form.valid) {
                 return fail(400, { zoneForm: form });
             }
 
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
             try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+
+                // Validate and clamp bounds
+                let bounds = normalizeBounds({
+                    startX: form.data.startX,
+                    startY: form.data.startY,
+                    endX: form.data.endX,
+                    endY: form.data.endY,
+                });
+                const validation = validateBounds(bounds);
+                if (!validation.valid) {
+                    return fail(400, { 
+                        zoneForm: form,
+                        error: `Invalid zone bounds: ${validation.errors.join(', ')}`
+                    });
+                }
+                bounds = clampBounds(bounds);
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
 
@@ -457,79 +494,79 @@ export const actions: Actions = {
 
                 config.zones.push({
                     id: generateId(),
-                    ...form.data,
+                    name: form.data.name,
+                    zoneNumber: form.data.zoneNumber,
+                    startX: bounds.startX,
+                    startY: bounds.startY,
+                    endX: bounds.endX,
+                    endY: bounds.endY,
                     description: form.data.description || undefined,
                     color: form.data.color || undefined
                 });
 
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error creating zone: ${err}`);
                 return fail(500, { error: 'Failed to create zone' });
             }
         },
-        [SystemRole.USER]
-    ),
-
-    deleteZone: restrict(
-        async ({ request, params, locals }) => {
-            const { id } = params;
-            const formData = await request.formData();
-            const zoneId = formData.get('zoneId')?.toString();
-
-            if (!zoneId) return fail(400, { error: 'Zone ID is required' });
-
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
-            try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
-
-                const config = (sensor.config as unknown as RadarConfig) || {};
-                if (!config.zones) return fail(400, { error: 'No zones found' });
-
-                config.zones = config.zones.filter(z => z.id !== zoneId);
-
-                await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
-                });
-
-                return { success: true };
-            } catch (err) {
-                logger.error(`Error deleting zone: ${err}`);
-                return fail(500, { error: 'Failed to delete zone' });
-            }
-        },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
     updateZone: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
-            const form = await superValidate(request, zod(zoneSchema));
-            const formData = await request.formData();
-            const zoneId = formData.get('zoneId')?.toString();
-
-            if (!zoneId) return fail(400, { error: 'Zone ID is required' });
-            if (!form.valid) return fail(400, { zoneForm: form });
-
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
             }
 
+            const form = await superValidate(request, zod(zoneSchema));
+            
+            if (!form.valid) return fail(400, { zoneForm: form });
+            
+            const zoneId = form.data.zoneId;
+            if (!zoneId) return fail(400, { error: 'Zone ID is required' });
+
             try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+
+                // Validate and clamp bounds
+                let bounds = normalizeBounds({
+                    startX: form.data.startX,
+                    startY: form.data.startY,
+                    endX: form.data.endX,
+                    endY: form.data.endY,
+                });
+                const validation = validateBounds(bounds);
+                if (!validation.valid) {
+                    return fail(400, { 
+                        zoneForm: form,
+                        error: `Invalid zone bounds: ${validation.errors.join(', ')}`
+                    });
+                }
+                bounds = clampBounds(bounds);
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.zones) return fail(400, { error: 'No zones found' });
@@ -539,138 +576,388 @@ export const actions: Actions = {
 
                 config.zones[zoneIndex] = {
                     ...config.zones[zoneIndex],
-                    ...form.data,
+                    name: form.data.name,
+                    zoneNumber: form.data.zoneNumber,
+                    startX: bounds.startX,
+                    startY: bounds.startY,
+                    endX: bounds.endX,
+                    endY: bounds.endY,
                     description: form.data.description || undefined,
                     color: form.data.color || undefined
                 };
 
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error updating zone: ${err}`);
                 return fail(500, { error: 'Failed to update zone' });
             }
         },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
+    ),
+
+    deleteZone: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
+            const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
+            const formData = await request.formData();
+            const zoneId = formData.get('zoneId')?.toString();
+
+            if (!zoneId) return fail(400, { error: 'Zone ID is required' });
+
+            try {
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+
+                const config = (sensor.config as unknown as RadarConfig) || {};
+                if (!config.zones) return fail(400, { error: 'No zones found' });
+
+                config.zones = config.zones.filter(z => z.id !== zoneId);
+
+                await locals.prisma.sensor.update({
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
+                });
+
+                return { success: true };
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
+                logger.error(`Error deleting zone: ${err}`);
+                return fail(500, { error: 'Failed to delete zone' });
+            }
+        },
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
     saveLayout: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
             const formData = await request.formData();
             const layoutJson = formData.get('layout')?.toString();
 
             if (!layoutJson) return fail(400, { error: 'Layout data missing' });
 
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
             try {
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
                 const layout = JSON.parse(layoutJson);
                 const { arena, zones } = layout;
 
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                // Get sensor from controller ID (id is controller ID, not sensor ID)
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
+                
+                type LayoutZone = {
+                    id?: string;
+                    name?: string;
+                    zoneNumber?: number;
+                    startX: number;
+                    startY: number;
+                    endX: number;
+                    endY: number;
+                    color?: string;
+                    description?: string;
+                };
+                
+                const MAX_ZONES = 5;
+                const getZoneKey = (z: LayoutZone): string => {
+                    if (typeof z.zoneNumber === 'number') return `num:${z.zoneNumber}`;
+                    if (z.id) return `id:${z.id}`;
+                    return `name:${z.name || ''}`;
+                };
+                const dedupeByKeyLastWins = (arr: LayoutZone[]): LayoutZone[] => {
+                    const map = new Map<string, LayoutZone>();
+                    for (const z of arr) map.set(getZoneKey(z), z);
+                    return [...map.values()];
+                };
+                const dedupeConfigZonesByZoneNumber = (): void => {
+                    if (!config.zones) return;
+                    const normalized: LayoutZone[] = config.zones.map((z) => ({
+                        id: z.id,
+                        name: z.name,
+                        zoneNumber: z.zoneNumber,
+                        startX: z.startX,
+                        startY: z.startY,
+                        endX: z.endX,
+                        endY: z.endY,
+                        color: z.color,
+                        description: z.description
+                    }));
+                    const deduped = dedupeByKeyLastWins(normalized);
+                    deduped.sort((a, b) => (a.zoneNumber ?? 999) - (b.zoneNumber ?? 999));
+                    config.zones = deduped.slice(0, MAX_ZONES).map((z, idx) => ({
+                        id: z.id || generateId(),
+                        zoneNumber: typeof z.zoneNumber === 'number' ? z.zoneNumber : idx + 1,
+                        name: z.name || `Zone ${typeof z.zoneNumber === 'number' ? z.zoneNumber : idx + 1}`,
+                        startX: z.startX,
+                        startY: z.startY,
+                        endX: z.endX,
+                        endY: z.endY,
+                        color: z.color,
+                        description: z.description
+                    }));
+                };
 
-                // Update Arena
-                if (arena && config.trackingArea) {
-                    config.trackingArea.startX = arena.startX;
-                    config.trackingArea.startY = arena.startY;
-                    config.trackingArea.endX = arena.endX;
-                    config.trackingArea.endY = arena.endY;
-                }
-
-                // Update Zones
-                if (zones && Array.isArray(zones) && config.zones) {
-                    for (const z of zones) {
-                        const existingZone = config.zones.find(ez => ez.id === z.id);
-                        if (existingZone) {
-                            existingZone.startX = z.startX;
-                            existingZone.startY = z.startY;
-                            existingZone.endX = z.endX;
-                            existingZone.endY = z.endY;
-                        }
+                // Update or Create Arena with validation
+                if (arena) {
+                    let bounds = normalizeBounds({
+                        startX: arena.startX,
+                        startY: arena.startY,
+                        endX: arena.endX,
+                        endY: arena.endY,
+                    });
+                    const validation = validateBounds(bounds);
+                    if (!validation.valid) {
+                        return fail(400, { 
+                            error: `Invalid arena bounds: ${validation.errors.join(', ')}`
+                        });
+                    }
+                    bounds = clampBounds(bounds);
+                    
+                    // Create tracking area if it doesn't exist
+                    if (!config.trackingArea) {
+                        config.trackingArea = {
+                            id: generateId(),
+                            name: `${sensor.name} Tracking Area`,
+                            startX: bounds.startX,
+                            startY: bounds.startY,
+                            endX: bounds.endX,
+                            endY: bounds.endY,
+                            description: undefined
+                        };
+                        logger.info(`Tracking Area created for sensor ${sensor.id}`);
+                    } else {
+                        // Update existing tracking area
+                        config.trackingArea.startX = bounds.startX;
+                        config.trackingArea.startY = bounds.startY;
+                        config.trackingArea.endX = bounds.endX;
+                        config.trackingArea.endY = bounds.endY;
                     }
                 }
 
+                // Update or Create Zones with validation
+                if (zones && Array.isArray(zones)) {
+                    if (!config.zones) config.zones = [];
+                    // Clean existing dirty data first (prevents DB duplicates from persisting)
+                    dedupeConfigZonesByZoneNumber();
+                    
+                    // Normalize + dedupe incoming zones (last-write-wins per zoneNumber/id/name)
+                    const incomingZones = dedupeByKeyLastWins(zones as LayoutZone[]);
+                    
+                    const usedZoneNumbers = new Set<number>();
+                    for (const z of config.zones) {
+                        if (typeof z.zoneNumber === 'number') usedZoneNumbers.add(z.zoneNumber);
+                    }
+                    const nextFreeZoneNumber = (): number => {
+                        for (let n = 1; n <= MAX_ZONES; n++) {
+                            if (!usedZoneNumbers.has(n)) return n;
+                        }
+                        return Math.max(0, ...[...usedZoneNumbers]) + 1;
+                    };
+                    
+                    const reconciledZones: Array<NonNullable<RadarConfig['zones']>[number]> = [];
+                    
+                    for (const z of incomingZones) {
+                        // Validate bounds first
+                        let bounds = normalizeBounds({
+                            startX: z.startX,
+                            startY: z.startY,
+                            endX: z.endX,
+                            endY: z.endY,
+                        });
+                        const validation = validateBounds(bounds);
+                        if (!validation.valid) {
+                            return fail(400, { 
+                                error: `Invalid zone bounds for zone "${z.name}": ${validation.errors.join(', ')}`
+                            });
+                        }
+                        bounds = clampBounds(bounds);
+                        
+                        // Match existing zone by id, else by zoneNumber, else by name
+                        const existingZone =
+                            (z.id ? config.zones.find(ez => ez.id === z.id) : null) ||
+                            (typeof z.zoneNumber === 'number' ? config.zones.find(ez => ez.zoneNumber === z.zoneNumber) : null) ||
+                            (z.name ? config.zones.find(ez => ez.name === z.name) : null);
+                        
+                        if (existingZone) {
+                            // Update existing zone
+                            existingZone.startX = bounds.startX;
+                            existingZone.startY = bounds.startY;
+                            existingZone.endX = bounds.endX;
+                            existingZone.endY = bounds.endY;
+                            if (z.name) existingZone.name = z.name;
+                            if (z.color !== undefined) existingZone.color = z.color;
+                            if (z.zoneNumber !== undefined) existingZone.zoneNumber = z.zoneNumber;
+                            if (z.description !== undefined) existingZone.description = z.description;
+                            
+                            if (typeof existingZone.zoneNumber === 'number') usedZoneNumbers.add(existingZone.zoneNumber);
+                            reconciledZones.push(existingZone);
+                        } else {
+                            // Create new zone
+                            const assignedZoneNumber = typeof z.zoneNumber === 'number' ? z.zoneNumber : nextFreeZoneNumber();
+                            usedZoneNumbers.add(assignedZoneNumber);
+                            reconciledZones.push({
+                                id: generateId(),
+                                name: z.name || `Zone ${assignedZoneNumber}`,
+                                zoneNumber: assignedZoneNumber,
+                                startX: bounds.startX,
+                                startY: bounds.startY,
+                                endX: bounds.endX,
+                                endY: bounds.endY,
+                                color: z.color,
+                                description: z.description
+                            });
+                        }
+                    }
+                    
+                    // Source of truth: layout zones (after dedupe). Replace config.zones and cap.
+                    reconciledZones.sort((a, b) => (a.zoneNumber ?? 999) - (b.zoneNumber ?? 999));
+                    config.zones = reconciledZones.slice(0, MAX_ZONES);
+                }
+
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 logger.info(`Layout saved for sensor ${id}`);
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error saving layout: ${err}`);
                 return fail(500, { error: 'Failed to save layout' });
             }
         },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
     createDwellBucket: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
             const form = await superValidate(request, zod(dwellBucketSchema));
 
             if (!form.valid) return fail(400, { dwellBucketForm: form });
 
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
             try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.dwellBuckets) config.dwellBuckets = [];
 
                 config.dwellBuckets.push({
                     id: generateId(),
-                    ...form.data,
+                    name: form.data.name,
+                    minDuration: form.data.minDuration,
+                    maxDuration: form.data.maxDuration ?? undefined,
                     description: form.data.description || undefined
                 });
 
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error creating dwell bucket: ${err}`);
                 return fail(500, { error: 'Failed to create dwell bucket' });
             }
         },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
     deleteDwellBucket: restrict(
-        async ({ request, params, locals }) => {
+        async ({ request, params, locals, cookies }: AuthenticatedLoadEvent) => {
             const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
             const formData = await request.formData();
             const bucketId = formData.get('bucketId')?.toString();
 
             if (!bucketId) return fail(400, { error: 'Dwell Bucket ID is required' });
 
-            const ownership = await verifyOwnership(locals, id);
-            if ('error' in ownership) {
-                return fail(ownership.status, { error: ownership.error });
-            }
-
             try {
-                const sensor = await locals.prisma.sensor.findUnique({ where: { id } });
-                if (!sensor) return fail(404, { error: 'Sensor not found' });
+                if (!currentAccountId) {
+                    return fail(403, { error: 'User account not found' });
+                }
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                // Get sensor from controller ID
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
 
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.dwellBuckets) return fail(400, { error: 'No dwell buckets found' });
@@ -678,95 +965,27 @@ export const actions: Actions = {
                 config.dwellBuckets = config.dwellBuckets.filter(b => b.id !== bucketId);
 
                 await locals.prisma.sensor.update({
-                    where: { id },
-                    data: { config: config as any }
+                    where: { id: sensor.id },
+                    data: { 
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
                 });
 
                 return { success: true };
-            } catch (err) {
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
                 logger.error(`Error deleting dwell bucket: ${err}`);
                 return fail(500, { error: 'Failed to delete dwell bucket' });
             }
         },
-        [SystemRole.USER]
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
-
-    deleteSensor: restrict(
-        async ({ params, locals }) => {
-            const { id } = params; // This is the controller ID
-
-            const accountId = locals.currentAccount?.account?.id;
-            if (!accountId) {
-                return fail(403, { error: 'No account selected' });
-            }
-
-            try {
-                // First find the controller by ID
-                const controller = await locals.prisma.controller.findUnique({
-                    where: {
-                        id,
-                        isDeleted: false
-                    },
-                    include: {
-                        sensors: {
-                            where: {
-                                type: 'radar'
-                            }
-                        }
-                    }
-                });
-
-                if (!controller) {
-                    return fail(404, { error: 'Controller not found' });
-                }
-
-                // Get the radar sensor from the controller
-                const sensor = controller.sensors.find(s => s.type === 'radar');
-
-                if (!sensor) {
-                    return fail(404, { error: 'Radar sensor not found for this controller' });
-                }
-
-                // Ownership check
-                if (sensor.accountId !== accountId) {
-                    return fail(403, { error: 'You do not have permission to delete this controller' });
-                }
-
-                // Start transaction
-                const result = await locals.prisma.$transaction(async (tx) => {
-                    // First soft delete the controller by marking isDeleted = true
-                    const updatedController = await tx.controller.update({
-                        where: { id: controller.id },
-                        data: { isDeleted: true }
-                    });
-
-                    // Then delete the sensor
-                    const deletedSensor = await tx.sensor.delete({
-                        where: { id: sensor.id }
-                    });
-
-                    return { sensor: deletedSensor, controller: updatedController };
-                });
-
-                logger.info(`Sensor deleted: ${result.sensor.id}, Controller marked as deleted: ${result.controller.id}`);
-
-                await logAudit({
-                    actionType: AuditActionType.DELETE,
-                    tableName: 'Sensor',
-                    recordId: result.sensor.id,
-                    oldData: sensor,
-                    newData: null,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
-                    prisma: locals.prisma
-                });
-
-                return { success: true };
-            } catch (err) {
-                logger.error(`Error deleting sensor: ${err}`);
-                return fail(500, { error: 'Failed to delete sensor' });
-            }
-        },
-        [SystemRole.USER]
-    )
 };
+
+
