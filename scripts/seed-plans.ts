@@ -36,7 +36,7 @@ const defaultPlans = [
         maxDevices: 50,
         maxUsers: 10,
         maxLogLinesPerMonth: 500000, // 500K logs/month
-        dataRetentionDays: 14,
+        dataRetentionDays: 30,
         features: ['priority_support', 'email_alerts', 'api_access']
     },
     {
@@ -48,7 +48,7 @@ const defaultPlans = [
         maxDevices: 1000,
         maxUsers: 50,
         maxLogLinesPerMonth: 5000000, // 5M logs/month
-        dataRetentionDays: 30,
+        dataRetentionDays: 90,
         features: ['priority_support', 'email_alerts', 'api_access', 'phone_support', 'custom_integrations']
     },
     {

@@ -28,11 +28,13 @@ export interface Entitlements {
     // Limits
     maxDevices: number;
     maxUsers: number;
+    maxLogLinesPerMonth: number;
     dataRetentionDays: number;
 
     // Current usage (fetched on demand)
     currentDevices?: number;
     currentUsers?: number;
+    currentLogLines?: number;
 
     // Features
     features: string[];
@@ -53,6 +55,7 @@ interface EntitlementData {
     status: string;
     maxDevices: number;
     maxUsers: number;
+    maxLogLinesPerMonth: number;
     dataRetentionDays: number;
     features: string[];
     // Overrides from subscription
@@ -127,6 +130,7 @@ async function fetchEntitlementData(accountId: string): Promise<EntitlementData>
             status: 'active',
             maxDevices: freePlan?.maxDevices ?? 5,
             maxUsers: freePlan?.maxUsers ?? 1,
+            maxLogLinesPerMonth: freePlan?.maxLogLinesPerMonth ?? 10000,
             dataRetentionDays: freePlan?.dataRetentionDays ?? 7,
             features: (freePlan?.features as string[]) ?? [],
             overrideMaxDevices: null,
@@ -141,6 +145,7 @@ async function fetchEntitlementData(accountId: string): Promise<EntitlementData>
         status: subscription.status,
         maxDevices: subscription.overrideMaxDevices ?? subscription.plan.maxDevices,
         maxUsers: subscription.overrideMaxUsers ?? subscription.plan.maxUsers,
+        maxLogLinesPerMonth: subscription.plan.maxLogLinesPerMonth,
         dataRetentionDays: subscription.plan.dataRetentionDays,
         features: (subscription.plan.features as string[]) ?? [],
         overrideMaxDevices: subscription.overrideMaxDevices,
@@ -157,6 +162,7 @@ function buildEntitlements(data: EntitlementData): Entitlements {
     // Lazy-loaded usage counts
     let _currentDevices: number | undefined;
     let _currentUsers: number | undefined;
+    let _currentLogLines: number | undefined;
 
     return {
         accountId: data.accountId,
@@ -165,11 +171,13 @@ function buildEntitlements(data: EntitlementData): Entitlements {
         status: data.status,
         maxDevices: data.maxDevices,
         maxUsers: data.maxUsers,
+        maxLogLinesPerMonth: data.maxLogLinesPerMonth,
         dataRetentionDays: data.dataRetentionDays,
         features: data.features,
 
         get currentDevices() { return _currentDevices; },
         get currentUsers() { return _currentUsers; },
+        get currentLogLines() { return _currentLogLines; },
 
         canAddDevice: function () {
             // Must fetch current count synchronously - caller should pre-load
@@ -190,7 +198,7 @@ function buildEntitlements(data: EntitlementData): Entitlements {
  * Get entitlements with current usage counts loaded
  * Use this when you need to check limits
  */
-export async function getEntitlementsWithUsage(accountId: string): Promise<Entitlements & { currentDevices: number; currentUsers: number }> {
+export async function getEntitlementsWithUsage(accountId: string): Promise<Entitlements & { currentDevices: number; currentUsers: number; currentLogLines: number }> {
     const prisma = getAdminPrisma();
     const entitlements = await getEntitlements(accountId);
 
@@ -200,10 +208,14 @@ export async function getEntitlementsWithUsage(accountId: string): Promise<Entit
         prisma.accountMembership.count({ where: { accountId } })
     ]);
 
+    // TODO: Implement actual log counting when log storage is finalized
+    const logCount = 0;
+
     return {
         ...entitlements,
         currentDevices: deviceCount,
         currentUsers: userCount,
+        currentLogLines: logCount,
         canAddDevice: function () {
             return this.currentDevices < this.maxDevices;
         },

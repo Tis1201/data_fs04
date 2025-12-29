@@ -35,8 +35,10 @@ export const load = restrictAccountRole(
                     status: entitlements.status,
                     maxDevices: entitlements.maxDevices,
                     maxUsers: entitlements.maxUsers,
+                    maxLogLinesPerMonth: entitlements.maxLogLinesPerMonth,
                     currentDevices: entitlements.currentDevices,
                     currentUsers: entitlements.currentUsers,
+                    currentLogLines: entitlements.currentLogLines,
                     dataRetentionDays: entitlements.dataRetentionDays,
                     features: entitlements.features
                 },
