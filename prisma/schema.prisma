@@ -1353,8 +1353,10 @@ model CronJobExecution {
 
 model Plan {
   id                String         @id() @default(cuid())
+  code              String         @unique()
   name              String
   stripeProductId   String?        @unique()
+  stripePriceId     String?
   isActive          Boolean        @default(true)
   maxDevices        Int            @default(5)
   maxUsers          Int            @default(1)
@@ -1363,6 +1365,9 @@ model Plan {
   subscriptions     Subscription[]
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt()
+
+  @@index([isActive])
+  @@index([code])
 }
 
 model Subscription {
@@ -1371,13 +1376,30 @@ model Subscription {
   account              Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   planId               String
   plan                 Plan      @relation(fields: [planId], references: [id])
+  source               String    @default("stripe")
   status               String    @default("active")
   stripeCustomerId     String?
   stripeSubscriptionId String?   @unique()
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
+  trialEndsAt          DateTime?
   licenseKey           String?
+  licenseExpiresAt     DateTime?
   overrideMaxDevices   Int?
+  overrideMaxUsers     Int?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt()
+
+  @@index([status])
+  @@index([planId])
+  @@index([source])
+}
+
+model WebhookEvent {
+  id        String   @id()
+  type      String
+  objectId  String?
+  createdAt DateTime @default(now())
+
+  @@index([type])
 }
