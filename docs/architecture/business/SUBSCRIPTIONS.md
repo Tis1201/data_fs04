@@ -809,6 +809,38 @@ Coupons are managed entirely in **Stripe Dashboard**. No need to sync to local D
 
 ---
 
+## 12. Downgrade & Cancellation Behavior
+
+What happens when a user downgrades (e.g., Business to Starter) or cancels (reverts to Free) and exceeds their new limits?
+
+### Policy: "Soft Cap" (Graceful Degradation)
+We generally **do not** automatically delete or disable user data immediately upon downgrade, as this can be destructive/unexpected.
+
+1.  **Existing Resources**: Remain active. A user with 50 devices on a 5-device plan can still use all 50.
+2.  **New Resources (Blocking)**: The user is blocked from adding *new* devices or users until they drop below the new limit.
+    - `checkDeviceLimit()` throws `LimitExceededError`.
+    - `checkUserLimit()` throws `LimitExceededError`.
+3.  **UI Feedback**: The dashboard displays a global "Over Limit" warning banner:
+    > "You have 50/5 devices. Please remove 45 devices to add new ones."
+4.  **Strict Enforcement (Optional)**: If desired later, a cron job can disable devices > limit based on `createdAt` (FIFO), but currently we stick to soft caps.
+
+> [!NOTE]
+> **Why not force removal before downgrade?**
+> Since we use the **Stripe Customer Portal** for plan management, we cannot easily inject custom logic to block the "Downgrade" button based on our DB state. The Soft Cap approach is standard for SaaS using Stripe Portal.
+
+### Access Control Policy
+*   **Billing Pages**: Restricted to Account **OWNER** role only. Members cannot view plans or invoices.
+*   **API Endpoints**: `checkout` and `portal` APIs strictly check for `OWNER` role.
+
+### Downgrade & Cancellation Checklist
+- [ ] **Verify User Limit**: If downgrading, ensure `currentUsers <= newPlan.maxUsers`.
+- [ ] **Verify Device Limit**: If downgrading, ensure `currentDevices <= newPlan.maxDevices`.
+- [ ] **Handle Overages**: If over limit after downgrade, display "Over Limit" banner.
+- [ ] **Block New Creations**: Ensure `checkDeviceLimit()` blocks new devices if over limit.
+- [ ] **Stripe Sync**: Ensure webhook `customer.subscription.updated` correctly updates local DB status.
+
+---
+
 ## 12. Implementation Checklist
 
 ### Phase 1: Foundation (Completed)
@@ -818,10 +850,10 @@ Coupons are managed entirely in **Stripe Dashboard**. No need to sync to local D
 - [x] Create `scripts/seed-plans.ts` with Free, Starter, Business, Enterprise
 - [x] Run seed script
 
-### Phase 2: Stripe Integration (In Progress)
+### Phase 2: Stripe Integration (Completed)
 - [x] Set up Stripe account (Test Mode)
-- [ ] Create Products and Prices in Stripe Dashboard (Starter: $199, Business: $499)
-- [ ] Update `Plan` records with `stripeProductId` and `stripePriceId`
+- [x] Create Products and Prices in Stripe Dashboard (Starter: $199, Business: $499)
+- [x] Update `Plan` records with `stripeProductId` and `stripePriceId`
 - [x] Implement `POST /api/billing/checkout` (with `metadata.accountId`)
 - [x] Implement `POST /api/billing/portal`
 - [x] Implement `POST /api/webhook/stripe` with signature verification
@@ -839,6 +871,50 @@ Coupons are managed entirely in **Stripe Dashboard**. No need to sync to local D
 - [x] Wire up "Manage Billing" to Portal API (via `billingService.ts`)
 - [x] Build `/admin/billing/plans` page
 - [x] Build `/admin/billing/subscriptions` page
+
+### Phase 5: Self-Hosted (Optional)
+- [ ] Create license generation script with JWKS support
+- [ ] Build `/settings/license` page
+- [ ] Implement license validation middleware
+- [ ] Add periodic license expiry check (cron job)
+
+### Phase 6: Quality Assurance
+- [ ] **E2E Test**: Verify `Soft Cap` enforcement (block new devices when over limit)
+- [ ] **E2E Test**: Verify Access Control (Member cannot access billing pages/APIs)
+- [ ] **E2E Test**: Verify Downgrade flow (ensure status updates correctly)
+
+---
+
+## 16. Developer Guide
+
+### A. Seeding Plans
+To initialize the default plans in the database:
+```bash
+npx tsx scripts/seed-plans.ts
+```
+
+### B. Integrating with Stripe (Development)
+1. **Create Products**: Create products (e.g., Starter, Business) in your Stripe Dashboard (Test Mode).
+2. **Update Database**: Link the Stripe Product/Price IDs to your local plans using the helper script:
+```bash
+# Usage: npx tsx scripts/set-plan-prices.ts <planCode> <productId> <priceId>
+npx tsx scripts/set-plan-prices.ts starter prod_123 price_456
+npx tsx scripts/set-plan-prices.ts business prod_789 price_012
+```
+
+### C. Webhook Listening
+To test webhooks locally, you must use the Stripe CLI to forward events to your local server:
+```bash
+stripe listen --forward-to localhost:5173/api/billing/webhook
+```
+Copy the webhook signing secret (e.g., `whsec_...`) output by this command into your `.env` file as `STRIPE_WEBHOOK_SECRET`.
+
+### D. Running End-to-End Tests
+We have integration tests ensuring the billing flow works correctly:
+```bash
+# Run specific billing tests
+npx vitest tests/integrations/billing_webhook_e2e.test.ts
+```
 
 ### Phase 5: Self-Hosted (Optional)
 - [ ] Create license generation script with JWKS support

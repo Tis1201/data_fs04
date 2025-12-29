@@ -70,5 +70,5 @@ export const load = restrictAccountRole(
             throw error(500, 'Failed to load billing data');
         }
     },
-    ['ADMIN', 'OWNER', 'MEMBER']
+    ['OWNER']
 ) satisfies PageServerLoad;

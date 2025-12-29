@@ -17,6 +17,10 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
     const { prisma, currentAccount, user } = locals;
     const accountId = currentAccount!.account.id;
 
+    if (currentAccount!.role !== 'OWNER') {
+        throw error(403, 'Only account owners can manage billing');
+    }
+
     try {
         const { planCode, promoCode } = await request.json();
 

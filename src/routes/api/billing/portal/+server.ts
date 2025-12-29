@@ -17,6 +17,10 @@ export const POST: RequestHandler = async ({ locals, url }) => {
     const { prisma, currentAccount } = locals;
     const accountId = currentAccount!.account.id;
 
+    if (currentAccount!.role !== 'OWNER') {
+        throw error(403, 'Only account owners can manage billing');
+    }
+
     try {
         // Get subscription for this account
         const subscription = await prisma.subscription.findUnique({
