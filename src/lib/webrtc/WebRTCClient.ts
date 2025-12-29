@@ -245,13 +245,25 @@ export class WebRTCClient {
         case 'terminal:error':
           if (this.terminalCB && message.data) this.terminalCB(`\r\n\x1b[1;31mError: ${message.data}\x1b[0m\r\n`);
           break;
+        case 'rdp:started':
+          console.log('[WebRTCClient] RDP started', message);
+          // RDP has started on the device, video track should be available
+          break;
+        case 'rdp:stopped':
+          console.log('[WebRTCClient] RDP stopped', message);
+          break;
+        case 'rdp:error':
+          console.error('[WebRTCClient] RDP error', message);
+          break;
         default:
+          console.debug('[WebRTCClient] Unhandled data channel message type:', message.type);
           break;
       }
     } catch {
       if (this.terminalCB) this.terminalCB(data);
     }
   }
+
 
   private async handleIceCandidate(message: any) {
     console.log('[WebRTCClient] ===== HANDLING ICE CANDIDATE =====');
