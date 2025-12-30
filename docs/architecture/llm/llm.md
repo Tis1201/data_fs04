@@ -1,64 +1,144 @@
 # LLM & Vanna Integration Architecture
 
 ## Overview
-We are integrating **Vanna.ai 2.0** to enable natural language querying of our sensor data. Vanna provides an agent-based architecture with:
-- User-aware permissions
+**Vanna.ai 2.0** enables natural language querying of sensor data with:
+- User-aware permissions via proxy headers
 - Rich streaming UI (tables, charts, summaries)
-- Built-in FastAPI server with web UI
+- Row-Level Security via SQL wrapper
 
-## Best Practice (Per Vanna Docs)
+## Architecture
 
-The **recommended** approach is:
+```mermaid
+graph LR
+    subgraph fs04_web ["fs04_web (SvelteKit)"]
+        A[Chat Page] -->|Loads| B[vanna-chat]
+        C[Auth Proxy] -->|Validates Session| D[Lucia]
+    end
+    
+    subgraph fs04_vanna ["fs04_vanna (Python)"]
+        E[VannaServer] -->|Uses| F[VertexAILlmService]
+        E -->|Queries| G[AccountFilteredRunner]
+        G -->|Wraps| H[ClickHouse]
+    end
+    
+    B -->|SSE via Proxy| C
+    C -->|X-User-Id, X-Account-Id| E
+    F -->|REST API| I[Gemini]
+```
 
-1.  **Run `VannaFastAPIServer`**: A Python service that hosts both the API endpoints AND a pre-built web UI.
-2.  **Access the UI directly**: Navigate to `http://localhost:8000` (the Vanna server) which has a full chat interface.
-3.  **OR embed `<vanna-chat>` in SvelteKit**: Point the component to the Python backend's `/api/vanna/v2/chat_sse` endpoint.
+## Security Design
 
-### Why NOT proxy through SvelteKit?
-Vanna's streaming is built around Server-Sent Events (SSE). Adding a SvelteKit proxy layer adds complexity without benefit. The recommended pattern is for the **browser to connect directly** to the Vanna server.
-
-## Components
-
-### 1. Backend (`fs04_agents`)
-- **Technology**: Python (FastAPI via `VannaFastAPIServer`).
-- **Library**: `vanna[google,fastapi]` (use Google Gemini as LLM).
-- **Database**: `PostgresRunner` to connect to `fs04_web` database.
-- **Location**: `src/vanna_app/main.py`.
-
-### 2. Frontend Options
-
-| Option | Description | Pros | Cons |
-|--------|-------------|------|------|
-| **A. Use Vanna's built-in UI** | Just navigate to `http://localhost:8000` | Zero frontend work | Separate URL from main app |
-| **B. Embed `<vanna-chat>`** | Add component to SvelteKit page | Integrated experience | Need to handle CORS and auth forwarding |
-| **C. Proxy via SvelteKit** | SvelteKit proxies requests to Vanna | Single origin | Complex, not recommended by Vanna |
-
-**Recommendation**: Start with **Option A** (built-in UI) for prototyping. Move to **Option B** for production integration.
-
-## Communication Flow
-
+### Authentication Flow
 ```mermaid
 sequenceDiagram
     participant U as 👤 User
-    participant V as 🐍 VannaFastAPIServer (Port 8000)
-    participant DB as 🗄️ Database (Postgres)
-    participant AI as 🧠 LLM (Gemini)
+    participant P as 🔐 Proxy (/api/vanna/*)
+    participant V as 🐍 Vanna
+    participant DB as 🗄️ ClickHouse
 
-    U->>V: "Show me active sensors"
-    V->>AI: Generate SQL
-    AI->>V: SELECT * FROM "Sensor" WHERE status = 'ACTIVE';
-    V->>DB: Execute SQL
-    DB->>V: [Result Rows]
-    V->>U: Stream: Table → Chart → Summary
+    U->>P: Chat message + session cookie
+    P->>P: Validate Lucia session
+    P->>V: Request + X-User-Id + X-Account-Id
+    V->>V: UserResolver extracts headers
+    V->>DB: SQL wrapped with account filter
+    DB-->>V: Filtered results
+    V-->>U: Response (via proxy)
 ```
 
-## Security & Auth
-- **User Identity**: Configure `UserResolver` in Python to read JWT/Cookie from request.
-- **Permissions**: Map our existing users/roles to Vanna's `group_memberships` for row-level security.
+### Row-Level Security (RLS)
 
-## Configuration
-- **Environment Variables** (in `fs04_agents/.env`):
-    - `DATABASE_URL`: Postgres connection string.
-    - `GOOGLE_API_KEY` (or `OPENAI_API_KEY`): For the LLM.
+**Strategy: SQL Runner Wrapper** (Application-layer enforcement)
 
+| Layer | Purpose | Implementation |
+|-------|---------|----------------|
+| System Prompt | Guide AI to filter | Include account context in prompt |
+| SQL Wrapper | Enforce filtering | Wrap all queries with `WHERE account_id = ?` |
+| Validation | Prevent bypass | Account ID from trusted headers only |
 
+```python
+# AccountFilteredRunner wraps queries
+class AccountFilteredRunner:
+    async def run_sql(self, sql: str) -> DataFrame:
+        # Account ID comes from trusted proxy header, NOT user input
+        account_id = self.get_account_id()
+        
+        filtered_sql = f"""
+        SELECT * FROM ({sql.rstrip(';')}) AS subq
+        WHERE account_id = '{account_id}'
+        """
+        return await self.base_runner.run_sql(filtered_sql)
+```
+
+**Security guarantees:**
+- ✅ Account ID from authenticated session (not LLM or user input)
+- ✅ Every query wrapped with account filter
+- ✅ AI cannot bypass via prompt injection
+- ✅ Auditable (log all queries + account context)
+
+### Production Deployment
+
+```
+Internet → LB → fs04_web (public) → fs04_vanna (internal, 127.0.0.1)
+```
+
+| Config | Development | Production |
+|--------|-------------|------------|
+| `HOST` | `0.0.0.0` | `127.0.0.1` |
+| Vanna accessible | Directly + Proxy | Proxy only |
+| Demo login | Available | Not exposed |
+
+## Key Components
+
+| Component | Location | Description |
+|-----------|----------|-------------|
+| Auth Proxy | `fs04_web/src/routes/api/vanna/[...rest]/+server.ts` | Validates session, injects headers |
+| UserResolver | `fs04_vanna/src/main.py` | Reads `X-User-Id`, `X-Account-Id` from proxy |
+| LLM Service | `fs04_vanna/src/vertex_llm.py` | Vertex AI/Gemini streaming |
+| Web Component | `thirdparty/vanna/.../webcomponent` | Custom FS04 theming |
+
+## UI Features & Permissions
+
+Vanna controls UI features by user group:
+
+| Feature | Admin | User | Anonymous |
+|---------|-------|------|-----------|
+| See tool names | ✅ | ✅ | ❌ |
+| See SQL/arguments | ✅ | ❌ | ❌ |
+| See tool errors | ✅ | ❌ | ❌ |
+
+Non-admin users won't see raw SQL queries.
+
+## Environment Variables
+
+#### fs04_vanna/.env
+```env
+VERTEX_AI_STUDIO_API_KEY=...  # Gemini API key
+HOST=127.0.0.1                 # Production: internal only
+PORT=8000
+```
+
+#### fs04_web/.env
+```env
+PUBLIC_VANNA_API_URL=http://localhost:8000  # For loading component
+```
+
+## Running Locally
+
+```bash
+# Terminal 1: Vanna
+cd fs04_vanna && ./run.sh
+
+# Terminal 2: SvelteKit
+cd fs04_web && npm run dev
+
+# Access: http://localhost:5173/user/analytics/chat
+```
+
+## Next Steps
+
+- [x] Backend proxy for auth
+- [x] UserResolver reads from headers
+- [ ] Implement AccountFilteredRunner for ClickHouse
+- [ ] Connect to production ClickHouse
+- [ ] Add query logging/auditing
+- [ ] Memory persistence (Redis/DB)

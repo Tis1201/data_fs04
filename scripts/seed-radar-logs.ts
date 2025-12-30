@@ -112,9 +112,10 @@ async function seedRadarLogs(options: SeedOptions) {
 
     try {
         // Find a real account with a sensor
-        const account = options.accountId
+        let account: any = options.accountId
             ? await prisma.account.findUnique({ where: { id: options.accountId } })
-            : await prisma.account.findFirst({
+            : await prisma.account.findUnique({
+                where: { slug: 'blue-com' },
                 include: {
                     devices: {
                         include: {
@@ -126,6 +127,23 @@ async function seedRadarLogs(options: SeedOptions) {
                     }
                 }
             });
+
+        // Fallback to first account if blue-com not found or no ID
+        if (!account && !options.accountId) {
+            // @ts-ignore
+            account = await prisma.account.findFirst({
+                include: {
+                    devices: {
+                        include: {
+                            controllers: {
+                                where: { type: 'radar' },
+                                include: { sensors: true }
+                            }
+                        }
+                    }
+                }
+            });
+        }
 
         if (!account) {
             console.error('❌ No account found. Please create an account first.');

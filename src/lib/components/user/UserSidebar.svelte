@@ -13,38 +13,23 @@
         Calendar,
         HelpCircle,
         Activity,
-
         Network,
-
         Router,
-
         Users2,
-
         Logs,
-
         LucideActivity,
-
         ActivitySquare,
-
         File,
-
         Files,
-
         Building2,
-
         MessageCircle,
-
         ClipboardList,
-
         ShieldPlus,
-
         Package2,
-
         TagIcon,
-
         Radio,
-
         BugOff,
+        CreditCard,
     } from "lucide-svelte";
 
     export let className = "";
@@ -119,25 +104,41 @@
     // All menu items definition
     // Only USER_CONTROLLERS_RADAR has module permission check (current ACL scope)
     const allMenuItems: MenuItem[] = [
-        { 
-            href: "/user/dashboard", 
-            label: "Dashboard", 
+        {
+            href: "/user/dashboard",
+            label: "Dashboard",
             icon: LayoutDashboard,
-            subItems: [] 
+            subItems: [],
         },
-        
+
         {
             label: "IOT",
             icon: Network,
             initialExpanded: false,
             subItems: [
                 { href: "/user/iot/devices", label: "Devices", icon: Router },
-                { href: "/user/iot/device_tags", label: "Device Tags", icon: TagIcon },
-                { href: "/user/iot/device-profiles", label: "Device Profiles", icon: TagIcon },
+                {
+                    href: "/user/iot/device_tags",
+                    label: "Device Tags",
+                    icon: TagIcon,
+                },
+                {
+                    href: "/user/iot/device-profiles",
+                    label: "Device Profiles",
+                    icon: TagIcon,
+                },
                 { href: "/user/iot/bundles", label: "Bundles", icon: Package2 },
-                { href: "/user/iot/preclaims", label: "Preclaims", icon: ShieldPlus },
-                { href: "/user/iot/pin-rules", label: "Pin Rules", icon: Settings }
-            ]
+                {
+                    href: "/user/iot/preclaims",
+                    label: "Preclaims",
+                    icon: ShieldPlus,
+                },
+                {
+                    href: "/user/iot/pin-rules",
+                    label: "Pin Rules",
+                    icon: Settings,
+                },
+            ],
         },
         {
             label: "Controllers",
@@ -145,25 +146,57 @@
             initialExpanded: false,
             subItems: [
                 { href: "/user/controllers/radar", label: "Radar", icon: Radio, module: 'USER_CONTROLLERS_RADAR' }
-            ]
+            ],
         },
-        { 
-            label: "Resources", 
-            icon: Files, 
+        {
+            label: "Analytics",
+            icon: ActivitySquare,
             initialExpanded: false,
             subItems: [
-                { href: "/user/resources", label: "Files", icon: File },
-            ]
+                {
+                    href: "/user/analytics/chat",
+                    label: "Ask AI",
+                    icon: MessageSquare,
+                },
+                { href: "/user/analytics/radar", label: "Radar", icon: Radio },
+            ],
         },
-        { 
-            label: "Settings", 
-            icon: Settings, 
+        {
+            label: "Resources",
+            icon: Files,
+            initialExpanded: false,
+            subItems: [{ href: "/user/resources", label: "Files", icon: File }],
+        },
+        {
+            label: "Settings",
+            icon: Settings,
             initialExpanded: false,
             subItems: [
-                { href: "/user/settings/account", label: "Account", icon: Building2 },
+                {
+                    href: "/user/settings/account",
+                    label: "Account",
+                    icon: Building2,
+                },
                 { href: "/user/settings/users", label: "Users", icon: Users2 },
                 { href: "/user/profile", label: "Profile", icon: User },
-            ]
+            ],
+        },
+        {
+            label: "Billing",
+            icon: CreditCard,
+            initialExpanded: false,
+            subItems: [
+                {
+                    href: "/user/settings/billing",
+                    label: "Plans",
+                    icon: CreditCard,
+                },
+                {
+                    href: "/user/billing/invoices",
+                    label: "Invoices",
+                    icon: FileText,
+                },
+            ],
         },
         {
             label: "Debug",
@@ -209,6 +242,6 @@
         {title}
         items={filteredMenuItems}
         initialCollapsed={collapsed}
-        on:toggle={(e) => collapsed = e.detail}
+        on:toggle={(e) => (collapsed = e.detail)}
     />
 </div>

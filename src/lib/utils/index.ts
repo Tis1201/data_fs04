@@ -14,4 +14,4 @@ export { getFieldProps, processFormMessages } from './formHelpers';
 export { generateRequestId, getStatusBeforeToggled } from './ApiUtils';
 
 // Format Utilities
-export { formatDate } from './format'; 
+export { formatDate } from './format';

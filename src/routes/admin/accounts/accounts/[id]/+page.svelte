@@ -19,15 +19,17 @@
 
   import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
 
+  import {truncateText} from '$lib/utils/text-utils';
+
   import type { PageData } from './$types';
 
   export let data: PageData;
 
-  const title = `Edit Account: ${data.account.name}`;
+  const title = `Edit Account: ${truncateText(data.account.name,40)}`;
   const pageCrumbs = [
     ['Dashboard', '/admin/dashboard'],
     ['Accounts', '/admin/accounts/accounts'],
-    [data.account.name, '']
+    [truncateText(data.account.name, 40), '']
   ] as [string, string][];
 
   // Initialize navigation guard (replaces all the manual dialog state management)
