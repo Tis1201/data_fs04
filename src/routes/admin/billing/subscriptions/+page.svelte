@@ -1,15 +1,13 @@
 <script lang="ts">
-    import {
-        Receipt,
-        Building2,
-        ExternalLink,
-        AlertTriangle,
-    } from "lucide-svelte";
+    import { ExternalLink } from "lucide-svelte";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
-    import Card from "$lib/components/ui/card/card.svelte";
-    import { Badge } from "$lib/components/ui/badge";
     import { Button } from "$lib/components/ui/button";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
+    import SubscriptionsTable from "./table.svelte";
+    import {
+        getDefaultPagination,
+        getDefaultSort,
+        initPagination,
+    } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import type { PageData } from "./$types";
 
     export let data: PageData;
@@ -21,26 +19,15 @@
         ["Subscriptions", ""],
     ] as [string, string][];
 
-    function getStatusColor(status: string) {
-        switch (status) {
-            case "active":
-                return "bg-green-100 text-green-800";
-            case "trialing":
-                return "bg-blue-100 text-blue-800";
-            case "past_due":
-                return "bg-amber-100 text-amber-800";
-            case "canceled":
-                return "bg-red-100 text-red-800";
-            case "pending_cancel":
-                return "bg-orange-100 text-orange-800";
-            default:
-                return "bg-gray-100 text-gray-800";
-        }
-    }
+    // Set up table props
+    $: tableProps = {
+        records: data.subscriptions || [],
+        pagination: getDefaultPagination(data.meta, 50),
+        sort: getDefaultSort(data.meta, "updatedAt", "desc"),
+        loading: false,
+    };
 
-    function getSourceLabel(source: string) {
-        return source === "stripe" ? "Stripe" : "License";
-    }
+    initPagination("preferredPageSize", true);
 </script>
 
 <AdminPageLayout title={pageTitle} crumbs={pageCrumbs}>
@@ -62,90 +49,6 @@
             </a>
         </div>
 
-        {#if data.subscriptions.length === 0}
-            <Card class="p-8 text-center">
-                <Receipt class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 class="font-medium text-lg">No Subscriptions Yet</h3>
-                <p class="text-muted-foreground mt-2">
-                    Subscriptions will appear here when customers upgrade from
-                    the Free plan.
-                </p>
-            </Card>
-        {:else}
-            <div class="border rounded-lg overflow-hidden">
-                <table class="w-full text-sm">
-                    <thead class="bg-muted/50">
-                        <tr>
-                            <th class="text-left p-3 font-medium">Account</th>
-                            <th class="text-left p-3 font-medium">Plan</th>
-                            <th class="text-left p-3 font-medium">Status</th>
-                            <th class="text-left p-3 font-medium">Source</th>
-                            <th class="text-left p-3 font-medium">Period End</th
-                            >
-                            <th class="text-left p-3 font-medium">Updated</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {#each data.subscriptions as sub}
-                            <tr
-                                class="border-t hover:bg-muted/25 transition-colors"
-                            >
-                                <td class="p-3">
-                                    <a
-                                        href="/admin/accounts/{sub.accountSlug}"
-                                        class="flex items-center gap-2 hover:text-primary"
-                                    >
-                                        <Building2
-                                            class="h-4 w-4 text-muted-foreground"
-                                        />
-                                        <span class="font-medium"
-                                            >{sub.accountName}</span
-                                        >
-                                    </a>
-                                </td>
-                                <td class="p-3">
-                                    <Badge variant="outline"
-                                        >{sub.planName}</Badge
-                                    >
-                                </td>
-                                <td class="p-3">
-                                    <span
-                                        class="inline-flex items-center gap-1.5"
-                                    >
-                                        <Badge
-                                            class={getStatusColor(sub.status)}
-                                        >
-                                            {sub.status}
-                                        </Badge>
-                                        {#if sub.cancelAtPeriodEnd}
-                                            <AlertTriangle
-                                                class="h-4 w-4 text-amber-500"
-                                            />
-                                        {/if}
-                                    </span>
-                                </td>
-                                <td class="p-3 text-muted-foreground">
-                                    {getSourceLabel(sub.source)}
-                                </td>
-                                <td class="p-3">
-                                    {#if sub.currentPeriodEnd}
-                                        <RelativeDate
-                                            date={sub.currentPeriodEnd}
-                                        />
-                                    {:else}
-                                        <span class="text-muted-foreground"
-                                            >—</span
-                                        >
-                                    {/if}
-                                </td>
-                                <td class="p-3 text-muted-foreground">
-                                    <RelativeDate date={sub.updatedAt} />
-                                </td>
-                            </tr>
-                        {/each}
-                    </tbody>
-                </table>
-            </div>
-        {/if}
+        <SubscriptionsTable props={tableProps} />
     </div>
 </AdminPageLayout>
