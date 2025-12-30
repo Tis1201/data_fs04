@@ -324,47 +324,55 @@ export class WebRTCClient {
     console.log('[WebRTCClient] ===== HANDLING OFFER =====');
     console.log('[WebRTCClient] Offer message:', message);
     console.log('[WebRTCClient] Offer SDP length:', message.sdp?.length);
+    console.log('[WebRTCClient] Existing peerConnection:', !!this.peerConnection);
     try {
-      console.log('[WebRTCClient] Step 1: Updating connection state to connecting');
-      // Update connection state to connecting
-      webRTCStore.update(state => ({
-        ...state,
-        connectionState: 'connecting',
-        error: null
-      }));
+      // Check if this is a renegotiation offer or initial offer
+      const isRenegotiation = this.peerConnection &&
+        ['stable', 'have-local-offer', 'have-remote-offer'].includes(this.peerConnection.signalingState);
 
-      console.log('[WebRTCClient] Step 2: Checking for existing peerConnection');
-      // If we have an existing peer connection, close it to ensure clean reconnection
-      if (this.peerConnection) {
-        console.log('[WebRTCClient] Closing existing PeerConnection for reconnection, current state:', this.peerConnection.signalingState);
-        try {
-          this.peerConnection.close();
-        } catch (err) {
-          console.warn('[WebRTCClient] Error closing old peer connection:', err);
+      if (isRenegotiation) {
+        console.log('[WebRTCClient] === RENEGOTIATION OFFER (video track added) ===');
+        console.log('[WebRTCClient] Current signaling state:', this.peerConnection?.signalingState);
+        // For renegotiation, just update remote description and create new answer
+        // Don't close existing connection!
+      } else {
+        console.log('[WebRTCClient] === INITIAL OFFER ===');
+        // Clean state for initial connection only
+        webRTCStore.update(state => ({
+          ...state,
+          connectionState: 'connecting',
+          error: null
+        }));
+
+        // Close existing peer connection if any (stale state)
+        if (this.peerConnection) {
+          console.log('[WebRTCClient] Closing stale PeerConnection');
+          try {
+            this.peerConnection.close();
+          } catch (err) {
+            console.warn('[WebRTCClient] Error closing old peer connection:', err);
+          }
+          this.peerConnection = null;
         }
-        this.peerConnection = null;
+
+        // Close existing data channel if any
+        if (this.dataChannel) {
+          console.log('[WebRTCClient] Closing stale data channel');
+          try {
+            this.dataChannel.close();
+          } catch (err) {
+            console.warn('[WebRTCClient] Error closing old data channel:', err);
+          }
+          this.dataChannel = null;
+        }
       }
 
-      console.log('[WebRTCClient] Step 3: Checking for existing dataChannel');
-      // Close existing data channel if any
-      if (this.dataChannel) {
-        console.log('[WebRTCClient] Closing existing data channel for reconnection');
-        try {
-          this.dataChannel.close();
-        } catch (err) {
-          console.warn('[WebRTCClient] Error closing old data channel:', err);
-        }
-        this.dataChannel = null;
-      }
-
-      console.log('[WebRTCClient] Step 4: Creating new peer connection');
-      // Create new peer connection
+      // Create new peer connection if needed
       if (!this.peerConnection) {
-        console.log('[WebRTCClient] Creating new PeerConnection with config:', this.config);
+        console.log('[WebRTCClient] Creating new PeerConnection with config');
         this.peerConnection = new RTCPeerConnection(this.config);
-
-        // Add video transceiver to receive video from device
-        this.peerConnection.addTransceiver('video', { direction: 'recvonly' });
+        // Note: Don't add transceiver here - device will include video in offer when
+        // RDP is started, and we'll just receive it
 
         this.peerConnection.onicecandidate = (event) => {
           console.log('[WebRTCClient] ICE candidate generated:', event.candidate);
