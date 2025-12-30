@@ -1,4 +1,4 @@
-import {error, fail, type RequestEvent} from '@sveltejs/kit';
+import { error, fail, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
@@ -11,6 +11,7 @@ import { userAccountSchema, notificationSchema, passwordSchema, companyCreateSch
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
+import { getEntitlementsWithUsage } from '$lib/server/entitlements';
 
 /**
  * Load user account settings data
@@ -72,11 +73,11 @@ export const load = restrictAccountRole(
             }
 
             // Get all session IDs for users in the current account
-            const accountUserSessionIds = account.members.flatMap(member => 
+            const accountUserSessionIds = account.members.flatMap(member =>
                 member.user.sessions.map(userSession => userSession.id)
             );
 
-            console.log("accountUserSessionIds",accountUserSessionIds)
+            console.log("accountUserSessionIds", accountUserSessionIds)
 
             // Get session logs for users in the current account
             const sessionLogs = await prisma.userSessionLog.findMany({
@@ -152,22 +153,22 @@ export const load = restrictAccountRole(
             // Parse user agent for device info
             const parseUserAgent = (userAgent: string) => {
                 if (!userAgent) return { name: 'Unknown Device', browser: 'Unknown' };
-                
+
                 let deviceName = 'Unknown Device';
                 let browser = 'Unknown Browser';
-                
+
                 if (userAgent.includes('iPhone')) deviceName = 'iPhone';
                 else if (userAgent.includes('iPad')) deviceName = 'iPad';
                 else if (userAgent.includes('Android')) deviceName = 'Android Device';
                 else if (userAgent.includes('Mac')) deviceName = 'Mac';
                 else if (userAgent.includes('Windows')) deviceName = 'Windows PC';
                 else if (userAgent.includes('Linux')) deviceName = 'Linux';
-                
+
                 if (userAgent.includes('Chrome')) browser = 'Chrome';
                 else if (userAgent.includes('Firefox')) browser = 'Firefox';
                 else if (userAgent.includes('Safari')) browser = 'Safari';
                 else if (userAgent.includes('Edge')) browser = 'Edge';
-                
+
                 return { name: `${deviceName} (${browser})`, browser };
             };
 
@@ -193,7 +194,7 @@ export const load = restrictAccountRole(
             // Combine and deduplicate sessions
             const allSessions = [
                 ...allAccountSessions,
-                ...currentUserSessions.filter(cs => 
+                ...currentUserSessions.filter(cs =>
                     !allAccountSessions.some(as => as.id === cs.id)
                 )
             ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -217,6 +218,9 @@ export const load = restrictAccountRole(
             });
 
             console.log("activeSessions", activeSessions)
+
+            // Get entitlements for billing tab
+            const entitlements = await getEntitlementsWithUsage(accountId);
 
             return {
                 user: {
@@ -255,6 +259,17 @@ export const load = restrictAccountRole(
                     account: accountForm,
                     notifications: notificationForm,
                     password: passwordForm
+                },
+                billing: {
+                    planCode: entitlements.planCode,
+                    planName: entitlements.planName,
+                    status: entitlements.status,
+                    maxDevices: entitlements.maxDevices,
+                    maxUsers: entitlements.maxUsers,
+                    currentDevices: entitlements.currentDevices,
+                    currentUsers: entitlements.currentUsers,
+                    dataRetentionDays: entitlements.dataRetentionDays,
+                    features: entitlements.features
                 }
             };
         } catch (err) {
@@ -312,9 +327,9 @@ export const actions: Actions = {
                     }
                 });
 
-                logger.info('Account information updated', { 
-                    userId: auth!.user.id, 
-                    accountId: account.id 
+                logger.info('Account information updated', {
+                    userId: auth!.user.id,
+                    accountId: account.id
                 });
 
                 await logAudit({
@@ -461,7 +476,7 @@ export const actions: Actions = {
 
                 // Verify session belongs to user
                 const sessionToDelete = await prisma.session.findFirst({
-                    where: { 
+                    where: {
                         id: sessionId,
                         userId: auth!.user.id
                     }
@@ -476,9 +491,9 @@ export const actions: Actions = {
                     where: { id: sessionId }
                 });
 
-                logger.info('Session signed out', { 
-                    userId: auth!.user.id, 
-                    sessionId 
+                logger.info('Session signed out', {
+                    userId: auth!.user.id,
+                    sessionId
                 });
 
                 await logAudit({

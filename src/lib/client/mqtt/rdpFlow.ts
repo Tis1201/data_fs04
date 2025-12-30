@@ -136,8 +136,19 @@ export class RDPMqttClient {
         console.debug('[RDPMqtt] Received RDP message', payload);
 
         // Extract message type from payload
-        const messageType = payload?.payload?.type || payload?.type;
+        let messageType = payload?.payload?.type || payload?.type;
         const data = payload?.payload || payload;
+
+        // Infer message type if missing (for backward compatibility or simplified messages)
+        if (!messageType) {
+            if (data?.status === 'started') {
+                messageType = 'rdp:started';
+            } else if (data?.status === 'stopped') {
+                messageType = 'rdp:stopped';
+            } else if (data?.error) {
+                messageType = 'rdp:error';
+            }
+        }
 
         console.debug('[RDPMqtt] Processing RDP message', { messageType, data });
 

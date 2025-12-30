@@ -157,6 +157,16 @@
             initialExpanded: false,
             subItems: [
                 {
+                    href: "/admin/billing/plans",
+                    label: "Plans",
+                    icon: Layers,
+                },
+                {
+                    href: "/admin/billing/subscriptions",
+                    label: "Subscriptions",
+                    icon: CreditCard,
+                },
+                {
                     href: "/admin/billing/licenses",
                     label: "Licenses",
                     icon: IdCard,

@@ -42,13 +42,22 @@ interface WebRTCVideoRequestParams {
  * Handle WebRTC connect request
  * Initiates WebRTC connection with the device
  */
+/**
+ * Handle WebRTC connect request
+ * Initiates WebRTC connection with the device
+ */
 export async function handleWebRTCConnect(
     params: WebRTCConnectParams,
     { prisma, sub }: RpcHandlerArgs
-): Promise<RpcResponse<{ deviceId: string; flowId: string }>> {
+): Promise<RpcResponse<{ deviceId: string; flowId: string; turnCredentials?: any }>> {
     const { deviceId } = await checkDeviceAccess({ prisma, sub, deviceId: params.deviceId });
 
     logger.info(`[WebRTC] User ${sub} initiating WebRTC connection to device ${deviceId}`);
+
+    // Generate TURN credentials
+    const { getTurnCredentialService } = await import('../../../../services/turn-credential.service'); // Dynamic import to avoid cycles
+    const turnService = getTurnCredentialService();
+    const turnCredentials = await turnService.generateCredentials();
 
     const flowId = crypto.randomUUID();
 
@@ -57,6 +66,7 @@ export async function handleWebRTCConnect(
     }
 
     // Send notification to device to initiate WebRTC connection
+    // Include TURN credentials for the device to use
     await sendNotificationWithTicket({
         prisma,
         sub,
@@ -64,7 +74,11 @@ export async function handleWebRTCConnect(
         type: DeviceNotificationType.WebRTC,
         flowId,
         params: {
-            action: 'webrtc:connect'
+            action: 'webrtc:connect',
+            turnCredentials: {
+                iceServers: turnCredentials.iceServers,
+                expiresAt: turnCredentials.expiresAt
+            }
         },
         expiresIn: '30m'
     });
@@ -75,7 +89,8 @@ export async function handleWebRTCConnect(
         flowId,
         result: {
             deviceId,
-            flowId
+            flowId,
+            turnCredentials // Return credentials to web client in the RPC response
         }
     };
 }
