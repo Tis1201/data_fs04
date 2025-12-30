@@ -90,13 +90,13 @@ function createDeviceStore() {
         // Listen for terminal messages
         mqttClient.onNotification('device:terminal', (payload: any) => {
             console.log('[DEVICE_STORE] Received terminal notification via MQTT:', payload);
-            
+
             const messageType = payload?.type || 'terminal-response';
             const deviceId = payload?.deviceId || '';
-            
+
             if (messageType.startsWith('terminal-')) {
                 const terminalMessageType = messageType as 'terminal-response' | 'terminal-connected' | 'terminal-error';
-                
+
                 const terminalMessage: TerminalMessage = {
                     type: terminalMessageType,
                     deviceId,
@@ -104,7 +104,7 @@ function createDeviceStore() {
                     error: payload.error,
                     timestamp: payload.timestamp || new Date().toISOString()
                 };
-                
+
                 update(state => ({
                     ...state,
                     terminalMessages: [...state.terminalMessages, terminalMessage],
@@ -113,44 +113,13 @@ function createDeviceStore() {
             }
         });
 
-        // Listen for WebRTC messages
-        mqttClient.onNotification('device:webrtc', (payload: any) => {
-            console.log('[DEVICE_STORE] Received WebRTC notification via MQTT:', payload);
-            
-            const messageType = payload?.type || '';
-            const deviceId = payload?.deviceId || '';
-            
-            if (messageType.startsWith('webrtc:')) {
-                const webrtcMessageType = messageType as 'webrtc:offer' | 'webrtc:answer' | 'webrtc:ice-candidate';
-                
-                const webrtcMessage: WebRTCMessage = {
-                    type: webrtcMessageType,
-                    deviceId,
-                    sdp: payload.sdp,
-                    candidate: payload.candidate,
-                    clientMessageId: payload._clientMessageId,
-                    timestamp: payload.timestamp || new Date().toISOString(),
-                    scope: payload.scope,
-                    senderId: payload.senderId
-                };
-                
-                update(state => {
-                    // Only store the latest WebRTC message for the current device
-                    if (!state.deviceId || state.deviceId === deviceId) {
-                        return {
-                            ...state,
-                            latestWebRTCMessage: webrtcMessage
-                        };
-                    }
-                    return state;
-                });
-            }
-        });
+        // Note: WebRTC messages are handled directly by the RDP page's WebRTCClient.
+        // We don't process them here to avoid duplicate handling.
 
         // Listen for device claim/registration messages
         mqttClient.onNotification('device:claim', (payload: any) => {
             console.log('[DEVICE_STORE] Received device claim notification via MQTT:', payload);
-            
+
             if (payload.success) {
                 update(state => ({
                     ...state,
@@ -223,7 +192,7 @@ function createDeviceStore() {
         reset: () => {
             set(initialState);
         },
-        
+
         // Set claimed device information
         setClaimedDevice: (device: Device) => {
             update(state => ({

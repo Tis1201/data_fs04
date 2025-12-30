@@ -51,6 +51,7 @@
 	// Track resources for cleanup
 	let pingInterval: ReturnType<typeof setInterval> | null = null;
 	let unsubscribeWebRTC: () => void;
+	let unsubscribeMqttWebRTC: (() => void) | undefined;
 
 	// Video stream handling - get from WebRTC store
 	let videoStream: MediaStream | null = $webRTCStore.videoStream;
@@ -130,16 +131,24 @@
 			console.log("WebRTC store update:", store);
 		});
 
-		// Subscribe to MQTT WebRTC messages
-		mqttClient.onNotification("device:webrtc", async (payload: any) => {
-			console.log("[RDP] Received WebRTC message via MQTT:", payload);
-			if (webrtcClient) {
-				await webrtcClient.handleWebRTCMessage(payload);
-			}
-		});
+		// Subscribe to MQTT WebRTC messages (only once)
+		if (!unsubscribeMqttWebRTC) {
+			unsubscribeMqttWebRTC = mqttClient.onNotification(
+				"device:webrtc",
+				async (payload: any) => {
+					console.log(
+						"[RDP] Received WebRTC message via MQTT:",
+						payload,
+					);
+					if (webrtcClient) {
+						await webrtcClient.handleWebRTCMessage(payload);
+					}
+				},
+			);
+		}
 
 		// Note: Device store subscription for WebRTC messages removed.
-		// We use the direct MQTT handler above (line 132) to avoid duplicate processing.
+		// We use the direct MQTT handler above to avoid duplicate processing.
 		// The device store still listens for device:webrtc to record messages,
 		// but we don't need to process them again here.
 	}
@@ -481,6 +490,15 @@
 				unsubscribeWebRTC();
 			} catch (error) {
 				console.log("Error unsubscribing from WebRTC store:", error);
+			}
+		}
+
+		// Unsubscribe from MQTT WebRTC notifications
+		if (unsubscribeMqttWebRTC) {
+			try {
+				unsubscribeMqttWebRTC();
+			} catch (error) {
+				console.log("Error unsubscribing from MQTT WebRTC:", error);
 			}
 		}
 

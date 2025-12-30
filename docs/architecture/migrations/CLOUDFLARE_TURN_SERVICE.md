@@ -500,19 +500,30 @@ async function handleWebRTCConnect(message: InMessage) {
 - [x] Create `TurnCredentialService` class
 - [x] Implement Cloudflare API integration with STUN fallback
 - [x] Update `handle_webrtc.ts` (MQTT) to inject credentials into RPC response (Web) and Notification (Device)
-- [x] ~Create `/api/webrtc/turn-credentials` endpoint~ (Replaced by MQTT injection)
+- [x] ~~Create `/api/webrtc/turn-credentials` endpoint~~ (Replaced by MQTT injection)
 
 ### Web Client
 
 - [x] Remove hardcoded Xirsys credentials from `WebRTCClient.ts`
 - [x] Update `connect()` to use credentials from MQTT `webrtc.connect` response
 - [x] Handle credential fallback gracefully
+- [x] Fix duplicate `device:webrtc` notification handlers (2025-12-30)
+- [x] Store and cleanup MQTT notification handlers on page destroy (2025-12-30)
+- [x] Handle renegotiation offers without closing existing peer connection (2025-12-30)
 
 ### Device Client (Go)
 
 - [x] Update `ConnectMessage` struct with TURN credentials
 - [x] Modify `HandleConnect` to accept credentials parameter
 - [x] Update ICE server configuration logic to accept dynamic TURN servers
+- [ ] Fix state transition error when receiving duplicate answers (pending - see "WebRTC RDP Signaling Fixes" section)
+- [ ] Grant macOS screen recording permissions for FFmpeg
+
+### Device Client (Node Emulator)
+
+- [x] Implement WebRTC client with Perfect Negotiation pattern
+- [x] Fix `@roamhq/wrtc` compatibility - explicit `createOffer()` before `setLocalDescription()`
+- [x] ~~Removed SSE service from Go device~~ (renamed to `.bak` to unblock build)
 
 ### Testing
 
@@ -520,14 +531,17 @@ async function handleWebRTCConnect(message: InMessage) {
 - [x] E2E test: Web client with TURN (via simulated MQTT flow in `webrtc_turn_e2e.test.ts`)
 - [x] E2E test: Device receiving keys (via simulated MQTT flow)
 - [x] Implement WebRTC Terminal in Node Emulator (`fs04_device/emulators/node`) for TURN verification
+- [x] WebRTC signaling verified with Go device (connection establishes, data channel opens)
 - [ ] Performance test: Credential generation latency
 - [ ] Security test: Credential expiration
+- [ ] Video streaming E2E test (blocked by macOS screen recording permissions)
 
 ### Documentation
 
 - [x] Create migration design document
 - [x] Update `WEBRTC_ARCHITECTURE.md` with new flow
 - [x] Document environment variables
+- [x] Document WebRTC RDP signaling fixes for Go developer (2025-12-30)
 - [ ] Add troubleshooting guide
 
 ### Deployment
@@ -574,3 +588,194 @@ Consider logging:
 - [WEBRTC_ARCHITECTURE.md](file:///Users/bernard/CascadeProjects/fs04/fs04_web/docs/architecture/real-time/WEBRTC_ARCHITECTURE.md) - Current WebRTC architecture
 - [device_webrtc.go](file:///Users/bernard/CascadeProjects/fs04/fs04_device/internal/module/device_webrtc.go) - Device WebRTC handler
 - [client.go](file:///Users/bernard/CascadeProjects/fs04/fs04_device/internal/module/webrtc/client.go) - Go WebRTC client
+
+---
+
+## WebRTC RDP Signaling Fixes (2025-12-30)
+
+This section documents fixes made to the web client WebRTC signaling for RDP, which the Go device should follow for consistency.
+
+### Problem Summary
+
+The WebRTC RDP connection was establishing but video was not displaying due to:
+1. **Duplicate offer handling** - Multiple handlers were registered for `device:webrtc` notifications
+2. **Race conditions** - Multiple peer connections being created from the same offer
+3. **State transition errors** - Go device receiving duplicate answers causing `InvalidModificationError`
+
+### Root Causes Identified
+
+#### 1. Multiple Notification Handlers
+
+The `device:webrtc` notification was being processed by multiple handlers:
+
+| Handler | Location | Purpose |
+|---------|----------|---------|
+| `device-store.ts` | Global store | Stored messages for debugging |
+| RDP page `onNotification` | On each connection | Processed offers/answers |
+
+This caused each offer to be handled 2-4 times, creating multiple peer connections.
+
+#### 2. Missing Handler Cleanup
+
+The RDP page's `mqttClient.onNotification()` was called every time `connectToDevice()` ran, but the unsubscribe function was never stored or called on cleanup.
+
+### Fixes Applied (Web Client)
+
+#### Fix 1: Removed Global WebRTC Handler from Device Store
+
+**File**: [device-store.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/stores/device-store.ts)
+
+```diff
+- // Listen for WebRTC messages
+- mqttClient.onNotification('device:webrtc', (payload: any) => {
+-   // ... handler code ...
+- });
+
++ // Note: WebRTC messages are handled directly by the RDP page's WebRTCClient.
++ // We don't process them here to avoid duplicate handling.
+```
+
+#### Fix 2: Store and Cleanup MQTT Notification Handler
+
+**Files**: 
+- [admin RDP page](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/routes/admin/iot/devices/[id]/rdp/+page.svelte)
+- [user RDP page](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/routes/user/iot/devices/[id]/rdp/+page.svelte)
+
+```typescript
+// Track the unsubscribe function
+let unsubscribeMqttWebRTC: (() => void) | undefined;
+
+// In connectToDevice():
+if (!unsubscribeMqttWebRTC) {
+  unsubscribeMqttWebRTC = mqttClient.onNotification("device:webrtc", async (payload) => {
+    if (webrtcClient) {
+      await webrtcClient.handleWebRTCMessage(payload);
+    }
+  });
+}
+
+// In onDestroy():
+if (unsubscribeMqttWebRTC) {
+  unsubscribeMqttWebRTC();
+}
+```
+
+#### Fix 3: Handle Renegotiation in WebRTCClient
+
+**File**: [WebRTCClient.ts](file:///Users/bernard/CascadeProjects/fs04/fs04_web/src/lib/webrtc/WebRTCClient.ts)
+
+The `handleOffer` method now correctly handles renegotiation offers:
+
+```typescript
+private async handleOffer(message: any) {
+  // Check if this is a renegotiation offer or initial offer
+  const isRenegotiation = this.peerConnection && 
+    ['stable', 'have-local-offer', 'have-remote-offer'].includes(this.peerConnection.signalingState);
+  
+  if (isRenegotiation) {
+    console.log('[WebRTCClient] === RENEGOTIATION OFFER (video track added) ===');
+    // Don't close existing connection - just update remote description
+  } else {
+    console.log('[WebRTCClient] === INITIAL OFFER ===');
+    // Clean up existing peer connection for fresh start
+  }
+  
+  // Set remote description and create answer
+  await this.peerConnection!.setRemoteDescription(
+    new RTCSessionDescription({ type: 'offer', sdp: message.sdp })
+  );
+  
+  const answer = await this.peerConnection!.createAnswer();
+  await this.peerConnection!.setLocalDescription(answer);
+  
+  // Send answer via MQTT
+  await mqttClient.request('webrtc.answer', { ... });
+}
+```
+
+### Go Device Signaling Flow
+
+The Go device should follow this signaling pattern:
+
+```mermaid
+sequenceDiagram
+    participant WC as Web Client
+    participant MQTT as MQTT Broker
+    participant D as Device (Go)
+    
+    WC->>MQTT: webrtc.connect (RPC request)
+    MQTT->>D: device:webrtc notification
+    
+    Note over D: Device creates offer<br/>with video track included
+    
+    D->>MQTT: webrtc:offer (via notification)
+    MQTT->>WC: device:webrtc notification
+    
+    WC->>WC: Create PeerConnection<br/>Set remote description<br/>Create answer
+    
+    WC->>MQTT: webrtc.answer (RPC request)
+    MQTT->>D: device:webrtc notification
+    
+    D->>D: Set remote description
+    
+    par ICE Candidate Exchange
+        D-->>MQTT: ICE candidates
+        MQTT-->>WC: device:webrtc notifications
+        WC->>MQTT: webrtc.icecandidate (RPC)
+        MQTT->>D: device:webrtc notifications
+    end
+    
+    Note over WC,D: Data channel opens
+    
+    WC->>MQTT: rdp.start (RPC request)
+    MQTT->>D: device:rdp notification
+    
+    D->>D: Start video capture<br/>(FFmpeg/screen capture)
+    
+    Note over WC,D: Video streams via<br/>WebRTC video track
+```
+
+### Key Points for Go Device Implementation
+
+1. **Single Offer Generation**: Device should generate ONE offer per connection request
+2. **Wait for Answer Before Processing New Offers**: Track signaling state to avoid state machine violations
+3. **Include Video Track in Initial Offer**: Video transceiver should be added before creating the offer
+4. **Handle State Transitions**: Check `peerConnection.SignalingState()` before setting remote description
+
+### Go Device Error Reference
+
+The Go device was seeing this error:
+```
+ERRO[0013] Failed to handle WebRTC answer: failed to handle answer: 
+  failed to set remote description: InvalidModificationError: 
+  invalid proposed signaling state transition: stable->SetRemote(answer)->stable
+```
+
+This means the device received an answer when already in `stable` state (likely from duplicate answers caused by duplicate offer handling on the web side).
+
+### macOS FFmpeg Screen Capture Requirements
+
+For FFmpeg screen capture to work on macOS:
+
+1. **Screen Recording Permission**: Grant permission in System Preferences > Privacy & Security > Screen & System Audio Recording
+2. **Correct Device Index**: Use `ffmpeg -f avfoundation -list_devices true -i ""` to find the correct device
+3. **Restart Terminal**: After granting permissions, restart the terminal application
+
+Current FFmpeg command in Go device:
+```bash
+ffmpeg -f avfoundation -i 1:none -r 60 -vf scale=1280:720 \
+  -c:v libvpx -b:v 1M -maxrate 1M -bufsize 2M \
+  -deadline realtime -cpu-used 4 -error-resilient 1 \
+  -threads 4 -auto-alt-ref 0 -lag-in-frames 0 \
+  -f rtp rtp://127.0.0.1:5005
+```
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/lib/stores/device-store.ts` | Removed global `device:webrtc` handler |
+| `src/routes/admin/iot/devices/[id]/rdp/+page.svelte` | Added handler cleanup |
+| `src/routes/user/iot/devices/[id]/rdp/+page.svelte` | Added handler cleanup |
+| `src/lib/webrtc/WebRTCClient.ts` | Fixed renegotiation handling |
+
