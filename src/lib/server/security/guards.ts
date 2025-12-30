@@ -6,8 +6,9 @@ import { userInfoByApiKey, userInfoByUserId } from '$lib/server/security/auth-ut
 import { getEnhancedPrisma } from '$lib/server/prisma';
 import type { Device } from '@prisma/client';
 import type { PermissionAction } from '$lib/constants/permissions';
-import { hasModulePermission } from '$lib/server/security/modulePermissions';
+import { hasModulePermission, getUserModulePermissions } from '$lib/server/security/modulePermissions';
 import { getRouteModuleConfig, getActionForMethod } from '$lib/constants/routeModuleMap';
+import { SYSTEM_ACCOUNT } from '$lib/constants/system';
 
 /**
  * Type for route handlers that can be protected
@@ -77,6 +78,10 @@ export function restrict<T>(
 
     // Create an enhanced event with auth information
     // Include depends if it exists on the event (for load functions)
+    // Also set auth and user in locals for backward compatibility
+    (event.locals as any).auth = auth;
+    (event.locals as any).user = auth.user;
+    
     const authenticatedEvent = {
       ...event,
       auth,
@@ -499,6 +504,11 @@ export function restrictModule<T>(
     if (bypassRoles.includes(systemRole)) {
       logger.debug('Module check bypassed by role', { userId, module, action, systemRole });
       
+      // Set auth and user in locals for backward compatibility
+      (event.locals as any).auth = auth;
+      (event.locals as any).user = auth.user;
+      (event.locals as any).modulePermissions = {}; // Empty for bypass roles
+      
       const authenticatedEvent = {
         ...event,
         auth,
@@ -517,6 +527,11 @@ export function restrictModule<T>(
     if (skipCheck) {
       logger.debug('Module check skipped by option', { userId, module, action });
       
+      // Set auth and user in locals for backward compatibility
+      (event.locals as any).auth = auth;
+      (event.locals as any).user = auth.user;
+      (event.locals as any).modulePermissions = {}; // Empty when skipCheck
+      
       const authenticatedEvent = {
         ...event,
         auth,
@@ -531,18 +546,95 @@ export function restrictModule<T>(
       return handler(authenticatedEvent as any);
     }
 
+    // Check if user is SYSTEM_ACCOUNT member - bypass all ACL checks
+    // Note: SYSTEM_ACCOUNT memberships can have role 'SYSTEM', so we don't filter by role
+    const systemAccountMembership = await event.locals.prisma.accountMembership.findFirst({
+      where: {
+        userId,
+        account: {
+          OR: [
+            { slug: SYSTEM_ACCOUNT },
+            { isSystem: true }
+          ]
+        }
+        // Don't filter by role - SYSTEM_ACCOUNT memberships can have role 'SYSTEM'
+      },
+      include: {
+        account: {
+          select: { id: true, slug: true, isSystem: true }
+        }
+      }
+    });
+
+    // SYSTEM_ACCOUNT members have full access - bypass all permission checks
+    if (systemAccountMembership) {
+      logger.debug('SYSTEM_ACCOUNT member - bypassing ACL check', { 
+        userId, 
+        accountId: systemAccountMembership.account.id,
+        module,
+        action 
+      });
+      
+      // Set auth and user in locals
+      (event.locals as any).auth = auth;
+      (event.locals as any).user = auth.user;
+      (event.locals as any).modulePermissions = { __SYSTEM_ACCOUNT__: ['VIEW', 'CREATE', 'EDIT', 'DELETE'] } as any;
+      
+      const authenticatedEvent = {
+        ...event,
+        auth,
+        modulePermission: {
+          module,
+          action,
+          accountId: systemAccountMembership.account.id
+        },
+        ...(('depends' in event) && { depends: (event as any).depends })
+      } as ModuleAuthenticatedEvent & Partial<Pick<AuthenticatedLoadEvent, 'depends'>>;
+
+      return handler(authenticatedEvent as any);
+    }
+
     // Get current account ID
     const accountId = (event.locals as any).currentAccount?.account?.id;
 
-    if (!accountId) {
-      logger.warn('No current account for module permission check', { userId, module, action });
-      throw error(400, 'No current account selected');
+    // For admin routes, if no currentAccount is set, try to get first non-system account
+    // This allows admin users to access admin routes even without explicit account selection
+    let effectiveAccountId = accountId;
+    if (!effectiveAccountId && systemRole === 'ADMIN') {
+      const adminMemberships = await event.locals.prisma.accountMembership.findMany({
+        where: {
+          userId,
+          role: { not: 'SYSTEM' }
+        },
+        include: {
+          account: {
+            select: { id: true, isSystem: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 1
+      });
+      
+      if (adminMemberships.length > 0) {
+        effectiveAccountId = adminMemberships[0].account.id;
+        logger.debug('Using first non-system account for admin module check', { 
+          userId, 
+          accountId: effectiveAccountId,
+          module,
+          action 
+        });
+      }
+    }
+
+    if (!effectiveAccountId) {
+      logger.warn('No current account for module permission check', { userId, module, action, systemRole });
+      throw error(400, 'No current account selected. Please select an account to access this module.');
     }
 
     // Check module permission
     const hasPermission = await hasModulePermission({
       userId,
-      accountId,
+      accountId: effectiveAccountId,
       module,
       action
     });
@@ -550,12 +642,26 @@ export function restrictModule<T>(
     if (!hasPermission) {
       logger.warn('Module permission denied', {
         userId,
-        accountId,
+        accountId: effectiveAccountId,
         module,
         action,
-        path: event.url.pathname
+        path: event.url.pathname,
+        systemRole
       });
       throw error(403, errorMessage);
+    }
+
+    // Set auth and user in locals for backward compatibility (like restrict function)
+    (event.locals as any).auth = auth;
+    (event.locals as any).user = auth.user;
+    
+    // Fetch and cache module permissions in locals for convenience
+    try {
+      const modulePermissions = await getUserModulePermissions(userId, effectiveAccountId);
+      (event.locals as any).modulePermissions = modulePermissions;
+    } catch (e) {
+      logger.warn('Failed to fetch module permissions for locals', { error: e });
+      (event.locals as any).modulePermissions = {};
     }
 
     // Create enhanced event with auth and module permission info
@@ -565,7 +671,7 @@ export function restrictModule<T>(
       modulePermission: {
         module,
         action,
-        accountId
+        accountId: effectiveAccountId
       },
       ...(('depends' in event) && { depends: (event as any).depends })
     } as ModuleAuthenticatedEvent & Partial<Pick<AuthenticatedLoadEvent, 'depends'>>;
