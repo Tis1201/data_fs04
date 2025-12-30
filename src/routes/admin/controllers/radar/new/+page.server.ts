@@ -2,15 +2,14 @@ import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { radarSensorSchema } from './radar-sensor';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import type { Prisma } from '@prisma/client';
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ locals }: AuthenticatedLoadEvent) => {
         try {
             const form = await superValidate(zod(radarSensorSchema), {
@@ -55,12 +54,13 @@ export const load = restrict(
             throw error(500, 'Failed to load radar sensor form');
         }
     },
-    [SystemRole.ADMIN]
+    'ADMIN_CONTROLLERS_RADAR',
+    { action: 'CREATE' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    forceCreate: restrict(
-        async ({ request, locals }: AuthenticatedLoadEvent) => {
+    forceCreate: restrictModule(
+        async ({ request, locals }: ModuleAuthenticatedEvent) => {
             const form = await superValidate(request, zod(radarSensorSchema));
             
             if (!form.valid) {
@@ -202,10 +202,11 @@ export const actions: Actions = {
                 });
             }
         },
-        ['ADMIN']
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'CREATE' }
     ),
-    create: restrict(
-        async ({ request, locals }: AuthenticatedLoadEvent) => {
+    create: restrictModule(
+        async ({ request, locals }: ModuleAuthenticatedEvent) => {
             const form = await superValidate(request, zod(radarSensorSchema));
 
             if (!form.valid) {
@@ -427,6 +428,7 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'CREATE' }
     )
 };

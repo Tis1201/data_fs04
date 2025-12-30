@@ -2,15 +2,14 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from './group';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import rawPrisma from '$lib/server/prisma';
 
-export const load: PageServerLoad = restrict(
+export const load: PageServerLoad = restrictModule(
     async ({ locals }: AuthenticatedLoadEvent) => {
         try {
             // Create a form based on the schema with defaults
@@ -65,12 +64,13 @@ export const load: PageServerLoad = restrict(
             throw error(500, 'Failed to load group form');
         }
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    'GROUPS',
+    { action: 'CREATE' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    create: restrict(
-        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    create: restrictModule(
+        async ({ request, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             // Read formData first to avoid "Body already read" error
             const formData = await request.formData();
             
@@ -248,6 +248,7 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'CREATE' }
     )
 };

@@ -27,7 +27,11 @@
 </script>
 
 <div class="relative flex h-screen">
-    <UserSidebar bind:collapsed />
+    <UserSidebar 
+        bind:collapsed 
+        modulePermissions={data.modulePermissions || {}}
+        userSystemRole={data.user?.systemRole || 'USER'}
+    />
     <div class="flex-1 flex flex-col">
         <header class="border-b">
             <div class="relative flex h-12 items-center px-4 gap-4">

@@ -107,6 +107,13 @@
             disabled: isLoading
         },
         {
+            label: "Manage Permissions",
+            icon: ShieldCheck,
+            onClick: () => goto(`/admin/users/${user?.id}/permissions`),
+            variant: "secondary" as const,
+            disabled: isLoading
+        },
+        {
             label: isLoading ? ($delayed ? "Saving..." : "Processing...") : "Save Changes",
             icon: Save,
             onClick: () => {

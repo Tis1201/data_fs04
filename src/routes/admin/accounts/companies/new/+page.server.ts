@@ -2,8 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { companySchema } from './company';
 import { logAudit } from '$lib/server/audit-logger';
@@ -11,7 +10,7 @@ import { AuditActionType } from '$lib/constants/system';
 
 
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ locals }: AuthenticatedLoadEvent) => {
         try {
             // Create a form based on the schema with defaults
@@ -40,12 +39,13 @@ export const load = restrict(
             throw error(500, 'Failed to load company form');
         }
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    'COMPANIES',
+    { action: 'CREATE' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    create: restrict(
-        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    create: restrictModule(
+        async ({ request, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             if (!auth?.user) {
                 throw error(401, 'Unauthorized');
             }
@@ -100,6 +100,7 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN]
+        'COMPANIES',
+        { action: 'CREATE' }
     )
 };

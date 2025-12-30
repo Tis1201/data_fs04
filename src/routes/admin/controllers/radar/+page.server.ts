@@ -1,13 +1,13 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import type { Prisma } from '@prisma/client';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             const search = url.searchParams.get('search') || '';
@@ -109,6 +109,20 @@ export const load = restrict(
                 }
             });
 
+            // Get module permissions for the current user
+            // For ADMIN users, this returns empty but canCreate/canDelete will return true due to systemRole check
+            let modulePermissions = (locals as any).modulePermissions || {};
+            
+            // If no cached permissions and we have account context, fetch them
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+                } catch (err) {
+                    logger.warn('Failed to fetch module permissions', { error: err });
+                }
+            }
+
             return {
                 radarSensors: sensors, // Keeping prop name for now
                 accounts,
@@ -122,19 +136,23 @@ export const load = restrict(
                 sort: {
                     field: sortField,
                     order: sortOrder
-                }
+                },
+                // Pass permissions to frontend for button visibility
+                modulePermissions,
+                user: locals.user
             };
         } catch (err) {
             logger.error(`Error loading radar sensors: ${err}`);
             throw error(500, 'Failed to load radar sensors');
         }
     },
-    [SystemRole.ADMIN]
+    'ADMIN_CONTROLLERS_RADAR',
+    { action: 'VIEW' }
 );
 
 export const actions: Actions = {
-    deleteRadarSensor: restrict(
-        async ({ request, locals }: AuthenticatedLoadEvent) => {
+    deleteRadarSensor: restrictModule(
+        async ({ request, locals }: ModuleAuthenticatedEvent) => {
             const formData = await request.formData();
             const id = formData.get('id')?.toString(); // sensor id
 
@@ -216,6 +234,7 @@ export const actions: Actions = {
                 }
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'DELETE' }
     ),
 };

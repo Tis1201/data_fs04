@@ -1,6 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrict, SystemRole } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';

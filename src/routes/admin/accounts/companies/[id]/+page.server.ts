@@ -2,14 +2,14 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import type { RequestEvent } from '@sveltejs/kit';
 import { validatePhoneNumber, getPhoneValidationMessage } from '$lib/utils/validation/phone';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 // Define the company schema - UPDATED with international phone validation
 const companySchema = z.object({
@@ -28,7 +28,7 @@ const companySchema = z.object({
     accountId: z.string().min(1, { message: "Account is required" })
 });
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ params, locals }: RequestEvent) => {
         const { id } = params;
         
@@ -117,11 +117,22 @@ export const load = restrict(
                 zod(companySchema)
             );
 
+            // Get module permissions for frontend
+            let modulePermissions = (locals as any).modulePermissions || {};
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+                } catch (e) { /* ignore */ }
+            }
+
             return {
                 form,
                 company,
                 accounts,
-                members
+                members,
+                modulePermissions,
+                user: locals.user
             };
         } catch (err) {
             if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
@@ -131,12 +142,13 @@ export const load = restrict(
             throw error(500, 'Failed to load company details');
         }
     },
-    [SystemRole.ADMIN]
+    'COMPANIES',
+    { action: 'VIEW' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    updateCompany: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    updateCompany: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
             
             const form = await superValidate(request, zod(companySchema));
@@ -314,10 +326,11 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'COMPANIES',
+        { action: 'EDIT' }
     ),
-    removeMember: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    removeMember: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id: companyId } = params;
             
             // Create a simple schema for the remove action
@@ -388,12 +401,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'COMPANIES',
+        { action: 'EDIT' }
     ),
 
     // Delete company action
-    deleteCompany: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    deleteCompany: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
 
             if (!id) {
@@ -484,6 +498,7 @@ export const actions: Actions = {
                 }
             }
         },
-        [SystemRole.ADMIN]
+        'COMPANIES',
+        { action: 'DELETE' }
     )
 };

@@ -3,9 +3,23 @@
     import { goto } from "$app/navigation";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
     import RadarSensorsTable from "./table.svelte";
+    import { canCreate, canDelete } from "$lib/utils/permissions";
     import type { PageData } from "./$types";
 
     export let data: PageData;
+
+    // Check permissions for buttons
+    $: showCreateButton = canCreate(
+        data.modulePermissions,
+        'ADMIN_CONTROLLERS_RADAR',
+        data.user?.systemRole
+    );
+
+    $: showDeleteButton = canDelete(
+        data.modulePermissions,
+        'ADMIN_CONTROLLERS_RADAR',
+        data.user?.systemRole
+    );
 
     $: tableProps = {
         records: data.radarSensors || [],
@@ -23,7 +37,18 @@
         filters: {
             accounts: data.accounts || [],
         },
+        // Pass permission to table for delete button
+        canDelete: showDeleteButton,
     };
+
+    // Conditional action buttons based on permissions
+    $: actionButtons = showCreateButton ? [
+        {
+            label: "Register Controller",
+            icon: Plus,
+            onClick: () => goto("/admin/controllers/radar/new"),
+        },
+    ] : [];
 
     const pageCrumbs = [
         ["Admin", "/admin"],
@@ -35,13 +60,7 @@
 <AdminPageLayout
     title="Radar Controllers"
     crumbs={pageCrumbs}
-    actionButtons={[
-        {
-            label: "Register Controller",
-            icon: Plus,
-            onClick: () => goto("/admin/controllers/radar/new"),
-        },
-    ]}
+    {actionButtons}
 >
     <RadarSensorsTable props={tableProps} />
 </AdminPageLayout>

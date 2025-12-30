@@ -1,16 +1,19 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ url, locals, cookies }: AuthenticatedLoadEvent) => {
         // Get current account ID from cookie or locals
         const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
         if (!currentAccountId) {
             throw error(403, 'User account not found');
         }
+        
+        // Get user for permission check
+        const user = (locals as any).user;
 
         try {
             const search = url.searchParams.get('search') || '';
@@ -98,6 +101,11 @@ export const load = restrict(
 
             const totalPages = Math.ceil(totalSensors / perPage);
 
+            // Fetch module permissions for the current user in this account
+            const modulePermissions = user?.id 
+                ? await getUserModulePermissions(user.id, currentAccountId)
+                : {};
+
             return {
                 radarSensors: sensors,
                 meta: {
@@ -110,14 +118,17 @@ export const load = restrict(
                 sort: {
                     field: sortField,
                     order: sortOrder
-                }
+                },
+                modulePermissions,
+                user: user ? { id: user.id, systemRole: user.systemRole } : null
             };
         } catch (err) {
             logger.error(`Error loading radar sensors: ${err}`);
             throw error(500, 'Failed to load radar sensors');
         }
     },
-    [SystemRole.USER, SystemRole.ADMIN]
+    'USER_CONTROLLERS_RADAR',
+    { action: 'VIEW' }
 ) satisfies PageServerLoad;
 
 

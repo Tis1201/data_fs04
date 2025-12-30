@@ -63,6 +63,9 @@ model Account {
   // Subscription
   subscription  Subscription?
   
+  // Permission overrides for users in this account
+  userPermissionOverrides UserPermissionOverride[]
+  
   // Account-to-account relationships
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
@@ -257,6 +260,58 @@ model Permission {
   )
 }
 
+// User Permission Override model
+// Individual user permission overrides that take priority over group permissions
+// Use cases: 
+//   - Grant special access to specific users
+//   - Revoke access for specific users (e.g., temporary suspension)
+//   - Time-limited permissions (e.g., trial access)
+model UserPermissionOverride {
+  id          String    @id @default(cuid())
+  
+  // User this override applies to
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Account context
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Permission specification
+  module      String    // e.g., "USER_DEVICES", "USER_BUNDLES"
+  action      String    // e.g., "VIEW", "CREATE", "EDIT", "DELETE"
+  allowed     Boolean   // true = grant permission, false = deny (overrides group permission)
+  
+  // Metadata
+  reason      String?   // Why this override was created
+  expiresAt   DateTime? // Optional expiration (null = permanent)
+  isActive    Boolean   @default(true)
+  
+  // Audit trail
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String?   // User who created this override
+  creator     User?     @relation("OverrideCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  // Constraints
+  @@unique([userId, accountId, module, action])
+  @@index([userId, accountId])
+  @@index([accountId])
+  @@index([module, action])
+  @@index([expiresAt])
+  @@index([isActive])
+  
+  // Authorization rules
+  // Admins can manage all overrides
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // Account OWNER/ADMIN can manage overrides in their account
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  // Account members can read overrides that apply to them
+  @@allow('read', userId == auth().id && account.members?[userId == auth().id])
+  // Account OWNER/ADMIN can read all overrides in their account
+  @@allow('read', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+}
+
 // User model
 model User {
   id            String    @id @default(cuid())
@@ -304,6 +359,10 @@ model User {
   
   // Audit log relation
   auditLogs          AuditLog[]
+  
+  // Permission override relations
+  permissionOverrides UserPermissionOverride[]  // Overrides applied to this user
+  createdOverrides   UserPermissionOverride[] @relation("OverrideCreator")  // Overrides created by this user
 
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything

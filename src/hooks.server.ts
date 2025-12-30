@@ -15,6 +15,12 @@ import {
     requestContextStore
 } from "$lib/server/context/requestContext";
 import { handleDeprecatedEndpoint } from "$lib/server/api/deprecation";
+import { getRouteModuleConfig, getActionForMethod } from "$lib/constants/routeModuleMap";
+import { hasModulePermission, getUserModulePermissions } from "$lib/server/security/modulePermissions";
+
+// Environment flag to enable/disable hooks-level module permission checking
+// Set to 'true' to enable early route protection at hooks level
+const ENABLE_HOOKS_MODULE_CHECK = process.env.ENABLE_HOOKS_MODULE_CHECK === 'true';
 
 // Initialize main application process (WhatsApp, Device Presence Monitor)
 // Note: Bundle and cleanup processes run separately via npm scripts
@@ -140,6 +146,61 @@ export const handle: Handle = async ({ event, resolve }) => {
                         (authEvent.locals as any).currentAccount?.account?.id,
                         session.user.systemRole
                     );
+
+                    // Optional: Check module permissions at hooks level
+                    // This provides an early catch-all protection layer
+                    // Individual routes still have their own guards for more specific control
+                    if (ENABLE_HOOKS_MODULE_CHECK && session.user.systemRole !== 'ADMIN') {
+                        const path = authEvent.url.pathname;
+                        const method = authEvent.request.method;
+                        const accountId = (authEvent.locals as any).currentAccount?.account?.id;
+
+                        // Only check for protected routes (/user/* and /admin/*)
+                        if ((path.startsWith('/user/') || path.startsWith('/admin/')) && accountId) {
+                            const routeConfig = getRouteModuleConfig(path);
+                            
+                            if (routeConfig && !routeConfig.skipCheck) {
+                                const action = getActionForMethod(method, routeConfig);
+                                
+                                const hasAccess = await hasModulePermission({
+                                    userId: session.user.id,
+                                    accountId,
+                                    module: routeConfig.module,
+                                    action
+                                });
+
+                                if (!hasAccess) {
+                                    logger.warn('Module permission denied at hooks level', {
+                                        requestId: requestContext.requestId,
+                                        userId: session.user.id,
+                                        accountId,
+                                        module: routeConfig.module,
+                                        action,
+                                        path
+                                    });
+                                    throw error(403, `Access denied: ${routeConfig.module}/${action}`);
+                                }
+                            }
+                        }
+                    }
+
+                    // Preload user's module permissions and attach to locals for use in routes
+                    // This avoids repeated database queries in route guards
+                    const accountId = (authEvent.locals as any).currentAccount?.account?.id;
+                    if (accountId && session.user.systemRole !== 'ADMIN') {
+                        try {
+                            const modulePermissions = await getUserModulePermissions(
+                                session.user.id,
+                                accountId
+                            );
+                            (authEvent.locals as any).modulePermissions = modulePermissions;
+                        } catch (err) {
+                            logger.warn('Failed to preload module permissions', {
+                                requestId: requestContext.requestId,
+                                error: err
+                            });
+                        }
+                    }
                 }
             }
 
