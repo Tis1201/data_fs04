@@ -1431,5 +1431,4 @@ model WebhookEvent {
   createdAt DateTime @default(now())
 
   @@index([type])
->>>>>>> origin/feature/mqtt-replace
 }
