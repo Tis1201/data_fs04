@@ -29,6 +29,7 @@
         TagIcon,
         Radio,
         BugOff,
+        CreditCard,
     } from "lucide-svelte";
 
     export let className = "";
@@ -168,6 +169,23 @@
                 },
                 { href: "/user/settings/users", label: "Users", icon: Users2 },
                 { href: "/user/profile", label: "Profile", icon: User },
+            ],
+        },
+        {
+            label: "Billing",
+            icon: CreditCard,
+            initialExpanded: false,
+            subItems: [
+                {
+                    href: "/user/settings/billing",
+                    label: "Plans",
+                    icon: CreditCard,
+                },
+                {
+                    href: "/user/billing/invoices",
+                    label: "Invoices",
+                    icon: FileText,
+                },
             ],
         },
         {

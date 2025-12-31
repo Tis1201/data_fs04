@@ -4,7 +4,7 @@
  * Run with: npx tsx scripts/seed-plans.ts
  * 
  * Seeds the database with default billing plans.
- * Uses upsert to avoid duplicates.
+ * Uses upsert by `code` to ensure idempotent execution.
  */
 
 import 'dotenv/config';
@@ -12,34 +12,56 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Default plans
+// Default plans - use stable `code` as lookup key (never use display name for logic)
+// Pricing: Free, Starter $199/mo, Business $499/mo, Enterprise (contact sales)
 const defaultPlans = [
     {
-        name: 'Free Tier',
-        stripeProductId: 'prod_free_placeholder',
+        code: 'free',
+        name: 'Free',
+        stripeProductId: null, // No Stripe product for free tier
+        stripePriceId: null,
         isActive: true,
         maxDevices: 5,
-        maxUsers: 1,
+        maxUsers: 5,
+        maxLogLinesPerMonth: 10000, // 10K logs/month
         dataRetentionDays: 7,
         features: ['basic_support']
     },
     {
-        name: 'Pro Tier',
-        stripeProductId: null, // To be filled after Stripe setup
+        code: 'starter',
+        name: 'Starter',
+        stripeProductId: null, // To be filled after Stripe setup: $199/mo
+        stripePriceId: null,
         isActive: true,
         maxDevices: 50,
-        maxUsers: 5,
+        maxUsers: 10,
+        maxLogLinesPerMonth: 500000, // 500K logs/month
         dataRetentionDays: 30,
-        features: ['priority_support', 'email_alerts']
+        features: ['priority_support', 'email_alerts', 'api_access']
     },
     {
+        code: 'business',
+        name: 'Business',
+        stripeProductId: null, // To be filled after Stripe setup: $499/mo
+        stripePriceId: null,
+        isActive: true,
+        maxDevices: 1000,
+        maxUsers: 50,
+        maxLogLinesPerMonth: 5000000, // 5M logs/month
+        dataRetentionDays: 90,
+        features: ['priority_support', 'email_alerts', 'api_access', 'phone_support', 'custom_integrations']
+    },
+    {
+        code: 'enterprise',
         name: 'Enterprise',
-        stripeProductId: null, // To be filled after Stripe setup
+        stripeProductId: null, // Contact sales - custom pricing
+        stripePriceId: null,
         isActive: true,
         maxDevices: 999999, // Unlimited
         maxUsers: 999999, // Unlimited
+        maxLogLinesPerMonth: 999999999, // Unlimited
         dataRetentionDays: 365,
-        features: ['sso', 'audit_logs', 'sla', 'white_label']
+        features: ['sso', 'audit_logs', 'sla', 'white_label', 'dedicated_support', 'custom_integrations', 'on_premise']
     }
 ];
 
@@ -47,37 +69,31 @@ async function seedPlans() {
     console.log('🌱 Seeding default Plans...');
 
     for (const plan of defaultPlans) {
-        // We use name as a pseudo-unique key for seeding if stripeProductId is null
-        // Ideally, in prod, we match by stripeProductId
-
-        // Find existing plan by name to get ID, or create new
-        const existing = await prisma.plan.findFirst({
-            where: { name: plan.name }
-        });
-
         const result = await prisma.plan.upsert({
-            where: {
-                id: existing?.id ?? `seed-${plan.name.replace(/\s+/g, '-').toLowerCase()}`
-            },
+            where: { code: plan.code },
             create: {
-                id: `seed-${plan.name.replace(/\s+/g, '-').toLowerCase()}`,
+                code: plan.code,
                 name: plan.name,
                 stripeProductId: plan.stripeProductId,
+                stripePriceId: plan.stripePriceId,
                 isActive: plan.isActive,
                 maxDevices: plan.maxDevices,
                 maxUsers: plan.maxUsers,
+                maxLogLinesPerMonth: plan.maxLogLinesPerMonth,
                 dataRetentionDays: plan.dataRetentionDays,
                 features: JSON.stringify(plan.features)
             },
             update: {
-                // Update limits and features, but keep ID stable
+                // Update limits and features on re-run, keep code/name stable
+                name: plan.name,
                 maxDevices: plan.maxDevices,
                 maxUsers: plan.maxUsers,
+                maxLogLinesPerMonth: plan.maxLogLinesPerMonth,
                 dataRetentionDays: plan.dataRetentionDays,
                 features: JSON.stringify(plan.features)
             }
         });
-        console.log(`  ✅ ${result.name} (Devices: ${result.maxDevices})`);
+        console.log(`  ✅ ${result.code}: ${result.name} (Devices: ${result.maxDevices}, Users: ${result.maxUsers}, Logs: ${result.maxLogLinesPerMonth}/mo)`);
     }
 
     console.log(`\n✨ Seeded ${defaultPlans.length} Plans`);

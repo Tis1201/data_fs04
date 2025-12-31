@@ -1997,13 +1997,16 @@ model CronJobExecution {
 // Represents a billing tier (Syncs from Stripe Product/Price)
 model Plan {
   id              String   @id @default(cuid())
-  name            String   // e.g., "Free", "Pro", "Enterprise"
+  code            String   @unique // 'free', 'pro', 'enterprise' - stable lookup key
+  name            String   // Display name: "Free Tier", "Pro Plan"
   stripeProductId String?  @unique
+  stripePriceId   String?  // Monthly price ID for Stripe Checkout
   isActive        Boolean  @default(true)
   
   // Entitlements defined by this plan
   maxDevices      Int      @default(5)
   maxUsers        Int      @default(1)
+  maxLogLinesPerMonth Int  @default(10000) // Monthly log line limit
   dataRetentionDays Int    @default(7)
   features        Json     @default("[]") // e.g., ["sso", "audit_logs", "white_label"]
   
@@ -2013,10 +2016,11 @@ model Plan {
   updatedAt       DateTime @updatedAt
 
   // Authorization rules
-  // Allow admins to manage plans
   @@allow('all', auth().systemRole == 'ADMIN')
-  // Allow authenticated users to view active plans
   @@allow('read', auth() != null && isActive == true)
+  
+  @@index([isActive])
+  @@index([code])
 }
 
 // Connects an Account to a Plan
@@ -2028,27 +2032,45 @@ model Subscription {
   planId          String
   plan            Plan     @relation(fields: [planId], references: [id])
   
-  status          String   @default("active") // "active", "past_due", "canceled", "incomplete", "trialing"
+  source          String   @default("stripe") // 'stripe' | 'license'
+  status          String   @default("active") // active, trialing, past_due, pending_cancel, canceled, incomplete, expired
   
-  // Stripe Data (for SaaS)
+  // Stripe Data (for SaaS, source='stripe')
   stripeCustomerId     String?
   stripeSubscriptionId String? @unique
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean @default(false)
+  trialEndsAt          DateTime? // For trial periods
   
-  // License Data (for Self-Hosted)
+  // License Data (for Self-Hosted, source='license')
   licenseKey           String?
+  licenseExpiresAt     DateTime? // Expiration for offline validation
   
-  // Overrides (Optional device-specific or manual overrides)
+  // Overrides (for custom deals)
   overrideMaxDevices   Int?
+  overrideMaxUsers     Int?
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   // Authorization rules
-  // Admins can manage all subscriptions
   @@allow('all', auth().systemRole == 'ADMIN')
-  // Account members can view their subscription
   @@allow('read', account.members?[userId == auth().id])
+  
+  @@index([status])
+  @@index([planId])
+  @@index([source])
 }
 
+// Stripe Webhook Event Tracking (for idempotency)
+model WebhookEvent {
+  id        String   @id // Stripe event ID (e.g., evt_xxx)
+  type      String   // Event type (e.g., checkout.session.completed)
+  objectId  String?  // Related object ID for debugging (e.g., sub_xxx)
+  createdAt DateTime @default(now())
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  @@index([type])
+}

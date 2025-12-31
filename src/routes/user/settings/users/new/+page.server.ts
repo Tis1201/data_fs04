@@ -12,6 +12,7 @@ import { generateSecurePassword } from '$lib/utils/generate-password';
 import prisma from '$lib/server/prisma';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { checkUserLimit, LimitExceededError } from '$lib/server/entitlements';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
   try {
@@ -42,7 +43,7 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 
     // Generate a secure password for the form
     const generatedPassword = generateSecurePassword();
-    
+
     // Initialize the form with the schema and defaults
     const form = await superValidate(zod(createUserSchema), {
       id: 'create-user-form',
@@ -54,8 +55,8 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
         password: generatedPassword
       }
     });
-    
-    return { 
+
+    return {
       form,
       generatedPassword
     };
@@ -71,7 +72,7 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 export const actions: Actions = {
   create: async ({ request, locals, cookies }: { request: Request; locals: any; cookies: any }) => {
     const form = await superValidate(request, zod(createUserSchema));
-    
+
     try {
       // Get the authentication state
       const auth = await locals.auth.validate();
@@ -95,8 +96,8 @@ export const actions: Actions = {
       });
 
       if (!currentUserMembership || !['ADMIN', 'OWNER'].includes(currentUserMembership.role)) {
-        return fail(403, { 
-          form, 
+        return fail(403, {
+          form,
           message: {
             type: 'error',
             text: 'Access denied',
@@ -106,10 +107,24 @@ export const actions: Actions = {
       }
 
       const enhancedPrisma = getEnhancedPrisma(auth.user);
-      
+
+      // Check user limit before creating
+      try {
+        await checkUserLimit(currentAccountId);
+      } catch (e) {
+        if (e instanceof LimitExceededError) {
+          return message(form, {
+            type: 'error',
+            text: 'User limit reached',
+            details: `Your account has reached the maximum number of users (${e.current}/${e.max}). Upgrade your plan to add more users.`
+          }, { status: 403 });
+        }
+        throw e;
+      }
+
       // Perform additional custom validations
       let hasValidationErrors = !form.valid;
-      
+
       // Check if password is provided - don't allow empty passwords
       if (!form.data.password || form.data.password.trim() === '') {
         form.errors.password = ['Password is required'];
@@ -117,25 +132,25 @@ export const actions: Actions = {
       } else {
         // Validate password based on settings if password is provided
         const passwordValidation = await validatePassword(form.data.password);
-        
+
         if (!passwordValidation.valid) {
           form.errors.password = [passwordValidation.error || 'Password does not meet security requirements'];
           hasValidationErrors = true;
         }
       }
-      
+
       // Check if email already exists
       if (form.data.email) {
         const existingUser = await enhancedPrisma.user.findUnique({
           where: { email: form.data.email }
         });
-        
+
         if (existingUser) {
           form.errors.email = ['A user with this email already exists'];
           hasValidationErrors = true;
         }
       }
-      
+
       // Return all validation errors at once
       if (hasValidationErrors) {
         return fail(400, { form });
@@ -143,7 +158,7 @@ export const actions: Actions = {
 
       // Hash the password using Argon2
       const hashedPassword = await hash(form.data.password!);
-      
+
       // Create the user
       const newUser = await enhancedPrisma.user.create({
         data: {
@@ -162,7 +177,7 @@ export const actions: Actions = {
           createdAt: true
         }
       });
-      
+
       // Add the new user to the current account with selected role
       const adminPrisma = getAdminPrismaFromAuth(auth);
       const membership = await adminPrisma.accountMembership.create({
@@ -172,7 +187,7 @@ export const actions: Actions = {
           role: form.data.accountRole
         }
       });
-      
+
       logger.info(`User ${newUser.id} added to account ${currentAccountId} with ${form.data.accountRole} role`);
       logger.info(`User created: ${newUser.id} by ${auth.user.email}`);
 
@@ -186,7 +201,7 @@ export const actions: Actions = {
         ipAddress: locals.ipAddress,
         prisma: adminPrisma
       })
-      
+
       await logAudit({
         actionType: AuditActionType.INSERT,
         tableName: 'AccountMembership',
@@ -197,27 +212,27 @@ export const actions: Actions = {
         ipAddress: locals.ipAddress,
         prisma: adminPrisma
       })
-      
+
       // Return success with the form data and success message
       return message(form, {
         type: 'success',
         text: 'User created successfully',
         details: `User ${newUser.name} has been created with email ${newUser.email}.`
       });
-      
+
     } catch (err) {
       if (err instanceof Response) {
         throw err; // Re-throw redirects
       }
-      
+
       logger.error(`Error creating user: ${err}`);
-      
+
       let errorMessage = {
         type: 'error' as const,
         text: 'Unable to create user',
         details: 'An unexpected error occurred while processing your request.'
       };
-      
+
       // Handle specific error types
       if (err && typeof err === 'object' && 'code' in err) {
         if (err.code === 'P2002') {
@@ -228,7 +243,7 @@ export const actions: Actions = {
           errorMessage.details = 'One of the references in your request is invalid.';
         }
       }
-      
+
       return message(form, errorMessage, { status: 400 });
     }
   }

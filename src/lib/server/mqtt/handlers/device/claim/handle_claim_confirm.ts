@@ -1,6 +1,7 @@
 import { ClaimStatus } from '@prisma/client';
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
+import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../../core/publish';
 
@@ -36,7 +37,7 @@ export async function handleClaimConfirm(
     const handlerStartTime = Date.now();
     logger.info(`[DeviceClaimConfirm] Handler started at ${new Date().toISOString()}`);
 
-    const { ticket, deviceInfo} = params;
+    const { ticket, deviceInfo } = params;
 
     if (!ticket) {
         throw new Error('Missing ticket');
@@ -50,7 +51,7 @@ export async function handleClaimConfirm(
     const device_id = device_parts?.[1];
 
     logger.info(`Device Claim Confirm: ${device_type}:${device_id}`);
-   
+
     const owner = ctx.sub;
     if (!owner) {
         throw new Error('Invalid claim ticket: missing subject');
@@ -63,7 +64,7 @@ export async function handleClaimConfirm(
     logger.info(`Owner: ${owner_type}:${owner_id}:${owner_account_id}`);
 
 
-    
+
     // Convert factory device to actual device and generate an API key.
     const factoryDeviceIdParam = ctx.params?.factoryDeviceId as string | undefined;
     const factoryDeviceId = factoryDeviceIdParam ?? device_id;
@@ -98,15 +99,28 @@ export async function handleClaimConfirm(
         throw new Error('Ticket account does not match factory device account');
     }
 
+    // Check device limit before creating device
+    if (account) {
+        try {
+            await checkDeviceLimit(account.id);
+        } catch (e) {
+            if (e instanceof LimitExceededError) {
+                logger.warn(`[DeviceClaimConfirm] Device limit reached for account ${account.id}`);
+                throw new Error(`Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.`);
+            }
+            throw e;
+        }
+    }
+
     const now = new Date();
     const preclaimDeviceId = ctx.params?.preclaimDeviceId as string | undefined;
-    
+
     // Extract MAC address from deviceInfo
     const networkMac = deviceInfo?.networkInfo?.mac;
     const macAddress = typeof networkMac === 'string' && networkMac ? networkMac : null;
     // Use MAC as wifiMac if available (can be differentiated later if needed)
     const wifiMac = macAddress;
-    
+
     // Check if device with same MAC address is already claimed (following MQTT flow)
     if (macAddress) {
         const existingDevice = await prisma.device.findFirst({
@@ -124,7 +138,7 @@ export async function handleClaimConfirm(
                 accountId: true
             }
         });
-        
+
         if (existingDevice) {
             logger.warn(
                 `[DeviceClaimConfirm] Device with MAC ${macAddress} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
@@ -132,9 +146,9 @@ export async function handleClaimConfirm(
             throw new Error(`Device with MAC address ${macAddress} is already claimed`);
         }
     }
-    
+
     const apiKey = generateId(128);
-    
+
     // Device name format: "device - MAC-address" (e.g., "device - 82:B4:D5:BF:10:EB")
     // Always use MAC address for device name; fallback to generic name if MAC is missing
     const deviceName = macAddress ? `device - ${macAddress}` : 'device - unknown';
@@ -176,7 +190,7 @@ export async function handleClaimConfirm(
                 },
                 select: { id: true }
             });
-            
+
             // Only set it if no other factory device has it
             if (!existingFactoryDevice) {
                 hardwareFingerprintToSet = macAddress;
@@ -266,8 +280,7 @@ export async function handleClaimConfirm(
         })
         .catch((notifyErr) => {
             logger.error(
-                `[DeviceClaimConfirm] Failed to send claim reply notification for device ${createdDevice.id}: ${
-                    notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+                `[DeviceClaimConfirm] Failed to send claim reply notification for device ${createdDevice.id}: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
                 }`
             );
         });
@@ -276,11 +289,11 @@ export async function handleClaimConfirm(
     // Note: The result will be wrapped by the RPC handler in index.ts, so return the inner object directly
     const handlerDuration = Date.now() - handlerStartTime;
     logger.info(`[DeviceClaimConfirm] Handler completed in ${handlerDuration}ms, returning result at ${new Date().toISOString()}`);
-    
+
     return {
-            status: 'ok',
-            deviceId: createdDevice.id,
-            apiKey,
-            accountId: account?.id ?? null
+        status: 'ok',
+        deviceId: createdDevice.id,
+        apiKey,
+        accountId: account?.id ?? null
     };
 }
