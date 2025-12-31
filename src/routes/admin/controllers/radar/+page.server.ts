@@ -21,13 +21,16 @@ export const load = restrict(
             const skip = (page - 1) * perPage;
             const take = perPage;
 
+            // Query controllers instead of sensors to show all controllers, even those without sensors
             const where: {
                 type: string;
+                isDeleted: boolean;
                 OR?: Array<{ [key: string]: { contains: string; mode: 'insensitive' } }>;
                 status?: { in: string[] };
                 accountId?: string;
             } = {
-                type: 'radar'
+                type: 'radar',
+                isDeleted: false
             };
 
             if (search) {
@@ -36,7 +39,7 @@ export const load = restrict(
                     { serialNumber: { contains: search, mode: 'insensitive' } },
                     { id: { contains: search, mode: 'insensitive' } },
                     { description: { contains: search, mode: 'insensitive' } },
-                    { location: { contains: search, mode: 'insensitive' } }
+                    { sensors: { some: { location: { contains: search, mode: 'insensitive' } } } }
                 ];
             }
 
@@ -48,53 +51,67 @@ export const load = restrict(
                 where.accountId = accountId;
             }
 
-            const [sensors, totalSensors] = await Promise.all([
-                locals.prisma.sensor.findMany({
-                    where: {
-                        ...where,
-                        controller: {
-                            isDeleted: false // Only show sensors with non-deleted controllers
-                        }
-                    },
+            // First, get controllers
+            const [controllers, totalControllers] = await Promise.all([
+                locals.prisma.controller.findMany({
+                    where,
                     orderBy: {
                         [sortField]: sortOrder
                     },
                     skip,
                     take,
-                    select: {
-                        id: true,
-                        name: true,
-                        serialNumber: true,
-                        status: true,
-                        description: true,
-                        location: true,
-                        firmware: true,
-                        createdAt: true,
-                        updatedAt: true,
-                        accountId: true,
+                    include: {
+                        sensors: {
+                            where: {
+                                type: 'radar'
+                            },
+                            take: 1, // Get first sensor for display
+                            orderBy: {
+                                createdAt: 'desc'
+                            }
+                        },
                         account: {
                             select: {
                                 id: true,
                                 name: true
                             }
                         },
-                        controller: {
+                        device: {
                             select: {
                                 id: true,
-                                name: true,
-                                device: {
-                                    select: {
-                                        id: true,
-                                        name: true
-                                    }
-                                }
+                                name: true
                             }
-                        },
-                        config: true
+                        }
                     }
                 }),
-                locals.prisma.sensor.count({ where })
+                locals.prisma.controller.count({ where })
             ]);
+
+            // Transform controllers to sensor-like format for compatibility with existing UI
+            const sensors = controllers.map(controller => {
+                const sensor = controller.sensors[0]; // Get first sensor if exists
+                return {
+                    id: sensor?.id || controller.id, // Use sensor ID if exists, otherwise controller ID
+                    name: sensor?.name || controller.name,
+                    serialNumber: sensor?.serialNumber || controller.serialNumber,
+                    status: sensor?.status || controller.status,
+                    description: sensor?.description || controller.description,
+                    location: sensor?.location || null,
+                    firmware: sensor?.firmware || null,
+                    createdAt: sensor?.createdAt || controller.createdAt,
+                    updatedAt: sensor?.updatedAt || controller.updatedAt,
+                    accountId: controller.accountId,
+                    account: controller.account,
+                    controller: {
+                        id: controller.id,
+                        name: controller.name,
+                        device: controller.device
+                    },
+                    config: sensor?.config || null
+                };
+            });
+
+            const totalSensors = totalControllers;
 
             const totalPages = Math.ceil(totalSensors / perPage);
 

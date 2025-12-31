@@ -168,10 +168,44 @@ export const load = restrict(
             }
 
             // Get the radar sensor from the controller
-            const sensor = controller.sensors.find((s: { type: string }) => s.type === 'radar');
+            let sensor = controller.sensors.find((s: { type: string }) => s.type === 'radar');
 
+            // If no sensor exists, auto-create one for this controller
             if (!sensor) {
-                throw error(404, 'Radar sensor not found for this controller');
+                logger.info(`[AdminRadarController] No sensor found for controller ${id}, auto-creating sensor...`);
+                
+                const sensorSerialNumber = `RADAR-SENSOR-${controller.id.slice(0, 8)}-${Date.now().toString(36).toUpperCase()}`;
+                
+                sensor = await locals.prisma.sensor.create({
+                    data: {
+                        name: `${controller.name} Sensor`,
+                        type: 'radar',
+                        serialNumber: sensorSerialNumber,
+                        status: controller.status,
+                        controller: {
+                            connect: { id: controller.id }
+                        },
+                        account: {
+                            connect: { id: controller.accountId }
+                        },
+                        config: {
+                            trackingArea: undefined,
+                            zones: [],
+                            dwellBuckets: []
+                        } as any,
+                        description: 'Auto-created sensor for controller'
+                    },
+                    include: {
+                        account: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                });
+                
+                logger.info(`[AdminRadarController] Created sensor ${sensor.id} for controller ${id}`);
             }
 
             const config = (sensor.config as unknown as RadarConfig) || {};
