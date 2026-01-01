@@ -96,7 +96,10 @@
                     {
                         label: "Edit",
                         icon: Pencil,
-                        onClick: () => goto(`/admin/iot/device_tags/${record.id}`)
+                        onClick: () =>{
+                            const returnUrl = encodeURIComponent($page.url.pathname + $page.url.search)
+                            goto(`/admin/iot/device_tags/${record.id}?returnUrl=${returnUrl}`);
+                        }
                     },
                     {
                         label: "Delete",

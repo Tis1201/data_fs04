@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { page } from '$app/stores';
     import { goto } from '$app/navigation';
     import { ArrowLeft, Save, Trash2, Key, Calendar } from 'lucide-svelte';
     import { toast } from 'svelte-sonner';
@@ -25,9 +26,13 @@
     export let data;
     const { deviceTag } = data;
     
-    // Create form handler
+    const returnUrlParam = $page.url.searchParams.get('returnUrl');
+    const returnUrl = returnUrlParam 
+        ? decodeURIComponent(returnUrlParam) 
+        : '/admin/iot/device_tags';
+        
     const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
-        successRedirect: '/admin/iot/device_tags',
+        successRedirect: returnUrl, 
         validateOnInput: true,
         onSuccess: (result) => {
             toast.success(result.data?.message || 'Device Tag updated successfully');
@@ -53,12 +58,11 @@
         $state.confirmationOpen = true;
     }
     
-    // Handle delete confirmation
     async function handleDeleteConfirm() {
         try {
             await api_delete('/admin/iot/device_tags', deviceTag.id);
             toast.success('Device Tag deleted successfully');
-            goto('/admin/iot/device_tags');
+            goto(returnUrl);
         } catch (error) {
             toast.error(error instanceof Error ? error.message : 'Failed to delete Device Tag');
         }
@@ -74,7 +78,7 @@
       {
         label: "Back",
         icon: ArrowLeft,
-        onClick: () => goto('/admin/iot/device_tags'),
+        onClick: () => goto(returnUrl),
         variant: "outline",
         class: "h-9"
       },
@@ -194,4 +198,3 @@
         $state.selectedRecord = null;
     }}
 />
-
