@@ -1,32 +1,32 @@
 # Database Seeding Scripts
 
-Hướng dẫn sử dụng các script seed data và clear database.
+Guide for using seed data and clear database scripts.
 
-## Cài đặt
+## Installation
 
-Đảm bảo đã cài đặt dependencies:
+Ensure dependencies are installed:
 ```bash
 npm install
 ```
 
-## Cách chạy
+## Usage
 
-### Sử dụng npm scripts (Khuyến nghị)
+### Using npm scripts (Recommended)
 
 ```bash
 # Clear database
 npm run db:clear
 
-# Clear với dry-run (xem trước)
+# Clear with dry-run (preview)
 npm run db:clear:dry-run
 
-# Reset database (clear + seed lại)
+# Reset database (clear + reseed)
 npm run db:reset
 
-# Seed tất cả
+# Seed all
 npm run seed:all
 
-# Seed từng phần
+# Seed individual parts
 npm run seed              # System account & admin users
 npm run seed:plans        # Subscription plans
 npm run seed:users        # Users & accounts
@@ -34,9 +34,9 @@ npm run seed:groups       # Groups & permissions
 npm run seed:test-data    # Test data (devices, controllers, etc.)
 ```
 
-### Sử dụng trực tiếp với npx
+### Using directly with npx
 
-Nếu `tsx` chưa được cài globally, dùng `npx`:
+If `tsx` is not installed globally, use `npx`:
 
 ```bash
 # Clear database
@@ -49,13 +49,13 @@ npx tsx scripts/clear-db.ts --keep-jwt-keys --dry-run
 npx tsx scripts/seed-all.ts
 ```
 
-### Sử dụng với tsx global
+### Using with global tsx
 
-Nếu đã cài `tsx` globally:
+If `tsx` is installed globally:
 ```bash
 npm install -g tsx
 
-# Sau đó có thể chạy trực tiếp
+# Then you can run directly
 tsx scripts/clear-db.ts
 tsx scripts/seed-all.ts
 ```
@@ -63,38 +63,38 @@ tsx scripts/seed-all.ts
 ## Clear Database Options
 
 ```bash
-# Xem help
+# View help
 npx tsx scripts/clear-db.ts --help
 
-# Dry run (xem trước)
+# Dry run (preview)
 npx tsx scripts/clear-db.ts --dry-run
 
-# Clear tất cả
+# Clear all
 npx tsx scripts/clear-db.ts
 
-# Giữ JWT keys
+# Keep JWT keys
 npx tsx scripts/clear-db.ts --keep-jwt-keys
 
-# Giữ system account
+# Keep system account
 npx tsx scripts/clear-db.ts --keep-system-account
 
-# Giữ factory tokens
+# Keep factory tokens
 npx tsx scripts/clear-db.ts --keep-factory-tokens
 
-# Kết hợp options
+# Combine options
 npx tsx scripts/clear-db.ts --keep-jwt-keys --keep-system-account
 ```
 
 ## Seed All Options
 
 ```bash
-# Xem help
+# View help
 npx tsx scripts/seed-all.ts --help
 
-# Seed tất cả
+# Seed all
 npx tsx scripts/seed-all.ts
 
-# Bỏ qua một số phần
+# Skip some parts
 npx tsx scripts/seed-all.ts --skip-test-data
 npx tsx scripts/seed-all.ts --skip-radar-logs
 npx tsx scripts/seed-all.ts --skip-cron-jobs
@@ -105,32 +105,32 @@ npx tsx scripts/seed-all.ts --skip-groups
 npx tsx scripts/seed-all.ts --dry-run
 ```
 
-## Quy trình Test Seed Data
+## Test Seed Data Workflow
 
-### 1. Clear và Seed lại từ đầu (Development)
+### 1. Clear and Reseed from Scratch (Development)
 ```bash
 npm run db:reset
 ```
 
-Hoặc từng bước:
+Or step by step:
 ```bash
 npm run db:clear
 npm run seed:all
 ```
 
-### 2. Clear nhưng giữ JWT Keys (Nếu có devices đang hoạt động)
+### 2. Clear but Keep JWT Keys (If there are active devices)
 ```bash
 npx tsx scripts/clear-db.ts --keep-jwt-keys
 npm run seed:all
 ```
 
-### 3. Clear nhưng giữ System Account
+### 3. Clear but Keep System Account
 ```bash
 npx tsx scripts/clear-db.ts --keep-system-account
 npm run seed:all
 ```
 
-## Dữ liệu được tạo
+## Generated Data
 
 ### Admin Users
 - `admin@admin.com` / `admin0823` (ADMIN)
@@ -145,74 +145,74 @@ npm run seed:all
 ### Test Data (per account)
 - 2 Companies
 - 4 Device Tags
-- 3-5 Devices với random hardware
-- 1-3 Controllers (Radar) với sensors
-- 1 Device Profile với settings
+- 3-5 Devices with random hardware
+- 1-3 Controllers (Radar) with sensors
+- 1 Device Profile with settings
 
 ### Groups & Permissions
-Mỗi account có 4 default groups:
+Each account has 4 default groups:
 - **Administrators**: Full access
-- **Managers**: Quản lý users, devices, features
-- **Operators**: View và operate devices/controllers
+- **Managers**: Manage users, devices, features
+- **Operators**: View and operate devices/controllers
 - **Viewers**: Read-only access
 
-Users được tự động assign vào groups dựa trên account role:
+Users are automatically assigned to groups based on account role:
 - OWNER → Administrators
 - ADMIN → Managers
 - MEMBER → Viewers
 
-## Lưu ý
+## Notes
 
 ### Factory Tokens & JWT Keys
 
 **JWT Signing Keys:**
-- Dùng để sign/verify JWT tokens
+- Used to sign/verify JWT tokens
 - Types: `FACTORY`, `RUNTIME`, `INVITATION`
-- ⚠️ Nếu xóa: Không thể verify tokens đã được issue
-- ✅ Nên giữ nếu: Đang có devices/tokens đang hoạt động
+- ⚠️ If deleted: Cannot verify tokens that have been issued
+- ✅ Should keep if: There are active devices/tokens
 
 **Factory Tokens:**
-- Tokens dùng cho device registration
-- Được tạo từ factory signing keys
-- ⚠️ Nếu xóa: Devices chưa register sẽ không thể dùng tokens này
-- ✅ Nên giữ nếu: Có devices đang chờ register
+- Tokens used for device registration
+- Created from factory signing keys
+- ⚠️ If deleted: Devices not yet registered will not be able to use these tokens
+- ✅ Should keep if: There are devices waiting to register
 
 ### Safety
 
-- ⚠️ Luôn backup database trước khi clear (đặc biệt production)
-- ✅ Dùng `--dry-run` để xem trước
-- ✅ Scripts đều idempotent (có thể chạy nhiều lần an toàn)
-- ✅ Sử dụng `upsert` để tránh duplicate data
+- ⚠️ Always backup database before clearing (especially in production)
+- ✅ Use `--dry-run` to preview
+- ✅ Scripts are idempotent (can be run multiple times safely)
+- ✅ Uses `upsert` to avoid duplicate data
 
 ## Troubleshooting
 
-### Lỗi "command not found: tsx"
+### Error "command not found: tsx"
 
-**Giải pháp 1**: Dùng npx
+**Solution 1**: Use npx
 ```bash
 npx tsx scripts/clear-db.ts
 ```
 
-**Giải pháp 2**: Dùng npm scripts
+**Solution 2**: Use npm scripts
 ```bash
 npm run db:clear
 ```
 
-**Giải pháp 3**: Cài tsx globally
+**Solution 3**: Install tsx globally
 ```bash
 npm install -g tsx
 ```
 
-### Lỗi database connection
+### Database connection error
 
-Đảm bảo:
-- Database đang chạy
-- `DATABASE_URL` trong `.env` đúng
-- Có quyền truy cập database
+Ensure:
+- Database is running
+- `DATABASE_URL` in `.env` is correct
+- You have database access permissions
 
-### Lỗi foreign key constraints
+### Foreign key constraints error
 
-Script `clear-db.ts` đã xử lý thứ tự xóa đúng. Nếu vẫn lỗi, có thể cần:
-- Kiểm tra schema có thay đổi
-- Xóa manual các records orphaned
+The `clear-db.ts` script handles deletion order correctly. If you still get errors, you may need to:
+- Check if schema has changed
+- Manually delete orphaned records
 
