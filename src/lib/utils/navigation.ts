@@ -12,7 +12,7 @@ export function getBundleListBreadcrumbs(context: 'admin' | 'user'): BreadcrumbI
     if (context === 'admin') {
         return [
             ["Admin", "/admin"],
-            ["IOT", "/admin/iot"],
+            ["IOT", ""],
             ["Bundles", "/admin/iot/bundles"]
         ];
     } else {
@@ -80,7 +80,7 @@ export function getDeviceListBreadcrumbs(context: 'admin' | 'user'): BreadcrumbI
     if (context === 'admin') {
         return [
             ["Admin", "/admin"],
-            ["IOT", "/admin/iot"],
+            ["IOT", ""],
             ["Devices", "/admin/iot/devices"]
         ];
     } else {
@@ -148,7 +148,7 @@ export function getDeviceProfileListBreadcrumbs(context: 'admin' | 'user'): Brea
     if (context === 'admin') {
         return [
             ["Admin", "/admin"],
-            ["IOT", "/admin/iot"],
+            ["IOT", ""],
             ["Device Profiles", "/admin/iot/device-profiles"]
         ];
     } else {
@@ -220,7 +220,7 @@ export function getPreclaimListBreadcrumbs(context: 'admin' | 'user'): Breadcrum
     if (context === 'admin') {
         return [
             ["Admin", "/admin"],
-            ["IOT", "/admin/iot"],
+            ["IOT", ""],
             ["Preclaims", "/admin/iot/preclaims"]
         ];
     } else {
@@ -292,7 +292,7 @@ export function getPreclaimNewBreadcrumbs(context: 'admin' | 'user'): Breadcrumb
 export function getResourceListBreadcrumbs(): BreadcrumbItem[] {
     return [
         ["Admin", "/admin"],
-        ["IOT", "/admin/iot"],
+        ["IOT", ""],
         ["Resources", "/admin/iot/resources"]
     ];
 }
@@ -354,7 +354,7 @@ export function getPinRuleListBreadcrumbs(context: 'admin' | 'user'): Breadcrumb
     if (context === 'admin') {
         return [
             ["Admin", "/admin"],
-            ["IoT", "/admin/iot"],
+            ["IoT", ""],
             ["Pin Rules", "/admin/iot/pin-rules"]
         ];
     } else {
@@ -426,7 +426,7 @@ export function getPinRuleNewBreadcrumbs(context: 'admin' | 'user'): BreadcrumbI
 export function getFactoryTokenListBreadcrumbs(): BreadcrumbItem[] {
     return [
         ["Admin", "/admin"],
-        ["IoT", "/admin/iot"],
+        ["IoT", ""],
         ["Factory Tokens", "/admin/iot/factory_tokens"]
     ];
 }
