@@ -64,6 +64,7 @@ model Account {
   deviceAppSummaries       DeviceAppSummary[]
   pinRules                 PinRule[]
   subscription             Subscription?
+  userPermissionOverrides  UserPermissionOverride[]
   parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
   childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
   controllers              Controller[]
@@ -189,6 +190,31 @@ model Permission {
   @@index([module, action])
 }
 
+model UserPermissionOverride {
+  id        String    @id() @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId String
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  module    String
+  action    String
+  allowed   Boolean
+  reason    String?
+  expiresAt DateTime?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt()
+  createdBy String?
+  creator   User?     @relation("OverrideCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@unique([userId, accountId, module, action])
+  @@index([userId, accountId])
+  @@index([accountId])
+  @@index([module, action])
+  @@index([expiresAt])
+  @@index([isActive])
+}
+
 model User {
   id                        String                 @id() @default(cuid())
   name                      String?
@@ -221,6 +247,8 @@ model User {
   createdControllers        Controller[]
   createdSensors            Sensor[]
   auditLogs                 AuditLog[]
+  permissionOverrides       UserPermissionOverride[]
+  createdOverrides          UserPermissionOverride[] @relation("OverrideCreator")
 
   @@index([primaryAccountId])
 }

@@ -2,16 +2,16 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { groupSchema } from '../../groups/new/group';
 import { z } from 'zod';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import rawPrisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack policies
+import { invalidatePermissionCache, getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
-export const load: PageServerLoad = restrict(
+export const load: PageServerLoad = restrictModule(
     async ({ params, locals }: AuthenticatedLoadEvent) => {
         const { id } = params;
         
@@ -154,6 +154,15 @@ export const load: PageServerLoad = restrict(
             
             logger.info(`[LOAD] Group ${id} - Final groupRole: ${groupRole}`);
 
+            // Get module permissions for frontend
+            let modulePermissions = (locals as any).modulePermissions || {};
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+                } catch (e) { /* ignore */ }
+            }
+
             return {
                 form,
                 group,
@@ -161,7 +170,9 @@ export const load: PageServerLoad = restrict(
                 accountMembers,
                 addUserForm,
                 permissionMap,
-                groupRole
+                groupRole,
+                modulePermissions,
+                user: locals.user
             };
         } catch (err) {
             const loadErr = err as { status?: number };
@@ -172,13 +183,14 @@ export const load: PageServerLoad = restrict(
             throw error(500, 'Failed to load group details');
         }
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    'GROUPS',
+    { action: 'VIEW' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
     // Action for updating a group using Superforms
-    updateGroup: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    updateGroup: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
         if (!id) {
             return fail(400, { error: 'Group ID is required' });
@@ -257,12 +269,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'EDIT' }
     ),
     
     // Action for adding a user to a group
-    addUser: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    addUser: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
             if (!id) {
                 return fail(400, { error: 'Group ID is required' });
@@ -397,12 +410,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'EDIT' }
     ),
     
     // Action for removing a user from a group
-    removeUser: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    removeUser: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
             if (!id) {
                 return fail(400, { error: 'Group ID is required' });
@@ -470,12 +484,13 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to remove user from group: ' + (err instanceof Error ? err.message : 'Unknown error') });
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'EDIT' }
     ),
 
     // Update group permissions
-    updatePermissions: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    updatePermissions: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
             if (!id) {
                 return fail(400, { error: 'Group ID is required' });
@@ -607,18 +622,41 @@ export const actions: Actions = {
                     prisma: locals.prisma
                 });
                 
+                // Invalidate permission caches for all users in this group
+                // This ensures they get the updated permissions on their next request
+                const groupMembers = await rawPrisma.groupMembership.findMany({
+                    where: { groupId: id },
+                    include: {
+                        membership: {
+                            select: {
+                                userId: true,
+                                accountId: true
+                            }
+                        }
+                    }
+                });
+                
+                // Invalidate cache for each affected user-account pair
+                const invalidationPromises = groupMembers.map(gm => 
+                    invalidatePermissionCache(gm.membership.userId, gm.membership.accountId)
+                );
+                await Promise.all(invalidationPromises);
+                
+                logger.info(`[SAVE] Group ${id} - Invalidated permission caches for ${groupMembers.length} group members`);
+                
                 return { success: true };
             } catch (err) {
                 logger.error(`Error updating permissions: ${err}`);
                 return fail(500, { error: 'Failed to update permissions: ' + (err instanceof Error ? err.message : 'Unknown error') });
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'EDIT' }
     ),
 
     // Delete group action
-    deleteGroup: restrict(
-        async ({ request, params, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    deleteGroup: restrictModule(
+        async ({ request, params, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const { id } = params;
 
             if (!id) {
@@ -709,6 +747,7 @@ export const actions: Actions = {
                 }
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'EDIT' }
     )
 };

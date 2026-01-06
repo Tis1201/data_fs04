@@ -17,9 +17,13 @@
         handleTableSort,
         handleTablePagination,
     } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import { canCreate } from "$lib/utils/permissions";
     import type { PageData } from "./$types";
 
     export let data: PageData;
+    
+    // Check if user can create new radar controllers
+    $: showCreateButton = canCreate(data.modulePermissions, 'USER_CONTROLLERS_RADAR', data.user?.systemRole);
 
     $: tableProps = {
         records: data.radarSensors || [],
@@ -144,13 +148,15 @@
             <h1 class="text-2xl font-bold">Radar Controllers</h1>
             <p class="text-muted-foreground">Manage your radar sensor controllers</p>
         </div>
-        <Button
-            on:click={() => goto("/user/controllers/radar/new")}
-            class="flex items-center gap-2"
-        >
-            <Plus class="h-4 w-4" />
-            Register Controller
-        </Button>
+        {#if showCreateButton}
+            <Button
+                on:click={() => goto("/user/controllers/radar/new")}
+                class="flex items-center gap-2"
+            >
+                <Plus class="h-4 w-4" />
+                Register Controller
+            </Button>
+        {/if}
     </div>
 
     <div class="space-y-4">

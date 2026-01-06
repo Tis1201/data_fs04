@@ -2,14 +2,13 @@ import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { accountEditSchema } from '../schema';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ locals }: { locals: any }) => {
         // Initialize the account creation form with the schema and defaults
         const form = await superValidate(zod(accountEditSchema), {
@@ -25,13 +24,14 @@ export const load = restrict(
             form
         };
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    'ACCOUNTS',
+    { action: 'CREATE' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
     // Action for creating a new account using Superforms
-    createAccount: restrict(
-        async ({ request, locals }: { request: Request; locals: any }) => {
+    createAccount: restrictModule(
+        async ({ request, locals }: ModuleAuthenticatedEvent) => {
         // Validate the form data against the schema
         const form = await superValidate(request, zod(accountEditSchema));
 
@@ -75,8 +75,8 @@ export const actions: Actions = {
                 recordId: account.id,
                 oldData: null,
                 newData: account,
-                userId: locals.user.id,
-                ipAddress: locals.ipAddress,
+                userId: locals.user?.id ?? '',
+                ipAddress: (locals as any).ipAddress ?? 'unknown',
                 prisma: locals.prisma
             })
 
@@ -98,6 +98,7 @@ export const actions: Actions = {
             }, { status: 500 });
         }
     },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'CREATE' }
     )
 };

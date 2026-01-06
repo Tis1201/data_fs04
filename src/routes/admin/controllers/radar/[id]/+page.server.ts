@@ -2,8 +2,8 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, restrict, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/constants/system';
 import { logger } from '$lib/server/logger';
 import { radarSensorSchema } from '../new/radar-sensor';
 import { z } from 'zod';
@@ -11,6 +11,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 // Type definitions for JSON Config
 interface Zone {
@@ -126,7 +127,7 @@ async function getSensorFromControllerId(prisma: PrismaClient, controllerId: str
     return { error: null, sensor };
 }
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ params, locals }: AuthenticatedLoadEvent) => {
         const { id } = params; // This is the controller ID
 
@@ -313,6 +314,15 @@ export const load = restrict(
                 }
             });
 
+            // Get module permissions for frontend
+            let modulePermissions = (locals as any).modulePermissions || {};
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+                } catch (e) { /* ignore */ }
+            }
+
             return {
                 form,
                 trackingAreaForm,
@@ -323,7 +333,9 @@ export const load = restrict(
                     config // Explicitly pass typed config
                 },
                 accounts,
-                devices
+                devices,
+                modulePermissions,
+                user: locals.user
             };
         } catch (err: unknown) {
             if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
@@ -333,12 +345,13 @@ export const load = restrict(
             throw error(500, 'Failed to load sensor details');
         }
     },
-    [SystemRole.ADMIN]
+    'ADMIN_CONTROLLERS_RADAR',
+    { action: 'VIEW' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    updateSensor: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    updateSensor: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(radarSensorSchema));
 
@@ -474,11 +487,12 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    createTrackingArea: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    createTrackingArea: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(trackingAreaSchema));
 
@@ -541,11 +555,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to create tracking area' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    updateTrackingArea: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    updateTrackingArea: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(trackingAreaSchema));
 
@@ -607,11 +622,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to update tracking area' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    createZone: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    createZone: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(zoneSchema));
 
@@ -680,11 +696,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to create zone' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    deleteZone: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    deleteZone: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const formData = await request.formData();
             const zoneId = formData.get('zoneId')?.toString();
@@ -718,11 +735,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete zone' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    updateZone: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    updateZone: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(zoneSchema));
 
@@ -787,11 +805,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to update zone' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    saveLayout: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    saveLayout: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const formData = await request.formData();
             const layoutJson = formData.get('layout')?.toString();
@@ -995,11 +1014,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to save layout' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    createDwellBucket: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    createDwellBucket: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const form = await superValidate(request, zod(dwellBucketSchema));
 
@@ -1038,11 +1058,12 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to create dwell bucket' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
-    deleteDwellBucket: restrict(
-        async ({ request, params, locals }: AuthenticatedLoadEvent) => {
+    deleteDwellBucket: restrictModule(
+        async ({ request, params, locals }: ModuleAuthenticatedEvent) => {
             const { id } = params; // This is the controller ID
             const formData = await request.formData();
             const bucketId = formData.get('bucketId')?.toString();
@@ -1076,7 +1097,8 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete dwell bucket' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     ),
 
     deleteSensor: restrict(
@@ -1144,7 +1166,8 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete sensor' });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     )
 };
 

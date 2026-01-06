@@ -1,12 +1,12 @@
 import { error } from '@sveltejs/kit';
-import { restrict } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/constants/system';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 export const load = restrict(
-    async ({ url, locals }) => {
+    async ({ url, locals }: AuthenticatedEvent) => {
         try {
             const search = url.searchParams.get('search') || '';
             const page = parseInt(url.searchParams.get('page') || '1');
@@ -135,7 +135,7 @@ export const load = restrict(
 
 export const actions = {
     suspendAssignment: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const assignmentId = formData.get('assignmentId') as string;
@@ -165,12 +165,12 @@ export const actions = {
                     recordId: assignmentId,
                     oldData: existingAssignment,
                     newData: updatedAssignment,
-                    userId: locals.auth.user.id,
-                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    userId: (locals as any).auth?.user?.id || (locals as any).user?.id || 'unknown',
+                    ipAddress: (locals as any).ipAddress || (locals as any).requestContext?.ip || 'unknown',
                     prisma: locals.prisma
                 });
 
-                logger.info(`Account assignment ${assignmentId} suspended by user ${locals.auth.user.id}`);
+                logger.info(`Account assignment ${assignmentId} suspended by user ${(locals as any).auth?.user?.id || (locals as any).user?.id}`);
                 return { success: true };
             } catch (err) {
                 logger.error(`Error suspending assignment: ${err}`);
@@ -181,7 +181,7 @@ export const actions = {
     ),
 
     activateAssignment: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const assignmentId = formData.get('assignmentId') as string;
@@ -211,12 +211,12 @@ export const actions = {
                     recordId: assignmentId,
                     oldData: existingAssignment,
                     newData: updatedAssignment,
-                    userId: locals.auth.user.id,
-                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    userId: (locals as any).auth?.user?.id || (locals as any).user?.id || 'unknown',
+                    ipAddress: (locals as any).ipAddress || (locals as any).requestContext?.ip || 'unknown',
                     prisma: locals.prisma
                 });
 
-                logger.info(`Account assignment ${assignmentId} activated by user ${locals.auth.user.id}`);
+                logger.info(`Account assignment ${assignmentId} activated by user ${(locals as any).auth?.user?.id || (locals as any).user?.id}`);
                 return { success: true };
             } catch (err) {
                 logger.error(`Error activating assignment: ${err}`);
@@ -227,7 +227,7 @@ export const actions = {
     ),
 
     deleteAssignment: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const assignmentId = formData.get('assignmentId') as string;
@@ -256,12 +256,12 @@ export const actions = {
                     recordId: assignmentId,
                     oldData: existingAssignment,
                     newData: null,
-                    userId: locals.auth.user.id,
-                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    userId: (locals as any).auth?.user?.id || (locals as any).user?.id || 'unknown',
+                    ipAddress: (locals as any).ipAddress || (locals as any).requestContext?.ip || 'unknown',
                     prisma: locals.prisma
                 });
 
-                logger.info(`Account assignment ${assignmentId} deleted by user ${locals.auth.user.id}`);
+                logger.info(`Account assignment ${assignmentId} deleted by user ${(locals as any).auth?.user?.id || (locals as any).user?.id}`);
                 return { success: true };
             } catch (err) {
                 logger.error(`Error deleting assignment: ${err}`);
@@ -272,7 +272,7 @@ export const actions = {
     ),
 
     createAssignment: restrict(
-        async ({ request, locals }) => {
+        async ({ request, locals }: AuthenticatedEvent) => {
             try {
                 const formData = await request.formData();
                 const parentAccountId = formData.get('parentAccountId') as string;
@@ -319,7 +319,7 @@ export const actions = {
                         status: 'ACTIVE',
                         validFrom: validFrom ? new Date(validFrom) : null,
                         validTo: validTo ? new Date(validTo) : null,
-                        createdById: locals.auth.user.id
+                        createdById: (locals as any).auth?.user?.id || (locals as any).user?.id || 'unknown'
                     },
                     include: {
                         parentAccount: {
@@ -338,16 +338,16 @@ export const actions = {
                     recordId: assignment.id,
                     oldData: null,
                     newData: assignment,
-                    userId: locals.auth.user.id,
-                    ipAddress: (locals as any).ipAddress || 'unknown',
+                    userId: (locals as any).auth?.user?.id || (locals as any).user?.id || 'unknown',
+                    ipAddress: (locals as any).ipAddress || (locals as any).requestContext?.ip || 'unknown',
                     prisma: locals.prisma
                 });
 
-                logger.info(`Account assignment created: ${parentAccount.name} -> ${childAccount.name} (${relationshipType}) by user ${locals.auth.user.id}`);
+                logger.info(`Account assignment created: ${parentAccount.name} -> ${childAccount.name} (${relationshipType}) by user ${(locals as any).auth?.user?.id || (locals as any).user?.id}`);
                 return { success: true, assignment };
             } catch (err) {
                 logger.error(`Error creating assignment: ${err}`);
-                if (err.status) throw err; // Re-throw known errors
+                if (err && typeof err === 'object' && 'status' in err) throw err; // Re-throw known errors
                 throw error(500, 'Failed to create assignment');
             }
         },

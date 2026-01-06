@@ -2,16 +2,16 @@ import { fail, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { createSuccessResponse } from '$lib/types/api';
 import { accountEditSchema, relationshipSchema, companyCreateSchema } from '../schema';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ params, locals } : AuthenticatedLoadEvent) => {
         const { id } = params;
         
@@ -153,6 +153,15 @@ export const load = restrict(
             zod(accountEditSchema)
         );
 
+        // Get module permissions for frontend
+        let modulePermissions = (locals as any).modulePermissions || {};
+        const currentAccountId = (locals as any).currentAccount?.account?.id;
+        if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+            try {
+                modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+            } catch (e) { /* ignore */ }
+        }
+
         return {
             form,
             account,
@@ -163,15 +172,18 @@ export const load = restrict(
             },
             availableCompanies,
             availableUsers,
-            availableGroups
+            availableGroups,
+            modulePermissions,
+            user: locals.user
         };
     },
-    [SystemRole.ADMIN]
+    'ACCOUNTS',
+    { action: 'VIEW' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    updateAccount: restrict(
-        async (event: AuthenticatedEvent) => {
+    updateAccount: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id } = params;
             
@@ -272,12 +284,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Create new company and add to account
-    createAndAddCompany: restrict(
-        async (event: AuthenticatedEvent) => {
+    createAndAddCompany: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -358,12 +371,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Add companies to account (handles both single and multiple)
-    addCompany: restrict(
-        async (event: AuthenticatedEvent) => {
+    addCompany: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -446,12 +460,13 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to add companies to account' });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Add members to account (handles both single and multiple)
-    addMember: restrict(
-        async (event: AuthenticatedEvent) => {
+    addMember: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -552,12 +567,13 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to add members to account' });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Add groups to account (handles both single and multiple)
-    addGroup: restrict(
-        async (event: AuthenticatedEvent) => {
+    addGroup: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -640,12 +656,13 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to add groups to account' });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Remove company from account
-    removeCompany: restrict(
-        async (event: AuthenticatedEvent) => {
+    removeCompany: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -712,12 +729,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Remove member from account
-    removeMember: restrict(
-        async (event: AuthenticatedEvent) => {
+    removeMember: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -771,12 +789,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Remove group from account
-    removeGroup: restrict(
-        async (event: AuthenticatedEvent) => {
+    removeGroup: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id: accountId } = params;
 
@@ -843,12 +862,13 @@ export const actions: Actions = {
                 }, { status: 500 });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     ),
 
     // Delete account action
-    deleteAccount: restrict(
-        async (event: AuthenticatedEvent) => {
+    deleteAccount: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, params, locals } = event;
             const { id } = params;
 
@@ -926,6 +946,7 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete account' });
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'DELETE' }
     )
 };

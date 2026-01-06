@@ -1,10 +1,10 @@
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import {restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent} from "$lib/server/security/guards";
-import {SystemRole} from "$lib/types/roles";
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from "$lib/server/security/guards";
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType, UserStatus } from '$lib/constants/system';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 const table_options = {
     modelName: 'account',
@@ -21,27 +21,39 @@ const table_options = {
     }
 };
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Use the reusable fetchTableData function with our table options
             const result = await fetchTableData(locals, url, table_options);
             
+            // Get module permissions for frontend
+            let modulePermissions = (locals as any).modulePermissions || {};
+            const accountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && accountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, accountId);
+                } catch (e) { /* ignore */ }
+            }
+            
             return {
                 accounts: result.records,
-                meta: result.meta
+                meta: result.meta,
+                modulePermissions,
+                user: locals.user
             };
         } catch (err) {
             console.error('Error loading accounts:', err);
             throw error(500, 'Failed to load accounts');
         }
     },
-    [SystemRole.ADMIN]
+    'ACCOUNTS',
+    { action: 'VIEW' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    deleteAccount: restrict(
-        async (event: AuthenticatedEvent) => {
+    deleteAccount: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
         const { request, locals } = event;
         const formData = await request.formData();
         const id = formData.get('id')?.toString();
@@ -73,10 +85,12 @@ export const actions: Actions = {
             console.error('Error deleting account:', err);
             return { success: false, error: 'Failed to delete account' };
         }
-    },[SystemRole.ADMIN]),
+    },
+    'ACCOUNTS',
+    { action: 'DELETE' }),
     
-    toggleStatus: restrict(
-        async (event: AuthenticatedEvent) => {
+    toggleStatus: restrictModule(
+        async (event: ModuleAuthenticatedEvent) => {
             const { request, locals } = event;
             const formData = await request.formData();
             const id = formData.get('id')?.toString();
@@ -111,6 +125,7 @@ export const actions: Actions = {
                 return { success: false, error: 'Failed to update account status' };
             }
         },
-        [SystemRole.ADMIN]
+        'ACCOUNTS',
+        { action: 'EDIT' }
     )
 };

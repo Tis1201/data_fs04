@@ -2,13 +2,12 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { radarSensorSchema } from '../../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ locals, cookies }: AuthenticatedLoadEvent) => {
         // Get current account ID - user can only create for own account
         const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
@@ -51,12 +50,13 @@ export const load = restrict(
             throw error(500, 'Failed to load radar sensor form');
         }
     },
-    [SystemRole.USER, SystemRole.ADMIN]
+    'USER_CONTROLLERS_RADAR',
+    { action: 'CREATE' }
 ) satisfies PageServerLoad;
 
 export const actions: Actions = {
-    create: restrict(
-        async ({ request, locals, cookies }: AuthenticatedLoadEvent) => {
+    create: restrictModule(
+        async ({ request, locals, cookies }: ModuleAuthenticatedEvent) => {
             const form = await superValidate(request, zod(radarSensorSchema));
 
             if (!form.valid) {
@@ -227,7 +227,8 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.USER, SystemRole.ADMIN]
+        'USER_CONTROLLERS_RADAR',
+        { action: 'CREATE' }
     )
 };
 

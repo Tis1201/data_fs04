@@ -2,66 +2,73 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { logger } from '$lib/server/logger';
-import { SystemRole } from '$lib/types/roles';
-import { restrict, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
+import { restrictModule, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { trackingAreaSchema } from '../tracking-area-schema';
 import type { PageServerLoad, Actions } from './$types';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
-export const load: PageServerLoad = async ({ locals, params }) => {
-    if (!locals.user) {
-        throw redirect(302, '/auth/login');
-    }
+export const load: PageServerLoad = restrictModule(
+    async ({ locals, params }) => {
+        if (!locals.user) {
+            throw redirect(302, '/auth/login');
+        }
 
-    const controllerId = params.id;
-    if (!controllerId) {
-        throw error(400, 'Controller ID is required');
-    }
+        const controllerId = params.id;
+        if (!controllerId) {
+            throw error(400, 'Controller ID is required');
+        }
 
-    try {
-        // Get controller with sensor
-        const controller = await locals.prisma.controller.findUnique({
-            where: { id: controllerId },
-            include: {
-                sensors: true,
-                device: true,
-                account: true
+        try {
+            // Get controller with sensor
+            const controller = await locals.prisma.controller.findUnique({
+                where: { id: controllerId },
+                include: {
+                    sensors: true,
+                    device: true,
+                    account: true
+                }
+            });
+
+            if (!controller) {
+                throw error(404, 'Controller not found');
             }
-        });
 
-        if (!controller) {
-            throw error(404, 'Controller not found');
+            // Initialize tracking area form
+            const trackingAreaForm = await superValidate(zod(trackingAreaSchema));
+
+            // Set default values
+            trackingAreaForm.data.startX = -4.0;
+            trackingAreaForm.data.startY = 0.0;
+            trackingAreaForm.data.endX = 4.0;
+            trackingAreaForm.data.endY = 4.0;
+
+            // Get module permissions for frontend
+            let modulePermissions = (locals as any).modulePermissions || {};
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+                } catch (e) { /* ignore */ }
+            }
+
+            return {
+                controller,
+                trackingAreaForm,
+                modulePermissions,
+                user: locals.user
+            };
+        } catch (err) {
+            logger.error(`Error loading configure page: ${err}`);
+            throw error(500, 'Failed to load controller configuration');
         }
-
-        // Check if user has access to this controller
-        const hasAccess = locals.user.systemRole === SystemRole.ADMIN || 
-                         controller.accountId === locals.user?.id;
-        
-        if (!hasAccess) {
-            throw error(403, 'Access denied');
-        }
-
-        // Initialize tracking area form
-        const trackingAreaForm = await superValidate(zod(trackingAreaSchema));
-
-        // Set default values
-        trackingAreaForm.data.startX = -4.0;
-        trackingAreaForm.data.startY = 0.0;
-        trackingAreaForm.data.endX = 4.0;
-        trackingAreaForm.data.endY = 4.0;
-
-        return {
-            controller,
-            trackingAreaForm
-        };
-    } catch (err) {
-        logger.error(`Error loading configure page: ${err}`);
-        throw error(500, 'Failed to load controller configuration');
-    }
-};
+    },
+    'ADMIN_CONTROLLERS_RADAR',
+    { action: 'EDIT' }
+);
 
 export const actions: Actions = {
-    createTrackingArea: restrict(
-        async ({ request, locals, params }: AuthenticatedLoadEvent) => {
+    createTrackingArea: restrictModule(
+        async ({ request, locals, params }: ModuleAuthenticatedEvent) => {
             const controllerId = params.id;
             if (!controllerId) {
                 return fail(400, { error: 'Controller ID is required' });
@@ -128,6 +135,7 @@ export const actions: Actions = {
                 });
             }
         },
-        [SystemRole.ADMIN]
+        'ADMIN_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
     )
 };

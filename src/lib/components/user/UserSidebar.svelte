@@ -35,11 +35,19 @@
     export let className = "";
     export let collapsed = false;
     export let title = "FS User";
+    
+    // Module permissions from layout data
+    // Empty object for ADMIN (has all), populated for regular users
+    export let modulePermissions: Record<string, string[]> = {};
+    
+    // User's system role - ADMIN bypasses permission checks
+    export let userSystemRole: string = "USER";
 
     interface SubMenuItem {
         href: string;
         label: string;
         icon?: any;
+        module?: string; // Module required to view this item
     }
 
     interface MenuItem {
@@ -48,9 +56,54 @@
         icon: any;
         subItems?: SubMenuItem[];
         initialExpanded?: boolean;
+        module?: string; // Module required to view this item
+        alwaysShow?: boolean; // Always show regardless of permissions
     }
 
-    const mainMenuItems: MenuItem[] = [
+    // Mapping from menu paths to required modules (ONLY for modules in current ACL scope)
+    // Current scope: Only USER_CONTROLLERS_RADAR
+    const menuModuleMap: Record<string, string> = {
+        '/user/controllers/radar': 'USER_CONTROLLERS_RADAR',
+        // Other modules will be added when they are in scope
+    };
+
+    // Check if user has permission to view a module
+    // Only checks permissions for modules in current ACL scope
+    function hasModuleAccess(module: string | undefined): boolean {
+        // No module requirement = always show
+        if (!module) return true;
+        
+        // ADMIN always has access
+        if (userSystemRole === 'ADMIN') return true;
+        
+        // Special modules that are always accessible
+        if (module === 'USER_PROFILE' || module === 'USER_SUPPORT') return true;
+        
+        // Only check permissions for modules in current ACL scope
+        // Current scope: Only USER_CONTROLLERS_RADAR
+        if (module !== 'USER_CONTROLLERS_RADAR') {
+            // For modules not in scope, always show (no ACL check)
+            return true;
+        }
+        
+        // Check if user has VIEW permission for this module
+        const permissions = modulePermissions[module];
+        return permissions && permissions.includes('VIEW');
+    }
+
+    // Filter sub-items based on permissions
+    function filterSubItems(subItems: SubMenuItem[] | undefined): SubMenuItem[] {
+        if (!subItems) return [];
+        
+        return subItems.filter(item => {
+            const module = menuModuleMap[item.href] || item.module;
+            return hasModuleAccess(module);
+        });
+    }
+
+    // All menu items definition
+    // Only USER_CONTROLLERS_RADAR has module permission check (current ACL scope)
+    const allMenuItems: MenuItem[] = [
         {
             href: "/user/dashboard",
             label: "Dashboard",
@@ -92,11 +145,7 @@
             icon: Radio,
             initialExpanded: false,
             subItems: [
-                {
-                    href: "/user/controllers/radar",
-                    label: "Radar",
-                    icon: Radio,
-                },
+                { href: "/user/controllers/radar", label: "Radar", icon: Radio, module: 'USER_CONTROLLERS_RADAR' }
             ],
         },
         {
@@ -112,45 +161,6 @@
                 { href: "/user/analytics/radar", label: "Radar", icon: Radio },
             ],
         },
-
-        // {
-        //     label: "Integrations",
-        //     icon: Network,
-        //     initialExpanded: false,
-        //     subItems: [
-        //         { href: "/user/integrations/whatsapp/accounts", label: "Whatsapp", icon: MessageCircle }
-        //     ]
-        // },
-
-        // {
-        //     label: "Communications",
-        //     icon: MessageSquare,
-        //     initialExpanded: false,
-        //     subItems: [
-        //         { href: "/user/communications/messages", label: "Messages", icon: MessageSquare },
-        //         { href: "/user/communications/notifications", label: "Notifications", icon: Bell }
-        //     ]
-        // },
-        // {
-        //     href: "/user/calendar",
-        //     label: "Calendar",
-        //     icon: Calendar,
-        //     subItems: []
-        // },
-        // {
-        //     href: "/user/documents",
-        //     label: "Documents",
-        //     icon: FileText,
-        //     subItems: []
-        // },
-        // {
-        //     label: "Analytics",
-        //     icon: ActivitySquare,
-        //     initialExpanded: false,
-        //     subItems: [
-        //         { href: "/user/analytics/logs", label: "Logs", icon: Logs },
-        //     ]
-        // },
         {
             label: "Resources",
             icon: Files,
@@ -196,18 +206,32 @@
                 {
                     href: "/user/debug/audit-logs",
                     label: "Audit Logs",
-                    icon: FileText,
+                    icon: FileText
                 },
             ],
         },
-        //TODO use group to hide later
-        // {
-        //     href: "/user/support",
-        //     label: "Help & Support",
-        //     icon: HelpCircle,
-        //     subItems: []
-        // },
     ];
+
+    // Reactive: Filter menu items based on permissions
+    $: filteredMenuItems = allMenuItems
+        .map(item => {
+            // For items with subItems, filter the subItems
+            if (item.subItems && item.subItems.length > 0) {
+                const filteredSubs = filterSubItems(item.subItems);
+                // Only include parent if it has visible children
+                if (filteredSubs.length === 0) return null;
+                return { ...item, subItems: filteredSubs };
+            }
+            
+            // For items with direct href, check permission
+            if (item.href) {
+                const module = menuModuleMap[item.href] || item.module;
+                if (!hasModuleAccess(module)) return null;
+            }
+            
+            return item;
+        })
+        .filter((item): item is MenuItem => item !== null);
 
     $: currentPath = $page.url.pathname;
     $: pathKey = currentPath; // Force reactivity when path changes
@@ -216,7 +240,7 @@
 <div class={cn("bg-blue-700 text-white", className)}>
     <SimpleSidebar
         {title}
-        items={mainMenuItems}
+        items={filteredMenuItems}
         initialCollapsed={collapsed}
         on:toggle={(e) => (collapsed = e.detail)}
     />

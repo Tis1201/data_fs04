@@ -1,12 +1,12 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
-import { SystemRole } from '$lib/types/roles';
+import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
-export const load = restrict(
+export const load = restrictModule(
     async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
             // Get query parameters for filtering, sorting, and pagination
@@ -91,6 +91,15 @@ export const load = restrict(
                 }
             });
 
+            // Get module permissions for frontend
+            let modulePermissions = (locals as any).modulePermissions || {};
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (Object.keys(modulePermissions).length === 0 && currentAccountId && locals.user?.id) {
+                try {
+                    modulePermissions = await getUserModulePermissions(locals.user.id, currentAccountId);
+                } catch (e) { /* ignore */ }
+            }
+
             // Return the data
             return {
                 groups,
@@ -102,23 +111,25 @@ export const load = restrict(
                     currentPage: page
                 },
                 filters: {},
-
                 sort: {
                     field: sortField,
                     order: sortOrder
-                }
+                },
+                modulePermissions,
+                user: locals.user
             };
         } catch (err) {
             logger.error('Error loading groups:', { error: err });
             throw error(500, 'Failed to load groups');
         }
     },
-    [SystemRole.ADMIN] // Only allow admin role to access this route
+    'GROUPS',
+    { action: 'VIEW' }
 );
 
 export const actions: Actions = {
-    deleteGroup: restrict(
-        async ({ request, locals, auth, getClientAddress }: AuthenticatedEvent) => {
+    deleteGroup: restrictModule(
+        async ({ request, locals, auth, getClientAddress }: ModuleAuthenticatedEvent) => {
             const formData = await request.formData();
             const id = formData.get('id')?.toString();
 
@@ -191,6 +202,7 @@ export const actions: Actions = {
                 }
             }
         },
-        [SystemRole.ADMIN]
+        'GROUPS',
+        { action: 'DELETE' }
     ),
 };

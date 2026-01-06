@@ -59,6 +59,13 @@ export const ADMIN_SIDEBAR_ITEMS: Record<string, SidebarItem> = {
     href: '/admin/iot/pin-rules',
     actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE']
   },
+
+  // Controllers Section
+  ADMIN_CONTROLLERS_RADAR: {
+    label: 'Radar Controllers',
+    href: '/admin/controllers/radar',
+    actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE']
+  },
   
   // Access Section
   ACCOUNTS: {
@@ -215,6 +222,12 @@ export const USER_SIDEBAR_ITEMS: Record<string, SidebarItem> = {
     href: '/user/iot/pin-rules',
     actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE']
   },
+
+  USER_CONTROLLERS_RADAR: {
+    label: 'Radar Controllers',
+    href: '/user/controllers/radar',
+    actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE']
+  },
   
   // Resources Section
   USER_RESOURCES: {
@@ -252,6 +265,7 @@ export const USER_SIDEBAR_ITEMS: Record<string, SidebarItem> = {
 export const ADMIN_CATEGORIES = {
   'Dashboard': ['DASHBOARD'],
   'IOT': ['FACTORY_TOKENS', 'DEVICES', 'DEVICE_TAGS', 'DEVICE_PROFILES', 'RESOURCES', 'BUNDLES', 'PRECLAIMS', 'PIN_RULES'],
+  'Controllers': ['ADMIN_CONTROLLERS_RADAR'],
   'Access': ['ACCOUNTS', 'COMPANIES', 'ADMIN_USERS', 'GROUPS'],
   'Billing': ['LICENSES'],
   'Integrations': ['WEBHOOK', 'WHATSAPP', 'LISTENERS'],
@@ -266,6 +280,7 @@ export const ADMIN_CATEGORIES = {
 export const USER_CATEGORIES = {
   'Dashboard': ['USER_DASHBOARD'],
   'IOT': ['USER_DEVICES', 'USER_DEVICE_TAGS', 'USER_DEVICE_PROFILES', 'USER_BUNDLES', 'USER_PRECLAIMS', 'USER_PIN_RULES'],
+  'Controllers': ['USER_CONTROLLERS_RADAR'],
   'Resources': ['USER_RESOURCES'],
   'Settings': ['USER_ACCOUNT_SETTINGS', 'USER_USERS', 'USER_PROFILE'],
   'Support': ['USER_SUPPORT']

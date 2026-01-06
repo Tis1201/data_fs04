@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
+import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
     // Validate session and get user directly from auth
@@ -23,8 +24,21 @@ export const load: LayoutServerLoad = async ({ locals }) => {
                 systemRole: user.systemRole
             },
             currentAccount: null,
-            accountMemberships: []
+            accountMemberships: [],
+            modulePermissions: {}
         };
+    }
+
+    // Get module permissions for the current account
+    // ADMIN users get all permissions (empty object signals "has all")
+    let modulePermissions: Record<string, string[]> = {};
+    
+    if (user.systemRole !== 'ADMIN' && currentAccount?.account?.id) {
+        try {
+            modulePermissions = await getUserModulePermissions(user.id, currentAccount.account.id);
+        } catch (err) {
+            console.error('Failed to load module permissions:', err);
+        }
     }
 
     return {
@@ -50,6 +64,9 @@ export const load: LayoutServerLoad = async ({ locals }) => {
                 name: m.account.name,
                 slug: m.account.slug
             }
-        })) : []
+        })) : [],
+        
+        // Module permissions for sidebar filtering
+        modulePermissions
     };
 };
