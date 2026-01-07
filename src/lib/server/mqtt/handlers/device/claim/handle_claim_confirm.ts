@@ -99,8 +99,8 @@ export async function handleClaimConfirm(
         throw new Error('Ticket account does not match factory device account');
     }
 
-    // Check device limit before creating device
-    if (account) {
+    // Check device limit before creating device (skip for admins)
+    if (account && user.systemRole !== 'ADMIN') {
         try {
             await checkDeviceLimit(account.id);
         } catch (e) {
@@ -110,6 +110,8 @@ export async function handleClaimConfirm(
             }
             throw e;
         }
+    } else if (account && user.systemRole === 'ADMIN') {
+        logger.info(`[DeviceClaimConfirm] Skipping device limit check for admin user ${user.id}`);
     }
 
     const now = new Date();

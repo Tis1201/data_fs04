@@ -76,10 +76,6 @@ export function restrict<T>(
       throw error(403, 'Forbidden');
     }
 
-    // Create an enhanced event with auth information
-    // Include depends if it exists on the event (for load functions)
-    // Also set auth and user in locals for backward compatibility
-    (event.locals as any).auth = auth;
     (event.locals as any).user = auth.user;
     
     const authenticatedEvent = {
@@ -174,6 +170,15 @@ export async function restrict_device(
       error: 'Invalid API key',
       code: 'INVALID_API_KEY',
       response: json({ error: 'Invalid API key', code: 'INVALID_API_KEY' }, { status: 401 })
+    };
+  }
+
+  if (!device.user) {
+    logger.warn(`Device ${device.id} has no associated user`);
+    return {
+      error: 'Device has no associated user',
+      code: 'DEVICE_NO_USER',
+      response: json({ error: 'Device has no associated user', code: 'DEVICE_NO_USER' }, { status: 401 })
     };
   }
 
@@ -651,8 +656,7 @@ export function restrictModule<T>(
       throw error(403, errorMessage);
     }
 
-    // Set auth and user in locals for backward compatibility (like restrict function)
-    (event.locals as any).auth = auth;
+    // Set user in locals for backward compatibility (like restrict function)
     (event.locals as any).user = auth.user;
     
     // Fetch and cache module permissions in locals for convenience
