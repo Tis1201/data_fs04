@@ -88,17 +88,13 @@ export class TurnCredentialService {
             console.log('[TurnCredentialService] Generated TURN credentials successfully');
 
             // Handle Cloudflare response which usually returns iceServers as an array
+            // Cloudflare response already includes both STUN and TURN servers
             const turnServers = Array.isArray(data.iceServers)
                 ? data.iceServers
                 : [data.iceServers];
 
             return {
-                iceServers: [
-                    // Include Google STUN as fallback
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    // Cloudflare TURN servers
-                    ...turnServers
-                ],
+                iceServers: turnServers, // Use only Cloudflare servers (includes STUN + TURN)
                 expiresAt: Date.now() + (this.ttl * 1000)
             };
         } catch (error) {

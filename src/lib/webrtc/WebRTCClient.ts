@@ -28,6 +28,8 @@ export class WebRTCClient {
   config: any;
 
   constructor(private deviceId: string) {
+    // Initial config with minimal STUN fallback
+    // Will be replaced with Cloudflare TURN servers when connect() receives credentials from server
     this.config = {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' }
@@ -61,11 +63,9 @@ export class WebRTCClient {
         if (response.result.turnCredentials.iceServers) {
           this.config = {
             ...this.config,
-            iceServers: [
-              ...this.config.iceServers,
-              ...response.result.turnCredentials.iceServers
-            ]
+            iceServers: response.result.turnCredentials.iceServers
           };
+          console.log('[WebRTCClient] Updated config with Cloudflare TURN servers:', this.config.iceServers.length, 'servers');
         }
       }
     } catch (error) {
@@ -369,7 +369,7 @@ export class WebRTCClient {
 
       // Create new peer connection if needed
       if (!this.peerConnection) {
-        console.log('[WebRTCClient] Creating new PeerConnection with config');
+        console.log('[WebRTCClient] Creating new PeerConnection with config (iceServers:', this.config.iceServers?.length || 0, 'servers)');
         this.peerConnection = new RTCPeerConnection(this.config);
         // Note: Don't add transceiver here - device will include video in offer when
         // RDP is started, and we'll just receive it
