@@ -45,6 +45,7 @@
         Book,
         Radio,
         FileText,
+        Cable,
     } from "lucide-svelte";
 
     export let className = "";
@@ -260,6 +261,11 @@
                     href: "/admin/debug/audit-logs",
                     label: "Audit Logs",
                     icon: FileText,
+                },
+                {
+                    href: "/admin/debug/webserial",
+                    label: "Web Serial",
+                    icon: Cable,
                 },
             ],
         },
