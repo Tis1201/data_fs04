@@ -1,0 +1,39 @@
+-- SQLBook: Code
+-- 1. Create database
+CREATE DATABASE IF NOT EXISTS fs_04;
+
+-- 2. Create application role
+CREATE ROLE IF NOT EXISTS fs04_app_role;
+
+-- 3. Grant app-level privileges (recommended for apps)
+GRANT
+    SHOW DATABASES,
+    SHOW TABLES,
+    SHOW COLUMNS,
+    SELECT,
+    INSERT,
+    ALTER,
+    CREATE TABLE,
+    DROP TABLE,
+    TRUNCATE,
+    OPTIMIZE
+ON fs_04.*
+TO fs04_app_role;
+
+-- Optional: enable views & dictionaries if needed
+GRANT
+    CREATE VIEW,
+    DROP VIEW,
+    CREATE DICTIONARY,
+    DROP DICTIONARY,
+    dictGet
+ON fs_04.*
+TO fs04_app_role;
+
+-- 4. Create application user (password hash example)
+-- Replace PASSWORD_PLAIN_TEXT before running
+CREATE USER IF NOT EXISTS fs04
+IDENTIFIED WITH sha256_hash BY lower(hex(SHA256('admin0823')));
+
+-- 5. Attach role to user
+GRANT fs04_app_role TO fs04;
