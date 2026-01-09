@@ -154,10 +154,16 @@ async function publishDeviceStatusNotification(params: {
 
     // Publish notification once per user (not per connection)
     // The user's MQTT client will receive it on their subscribed topic
-    // Use subscription-based routing that works with MQTT ACL
+    if (!device.accountId && usersToNotify.length > 0) {
+        logger.warn(`[MQTT Device Status] Device ${device.id} has no accountId, cannot route notifications to users`);
+        return;
+    }
+    
     for (const userId of usersToNotify) {
         try {
-            const topic = `subscription:user:${userId}:${device.accountId}`;
+            // Construct MQTT username format: user:${userId}:${accountId}
+            const mqttUsername = `user:${userId}:${device.accountId}`;
+            const topic = `user/${mqttUsername}/notifications`;
             await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
             logger.debug(`[MQTT Device Status] Published ${notificationType} to ${topic}`);
         } catch (err) {
@@ -859,6 +865,26 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                         hasObjectPath: !!objectPath,
                         objectPath
                     });
+
+                    // Update action log if operationId is present
+                    const operationId = (ctx.params as any)?.operationId || (resultObj as any)?.operationId;
+                    if (operationId) {
+                        try {
+                            const { ActionLogger } = await import('$lib/server/action-logger');
+                            if (objectPath) {
+                                await ActionLogger.finalize(operationId, 'success', 'Screenshot captured successfully');
+                                logger.info('[MQTT Reply] Updated screenshot action log to success', { operationId, objectPath });
+                            } else {
+                                await ActionLogger.finalize(operationId, 'failed', 'Screenshot response missing objectPath');
+                                logger.warn('[MQTT Reply] Updated screenshot action log to failed (missing objectPath)', { operationId });
+                            }
+                        } catch (err) {
+                            logger.error('[MQTT Reply] Failed to update screenshot action log', {
+                                error: err instanceof Error ? err.message : String(err),
+                                operationId
+                            });
+                        }
+                    }
 
                     if (objectPath) {
                         // Generate download URL server-side so UI can use it directly as <img src={downloadUrl} />

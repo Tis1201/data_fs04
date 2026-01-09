@@ -4,6 +4,7 @@ import { DeviceNotificationType, sendNotificationWithTicket } from '../../../cor
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { generatePresignedUrl } from '$lib/server/storage';
+import { ActionLogger } from '$lib/server/action-logger';
 
 interface ScreenshotDeviceParams {
     deviceId?: string;
@@ -16,16 +17,35 @@ interface ScreenshotDeviceParams {
 export async function handleScreenshotDevice(
     params: ScreenshotDeviceParams,
     { prisma, sub }: RpcHandlerArgs
-): Promise<RpcResponse<{ deviceId: string; objectPath: string }>> {
+): Promise<RpcResponse<{ deviceId: string; objectPath: string; operationId: string }>> {
     const { deviceId } = await checkDeviceAccess({ prisma, sub, deviceId: params.deviceId });
 
     logger.info(`[WebScreenshot] User ${sub} requesting screenshot for device ${deviceId}`);
 
-    const flowId = crypto.randomUUID();
-
     if(!sub){
         throw new Error('Missing subject for web client');
     }
+
+    // Extract user ID from subject (format: "user:userId:accountId")
+    const userId = sub.split(':')[1];
+    if (!userId) {
+        throw new Error('Invalid subject format, cannot extract user ID');
+    }
+
+    // Create action log for audit trail
+    const actionLog = await ActionLogger.createInitiated({
+        deviceId,
+        actionType: 'screenshot',
+        initiatedBy: userId,
+        protocol: 'mqtt',
+        metadata: {
+            quality: params.quality || 75,
+            source: 'mqtt_rpc'
+        },
+        initialMessage: 'Screenshot requested'
+    });
+
+    const flowId = crypto.randomUUID();
 
     const timestamp = Date.now();
     const objectPath = `devices/${deviceId}/screenshots/${timestamp}/screenshot.jpg`;
@@ -55,6 +75,7 @@ export async function handleScreenshotDevice(
             type: DeviceNotificationType.Screenshot,
             flowId,
             params: {
+                operationId: actionLog.id,
                 uploadUrl,
                 objectPath,
                 quality: params.quality || 75
@@ -63,8 +84,8 @@ export async function handleScreenshotDevice(
         })
 
     logger.info(
-        `[WebScreenshot] Dispatched screenshot action for device ${deviceId}, objectPath=${objectPath}`
+        `[WebScreenshot] Dispatched screenshot action for device ${deviceId}, operation=${actionLog.id}, objectPath=${objectPath}`
     );
 
-    return { flowId, result: { deviceId, objectPath } };
+    return { flowId, result: { deviceId, objectPath, operationId: actionLog.id } };
 }

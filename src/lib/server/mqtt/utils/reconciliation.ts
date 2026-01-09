@@ -108,7 +108,9 @@ async function sendDeviceStatusNotification(
     // Send notification to each user
     for (const userId of usersToNotify) {
         try {
-            const topic = `subscription:user:${userId}:${device.accountId}`;
+            // Construct MQTT username format: user:${userId}:${accountId}
+            const mqttUsername = `user:${userId}:${device.accountId}`;
+            const topic = `user/${mqttUsername}/notifications`;
             await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
             logger.debug(`[MQTT Reconciliation] Published ${notificationType} to ${topic}`);
         } catch (err) {
@@ -426,7 +428,9 @@ export async function reconcileDevicePresence(): Promise<void> {
 
                 // Send notification to each user
                 for (const userId of usersToNotify) {
-                    const topic = `subscription:user:${userId}:${device.accountId}`;
+                    // Construct MQTT username format: user:${userId}:${accountId}
+                    const mqttUsername = `user:${userId}:${device.accountId}`;
+                    const topic = `user/${mqttUsername}/notifications`;
                     await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
                     logger.debug(`[MQTT Reconciliation] Sent disconnection notification for device ${deviceId} to user ${userId}`);
                 }
@@ -529,7 +533,9 @@ export async function reconcileDevicePresence(): Promise<void> {
 
                 // Send notification to each user
                 for (const userId of usersToNotify) {
-                    const topic = `subscription:user:${userId}:${device.accountId}`;
+                    // Construct MQTT username format: user:${userId}:${accountId}
+                    const mqttUsername = `user:${userId}:${device.accountId}`;
+                    const topic = `user/${mqttUsername}/notifications`;
                     await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
                     logger.debug(`[MQTT Reconciliation] Sent connection notification for device ${deviceId} to user ${userId}`);
                 }

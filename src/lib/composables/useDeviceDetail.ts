@@ -405,11 +405,15 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 {
                     id: tempId,
                     deviceId: device.get().id,
-                    actionType: 'install',
+                    actionType: 'install_app',
                     status: 'in_progress',
+                    progress: null,
                     initiatedBy: 'current_user',
                     initiatedAt: new Date().toISOString(),
+                    completedAt: null,
+                    durationMs: null,
                     message: 'Initiating app installation…',
+                    user: null,
                     metadata: {
                         app: {
                             resourceId: app.id,

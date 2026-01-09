@@ -5,7 +5,7 @@ export type DeviceActionType =
   | 'screenshot'
   | 'terminal'
   | 'remote_desktop'
-  | 'install'
+  | 'install_app'
   | 'firmware_update'
   | 'restart'
   | 'reboot'

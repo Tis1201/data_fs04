@@ -204,7 +204,7 @@ export async function handleInstallApp(message: InMessage): Promise<void> {
     // Create action log
     const actionLog = await ActionLogger.createInitiated({
       deviceId,
-      actionType: 'install',
+      actionType: 'install_app',
       initiatedBy: userId,
       requestId: (message as any)?.requestId,
       connectionId: (message as any)?.connectionId,

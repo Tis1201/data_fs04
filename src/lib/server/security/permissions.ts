@@ -253,6 +253,15 @@ export const permissions: Record<string, PermissionDefinition> = {
 	},
 
 	// ========================================
+	// Upload Permissions
+	// ========================================
+	'upload.create': {
+		ADMIN: () => true,
+		USER: () => true,
+		description: 'Create presigned URLs for file uploads'
+	},
+
+	// ========================================
 	// Preclaim Permissions
 	// ========================================
 	'preclaim.view': {

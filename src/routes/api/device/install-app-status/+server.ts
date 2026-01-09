@@ -47,7 +47,7 @@ export const POST: RequestHandler = restrictDevice(
           const existingOpen = await (locals.prisma as any).deviceActionLog.findFirst({
             where: {
               deviceId,
-              actionType: 'install',
+              actionType: 'install_app',
               completedAt: null
             },
             orderBy: { initiatedAt: 'desc' }
@@ -58,7 +58,7 @@ export const POST: RequestHandler = restrictDevice(
           } else {
             const created = await ActionLogger.createInitiated({
               deviceId,
-              actionType: 'install',
+              actionType: 'install_app',
               initiatedBy: userInfo.id,
               metadata: appResourceId ? { app: { resourceId: appResourceId } } : undefined,
               initialMessage: message ?? 'Device reported app installation'
@@ -117,12 +117,15 @@ export const POST: RequestHandler = restrictDevice(
       }
 
       // Update action log if provided/created
+      let durationMs: number | null = null;
       try {
         if (effectiveLogId) {
           if (status === 'success') {
-            await ActionLogger.finalize(effectiveLogId, 'success', message ?? 'App installation completed', undefined, 100);
+            const updated = await ActionLogger.finalize(effectiveLogId, 'success', message ?? 'App installation completed', undefined, 100);
+            durationMs = updated.durationMs;
           } else if (status === 'failed') {
-            await ActionLogger.finalize(effectiveLogId, 'failed', message ?? 'App installation failed', error);
+            const updated = await ActionLogger.finalize(effectiveLogId, 'failed', message ?? 'App installation failed', error);
+            durationMs = updated.durationMs;
           } else {
             await ActionLogger.updateProgress({
               logId: effectiveLogId,
@@ -134,6 +137,31 @@ export const POST: RequestHandler = restrictDevice(
         }
       } catch (e) {
         logger.warn(`[InstallAppStatusAPI] Failed to update action log: ${String(e)}`);
+      }
+
+      // Publish final status update with duration if completed
+      if (durationMs !== null && effectiveLogId) {
+        try {
+          const statusRouting = MessageFactory.createSystemMessage(
+            'device:statusUpdate',
+            `subscription:device:${deviceId}`,
+            {
+              action: 'installApp',
+              deviceId,
+              status,
+              message,
+              logId: effectiveLogId,
+              durationMs,
+              progress: status === 'success' ? 100 : progress,
+              timestamp: new Date().toISOString()
+            },
+            SystemUser,
+            { echoToSender: false }
+          );
+          await publisher.publish(statusRouting);
+        } catch (e) {
+          logger.warn(`[InstallAppStatusAPI] Failed to publish final status update: ${String(e)}`);
+        }
       }
 
       return json({ success: true, logId: effectiveLogId });

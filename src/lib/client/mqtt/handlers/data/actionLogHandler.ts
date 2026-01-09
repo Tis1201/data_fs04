@@ -51,10 +51,12 @@ export function subscribeActionLogUpdates(
         'pushFile': ['pushFile', 'push_file'],
         'pull_file': ['pullFile', 'pull_file'],
         'push_file': ['pushFile', 'push_file'],
-        'installApp': ['installApp', 'install'],
-        'install': ['installApp', 'install'],
-        'getLogs': ['getLogs', 'logs'],
-        'logs': ['getLogs', 'logs']
+        'installApp': ['install_app'],
+        'install': ['install_app'],
+        'install_app': ['install_app'],
+        'getLogs': ['getLogs', 'logs', 'get_logs'],
+        'logs': ['getLogs', 'logs', 'get_logs'],
+        'get_logs': ['getLogs', 'logs', 'get_logs']
       };
       
       const actionVariants = actionMap[data.action] || [data.action];
@@ -127,10 +129,12 @@ export function subscribeActionLogUpdates(
         'pushFile': ['pushFile', 'push_file'],
         'pull_file': ['pullFile', 'pull_file'],
         'push_file': ['pushFile', 'push_file'],
-        'installApp': ['installApp', 'install'],
-        'install': ['installApp', 'install'],
-        'getLogs': ['getLogs', 'logs'],
-        'logs': ['getLogs', 'logs']
+        'installApp': ['install_app'],
+        'install': ['install_app'],
+        'install_app': ['install_app'],
+        'getLogs': ['getLogs', 'logs', 'get_logs'],
+        'logs': ['getLogs', 'logs', 'get_logs'],
+        'get_logs': ['getLogs', 'logs', 'get_logs']
       };
       
       const actionVariants = action ? (actionMap[action] || [action]) : [];
