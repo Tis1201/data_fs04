@@ -30,7 +30,9 @@ TARGET_URL="${CLICKHOUSE_COM_URL:-https://dg7m1hwwez.us-central1.gcp.clickhouse.
 TARGET_USER="${CLICKHOUSE_COM_USER_NAME:-fs04_admin}"
 TARGET_PASS="${CLICKHOUSE_COM_PASSWORD:-Admin0823Admin!}"
 
-DATABASE="${CLICKHOUSE_DATABASE:-fs_04}"
+# Databases (source and target can differ)
+SOURCE_DATABASE="${CLICKHOUSE_DATABASE:-fs_04}"
+TARGET_DATABASE="${CLICKHOUSE_COM_DATABASE:-${SOURCE_DATABASE}}"
 TEMP_DIR="/tmp/ch_migration_$$"
 
 # Parse args
@@ -66,7 +68,7 @@ target_insert() {
     local table="$1"
     local file="$2"
     curl -sf -u "${TARGET_USER}:${TARGET_PASS}" \
-        "${TARGET_URL}/?query=INSERT%20INTO%20${DATABASE}.${table}%20FORMAT%20Native" \
+        "${TARGET_URL}/?query=INSERT%20INTO%20${TARGET_DATABASE}.${table}%20FORMAT%20Native" \
         --data-binary "@${file}" 2>&1
 }
 
@@ -75,12 +77,12 @@ target_insert() {
 # ============================================================================
 
 discover_objects() {
-    log "Discovering database objects in ${DATABASE}..."
+    log "Discovering database objects in ${SOURCE_DATABASE}..."
     
     # Get all tables grouped by type (exclude .inner tables used by MVs)
-    TABLES=$(source_query "SELECT name FROM system.tables WHERE database='${DATABASE}' AND engine NOT LIKE '%View%' AND name NOT LIKE '.inner%' ORDER BY name" | tr '\n' ' ')
-    MATERIALIZED_VIEWS=$(source_query "SELECT name FROM system.tables WHERE database='${DATABASE}' AND engine = 'MaterializedView' ORDER BY name" | tr '\n' ' ')
-    VIEWS=$(source_query "SELECT name FROM system.tables WHERE database='${DATABASE}' AND engine = 'View' ORDER BY name" | tr '\n' ' ')
+    TABLES=$(source_query "SELECT name FROM system.tables WHERE database='${SOURCE_DATABASE}' AND engine NOT LIKE '%View%' AND name NOT LIKE '.inner%' ORDER BY name" | tr '\n' ' ')
+    MATERIALIZED_VIEWS=$(source_query "SELECT name FROM system.tables WHERE database='${SOURCE_DATABASE}' AND engine = 'MaterializedView' ORDER BY name" | tr '\n' ' ')
+    VIEWS=$(source_query "SELECT name FROM system.tables WHERE database='${SOURCE_DATABASE}' AND engine = 'View' ORDER BY name" | tr '\n' ' ')
     
     echo ""
     log "📋 Discovery Results:"
@@ -118,14 +120,14 @@ test_connections() {
 
 create_database() {
     if $FORCE_MODE; then
-        log "Force mode: Dropping database ${DATABASE}..."
-        target_query "DROP DATABASE IF EXISTS ${DATABASE}" >/dev/null 2>&1 || true
+        log "Force mode: Dropping database ${TARGET_DATABASE}..."
+        target_query "DROP DATABASE IF EXISTS ${TARGET_DATABASE}" >/dev/null 2>&1 || true
         ok "Database dropped"
     fi
     
-    log "Creating database ${DATABASE} on target..."
-    target_query "CREATE DATABASE IF NOT EXISTS ${DATABASE}" >/dev/null 2>&1 || true
-    ok "Database ${DATABASE} ready"
+    log "Creating database ${TARGET_DATABASE} on target..."
+    target_query "CREATE DATABASE IF NOT EXISTS ${TARGET_DATABASE}" >/dev/null 2>&1 || true
+    ok "Database ${TARGET_DATABASE} ready"
 }
 
 # ============================================================================
@@ -134,7 +136,7 @@ create_database() {
 
 get_ddl() {
     local object="$1"
-    source_query "SHOW CREATE TABLE ${DATABASE}.${object} FORMAT TabSeparatedRaw"
+    source_query "SHOW CREATE TABLE ${SOURCE_DATABASE}.${object} FORMAT TabSeparatedRaw"
 }
 
 drop_object() {
@@ -142,9 +144,9 @@ drop_object() {
     local object_type="$2"
     
     if [[ "$object_type" == "materialized view" ]]; then
-        target_query "DROP VIEW IF EXISTS ${DATABASE}.${object}" >/dev/null 2>&1 || true
+        target_query "DROP VIEW IF EXISTS ${TARGET_DATABASE}.${object}" >/dev/null 2>&1 || true
     else
-        target_query "DROP TABLE IF EXISTS ${DATABASE}.${object}" >/dev/null 2>&1 || true
+        target_query "DROP TABLE IF EXISTS ${TARGET_DATABASE}.${object}" >/dev/null 2>&1 || true
     fi
 }
 
@@ -152,7 +154,7 @@ create_object() {
     local object="$1"
     local object_type="$2"  # table, mv, view
     
-    log "Creating ${object_type}: ${DATABASE}.${object}"
+    log "Creating ${object_type}: ${TARGET_DATABASE}.${object}"
     
     # Force mode: drop first
     if $FORCE_MODE; then
@@ -160,7 +162,7 @@ create_object() {
         log "   Dropped existing (force mode)"
     else
         # Check if already exists
-        local exists=$(target_query "SELECT count() FROM system.tables WHERE database='${DATABASE}' AND name='${object}'" 2>/dev/null || echo "0")
+        local exists=$(target_query "SELECT count() FROM system.tables WHERE database='${TARGET_DATABASE}' AND name='${object}'" 2>/dev/null || echo "0")
         if [[ "$exists" == "1" ]]; then
             log "   Already exists, skipping"
             return 0
@@ -176,6 +178,12 @@ create_object() {
         return 1
     fi
     
+    # Replace source database with target database in DDL
+    if [[ "${SOURCE_DATABASE}" != "${TARGET_DATABASE}" ]]; then
+        # Handle cases where DDL explicitly mentions source database
+        sed -i.bak "s/${SOURCE_DATABASE}\./${TARGET_DATABASE}\./g" "$ddl_file"
+    fi
+
     # Convert MergeTree to ReplicatedMergeTree for Cloud
     sed -i.bak 's/MergeTree/ReplicatedMergeTree/g' "$ddl_file"
     
@@ -240,10 +248,10 @@ migrate_schema() {
 migrate_table_data() {
     local table="$1"
     
-    log "Migrating data: ${DATABASE}.${table}"
+    log "Migrating data: ${SOURCE_DATABASE}.${table} -> ${TARGET_DATABASE}.${table}"
     
     # Get source row count
-    local source_count=$(source_query "SELECT count() FROM ${DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]')
+    local source_count=$(source_query "SELECT count() FROM ${SOURCE_DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]')
     log "   Source rows: ${source_count:-0}"
     
     if [[ -z "$source_count" || "$source_count" == "0" ]]; then
@@ -253,7 +261,7 @@ migrate_table_data() {
     
     # Get target row count (skip if already same, unless force mode)
     if ! $FORCE_MODE; then
-        local target_before=$(target_query "SELECT count() FROM ${DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
+        local target_before=$(target_query "SELECT count() FROM ${TARGET_DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
         if [[ "$target_before" == "$source_count" ]]; then
             log "   Data already migrated (${target_before} rows)"
             return 0
@@ -265,7 +273,7 @@ migrate_table_data() {
     log "   Exporting..."
     
     curl -sf -u "${SOURCE_USER}:${SOURCE_PASS}" "${SOURCE_URL}/" \
-        --data "SELECT * FROM ${DATABASE}.${table} FORMAT Native" \
+        --data "SELECT * FROM ${SOURCE_DATABASE}.${table} FORMAT Native" \
         -o "$data_file"
     
     local file_size=$(ls -lh "$data_file" 2>/dev/null | awk '{print $5}')
@@ -286,7 +294,7 @@ migrate_table_data() {
     fi
     
     # Verify
-    local target_after=$(target_query "SELECT count() FROM ${DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    local target_after=$(target_query "SELECT count() FROM ${TARGET_DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
     
     if [[ "$target_after" -ge "$source_count" ]]; then
         ok "   Done (${target_after} rows)"
@@ -328,8 +336,8 @@ verify() {
     echo "   ─────────────────────────────────────────────────────"
     
     for table in $TABLES; do
-        local src=$(source_query "SELECT count() FROM ${DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
-        local tgt=$(target_query "SELECT count() FROM ${DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
+        local src=$(source_query "SELECT count() FROM ${SOURCE_DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
+        local tgt=$(target_query "SELECT count() FROM ${TARGET_DATABASE}.${table}" 2>/dev/null | tr -d '[:space:]' || echo "0")
         local status="✅"
         [[ "$tgt" -lt "$src" ]] && status="❌"
         printf "   %-25s %12s %12s %s\n" "$table" "$src" "$tgt" "$status"
@@ -340,7 +348,7 @@ verify() {
     if [[ -n "$MATERIALIZED_VIEWS" ]]; then
         echo "📊 MATERIALIZED VIEWS"
         for mv in $MATERIALIZED_VIEWS; do
-            local exists=$(target_query "SELECT count() FROM system.tables WHERE database='${DATABASE}' AND name='${mv}'" 2>/dev/null || echo "0")
+            local exists=$(target_query "SELECT count() FROM system.tables WHERE database='${TARGET_DATABASE}' AND name='${mv}'" 2>/dev/null || echo "0")
             local status="✅"
             [[ "$exists" != "1" ]] && status="❌"
             echo "   $mv $status"
@@ -352,7 +360,7 @@ verify() {
     if [[ -n "$VIEWS" ]]; then
         echo "👁️ VIEWS"
         for view in $VIEWS; do
-            local exists=$(target_query "SELECT count() FROM system.tables WHERE database='${DATABASE}' AND name='${view}'" 2>/dev/null || echo "0")
+            local exists=$(target_query "SELECT count() FROM system.tables WHERE database='${TARGET_DATABASE}' AND name='${view}'" 2>/dev/null || echo "0")
             local status="✅"
             [[ "$exists" != "1" ]] && status="❌"
             echo "   $view $status"
@@ -369,7 +377,8 @@ main() {
     echo ""
     echo "╔════════════════════════════════════════════════════════╗"
     echo "║     ClickHouse → ClickHouse Cloud Migration            ║"
-    echo "║     Database: ${DATABASE}                              ║"
+    echo "║     Source DB: ${SOURCE_DATABASE}                              ║"
+    echo "║     Target DB: ${TARGET_DATABASE}                              ║"
     $FORCE_MODE && echo "║     Mode: FORCE (drop and recreate)                    ║"
     echo "╚════════════════════════════════════════════════════════╝"
     echo ""
