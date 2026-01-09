@@ -32,7 +32,7 @@ TARGET_PASS="${CLICKHOUSE_COM_PASSWORD:-Admin0823Admin!}"
 
 # Databases (source and target can differ)
 SOURCE_DATABASE="${CLICKHOUSE_DATABASE:-fs_04}"
-TARGET_DATABASE="${CLICKHOUSE_COM_DATABASE:-${SOURCE_DATABASE}}"
+TARGET_DATABASE="${CLICKHOUSE_COM_DATABASE:-fs_04_dev}"
 TEMP_DIR="/tmp/ch_migration_$$"
 
 # Parse args
@@ -182,6 +182,11 @@ create_object() {
     if [[ "${SOURCE_DATABASE}" != "${TARGET_DATABASE}" ]]; then
         # Handle cases where DDL explicitly mentions source database
         sed -i.bak "s/${SOURCE_DATABASE}\./${TARGET_DATABASE}\./g" "$ddl_file"
+    fi
+
+    # Fix for mv_device_information column mismatch (device_id exists in source MV but not in target table)
+    if [[ "$object" == "mv_device_information" ]]; then
+        sed -i.bak '/AS device_id/d' "$ddl_file"
     fi
 
     # Convert MergeTree to ReplicatedMergeTree for Cloud
