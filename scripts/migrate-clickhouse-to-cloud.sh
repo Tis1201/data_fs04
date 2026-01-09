@@ -187,6 +187,7 @@ create_object() {
     # Fix for mv_device_information column mismatch (device_id exists in source MV but not in target table)
     if [[ "$object" == "mv_device_information" ]]; then
         sed -i.bak '/AS device_id/d' "$ddl_file"
+        sed -i.bak 's/ORDER BY (device_id, created_at)/ORDER BY (mac_lan, created_at)/g' "$ddl_file"
     fi
 
     # Convert MergeTree to ReplicatedMergeTree for Cloud
