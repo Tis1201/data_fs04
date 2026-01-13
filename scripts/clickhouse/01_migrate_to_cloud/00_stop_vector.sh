@@ -1,0 +1,1 @@
+kubectl -n fs04 scale deployment vector-agent --replicas=0

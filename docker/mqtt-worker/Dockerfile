@@ -11,16 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   openssl \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files (keep lockfile for faster builds)
 COPY package*.json ./
 
-# Fix duplicate keys in package.json if any (legacy issue helper)
-COPY package.json ./package.json.original
-RUN grep -v '"preview": "vite preview",' ./package.json.original | grep -v '"start": "NODE_ENV=production node build",' > ./package.json
-
-# Install dependencies (clean install)
-# Remove Mac-specific lockfile issues if any, ensuring clean linux resolution
-RUN rm -f package-lock.json && npm install --legacy-peer-deps
+# Install dependencies using lockfile, skip platform-specific optional deps
+RUN npm ci --legacy-peer-deps --omit=optional
 
 # Copy source files
 # Copy source files
