@@ -5,7 +5,6 @@ import { rdpHandler } from '../../handlers/RDPHandler';
 // import { ChatHandler } from '../handlers/chatHandler';
 // import { WebhookHandler } from '../handlers/webhookHandler';
 import { messageHandler } from '../handlers/messageHandler';
-import { whatsappHandler } from "../handlers/whatsappHandler";
 import { deviceHandler } from "../handlers/deviceHandler";
 import { handleDeviceConnection } from "../handlers/device/connectionHandler";
 import { roomHandler } from "../handlers/roomHandler";
@@ -77,10 +76,6 @@ export const MessageDispatcher: MessageDispatcher = {
 
     if (type === 'message') {
       return messageHandler.handle(message);
-    }
-
-    if ( type === 'whatsapp') {
-      return whatsappHandler.handle(message);
     }
 
     if (type === 'room') {
@@ -192,61 +187,61 @@ export const MessageDispatcher: MessageDispatcher = {
         return;
       }
       
-      // Handle device:installApp messages specifically
-      if (type === 'device:installApp') {
+      // Handle device:install_app messages specifically
+      if (type === 'device:installApp' || type === 'device:install_app') {
         try {
-          // Convert device:installApp to device message format for the handler
+          // Convert device:install_app to device message format for the handler
           const convertedMessage = {
             ...message,
             type: 'device',
             payload: {
               ...payload,
-              action: 'installApp'
+              action: 'install_app'
             }
           };
           await deviceHandler.handle(convertedMessage);
         } catch (error) {
-          console.error(`[Dispatcher] Error in deviceHandler.handle for installApp:`, error);
+          console.error(`[Dispatcher] Error in deviceHandler.handle for install_app:`, error);
           console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
         }
         return;
       }
 
-      // Handle device:pullFile messages specifically
-      if (type === 'device:pullFile') {
+      // Handle device:pull_file messages specifically
+      if (type === 'device:pullFile' || type === 'device:pull_file') {
         try {
-          // Convert device:pullFile to device message format for the handler
+          // Convert device:pull_file to device message format for the handler
           const convertedMessage = {
             ...message,
             type: 'device',
             payload: {
               ...payload,
-              action: 'pullFile'
+              action: 'pull_file'
             }
           };
           await deviceHandler.handle(convertedMessage);
         } catch (error) {
-          console.error(`[Dispatcher] Error in deviceHandler.handle for pullFile:`, error);
+          console.error(`[Dispatcher] Error in deviceHandler.handle for pull_file:`, error);
           console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
         }
         return;
       }
 
-      // Handle device:pushFile messages specifically
-      if (type === 'device:pushFile') {
+      // Handle device:push_file messages specifically
+      if (type === 'device:pushFile' || type === 'device:push_file') {
         try {
-          // Convert device:pushFile to device message format for the handler
+          // Convert device:push_file to device message format for the handler
           const convertedMessage = {
             ...message,
             type: 'device',
             payload: {
               ...payload,
-              action: 'pushFile'
+              action: 'push_file'
             }
           };
           await deviceHandler.handle(convertedMessage);
         } catch (error) {
-          console.error(`[Dispatcher] Error in deviceHandler.handle for pushFile:`, error);
+          console.error(`[Dispatcher] Error in deviceHandler.handle for push_file:`, error);
           console.error(`[Dispatcher] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
         }
         return;

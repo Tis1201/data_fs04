@@ -1,9 +1,6 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
-import { ActionLogger } from '$lib/server/action-logger';
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
-import { publisher } from '$lib/server/messaging/core/publisher';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
@@ -122,44 +119,34 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 	const successfulDevices: string[] = [];
 	const failedDevices: string[] = [];
 
+	// Import ProfileMessagingService
+	const { ProfileMessagingService } = await import('$lib/server/device/profile/ProfileMessagingService');
+	const messagingService = new ProfileMessagingService(prisma);
+
 	await Promise.all(
 		assignments.map(async (assignment: AssignmentWithDevice) => {
 			try {
-				// Log the action
-				await ActionLogger.createInitiated({
-					deviceId: assignment.deviceId,
-					actionType: 'config_update',
-					initiatedBy: session.user.id,
-					requestId: context.requestId,
-					metadata: {
-						profileId,
-						profileName: deviceProfile.name,
-						settingsCount: deviceProfile.settings.length
-					}
-				});
-
-				// Send message to device
-				const message = MessageFactory.createSystemMessage(
-					'device:configUpdate',
-					`subscription:device:${assignment.deviceId}`,
+				// Send config to device using ProfileMessagingService (includes operationId)
+				const result = await messagingService.sendConfigToDevice(
+					assignment.deviceId,
+					configPayload,
+					profileId,
 					{
-						config: configPayload,
-						profileId,
-						profileName: deviceProfile.name,
-						isReapply: true
-					},
-					SystemUser,
-					{ echoToSender: false }
+						userId: session.user.id
+					}
 				);
 
-				await publisher.publish(message);
-
-				successfulDevices.push(assignment.deviceId);
-
-				logger.info(`Reapplied profile to device ${assignment.deviceId}`, {
-					deviceId: assignment.deviceId,
-					profileId
-				});
+				if (result.success) {
+					successfulDevices.push(assignment.deviceId);
+					logger.info(`Reapplied profile to device ${assignment.deviceId}`, {
+						deviceId: assignment.deviceId,
+						profileId,
+						logId: result.logId
+					});
+				} else {
+					failedDevices.push(assignment.deviceId);
+					logger.error(`Failed to reapply profile to device ${assignment.deviceId}: ${result.error}`);
+				}
 			} catch (error) {
 				failedDevices.push(assignment.deviceId);
 				logger.error(`Failed to reapply profile to device ${assignment.deviceId}:`, error);

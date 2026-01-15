@@ -9,7 +9,8 @@ export class FileOperationHandler extends StreamActionHandler {
   private static readonly DOWNLOAD_STORAGE_KEY = 'fs04_pullfile_downloads'; // Session storage key for tracking downloads
 
   constructor(params: ActionHandlerParams, operationType: 'push' | 'pull') {
-    super(params, 'file_operation');
+    // Use snake_case action name based on operation type
+    super(params, operationType === 'push' ? 'push_file' : 'pull_file');
     this.operationType = operationType;
   }
 
@@ -75,12 +76,14 @@ export class FileOperationHandler extends StreamActionHandler {
   }
 
   /**
-   * Override handleUnifiedStatus to trigger download for pullFile when objectPath is present
+   * Override handleUnifiedStatus to trigger download for pull_file when objectPath is present
    */
   protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
-    const { action, status, message, logId, progress, durationMs } = entity;
+    const { action, status, message, logId, progress } = entity;
     const payload = entity.payload ?? {};
     const objectPath = (payload as any)?.objectPath;
+    // Extract durationMs from both entity and payload (server sends it in payload)
+    const durationMs = entity.durationMs ?? entity.payload?.durationMs;
 
     console.log(`[${this.operationType}FileHandler] Unified status update:`, { 
       action, 
@@ -214,14 +217,17 @@ export class FileOperationHandler extends StreamActionHandler {
     console.log(`[${this.operationType}FileHandler] IS FILE CHUNK:`, this.isFileChunk(entity));
     
     // Handle status update messages
-    if (MessageEntityMapper.isStatusUpdate(entity) && (mappedActionType === 'file_operation' || mappedActionType === 'pull_file')) {
+    // Check for both push_file and pull_file (snake_case) and legacy file_operation
+    if (MessageEntityMapper.isStatusUpdate(entity) && 
+        (mappedActionType === 'push_file' || mappedActionType === 'pull_file' || mappedActionType === 'file_operation')) {
       console.log(`[${this.operationType}FileHandler] Handling status update`);
       this.handleUnifiedStatus(entity);
       return;
     }
 
     // Handle progress update messages (including file chunks)
-    if (entity.type === 'device:progressUpdate' && (mappedActionType === 'file_operation' || mappedActionType === 'pull_file')) {
+    if (entity.type === 'device:progressUpdate' && 
+        (mappedActionType === 'push_file' || mappedActionType === 'pull_file' || mappedActionType === 'file_operation')) {
       console.log(`[${this.operationType}FileHandler] Handling progress update`);
       // Check if this is a file chunk message
       if (this.isFileChunk(entity)) {
@@ -239,7 +245,7 @@ export class FileOperationHandler extends StreamActionHandler {
       type: entity.type, 
       action: entity.action, 
       mappedActionType,
-      expectedAction: `${this.operationType}File` 
+      expectedAction: `${this.operationType}_file` 
     });
   }
 

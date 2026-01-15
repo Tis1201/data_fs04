@@ -1,3 +1,5 @@
+import { mapActionToHandlerKey } from '$lib/client/actionHandlers/actionTypeMapping';
+
 /**
  * Device Message Entity
  * 
@@ -158,26 +160,12 @@ export class MessageEntityMapper {
   static getActionType(entity: DeviceMessageEntity): string | null {
     if (!entity.action) return null;
     
-    // Map action types to handler keys
-    const actionMap: Record<string, string> = {
-      'reboot': 'reboot',
-      'restart': 'restart',
-      'refresh': 'refresh',
-      'installApp': 'install',
-      'pushFile': 'file_operation',
-      'pullFile': 'pull_file',
-      'updateFirmware': 'firmware_update',
-      'getLogs': 'logs',
-      'bundleStatus': 'bundle_status',
-      'progressUpdate': 'file_operation', // Map progressUpdate to file_operation handler
-      'uninstall': 'uninstall', // Map uninstall to uninstall handler
-      'restartApp': 'restartApp', // Map restartApp to restartApp handler
-      'config': 'config' // Map config to config handler
-    };
-
-    const handlerKey = actionMap[entity.action];
+    // Use centralized action type mapping for handler routing
+    // Note: This uses mapActionToHandlerKey which may differ from database format
+    // (e.g., 'installApp' -> 'install' for handler, but 'install_app' for DB)
+    const handlerKey = mapActionToHandlerKey(entity.action);
     console.log(`[MessageEntityMapper] Mapping action: ${entity.action} -> ${handlerKey}`);
-    return handlerKey || null;
+    return handlerKey;
   }
 
   /**

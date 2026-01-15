@@ -4,6 +4,9 @@
   export let connecting: boolean = false;
   export let className: string = '';
 
+  // MQTT frame support (fallback when WebRTC video has no dimensions)
+  export let mqttFrame: string | null = null; // base64-encoded JPEG image
+
   // Input handlers passed from parent
   export let onMouseClick: (e: MouseEvent) => void = () => {};
   export let onMouseMove: (e: MouseEvent) => void = () => {};
@@ -14,10 +17,14 @@
 
   let videoContainer: HTMLDivElement;
   let videoElement: HTMLVideoElement;
+  let imageElement: HTMLImageElement;
 
   let isVideoPaused = true;
   let currentVideoStreamId: string | null = null;
   let frameCount = 0;
+  
+  // Determine if we should use MQTT frames (when WebRTC has no dimensions)
+  $: useMqttFrames = videoStream && videoElement && videoElement.videoWidth === 0 && videoElement.videoHeight === 0 && mqttFrame;
 
   function updateVideoState() {
     if (!videoElement) return;
@@ -105,9 +112,11 @@
 
 <div class={"w-full aspect-video bg-muted rounded-lg overflow-hidden " + className} bind:this={videoContainer}>
   <div class="relative w-full h-full">
+    <!-- WebRTC Video Stream -->
     <video
             bind:this={videoElement}
             class="w-full h-full object-contain bg-black cursor-crosshair"
+            class:hidden={useMqttFrames}
             autoplay
             playsinline
             controls={false}
@@ -162,7 +171,24 @@
             on:wheel={onMouseWheel}
     ></video>
 
-    {#if !videoStream}
+    <!-- MQTT Frame Display (fallback when WebRTC has no dimensions) -->
+    {#if useMqttFrames && mqttFrame}
+      <img
+        bind:this={imageElement}
+        src={`data:image/jpeg;base64,${mqttFrame}`}
+        class="w-full h-full object-contain bg-black cursor-crosshair"
+        alt="RDP Frame"
+        tabindex="0"
+        on:click={onMouseClick}
+        on:mousemove={onMouseMove}
+        on:contextmenu|preventDefault={onRightClick}
+        on:keydown={onKeyDown}
+        on:keyup={onKeyUp}
+        on:wheel={onMouseWheel}
+      />
+    {/if}
+
+    {#if !videoStream && !mqttFrame}
       <div class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
         <div class="text-white text-center">
           {#if connecting}

@@ -1,17 +1,11 @@
 import { mqttClient } from '../../mqttClient';
 import { ActionHandlerManager } from '../../../actionHandlers/ActionHandlerManager';
 import type { ActionLog } from '../../../actionHandlers/types';
+import { mapActionTypeToDb } from '../../../actionHandlers/actionTypeMapping';
 
 /**
  * Subscribes to device action log updates via MQTT.
- * Handles device:statusUpdate and device:progressUpdate notifications
- * and updates action logs via ActionHandlerManager.
- * 
- * @param deviceId - The device ID to subscribe to
- * @param getLogs - Function to get current action logs
- * @param setLogs - Function to update action logs
- * @param actionStatus - Action status store
- * @returns Unsubscribe function
+ * Handles device:statusUpdate, device:progressUpdate, and device.screenshot notifications.
  */
 export function subscribeActionLogUpdates(
   deviceId: string,
@@ -20,32 +14,68 @@ export function subscribeActionLogUpdates(
   actionStatus: any
 ): () => void {
   
-  // Create action handler manager with UI update callbacks
   const actionHandlerManager = new ActionHandlerManager({
     deviceId,
     getLogs,
     setLogs,
     actionStatus,
-    onProgress: (progress: number, message: string, logId?: string) => {
-      // Update action logs with progress
+    onProgress: (progress: number | null, message: string, logId?: string, actionType?: string) => {
       const logs = getLogs();
-      const updatedLogs = logs.map(log => 
-        log.id === logId 
-          ? { ...log, progress, message, status: 'in_progress' }
-          : log
-      );
+      const logExists = logId ? logs.some(log => log.id === logId) : false;
+      const existingLog = logId ? logs.find(log => log.id === logId) : null;
+
+      const dbActionType = actionType 
+        ? mapActionTypeToDb(actionType) 
+        : existingLog?.actionType;
+      
+      const updatedLogs = logs.map(log => {
+        if (log.id === logId) {
+          const updated = { ...log, progress, message, status: 'in_progress' };
+          if (actionType && actionType !== log.actionType && dbActionType) {
+            updated.actionType = dbActionType;
+          }
+          return updated;
+        }
+        return log;
+      });
+      
+      if (logId && !logExists) {
+        if (dbActionType) {
+          console.warn('[actionLogHandler] Log not found, creating new log', {
+            logId,
+            actionType: dbActionType,
+            progress
+          });
+          updatedLogs.unshift({
+            id: logId,
+            deviceId: deviceId,
+            actionType: dbActionType,
+            status: 'in_progress',
+            progress,
+            initiatedAt: new Date().toISOString(),
+            completedAt: null,
+            durationMs: null,
+            message,
+            user: null
+          });
+        } else {
+          console.warn('[actionLogHandler] Cannot create log: actionType is missing', {
+            logId,
+            actionType,
+            existingLogActionType: existingLog?.actionType
+          });
+        }
+      }
+      
       setLogs(updatedLogs);
     },
     onSuccess: (data: any) => {
-      // Update action logs with success
       const logs = getLogs();
       const logId = data.logId || data.id;
       
-      // Actions that don't have progress tracking (restart/reboot/refresh)
-      const noProgressActions = ['restart', 'reboot', 'refresh'];
+      const noProgressActions = ['restart', 'reboot', 'refresh', 'screenshot', 'snapshot'];
       const shouldShowProgress = !noProgressActions.includes(data.action);
       
-      // Map action types for matching (handle both original and mapped action types)
       const actionMap: Record<string, string[]> = {
         'pullFile': ['pullFile', 'pull_file'],
         'pushFile': ['pushFile', 'push_file'],
@@ -69,15 +99,13 @@ export function subscribeActionLogUpdates(
             message: data.message || 'Action completed successfully',
             ...(shouldShowProgress && { progress: 100 }),
             completedAt: new Date().toISOString(),
-            durationMs: data.durationMs // Use server-calculated duration
+            durationMs: data.durationMs
           };
         }
         return log;
       });
       
-      // If no existing log found, try to update the most recent log with the same action type
       if (!logs.find(log => log.id === logId)) {
-        // Find the most recent log with matching action type (check all variants)
         const recentLogIndex = logs.findIndex(log => 
           actionVariants.includes(log.actionType) && 
           (log.status === 'in_progress' || log.status === 'initiated')
@@ -86,24 +114,23 @@ export function subscribeActionLogUpdates(
         if (recentLogIndex !== -1) {
           updatedLogs[recentLogIndex] = {
             ...updatedLogs[recentLogIndex],
-            id: logId || updatedLogs[recentLogIndex].id, // Use the new logId if provided
+            id: logId || updatedLogs[recentLogIndex].id,
             status: 'success',
             message: data.message || 'Action completed successfully',
             ...(shouldShowProgress && { progress: 100 }),
             completedAt: new Date().toISOString(),
-            durationMs: data.durationMs // Use server-calculated duration
+            durationMs: data.durationMs
           };
         } else {
-          // Only create new log if we have a valid action type
           if (data.action && data.action !== 'unknown') {
             const newLog: any = {
               id: logId || `temp-${Date.now()}`,
               deviceId,
-              actionType: data.action, // Use the action from data
+              actionType: data.action,
               status: 'success',
               initiatedAt: new Date().toISOString(),
               completedAt: new Date().toISOString(),
-              durationMs: data.durationMs || 0, // Use server-calculated duration
+              durationMs: data.durationMs || 0,
               message: data.message || 'Action completed successfully',
               user: null
             };
@@ -112,18 +139,16 @@ export function subscribeActionLogUpdates(
             }
             updatedLogs.unshift(newLog);
           } else {
-            console.warn('[actionLogHandler] Cannot create log entry: missing or invalid action type', data);
+            console.warn('[actionLogHandler] Cannot create log: invalid action type', { action: data.action });
           }
         }
       }
       
-      setLogs(updatedLogs.slice(0, 15)); // Keep only last 15 logs
+      setLogs(updatedLogs.slice(0, 15));
     },
-    onError: (error: string, logId?: string, action?: string) => {
-      // Update action logs with error
+    onError: (error: string, logId?: string, action?: string, durationMs?: number | null) => {
       const logs = getLogs();
       
-      // Map action types for matching (handle both original and mapped action types)
       const actionMap: Record<string, string[]> = {
         'pullFile': ['pullFile', 'pull_file'],
         'pushFile': ['pushFile', 'push_file'],
@@ -139,6 +164,12 @@ export function subscribeActionLogUpdates(
       
       const actionVariants = action ? (actionMap[action] || [action]) : [];
       
+      const finalDurationMs = durationMs !== undefined && durationMs !== null 
+        ? durationMs 
+        : (logs.find(log => log.id === logId)?.initiatedAt 
+            ? Date.now() - new Date(logs.find(log => log.id === logId)!.initiatedAt).getTime() 
+            : null);
+      
       const updatedLogs = logs.map(log => {
         if (log.id === logId) {
           return { 
@@ -146,37 +177,38 @@ export function subscribeActionLogUpdates(
             status: 'failed', 
             message: error,
             completedAt: new Date().toISOString(),
-            durationMs: log.initiatedAt ? Date.now() - new Date(log.initiatedAt).getTime() : null
+            durationMs: finalDurationMs
           };
         }
         return log;
       });
       
-      // If no existing log found, try to update the most recent log with the same action type
       if (!logs.find(log => log.id === logId)) {
-        // Find the most recent log with matching action type (check all variants)
         const recentLogIndex = logs.findIndex(log => 
           (actionVariants.length === 0 || actionVariants.includes(log.actionType)) &&
           (log.status === 'in_progress' || log.status === 'initiated')
         );
         
         if (recentLogIndex !== -1) {
+          const recentLog = updatedLogs[recentLogIndex];
+          const recentDurationMs = durationMs !== undefined && durationMs !== null
+            ? durationMs
+            : (recentLog.initiatedAt ? Date.now() - new Date(recentLog.initiatedAt).getTime() : null);
+          
           updatedLogs[recentLogIndex] = {
             ...updatedLogs[recentLogIndex],
-            id: logId || updatedLogs[recentLogIndex].id, // Use the new logId if provided
+            id: logId || updatedLogs[recentLogIndex].id,
             status: 'failed',
             message: error,
             completedAt: new Date().toISOString(),
-            durationMs: updatedLogs[recentLogIndex].initiatedAt ? 
-              Date.now() - new Date(updatedLogs[recentLogIndex].initiatedAt).getTime() : null
+            durationMs: recentDurationMs
           };
         } else {
-          // Only create new log if we have a valid action type
           if (action && action !== 'unknown') {
             const newLog = {
               id: logId || `temp-${Date.now()}`,
               deviceId,
-              actionType: action, // Use the action from parameter
+              actionType: action,
               status: 'failed',
               progress: null,
               initiatedAt: new Date().toISOString(),
@@ -187,55 +219,69 @@ export function subscribeActionLogUpdates(
             };
             updatedLogs.unshift(newLog);
           } else {
-            console.warn('[actionLogHandler] Cannot create log entry: missing or invalid action type', { error, logId, action });
+            console.warn('[actionLogHandler] Cannot create log: invalid action type', { error, logId, action });
           }
         }
       }
       
-      setLogs(updatedLogs.slice(0, 15)); // Keep only last 15 logs
+      setLogs(updatedLogs.slice(0, 15));
     }
   });
 
-  // Subscribe to MQTT notifications for device actions
   const unsubscribeMqttStatus = mqttClient.onNotification('device:statusUpdate', (payload: any) => {
-    console.log('[actionLogHandler] ✅ Received device:statusUpdate:', payload);
-    console.log('[actionLogHandler] Payload keys:', payload ? Object.keys(payload) : 'null');
-    console.log('[actionLogHandler] Payload content:', JSON.stringify(payload, null, 2));
+    const logId = payload?.logId || payload?.id;
+    const action = payload?.action;
+    const status = payload?.status;
+    const durationMs = payload?.durationMs;
     
-    // Convert MQTT notification to ActionHandlerManager format
-    const fullMessage = {
+    if (logId) {
+      const existingLog = getLogs().find(log => log.id === logId);
+      if (!existingLog) {
+        console.debug('[actionLogHandler] Log not found in UI state', { logId, action, status, durationMs });
+      }
+    }
+    
+    actionHandlerManager.handle('device:statusUpdate', {
       type: 'device:statusUpdate',
+      durationMs,
       ...payload
-    };
-    
-    console.log('[actionLogHandler] Calling actionHandlerManager.handle with:', fullMessage);
-    actionHandlerManager.handle('device:statusUpdate', fullMessage);
-    console.log('[actionLogHandler] actionHandlerManager.handle completed');
+    });
   });
 
   const unsubscribeMqttProgress = mqttClient.onNotification('device:progressUpdate', (payload: any) => {
-    console.log('[actionLogHandler] ✅ Received device:progressUpdate:', payload);
-    console.log('[actionLogHandler] Payload keys:', payload ? Object.keys(payload) : 'null');
-    console.log('[actionLogHandler] Payload content:', JSON.stringify(payload, null, 2));
-    
-    // Convert MQTT notification to ActionHandlerManager format
-    const fullMessage = {
+    actionHandlerManager.handle('device:progressUpdate', {
       type: 'device:progressUpdate',
       ...payload
-    };
+    });
+  });
+
+  const unsubscribeMqttScreenshot = mqttClient.onNotification('device.screenshot', (payload: any) => {
+    const message = payload?.message;
+    const durationMs = payload?.durationMs;
+    const objectPath = payload?.objectPath;
     
-    console.log('[actionLogHandler] Calling actionHandlerManager.handle with:', fullMessage);
-    actionHandlerManager.handle('device:progressUpdate', fullMessage);
-    console.log('[actionLogHandler] actionHandlerManager.handle completed');
+    actionHandlerManager.handle('device.screenshot', {
+      type: 'device.screenshot',
+      action: 'screenshot',
+      status: 'success',
+      message,
+      durationMs,
+      objectPath,
+      ...payload,
+      payload: {
+        ...payload?.payload,
+        action: 'screenshot'
+      }
+    });
   });
 
   return () => {
     try {
       unsubscribeMqttStatus();
       unsubscribeMqttProgress();
+      unsubscribeMqttScreenshot();
     } catch (e) {
-      // Error unsubscribing from MQTT
+      console.error('[actionLogHandler] Error unsubscribing from MQTT', { error: e });
     }
   };
 }
-

@@ -91,7 +91,7 @@ export class ProfileMessagingService {
                     action: 'applyProfile',
                     deviceId: deviceId,
                     profileId: profileId,
-                    logId: logId ?? undefined,
+                    operationId: logId ?? undefined,
                     requestId: logId ?? undefined,
                     config: config,
                     sentAt: new Date().toISOString()

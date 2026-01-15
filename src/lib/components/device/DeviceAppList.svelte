@@ -4,6 +4,7 @@
   import { toast } from 'svelte-sonner';
   import { writable } from 'svelte/store';
   import { useDeviceAppMqtt } from '$lib/composables/useDeviceAppMqtt';
+  import { restartApp, uninstallApp, configApp } from '$lib/client/mqtt/deviceActions';
 
   // ===== Props =====
   export let deviceId: string;
@@ -232,14 +233,14 @@
   function handleAppActionUpdate(data: any) {
     console.log(`[DeviceAppList:MQTT] update received:`, JSON.stringify(data));
     const payload = data?.payload || {};
-    const action = payload.action as string;          // e.g. 'restartApp' | 'uninstall' | 'config'
+    const action = payload.action as string;          // e.g. 'restart_app' | 'uninstall_app' | 'config_app'
     const status = payload.status as string;          // 'complete' | 'failed' | ...
     const message = payload.message as string | undefined;
 
     console.log(`[DeviceAppList:MQTT] action: ${action}, status: ${status}`);
     if (!action) return;
 
-    const displayAction = action === 'restartApp' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
+    const displayAction = formatActionName(action);
 
     // The parent component is no longer responsible for the final toast.
     // We update the actionStatus for external listeners, but also show the toast here.
@@ -253,11 +254,11 @@
     // Show toast only when the action completes/fails, and only if we were tracking it.
     const pkg = extractPackageFromMessage(message);
     if (pkg) {
-      const key = `${pkg}-${normalizeActionKey(action)}`;
+      const key = `${pkg}-${action}`; // Use snake_case action directly
       if (actionLoading[key]) {
-        if (status === 'complete') {
+        if (status === 'complete' || status === 'success') {
           toast.success(`${displayAction} completed`, { description: message || `${displayAction} operation completed successfully` });
-        } else if (status === 'failed') {
+        } else if (status === 'failed' || status === 'fail') {
           toast.error(`${displayAction} failed`, { description: message || `${displayAction} operation failed` });
         }
       }
@@ -265,9 +266,8 @@
 
     // For final states, clear the loading spinner for the specific action row.
     const finalPkg = extractPackageFromMessage(message);
-    if (finalPkg) {
-      const normalized = normalizeActionKey(action);
-      const key = `${finalPkg}-${normalized}`;
+    if (finalPkg && (action === 'restart_app' || action === 'uninstall_app' || action === 'config_app')) {
+      const key = `${finalPkg}-${action}`; // Use snake_case action directly
       if (actionLoading[key]) {
         actionLoadingStore.update(state => {
           const newState = { ...state };
@@ -276,6 +276,12 @@
         });
         console.log(`[DeviceAppList:MQTT] cleared ${key} from actionLoading`);
       }
+    }
+
+    // Clear global loading state on final status (success or failed)
+    if (status === 'success' || status === 'complete' || status === 'failed' || status === 'fail') {
+      isLoading.set(false);
+      console.log(`[DeviceAppList:MQTT] cleared global loading state for ${action} with status ${status}`);
     }
   }
 
@@ -313,12 +319,13 @@
     }
   }
 
-  function normalizeActionKey(action: string): 'restart' | 'uninstall' | 'config' | null {
-    if (action === 'restartApp' || action === 'restart') return 'restart';
-    if (action === 'uninstall') return 'uninstall';
-    if (action === 'config') return 'config';
-    // For other actions like 'progressUpdate', we don't want to map to a key.
-    return null;
+  // Helper to format action names for display
+  function formatActionName(action: string): string {
+    if (action === 'restart_app') return 'Restart App';
+    if (action === 'uninstall_app') return 'Uninstall App';
+    if (action === 'config_app') return 'Config App';
+    // Convert snake_case to Title Case
+    return action.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
   }
 
   // Extract package name from strings like:
@@ -338,7 +345,7 @@
 
   function confirmUninstall() {
     if (confirmUninstallApp) {
-      sendDeviceAction('uninstall', confirmUninstallApp.packageName);
+      sendDeviceAction('uninstall_app', confirmUninstallApp.packageName);
       showUninstallConfirm = false;
       confirmUninstallApp = null;
     }
@@ -355,7 +362,7 @@
     }
   }
 
-  async function sendDeviceAction(action: 'uninstall' | 'restart' | 'config', packageName: string) {
+  async function sendDeviceAction(action: 'uninstall_app' | 'restart_app' | 'config_app', packageName: string) {
     const actionKey = `${packageName}-${action}`;
     
     try {
@@ -366,50 +373,58 @@
       isLoading.set(true);
 
       actionStatus.set({
-        action: action === 'restart' ? 'restartApp' : action,
+        action: action, // Use snake_case directly
         status: 'loading',
         message: `Sending ${action} command for ${packageName}...`,
         packageName
       });
 
-      const res = await fetch(`/api/devices/${deviceId}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: action === 'restart' ? 'restartApp' : action,
-          packageName
-        })
+      // Use MQTT RPC instead of REST API
+      const actionMap = {
+        restart_app: restartApp,
+        uninstall_app: uninstallApp,
+        config_app: configApp
+      };
+
+      const result = await actionMap[action]({ deviceId, packageName });
+
+      // Success - show toast and keep loading (will be cleared by MQTT status update)
+      const pretty = formatActionName(action);
+      toast.success(`${pretty} command sent`, { 
+        description: `Action sent to device for ${packageName}` 
       });
 
-      if (!res.ok) {
-        let msg = `Failed to send action: ${res.statusText}`;
-        try {
-          const j = await res.json();
-          msg = j?.error?.message || j?.message || msg;
-        } catch {}
-        throw new Error(msg);
-      }
+      // Store operationId for tracking
+      actionStatus.set({ 
+        action: action, 
+        status: 'initiated', 
+        message: result.message || `${pretty} initiated`, 
+        packageName,
+        operationId: result.operationId 
+      });
 
-      // Success - show toast and clear loading immediately
-      const pretty = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-      actionStatus.set({ action: action === 'restart' ? 'restartApp' : action, status: 'success', message: `${pretty} command sent`, packageName });
-      toast.success(`${pretty} command sent`, { description: `Action sent to device for ${packageName}` });
-
-      // The loading state will be cleared by the MQTT handler when a 'complete' or 'failed' message is received.
+      // The loading state will be cleared by the MQTT handler when a 'success' or 'failed' message is received.
 
     } catch (err) {
-      const pretty = action === 'restart' ? 'Restart App' : action.charAt(0).toUpperCase() + action.slice(1);
-      const msg = err instanceof Error ? err.message : 'Failed to send action';
-      actionStatus.set({ action: action === 'restart' ? 'restartApp' : action, status: 'error', message: msg, packageName });
-      toast.error(`Failed to ${pretty.toLowerCase()} app`, { description: msg });
-
-      // Clear row on error
+      const pretty = formatActionName(action);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      
+      actionStatus.set({ 
+        action: action === 'restart' ? 'restartApp' : action, 
+        status: 'error', 
+        message: errMsg, 
+        packageName 
+      });
+      
+      toast.error(`Failed to ${action} ${packageName}`, { description: errMsg });
+      console.error(`Error sending ${action} action:`, err);
+      
+      // Clear row loading state on error
       actionLoadingStore.update(state => {
         const newState = { ...state };
         delete newState[actionKey];
         return newState;
       });
-    } finally {
       isLoading.set(false);
     }
   }
@@ -563,11 +578,11 @@
                       <!-- Uninstall -->
                       <button
                         on:click={() => handleUninstallClick(app.app_name, app.package_name)}
-                        disabled={actionLoading[`${app.package_name}-uninstall`] === 'uninstall' || app.is_system_app}
+                        disabled={actionLoading[`${app.package_name}-uninstall_app`] || app.is_system_app}
                         class="px-2.5 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
                         title={app.is_system_app ? 'Cannot uninstall system app' : 'Uninstall app'}
                       >
-                        {#if actionLoading[`${app.package_name}-uninstall`] === 'uninstall'}
+                        {#if actionLoading[`${app.package_name}-uninstall_app`]}
                           <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-red-700"></div>
                         {:else}
                           <span class="text-base">🗑️</span>
@@ -576,12 +591,12 @@
 
                       <!-- Restart -->
                       <button
-                        on:click={() => sendDeviceAction('restart', app.package_name)}
-                        disabled={actionLoading[`${app.package_name}-restart`] === 'restart'}
+                        on:click={() => sendDeviceAction('restart_app', app.package_name)}
+                        disabled={actionLoading[`${app.package_name}-restart_app`]}
                         class="px-2.5 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
                         title="Restart App"
                       >
-                        {#if actionLoading[`${app.package_name}-restart`] === 'restart'}
+                        {#if actionLoading[`${app.package_name}-restart_app`]}
                           <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-blue-700"></div>
                         {:else}
                           <span class="text-base">🔄</span>
@@ -590,12 +605,12 @@
 
                       <!-- Config -->
                       <button
-                        on:click={() => sendDeviceAction('config', app.package_name)}
-                        disabled={actionLoading[`${app.package_name}-config`] === 'config'}
+                        on:click={() => sendDeviceAction('config_app', app.package_name)}
+                        disabled={actionLoading[`${app.package_name}-config_app`]}
                         class="px-2.5 py-1.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
                         title="Configure app"
                       >
-                        {#if actionLoading[`${app.package_name}-config`] === 'config'}
+                        {#if actionLoading[`${app.package_name}-config_app`]}
                           <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-green-700"></div>
                         {:else}
                           <span class="text-base">⚙️</span>

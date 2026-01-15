@@ -15,7 +15,7 @@ export async function handlePushFile(message: InMessage): Promise<void> {
   const { payload } = message;
   const { deviceId, sourcePath, targetPath, resourceId } = payload as any;
 
-  logger.info('[FileOperationHandler] Handling pushFile request', {
+  logger.info('[FileOperationHandler] Handling push_file request', {
     deviceId,
     sourcePath,
     targetPath,
@@ -67,7 +67,7 @@ export async function handlePushFile(message: InMessage): Promise<void> {
     });
 
   } catch (error) {
-    logger.error('[FileOperationHandler] Error handling pushFile', { error, message });
+    logger.error('[FileOperationHandler] Error handling push_file', { error, message });
     throw error;
   }
 }
@@ -80,7 +80,7 @@ export async function handlePullFile(message: InMessage): Promise<void> {
   const { payload } = message;
   const { deviceId, sourcePath, targetPath, resourceId } = payload as any;
 
-  logger.info('[FileOperationHandler] Handling pullFile request', {
+  logger.info('[FileOperationHandler] Handling pull_file request', {
     deviceId,
     sourcePath,
     targetPath,
@@ -173,7 +173,7 @@ export async function handlePullFile(message: InMessage): Promise<void> {
     });
 
   } catch (error) {
-    logger.error('[FileOperationHandler] Error handling pullFile', { error, message });
+    logger.error('[FileOperationHandler] Error handling pull_file', { error, message });
     throw error;
   }
 }
@@ -186,7 +186,7 @@ export async function handleInstallApp(message: InMessage): Promise<void> {
   const { payload } = message;
   const { deviceId, appName, appPath, resourceId } = payload as any;
 
-  logger.info('[FileOperationHandler] Handling installApp request', {
+  logger.info('[FileOperationHandler] Handling install_app request', {
     deviceId,
     appName,
     appPath,
@@ -238,7 +238,7 @@ export async function handleInstallApp(message: InMessage): Promise<void> {
     });
 
   } catch (error) {
-    logger.error('[FileOperationHandler] Error handling installApp', { error, message });
+    logger.error('[FileOperationHandler] Error handling install_app', { error, message });
     throw error;
   }
 }

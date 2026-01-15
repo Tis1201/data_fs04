@@ -55,15 +55,15 @@ export const deviceHandler: Handler = {
         break;
       case 'pushFile':
         // These actions should be handled by the unified action API, not SSE dispatcher
-        logger.warn(`[DeviceHandler] pushFile action should use unified action API, not SSE dispatcher`);
+        logger.warn(`[DeviceHandler] push_file action should use unified action API, not SSE dispatcher`);
         break;
       case 'pullFile':
         // These actions should be handled by the unified action API, not SSE dispatcher
-        logger.warn(`[DeviceHandler] pullFile action should use unified action API, not SSE dispatcher`);
+        logger.warn(`[DeviceHandler] pull_file action should use unified action API, not SSE dispatcher`);
         break;
       case 'installApp':
         // These actions should be handled by the unified action API, not SSE dispatcher
-        logger.warn(`[DeviceHandler] installApp action should use unified action API, not SSE dispatcher`);
+        logger.warn(`[DeviceHandler] install_app action should use unified action API, not SSE dispatcher`);
         break;
       case 'updateFirmware':
         // These actions should be handled by the unified action API, not SSE dispatcher

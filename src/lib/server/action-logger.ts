@@ -1,5 +1,6 @@
 import prisma, { getEnhancedPrisma } from '$lib/server/prisma';
 import { logger } from '$lib/server/logger';
+import { SequenceGenerator } from './sync/sequenceGenerator';
 
 export type DeviceActionType =
   | 'screenshot'
@@ -39,7 +40,7 @@ export interface CreateActionLogInput {
 export interface UpdateActionLogInput {
   logId: string;
   status?: DeviceActionStatus;
-  progress?: number; // 0..100
+  progress?: number;
   message?: string;
   error?: string;
   metadata?: Record<string, unknown>;
@@ -49,7 +50,6 @@ export const ActionLogger = {
   async createInitiated(input: CreateActionLogInput) {
     const { deviceId, actionType, initiatedBy, requestId, connectionId, protocol, metadata, initialMessage } = input;
 
-    // Basic validation
     if (!deviceId || !actionType || !initiatedBy) {
       throw new Error('Missing required fields: deviceId, actionType, initiatedBy');
     }
@@ -67,7 +67,13 @@ export const ActionLogger = {
     };
 
     const created = await (prisma as any).deviceActionLog.create({ data });
-    logger.info(`[ActionLogger] Initiated ${actionType} for device ${deviceId} (logId=${created.id})`);
+    
+    logger.info('[ActionLogger] Created action log', {
+      logId: created.id,
+      deviceId,
+      actionType
+    });
+    
     return created;
   },
 
@@ -153,5 +159,3 @@ export const ActionLogger = {
     return updated;
   }
 };
-
-

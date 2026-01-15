@@ -9,6 +9,7 @@ export type ActionLog = {
   durationMs: number | null;
   message: string | null;
   user: any | null;
+  sequenceNumber?: number;
 };
 
 export type ActionHandlerParams = {
@@ -16,9 +17,9 @@ export type ActionHandlerParams = {
   getLogs: () => ActionLog[];
   setLogs: (logs: ActionLog[]) => void;
   actionStatus: any;
-  onProgress?: (progress: number, message: string, logId?: string) => void;
+  onProgress?: (progress: number | null, message: string, logId?: string, actionType?: string) => void;
   onSuccess?: (data: any) => void;
-  onError?: (error: string, logId?: string, action?: string) => void;
+  onError?: (error: string, logId?: string, action?: string, durationMs?: number | null) => void;
 };
 
 export type MessageData = {

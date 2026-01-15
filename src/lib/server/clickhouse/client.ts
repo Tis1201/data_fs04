@@ -16,18 +16,26 @@ let clickhouseClient: ReturnType<typeof createClient> | null = null;
 
 export function getClickHouseClient() {
   if (!clickhouseClient) {
-    const url = process.env.CLICKHOUSE_URL || 'http://localhost:8123';
-    const username = process.env.CLICKHOUSE_USER_NAME || 'admin';
-    const password = process.env.CLICKHOUSE_PASSWORD || 'admin0823';
+    const url = process.env.CLICKHOUSE_URL;
+    const username = process.env.CLICKHOUSE_USER_NAME;
+    const password = process.env.CLICKHOUSE_PASSWORD;
+    
+    if (!url || !username || !password) {
+      throw new Error('ClickHouse configuration missing: CLICKHOUSE_URL, CLICKHOUSE_USER_NAME, and CLICKHOUSE_PASSWORD must be set');
+    }
+    
+    // Select database based on NODE_ENV: fs_04_dev for dev, fs_04 for prod
+    const isProduction = process.env.NODE_ENV === 'production';
+    const database = isProduction ? 'fs_04' : 'fs_04_dev';
 
     clickhouseClient = createClient({
       url,
       username,
       password,
-      database: 'fs_04'
+      database
     });
 
-    logger.info(`[ClickHouse] Connected to ${url} with user ${username}`);
+    logger.info(`[ClickHouse] Connected to ${url} with user ${username}, database: ${database}`);
   }
 
   return clickhouseClient;

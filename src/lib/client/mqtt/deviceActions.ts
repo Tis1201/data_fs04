@@ -140,6 +140,75 @@ export async function installApp(
 }
 
 /**
+ * Restart an app on the device via MQTT RPC
+ * Status messages: "restart {packageName} init/success/error: {reason}"
+ */
+export async function restartApp(
+  params: { deviceId: string; packageName: string },
+  options: DeviceActionOptions = {}
+): Promise<DeviceActionResult> {
+  if (!browser) {
+    throw new Error('Device actions are only available in the browser');
+  }
+
+  const timeoutMs = options.timeoutMs ?? 180000; // 3 minutes
+
+  const result = await callUserRpc<DeviceActionResult>(
+    'device.app.restart',
+    params,
+    { timeoutMs }
+  );
+
+  return result;
+}
+
+/**
+ * Uninstall an app from the device via MQTT RPC
+ * Status messages: "uninstall {packageName} init/success/error: {reason}"
+ */
+export async function uninstallApp(
+  params: { deviceId: string; packageName: string },
+  options: DeviceActionOptions = {}
+): Promise<DeviceActionResult> {
+  if (!browser) {
+    throw new Error('Device actions are only available in the browser');
+  }
+
+  const timeoutMs = options.timeoutMs ?? 300000; // 5 minutes
+
+  const result = await callUserRpc<DeviceActionResult>(
+    'device.app.uninstall',
+    params,
+    { timeoutMs }
+  );
+
+  return result;
+}
+
+/**
+ * Configure an app on the device via MQTT RPC
+ * Status messages: "config {packageName} init/success/error: {reason}"
+ */
+export async function configApp(
+  params: { deviceId: string; packageName: string; config?: any },
+  options: DeviceActionOptions = {}
+): Promise<DeviceActionResult> {
+  if (!browser) {
+    throw new Error('Device actions are only available in the browser');
+  }
+
+  const timeoutMs = options.timeoutMs ?? 180000; // 3 minutes
+
+  const result = await callUserRpc<DeviceActionResult>(
+    'device.app.config',
+    params,
+    { timeoutMs }
+  );
+
+  return result;
+}
+
+/**
  * Pull file from device
  */
 export async function pullFile(

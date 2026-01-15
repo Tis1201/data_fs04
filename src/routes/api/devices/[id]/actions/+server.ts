@@ -12,6 +12,7 @@ import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
 import { generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
 import { isGCloudUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
 import path from 'path';
+import { broadcastDeviceActionUpdate } from '$lib/server/mqtt/handlers/notifications/device_action_broadcaster';
 
 const ACTION_CONFIGS = {
     reboot: {
@@ -328,7 +329,7 @@ export const POST: RequestHandler = restrict(
                             // Replace sourcePath in payload with signed download URL
                             payload.sourcePath = downloadUrlData.downloadUrl;
                             
-                            logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for pushFile`, {
+                            logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for push_file`, {
                                 originalSourcePath: finalSourcePath,
                                 signedDownloadUrl: downloadUrlData.downloadUrl,
                                 objectPath: downloadUrlData.objectPath,
@@ -342,7 +343,7 @@ export const POST: RequestHandler = restrict(
                                 success: false,
                                 error: {
                                     code: 'OPERATION_FAILED',
-                                    message: 'Failed to generate download URL for pushFile',
+                                    message: 'Failed to generate download URL for push_file',
                                     details: 'Could not convert GCloud URL to signed download URL'
                                 }
                             }, { status: 500 });
@@ -380,7 +381,7 @@ export const POST: RequestHandler = restrict(
                         throw new Error('GCloud bucket not configured');
                     }
                     
-                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for pullFile`, {
+                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for pull_file`, {
                         mode: storageConfig.mode,
                         bucket: storageConfig.bucket,
                         objectPath
@@ -441,7 +442,7 @@ export const POST: RequestHandler = restrict(
                         });
                     }
                 } catch (error) {
-                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for pullFile`, {
+                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for pull_file`, {
                         error: error instanceof Error ? error.message : String(error),
                         stack: error instanceof Error ? error.stack : undefined
                     });
@@ -468,7 +469,7 @@ export const POST: RequestHandler = restrict(
                         throw new Error('GCloud bucket not configured');
                     }
                     
-                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for getLogs`, {
+                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for get_logs`, {
                         mode: storageConfig.mode,
                         bucket: storageConfig.bucket,
                         objectPath,
@@ -513,13 +514,13 @@ export const POST: RequestHandler = restrict(
                         contentType: presignedUrlResult.contentType
                     };
                     
-                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully for getLogs`, {
+                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully for get_logs`, {
                         objectPath: presignedUrlResult.objectPath,
                         bucket: presignedUrlResult.bucket,
                         mode: storageConfig.mode
                     });
                 } catch (error) {
-                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for getLogs`, {
+                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for get_logs`, {
                         error: error instanceof Error ? error.message : String(error),
                         stack: error instanceof Error ? error.stack : undefined
                     });
@@ -527,7 +528,7 @@ export const POST: RequestHandler = restrict(
                         success: false,
                         error: {
                             code: 'OPERATION_FAILED',
-                            message: 'Failed to generate upload URL for getLogs',
+                            message: 'Failed to generate upload URL for get_logs',
                             details: error instanceof Error ? error.message : String(error)
                         }
                     }, { status: 500 });
@@ -543,7 +544,7 @@ export const POST: RequestHandler = restrict(
                             success: false,
                             error: {
                                 code: 'INVALID_REQUEST',
-                                message: 'resourceId is required for installApp action'
+                                message: 'resourceId is required for install_app action'
                             }
                         }, { status: 400 });
                     }
@@ -607,7 +608,7 @@ export const POST: RequestHandler = restrict(
                         payload.downloadUrl = downloadUrlData.downloadUrl;
                         payload.appPath = resource.path; // Keep original path for reference
                         
-                        logger.info(`[UnifiedActionAPI] Generated signed download URL for installApp`, {
+                        logger.info(`[UnifiedActionAPI] Generated signed download URL for install_app`, {
                             resourceId,
                             resourceName: resource.name,
                             packageName: packageName,
@@ -617,7 +618,7 @@ export const POST: RequestHandler = restrict(
                             bucket: downloadUrlData.bucket
                         });
                     } else {
-                        logger.error(`[UnifiedActionAPI] Failed to generate download URL for installApp`, {
+                        logger.error(`[UnifiedActionAPI] Failed to generate download URL for install_app`, {
                             resourceId,
                             resourcePath: resource.path
                         });
@@ -631,7 +632,7 @@ export const POST: RequestHandler = restrict(
                         }, { status: 500 });
                     }
                 } catch (error) {
-                    logger.error(`[UnifiedActionAPI] Failed to generate download URL for installApp`, {
+                    logger.error(`[UnifiedActionAPI] Failed to generate download URL for install_app`, {
                         error: error instanceof Error ? error.message : String(error),
                         stack: error instanceof Error ? error.stack : undefined
                     });
@@ -639,7 +640,7 @@ export const POST: RequestHandler = restrict(
                         success: false,
                         error: {
                             code: 'OPERATION_FAILED',
-                            message: 'Failed to generate download URL for installApp',
+                            message: 'Failed to generate download URL for install_app',
                             details: error instanceof Error ? error.message : String(error)
                         }
                     }, { status: 500 });
@@ -686,6 +687,38 @@ export const POST: RequestHandler = restrict(
                 storedMetadata: created.metadata
             });
 
+            // Broadcast initial "initiated" status to UI
+            try {
+                if (device.accountId) {
+                    logger.info(`[UnifiedActionAPI] Broadcasting initial status for action log ${created.id}`, {
+                        logId: created.id,
+                        action: actionConfig.actionType,
+                        deviceId,
+                        accountId: device.accountId
+                    });
+
+                    await broadcastDeviceActionUpdate({
+                        prisma,
+                        deviceId,
+                        logId: created.id,
+                        action: actionConfig.actionType,
+                        status: 'initiated',
+                        message: `${action} action initiated`,
+                        accountId: device.accountId
+                    });
+
+                    logger.debug(`[UnifiedActionAPI] Broadcasted initial status for action log ${created.id}`);
+                } else {
+                    logger.warn(`[UnifiedActionAPI] Cannot broadcast initial status: device missing accountId`, {
+                        deviceId,
+                        accountId: device.accountId
+                    });
+                }
+            } catch (broadcastErr) {
+                // Non-fatal error - log but don't fail the action
+                logger.warn(`[UnifiedActionAPI] Failed to broadcast initial status:`, broadcastErr);
+            }
+
             // Prepare message payload for MQTT
             const messagePayload: any = {
                 action,
@@ -695,7 +728,7 @@ export const POST: RequestHandler = restrict(
                 requestId
             };
             
-            // Add upload URL data for pullFile actions
+            // Add upload URL data for pull_file actions
             if (uploadUrlData) {
                 messagePayload.uploadUrl = uploadUrlData.uploadUrl;
                 messagePayload.objectPath = uploadUrlData.objectPath;

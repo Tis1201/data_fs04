@@ -21,6 +21,10 @@ export class TerminalMqttClient {
   async connect(rows: number, cols: number): Promise<void> {
     console.log('[TerminalMqtt] Connecting to device terminal', { deviceId: this.deviceId, rows, cols });
 
+    // Ensure MQTT client is connected
+    console.log('[TerminalMqtt] Ensuring MQTT connection...');
+    await mqttClient.connect();
+
     // Set up listener for terminal messages
     this.unsubscribe = mqttClient.onNotification('device:terminal', (payload: any) => {
       this.handleTerminalMessage(payload);

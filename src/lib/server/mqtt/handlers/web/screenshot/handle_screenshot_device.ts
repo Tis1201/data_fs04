@@ -5,6 +5,7 @@ import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { generatePresignedUrl } from '$lib/server/storage';
 import { ActionLogger } from '$lib/server/action-logger';
+import { broadcastDeviceActionUpdate } from '../../index';
 
 interface ScreenshotDeviceParams {
     deviceId?: string;
@@ -82,6 +83,22 @@ export async function handleScreenshotDevice(
             },
             expiresIn: '5m'
         })
+
+    // Broadcast initial "initiated" status to UI
+    try {
+        await broadcastDeviceActionUpdate({
+            prisma,
+            deviceId,
+            logId: actionLog.id,
+            action: 'screenshot',
+            status: 'initiated',
+            message: 'Screenshot requested'
+        });
+        logger.debug(`[WebScreenshot] Broadcasted initial status for action log ${actionLog.id}`);
+    } catch (broadcastErr) {
+        // Non-fatal error - log but don't fail the action
+        logger.warn(`[WebScreenshot] Failed to broadcast initial status:`, broadcastErr);
+    }
 
     logger.info(
         `[WebScreenshot] Dispatched screenshot action for device ${deviceId}, operation=${actionLog.id}, objectPath=${objectPath}`

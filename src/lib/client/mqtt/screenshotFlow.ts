@@ -50,9 +50,27 @@ export async function waitForScreenshotResult(
       reject(new Error(`Timed out waiting for screenshot result (flowId=${flowId})`));
     }, timeoutMs);
 
-    // Subscribe to device.screenshot notifications
+    // Subscribe to device.screenshot notifications (both success and error)
     const unsubscribe = mqttClient.onNotification('device.screenshot', async (payload: any) => {
       console.log('[MQTT ScreenshotFlow] Handler called with payload:', payload);
+
+      // Check for error first
+      if (payload?.error || payload?.type === 'screenshot:error') {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+        
+        const errorMessage = payload?.error || 'Screenshot failed';
+        const durationMs = payload?.durationMs;
+        console.error('[MQTT ScreenshotFlow] Screenshot error received', { errorMessage, durationMs });
+        
+        // Create error with durationMs attached
+        const error = new Error(errorMessage);
+        (error as any).durationMs = durationMs;
+        reject(error);
+        return;
+      }
 
       // mqttClient already decoded the JWT, so payload is the decoded params
       // payload can contain either:

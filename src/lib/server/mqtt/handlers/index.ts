@@ -1,188 +1,99 @@
+/**
+ * MQTT Message Handler - Main Dispatcher
+ * 
+ * This module serves as the central entry point for all MQTT messages consumed by the worker.
+ * It routes incoming messages to specialized handlers based on topic patterns and message types.
+ * 
+ * Architecture:
+ * - Connection events → events/connection_handler.ts
+ * - RPC requests → rpc/registry.ts (dynamically routed)
+ * - Device replies → replies/reply_router.ts
+ * - Data streams → streams/preview_data_handler.ts
+ * 
+ * @module mqtt/handlers
+ */
+
 import { logger } from '$lib/server/logger';
-import type { PrismaClient, Device } from '@prisma/client';
-import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../core/publish';
-import redis from '$lib/server/redis';
-import { getMqttTransport } from '../core/transport';
-import { getPreviewSession, isSessionExpired } from '../sessions/preview_sessions';
+import type { PrismaClient } from '@prisma/client';
+import { handleConnectionEvent } from './events/connection_handler';
 
-/********************************************************************************************
- * Raw RPC handler types shared across device/web clients.
- ********************************************************************************************/
-export type RpcHandlerArgs<P extends PrismaClient = PrismaClient> = {
-    topic: string;
-    requestId: string;
-    op: string;
-    params: Record<string, any>;
-    prisma: P;
-    sub: string | null;
-};
+// ===========================================================================================
+// PUBLIC API - Re-exports for backward compatibility
+// ===========================================================================================
 
-export type RpcHandler<P extends PrismaClient = PrismaClient> = (args: RpcHandlerArgs<P>) => Promise<any>;
+/**
+ * Re-export RPC-related types for backward compatibility
+ * @see ./types.ts for type definitions
+ */
+export type { RpcHandlerArgs, RpcHandler, RpcResponse, RegisteredRpcHandler } from './types';
 
-export type RpcResponse<T> = {
-    status?: string;
-    error?: string;
-    flowId?: string;
-    result: T;
-};
+/**
+ * Re-export RPC registry functions for backward compatibility
+ * @see ./rpc/registry.ts for implementation details
+ */
+export {
+    registerRpcOperation,
+    executeRpcOperation,
+    registerRpcHandler,
+    createGenericRpcHandler,
+    registerRpcClient,
+    getRpcHandler,
+    getAllRpcHandlerPrefixes,
+    extractTopicSub
+} from './rpc/registry';
 
-/********************************************************************************************
- * Registry state for mapping topic prefixes to RPC handlers.
- ********************************************************************************************/
-type RegisteredRpcHandler = {
-    handler: RpcHandler<PrismaClient>;
-    prisma: PrismaClient;
-};
+// Import notification functions for use in this file
+import { broadcastDeviceActionUpdate } from './notifications/device_action_broadcaster';
+import { publishDeviceStatusNotification } from './notifications/device_status_publisher';
 
-const rpcHandlers = new Map<string, RegisteredRpcHandler>();
+/**
+ * Re-export notification broadcasting functions for backward compatibility
+ * @see ./notifications/ for implementation details
+ */
+export { broadcastDeviceActionUpdate, publishDeviceStatusNotification };
 
-function extractTopicSub(prefix: string, topic: string): string | null {
-    if (!topic.startsWith(prefix)) {
-        return null;
-    }
+// ===========================================================================================
+// MAIN DISPATCHER
+// ===========================================================================================
 
-    let remainder = topic.slice(prefix.length);
-    if (remainder.startsWith('/')) {
-        remainder = remainder.slice(1);
-    }
-
-    const [sub] = remainder.split('/');
-    return sub || null;
-}
-
-/********************************************************************************************
- * Generic RPC operation registry wiring for reuse across client types.
- ********************************************************************************************/
-const rpcOperations = new Map<string, (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>>();
-
-export function registerRpcOperation(op: string, fn: (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>): void {
-    logger.debug(`[MQTT RPC] Registering operation ${op}`);
-    rpcOperations.set(op, fn);
-}
-
-export async function executeRpcOperation(op: string, params: Record<string, any>, args: RpcHandlerArgs): Promise<any> {
-    const fn = rpcOperations.get(op);
-    if (!fn) {
-        logger.error(`[MQTT RPC] Unknown operation ${op} with params ${JSON.stringify(params)}`);
-        throw new Error(`Unknown RPC operation: ${op}`);
-    }
-    logger.debug(`[MQTT RPC] Executing operation ${op} with params ${JSON.stringify(params)}`);
-    return await fn(params, args);
-}
-
-export function registerRpcHandler<P extends PrismaClient>(
-    prefix: string,
-    handler: RpcHandler<P>,
-    prisma: P
-): void {
-    rpcHandlers.set(prefix, { handler, prisma });
-}
-
-/********************************************************************************************
- * Generic RPC handler wrapper per client category (user/device).
- ********************************************************************************************/
-export function createGenericRpcHandler(clientType: string): RpcHandler {
-    return async ({ topic, requestId, op, params, prisma, sub }) => {
-        logger.info(`[MQTT ${clientType} RPC] Received RPC request ${JSON.stringify({ topic, requestId, op })}`);
-        return await executeRpcOperation(op, params, { topic, requestId, op, params, prisma, sub });
-    };
-}
-
-/********************************************************************************************
- * Batch-register operations + handlers for a given MQTT client namespace.
- ********************************************************************************************/
-export function registerRpcClient<P extends PrismaClient>(
-    clientType: string,
-    topicPrefix: string,
-    operations: Record<string, (params: Record<string, any>, args: RpcHandlerArgs) => Promise<any>>,
-    prisma: P
-): void {
-    // Register operations
-    for (const [op, fn] of Object.entries(operations)) {
-        registerRpcOperation(op, fn);
-    }
-
-    // Register generic handler for this client type
-    registerRpcHandler(topicPrefix, createGenericRpcHandler(clientType), prisma);
-}
-
-/********************************************************************************************
- * Device Status Notification Publisher (MQTT)
- ********************************************************************************************/
-async function publishDeviceStatusNotification(params: {
-    prisma: PrismaClient;
-    device: Pick<Device, 'id' | 'name' | 'accountId' | 'createdBy'>;
-    connected: boolean;
-    timestamp: string;
-    reason?: string;
-}): Promise<void> {
-    const { prisma, device, connected, timestamp, reason } = params;
-    const transport = getMqttTransport();
-
-    const notificationType = connected ? 'device:connection' : 'device:disconnection';
-    const payload = {
-        type: notificationType,
-        deviceId: device.id,
-        deviceName: device.name,
-        connected,
-        timestamp,
-        reason,
-        accountId: device.accountId,
-        userId: device.createdBy
-    };
-
-    // Determine which users to notify based on device ownership
-    const usersToNotify: string[] = [];
-
-    // Notify device owner
-    if (device.createdBy) {
-        usersToNotify.push(device.createdBy);
-    }
-
-    // Notify account members if device belongs to an account
-    if (device.accountId) {
-        const accountMembers = await prisma.accountMembership.findMany({
-            where: { accountId: device.accountId },
-            select: { userId: true }
-        });
-        for (const member of accountMembers) {
-            if (!usersToNotify.includes(member.userId)) {
-                usersToNotify.push(member.userId);
-            }
-        }
-    }
-
-    // Publish notification once per user (not per connection)
-    // The user's MQTT client will receive it on their subscribed topic
-    if (!device.accountId && usersToNotify.length > 0) {
-        logger.warn(`[MQTT Device Status] Device ${device.id} has no accountId, cannot route notifications to users`);
-        return;
-    }
-    
-    for (const userId of usersToNotify) {
-        try {
-            // Construct MQTT username format: user:${userId}:${accountId}
-            const mqttUsername = `user:${userId}:${device.accountId}`;
-            const topic = `user/${mqttUsername}/notifications`;
-            await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
-            logger.debug(`[MQTT Device Status] Published ${notificationType} to ${topic}`);
-        } catch (err) {
-            logger.error(`[MQTT Device Status] Failed to publish to user ${userId}:`, err);
-        }
-    }
-
-    logger.info(`[MQTT Device Status] Published ${notificationType} for device ${device.id} to ${usersToNotify.length} users`);
-}
-
-/********************************************************************************************
- * Central dispatcher for all MQTT messages consumed by the worker.
- ********************************************************************************************/
+/**
+ * Central dispatcher for all incoming MQTT messages
+ * 
+ * This function acts as the main router for all MQTT messages consumed by the worker.
+ * It analyzes the topic pattern and message structure to route messages to appropriate handlers:
+ * 
+ * Routing Logic:
+ * 1. Connection Events (`$events/client/*`) → Connection handler
+ * 2. RPC Requests (messages with `requestId`, `op`, `params`) → RPC registry
+ * 3. Device Replies (`device/<id>/replies`) → Reply router
+ * 4. Data Streams (`*​/data`) → Preview data handler
+ * 5. Unmatched → Logged and ignored
+ * 
+ * The dispatcher is designed to be defensive:
+ * - Malformed messages are logged but don't crash the worker
+ * - Each handler is responsible for its own error handling
+ * - All routing is done via dynamic imports to enable lazy loading
+ * 
+ * @param topic - The MQTT topic on which the message was received
+ * @param payload - The raw message payload as a Buffer
+ * @param prisma - The Prisma client instance for database operations
+ * 
+ * @throws Never throws - all errors are caught and logged within handlers
+ * 
+ * @example
+ * // Called by MQTT worker for each incoming message
+ * await handleIncoming('device/abc123/replies', messageBuffer, prisma);
+ */
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
-    // Only log non-data topics to reduce spam
+    // Only log non-data topics to reduce spam (data streams are high-frequency)
     if (!topic.endsWith('/data')) {
         logger.debug(`[MQTT Messaging] Received message on ${topic}`);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // ROUTE 1: Connection/Disconnection Events
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // System-level topics that notify when devices connect/disconnect from MQTT broker
     if (
         topic === '$events/client/connected' ||
         topic === '$events/client/connected/' ||
@@ -191,293 +102,36 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
         topic === '$events/client_connected' ||
         topic === '$events/client_disconnected'
     ) {
-        const rawEvent = payload.toString('utf8');
-        let eventData: any = null;
-
-        // EMQX may emit event payloads as Erlang-style maps, e.g.:
-        // {
-        // clientid: "device:..._suffix",
-        // username: "device:...",
-        // reason: "remote",
-        // disconnected_at: "<epoch-ms>"
-        // }
-        // which is not valid JSON. Try JSON.parse first, then fall back to regex extraction.
-        try {
-            // eslint-disable-next-line no-console
-            console.log('rawEvent', rawEvent);
-            eventData = JSON.parse(rawEvent);
-        } catch {
-            // Swallow JSON errors; we'll try to extract fields from the raw string below.
-        }
-
-        let clientId = typeof eventData?.clientid === 'string' ? eventData.clientid : '';
-        let username = typeof eventData?.username === 'string' ? eventData.username : '';
-        let reason = typeof eventData?.reason === 'string' ? eventData.reason : '';
-        let connectedAtMs: number | null = null;
-        let disconnectedAtMs: number | null = null;
-        let node: string | null =
-            typeof eventData?.node === 'string' ? (eventData.node as string) : null;
-
-        if (!clientId) {
-            const clientIdMatch = rawEvent.match(/clientid:\s*"([^\"]+)"/);
-            if (clientIdMatch) {
-                clientId = clientIdMatch[1];
-            }
-        }
-
-        if (!username) {
-            const usernameMatch = rawEvent.match(/username:\s*"([^\"]+)"/);
-            if (usernameMatch) {
-                username = usernameMatch[1];
-            }
-        }
-
-        if (!reason) {
-            const reasonMatch = rawEvent.match(/reason:\s*"([^\"]+)"/);
-            if (reasonMatch) {
-                reason = reasonMatch[1];
-            }
-        }
-
-        if (!node) {
-            const nodeMatch = rawEvent.match(/node:\s*"([^\"]+)"/);
-            if (nodeMatch) {
-                node = nodeMatch[1];
-            }
-        }
-
-        if (eventData?.connected_at != null) {
-            connectedAtMs = Number(eventData.connected_at);
-        } else {
-            const connectedMatch = rawEvent.match(/connected_at:\s*"?(\d+)"?/);
-            if (connectedMatch) {
-                connectedAtMs = Number(connectedMatch[1]);
-            }
-        }
-
-        if (eventData?.disconnected_at != null) {
-            disconnectedAtMs = Number(eventData.disconnected_at);
-        } else {
-            const disconnectedMatch = rawEvent.match(/disconnected_at:\s*"?(\d+)"?/);
-            if (disconnectedMatch) {
-                disconnectedAtMs = Number(disconnectedMatch[1]);
-            }
-        }
-
-        // Derive username from clientId if necessary: clientId is typically `${username}_${suffix}`.
-        if (!username && clientId.startsWith('device:')) {
-            username = clientId.split('_')[0];
-        }
-        if (!username && clientId.startsWith('user:')) {
-            username = clientId.split('_')[0];
-        }
-
-        const kind = username.startsWith('device:')
-            ? 'device'
-            : username.startsWith('user:')
-              ? 'user'
-              : username.startsWith('factory:')
-                ? 'factory'
-              : 'other';
-        // Only extract deviceId for claimed devices (not factory devices)
-        const deviceId = kind === 'device' ? username.slice('device:'.length) : null;
-
-        const now = new Date();
-        const isConnectEvent =
-            topic === '$events/client/connected' ||
-            topic === '$events/client/connected/' ||
-            topic === '$events/client_connected';
-        const eventTimestampMs = isConnectEvent ? connectedAtMs ?? disconnectedAtMs : disconnectedAtMs ?? connectedAtMs;
-        const eventDate =
-            typeof eventTimestampMs === 'number' && !Number.isNaN(eventTimestampMs)
-                ? new Date(eventTimestampMs)
-                : now;
-
-        // Update device presence in Redis for claimed devices (not factory devices)
-        // Uses both individual keys (for fast lookups) and a Set (for fast listing)
-        if (deviceId && redis) {
-            const presenceKey = `presence:device:${deviceId}`;
-            const presenceSetKey = 'presence:devices:online';
-            const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10); // 10 minutes default (increased for stability)
-
-            try {
-                if (isConnectEvent) {
-                    // Set device online with TTL and add to Set
-                    // Use pipeline for atomic operations
-                    const pipeline = redis.pipeline();
-                    pipeline.setex(presenceKey, presenceTTL, '1');
-                    pipeline.sadd(presenceSetKey, deviceId);
-                    await pipeline.exec();
-                    logger.debug(`[MQTT Presence] Device ${deviceId} marked online (TTL: ${presenceTTL}s)`);
-                } else {
-                    // Remove device presence on disconnect
-                    const pipeline = redis.pipeline();
-                    pipeline.del(presenceKey);
-                    pipeline.srem(presenceSetKey, deviceId);
-                    await pipeline.exec();
-                    logger.debug(`[MQTT Presence] Device ${deviceId} marked offline`);
-                }
-            } catch (redisError) {
-                logger.error(`[MQTT Presence] Failed to update presence for device ${deviceId}:`, {
-                    error: redisError instanceof Error ? redisError.message : String(redisError)
-                });
-            }
-        }
-
-        // Single-row-per-clientId session style: track latest state per clientId
-        if (isConnectEvent) {
-            await prisma.mqttConnection.upsert({
-                where: { clientId },
-                create: {
-                    clientId,
-                    username,
-                    kind,
-                    status: 'CONNECTED',
-                    connectedAt: eventDate,
-                    disconnectedAt: null,
-                    lastEventAt: eventDate,
-                    node: node ?? undefined,
-                    reason: null
-                },
-                update: {
-                    username,
-                    kind,
-                    status: 'CONNECTED',
-                    connectedAt: eventDate,
-                    disconnectedAt: null,
-                    lastEventAt: eventDate,
-                    node: node ?? undefined,
-                    reason: null
-                }
-            });
-        } else {
-            await prisma.mqttConnection.upsert({
-                where: { clientId },
-                create: {
-                    clientId,
-                    username,
-                    kind,
-                    status: 'DISCONNECTED',
-                    connectedAt: eventDate,
-                    disconnectedAt: eventDate,
-                    lastEventAt: eventDate,
-                    node: node ?? undefined,
-                    reason: reason || null
-                },
-                update: {
-                    username,
-                    kind,
-                    status: 'DISCONNECTED',
-                    disconnectedAt: eventDate,
-                    lastEventAt: eventDate,
-                    node: node ?? undefined,
-                    reason: reason || null
-                }
-            });
-        }
-
-        // Maintain high-level Device.connected flags for device clients only
-        if (kind === 'device' && deviceId) {
-            if (isConnectEvent) {
-                await prisma.device.updateMany({
-                    where: { id: deviceId },
-                    data: { connected: true, connectedAt: eventDate }
-                });
-                logger.info('[MQTT Events] Device connected', { deviceId, username, clientId });
-
-                // Publish MQTT notification for real-time UI updates
-                const deviceRecord = await prisma.device.findUnique({
-                    where: { id: deviceId },
-                    select: { id: true, name: true, accountId: true, createdBy: true }
-                });
-                if (deviceRecord) {
-                    await publishDeviceStatusNotification({
-                        prisma,
-                        device: deviceRecord,
-                        connected: true,
-                        timestamp: eventDate.toISOString()
-                    });
-                }
-
-                // Auto-sync: Push pending configs for this device's sensors
-                try {
-                    // Use raw query to avoid type issues with syncStatus field
-                    const pendingSensors = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
-                        SELECT s.id, s.name 
-                        FROM "Sensor" s
-                        JOIN "Controller" c ON s."controllerId" = c.id
-                        WHERE c."deviceId" = ${deviceId}
-                        AND s."syncStatus" = 'PENDING'
-                    `;
-
-                    if (pendingSensors.length > 0) {
-                        logger.info(`[MQTT Events] Auto-syncing ${pendingSensors.length} pending configs for device ${deviceId}`);
-
-                        const { handleSensorConfigPush } = await import('./web/handle_sensor_config');
-
-                        for (const sensor of pendingSensors) {
-                            try {
-                                // Create minimal RpcHandlerArgs for the handler
-                                const args = {
-                                    prisma,
-                                    sub: `device:${deviceId}`,
-                                    topic: '$system/auto-sync',
-                                    requestId: `auto-sync-${sensor.id}`,
-                                    op: 'sensor.config.push',
-                                    params: { sensorId: sensor.id }
-                                };
-                                await handleSensorConfigPush({ sensorId: sensor.id }, args);
-                                logger.info(`[MQTT Events] Auto-synced config for sensor ${sensor.name}`);
-                            } catch (err) {
-                                logger.warn(`[MQTT Events] Auto-sync failed for sensor ${sensor.name}:`, err);
-                            }
-                        }
-                    }
-                } catch (err) {
-                    logger.warn('[MQTT Events] Failed to check for pending configs:', err);
-                }
-            } else {
-                await prisma.device.updateMany({
-                    where: { id: deviceId },
-                    data: { connected: false, disconnectedAt: eventDate }
-                });
-                logger.info('[MQTT Events] Device disconnected', { deviceId, username, clientId, reason });
-
-                // Publish MQTT notification for real-time UI updates
-                const deviceRecord = await prisma.device.findUnique({
-                    where: { id: deviceId },
-                    select: { id: true, name: true, accountId: true, createdBy: true }
-                });
-                if (deviceRecord) {
-                    await publishDeviceStatusNotification({
-                        prisma,
-                        device: deviceRecord,
-                        connected: false,
-                        timestamp: eventDate.toISOString(),
-                        reason
-                    });
-                }
-            }
-        }
-
+        await handleConnectionEvent(topic, payload, prisma);
         return;
     }
 
-    // First, try RPC handlers for raw JSON RPC requests
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // ROUTE 2: RPC (Remote Procedure Call) Requests
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // Messages with { requestId, op, params } structure are treated as RPC calls
     const raw = payload.toString('utf8');
     let rpcData: any;
     try {
         rpcData = JSON.parse(raw);
     } catch {
-        // Not JSON, continue to envelope handlers
+        // Not JSON, continue to other routing checks
     }
 
     if (rpcData?.requestId && rpcData?.op && typeof rpcData?.params === 'object') {
         logger.debug(
             `[MQTT Messaging] Detected raw RPC payload ${JSON.stringify({ topic, rpcData })}`
         );
-        for (const [prefix, entry] of rpcHandlers) {
+        
+        // Import RPC registry functions
+        const { getRpcHandler, extractTopicSub, getAllRpcHandlerPrefixes } = await import('./rpc/registry');
+        
+        // Find matching RPC handler by iterating through all registered prefixes
+        const prefixes = getAllRpcHandlerPrefixes();
+        for (const prefix of prefixes) {
             if (topic.startsWith(prefix)) {
+                const entry = getRpcHandler(prefix);
+                if (entry) {
                 logger.debug(`[MQTT Messaging] Handling raw RPC with prefix ${prefix}`);
                 try {
                     const startTime = Date.now();
@@ -527,6 +181,7 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     await transport.publish(responseTopic, JSON.stringify(response), { qos: 1 });
                 }
                 return;
+                }
             }
         }
         logger.warn(
@@ -534,571 +189,31 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
         );
     }
 
-    // After raw RPC handling, process reply-style topics like device/<id>/replies
-    // which carry a simple { ticket, result } envelope. This must be defensive:
-    // malformed messages should be logged and ignored so the worker never crashes.
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // ROUTE 3: Device Reply Messages
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // Topics ending in `/replies` contain device responses to commands
+    // Format: { ticket, result } where ticket is used for routing back to the requester
     if (topic.endsWith('/replies')) {
-        const rawReply = payload.toString('utf8');
-
-        try {
-            const reply = JSON.parse(rawReply) as { ticket?: string; result?: unknown };
-            const { ticket, result } = reply;
-
-            if (!ticket) {
-                logger.error('[MQTT Reply] Missing ticket in reply payload', { topic, rawReply });
-                return;
-            }
-
-            const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
-
-            if (!ctx.sub) {
-                logger.error('[MQTT Reply] Missing sub in notification ticket', { topic });
-                return;
-            }
-
-            if (!ctx.recipient) {
-                logger.error('[MQTT Reply] Missing recipient in notification ticket', { topic });
-                return;
-            }
-
-            if (!ctx.flowId) {
-                logger.error('[MQTT Reply] Missing flowId in notification ticket', { topic });
-                return;
-            }
-
-            if (!result || typeof result !== 'object' || Array.isArray(result)) {
-                logger.error('[MQTT Reply] Reply result must be an object', { topic, rawReply });
-                return;
-            }
-
-            // Update action log if this is a device status or progress update
-            const resultObj = result as Record<string, unknown>;
-            const messageType = resultObj.type as string;
-            const logId = resultObj.logId as string;
-            const status = resultObj.status as string;
-            const message = resultObj.message as string;
-            const action = resultObj.action as string;
-
-            logger.debug('[MQTT Reply] Processing reply result', {
-                messageType,
-                logId,
-                status,
-                action,
-                hasResult: !!result,
-                resultKeys: resultObj ? Object.keys(resultObj) : []
-            });
-
-            // Handle device:statusUpdate (matches old SSE flow)
-            if (logId && messageType === 'device:statusUpdate') {
-                try {
-                    logger.debug('[MQTT Reply] Processing device:statusUpdate', {
-                        logId,
-                        action,
-                        status,
-                        message,
-                        resultObj
-                    });
-
-                    const updateData: any = {
-                        message: message || undefined
-                    };
-
-                    // Map status to action log status
-                    if (status === 'in_progress') {
-                        updateData.status = 'in_progress';
-                    } else if (status === 'success') {
-                        updateData.status = 'success';
-                        updateData.completedAt = new Date();
-                    } else if (status === 'failed') {
-                        updateData.status = 'failed';
-                        updateData.completedAt = new Date();
-                    }
-
-                    logger.debug('[MQTT Reply] Attempting to update action log', {
-                        logId,
-                        updateData
-                    });
-
-                    const updatedLog = await (prisma as any).deviceActionLog.update({
-                        where: { id: logId },
-                        data: updateData
-                    });
-
-                    logger.info('[MQTT Reply] Updated action log from device:statusUpdate', {
-                        logId,
-                        action,
-                        status: updateData.status,
-                        message,
-                        updatedLogId: updatedLog.id
-                    });
-
-                    // If this is an applyProfile action, update the DeviceProfileAssignment status
-                    if (action === 'applyProfile' && status && (status === 'success' || status === 'failed')) {
-                        const profileId = resultObj.profileId as string | undefined;
-                        const deviceId = resultObj.deviceId as string | undefined;
-
-                        if (profileId && deviceId) {
-                            try {
-                                const assignmentStatus = status === 'success' ? 'APPLIED' : 'FAILED';
-                                await (prisma as any).deviceProfileAssignment.updateMany({
-                                    where: {
-                                        deviceId,
-                                        profileId
-                                    },
-                                    data: {
-                                        status: assignmentStatus,
-                                        lastSyncAt: new Date()
-                                    }
-                                });
-
-                                logger.info('[MQTT Reply] Updated DeviceProfileAssignment status', {
-                                    deviceId,
-                                    profileId,
-                                    status: assignmentStatus
-                                });
-                            } catch (assignErr) {
-                                logger.error('[MQTT Reply] Failed to update DeviceProfileAssignment', {
-                                    deviceId,
-                                    profileId,
-                                    status,
-                                    error: assignErr instanceof Error ? assignErr.message : String(assignErr)
-                                });
-                            }
-                        } else {
-                            logger.warn('[MQTT Reply] applyProfile status update missing profileId or deviceId', {
-                                profileId,
-                                deviceId,
-                                status
-                            });
-                        }
-                    }
-                } catch (dbErr) {
-                    logger.error('[MQTT Reply] Failed to update action log', {
-                        logId,
-                        action,
-                        status,
-                        messageType,
-                        resultObj,
-                        error: dbErr instanceof Error ? dbErr.message : String(dbErr),
-                        stack: dbErr instanceof Error ? dbErr.stack : undefined
-                    });
-                }
-            }
-
-            // Handle device:progressUpdate (for progress percentage updates)
-            if (logId && messageType === 'device:progressUpdate') {
-                try {
-                    const progress = resultObj.progress as number | undefined;
-                    const updateData: any = {
-                        message: message || undefined
-                    };
-
-                    if (progress !== undefined) {
-                        updateData.progress = progress;
-                    }
-
-                    await (prisma as any).deviceActionLog.update({
-                        where: { id: logId },
-                        data: updateData
-                    });
-
-                    logger.info('[MQTT Reply] Updated action log from device:progressUpdate', {
-                        logId,
-                        action,
-                        progress,
-                        message
-                    });
-                } catch (dbErr) {
-                    logger.error('[MQTT Reply] Failed to update action log progress', {
-                        logId,
-                        error: dbErr instanceof Error ? dbErr.message : String(dbErr)
-                    });
-                }
-            }
-
-            // Handle terminal output - forward immediately to user
-            // Terminal messages: terminal:output, terminal:connected, terminal:error, terminal:disconnected
-            if (ctx.type === 'device:terminal' ||
-                (result && typeof result === 'object' && !Array.isArray(result))) {
-                const resultObj = result as Record<string, unknown>;
-                const payload = resultObj.payload as Record<string, unknown> | undefined;
-                const payloadType = payload?.type as string | undefined;
-
-                if (payloadType && (
-                    payloadType === 'terminal:output' ||
-                    payloadType === 'terminal:connected' ||
-                    payloadType === 'terminal:error' ||
-                    payloadType === 'terminal:disconnected'
-                )) {
-                    logger.debug('[MQTT Reply] Detected terminal output, forwarding to user', {
-                        type: payloadType,
-                        hasOutput: !!payload?.output
-                    });
-
-                    // Remove conflicting 'type' field from params to ensure client uses JWT 'type'
-                    const cleanParams = { ...(result as Record<string, unknown>) };
-                    if (typeof cleanParams.type === 'string' && cleanParams.type !== 'device:terminal') {
-                        logger.debug('[MQTT Reply] Removed conflicting type field from terminal params', {
-                            originalTypeInParams: cleanParams.type,
-                            jwtType: 'device:terminal'
-                        });
-                        delete cleanParams.type;
-                    }
-
-                    // Forward terminal output immediately to user
-                    await sendNotificationWithTicket({
-                        prisma,
-                        sub: ctx.recipient, // original user
-                        recipient: ctx.sub,  // device
-                        type: 'device:terminal',
-                        flowId: ctx.flowId,
-                        params: cleanParams,
-                        expiresIn: '5m'
-                    });
-
-                    // Terminal output forwarded, no need to process further
-                    return;
-                }
-
-                // Handle RDP messages from device (rdp:status, rdp:error, etc.)
-                if (payloadType && (
-                    payloadType === 'rdp:status' ||
-                    payloadType === 'rdp:started' ||
-                    payloadType === 'rdp:stopped' ||
-                    payloadType === 'rdp:error'
-                )) {
-                    logger.debug('[MQTT Reply] Detected RDP message, forwarding to user', {
-                        type: payloadType
-                    });
-
-                    // Remove conflicting 'type' field from params to ensure client uses JWT 'type'
-                    const cleanParams = { ...(result as Record<string, unknown>) };
-                    if (typeof cleanParams.type === 'string' && cleanParams.type !== 'device:rdp') {
-                        logger.debug('[MQTT Reply] Removed conflicting type field from RDP params', {
-                            originalTypeInParams: cleanParams.type,
-                            jwtType: 'device:rdp'
-                        });
-                        delete cleanParams.type;
-                    }
-
-                    // Forward RDP message immediately to user
-                    await sendNotificationWithTicket({
-                        prisma,
-                        sub: ctx.recipient, // original user
-                        recipient: ctx.sub,  // device
-                        type: 'device:rdp',
-                        flowId: ctx.flowId,
-                        params: cleanParams,
-                        expiresIn: '5m'
-                    });
-
-                    // RDP message forwarded, no need to process further
-                    return;
-                }
-
-                // Handle WebRTC messages from device (webrtc:offer, webrtc:ice-candidate, etc.)
-                if (payloadType && (
-                    payloadType === 'webrtc:offer' ||
-                    payloadType === 'webrtc:answer' ||
-                    payloadType === 'webrtc:ice-candidate' ||
-                    payloadType === 'webrtc:connected' ||
-                    payloadType === 'webrtc:error'
-                )) {
-                    logger.debug('[MQTT Reply] Detected WebRTC message, forwarding to user', {
-                        type: payloadType
-                    });
-
-                    // Remove conflicting 'type' field from params to ensure client uses JWT 'type'
-                    const cleanParams = { ...(result as Record<string, unknown>) };
-                    if (typeof cleanParams.type === 'string' && cleanParams.type !== 'device:webrtc') {
-                        logger.debug('[MQTT Reply] Removed conflicting type field from WebRTC params', {
-                            originalTypeInParams: cleanParams.type,
-                            jwtType: 'device:webrtc'
-                        });
-                        delete cleanParams.type;
-                    }
-
-                    // Forward WebRTC message immediately to user
-                    await sendNotificationWithTicket({
-                        prisma,
-                        sub: ctx.recipient, // original user
-                        recipient: ctx.sub,  // device
-                        type: 'device:webrtc',
-                        flowId: ctx.flowId,
-                        params: cleanParams,
-                        expiresIn: '5m'
-                    });
-
-                    // WebRTC message forwarded, no need to process further
-                    return;
-                }
-            }
-
-            // Extract payload fields for screenshot responses (device sends objectPath in payload)
-            // Device sends: { type: "device", payload: { objectPath: "...", format: "..." } }
-            // Generate download URL server-side so UI can use it directly
-            let notificationParams = result as Record<string, unknown>;
-
-            // Detect screenshot responses by checking payload.type === 'screenshot:response' or presence of objectPath in screenshots path
-            let isScreenshotResponse = false;
-            if (result && typeof result === 'object' && !Array.isArray(result)) {
-                const resultObj = result as Record<string, unknown>;
-                const payload = resultObj.payload as Record<string, unknown> | undefined;
-                
-                // Support both nested payload.objectPath and top-level objectPath
-                const objectPath = (payload?.objectPath ?? resultObj.objectPath) as string | undefined;
-                const format = (payload?.format ?? resultObj.format) as string | undefined;
-
-                // Check if this is a screenshot response
-                isScreenshotResponse = ctx.type === 'device.screenshot' ||
-                    resultObj.type === 'device.screenshot.response' ||
-                    (!!payload && (
-                        payload.type === 'screenshot:response' ||
-                        (typeof payload.objectPath === 'string' && payload.objectPath.includes('/screenshots/'))
-                    )) ||
-                    (typeof objectPath === 'string' && objectPath.includes('/screenshots/'));
-
-                if (isScreenshotResponse) {
-                    logger.debug('[MQTT Reply] Detected screenshot response', {
-                        ctxType: ctx.type,
-                        resultType: resultObj.type,
-                        hasObjectPath: !!objectPath,
-                        objectPath
-                    });
-
-                    // Update action log if operationId is present
-                    const operationId = (ctx.params as any)?.operationId || (resultObj as any)?.operationId;
-                    if (operationId) {
-                        try {
-                            const { ActionLogger } = await import('$lib/server/action-logger');
-                            if (objectPath) {
-                                await ActionLogger.finalize(operationId, 'success', 'Screenshot captured successfully');
-                                logger.info('[MQTT Reply] Updated screenshot action log to success', { operationId, objectPath });
-                            } else {
-                                await ActionLogger.finalize(operationId, 'failed', 'Screenshot response missing objectPath');
-                                logger.warn('[MQTT Reply] Updated screenshot action log to failed (missing objectPath)', { operationId });
-                            }
-                        } catch (err) {
-                            logger.error('[MQTT Reply] Failed to update screenshot action log', {
-                                error: err instanceof Error ? err.message : String(err),
-                                operationId
-                            });
-                        }
-                    }
-
-                    if (objectPath) {
-                        // Generate download URL server-side so UI can use it directly as <img src={downloadUrl} />
-                        // This is simpler than having UI request download URL separately
-                        const { generateDownloadUrl } = await import('$lib/server/storage');
-                        const path = await import('path');
-
-                        try {
-                            const fileName = path.basename(objectPath);
-                            const downloadUrlResult = await generateDownloadUrl(
-                                objectPath,
-                                3600, // 1 hour expiry
-                                fileName
-                            );
-
-                            notificationParams = {
-                                ...resultObj,
-                                objectPath,
-                                downloadUrl: downloadUrlResult.url, // Add download URL for direct use
-                                format,
-                                // Keep the full payload for backward compatibility
-                                payload
-                            };
-
-                            logger.info('[MQTT Reply] Generated download URL for screenshot', {
-                                objectPath,
-                                format,
-                                hasDownloadUrl: true
-                            });
-                        } catch (err) {
-                            logger.error('[MQTT Reply] Failed to generate download URL for screenshot', {
-                                error: err instanceof Error ? err.message : String(err),
-                                objectPath
-                            });
-
-                            // Fallback: just include objectPath
-                            notificationParams = {
-                                ...resultObj,
-                                objectPath,
-                                format,
-                                payload
-                            };
-                        }
-                    } else {
-                        logger.warn('[MQTT Reply] Screenshot response missing objectPath', {
-                            resultKeys: Object.keys(resultObj),
-                            payloadKeys: payload ? Object.keys(payload) : []
-                        });
-                    }
-                }
-            }
-
-            // Ensure type is preserved correctly (device.screenshot for screenshot responses)
-            // For status/progress updates, use the actual message type instead of original request type
-            // The device reply might have type: 'device' in its structure, but the ticket type should match the message type
-            // Also check notificationParams for objectPath as a fallback (in case extraction already happened)
-            let notificationType = ctx.type;
-            const hasScreenshotObjectPath = (notificationParams && typeof notificationParams === 'object' &&
-                typeof (notificationParams as Record<string, unknown>).objectPath === 'string' &&
-                ((notificationParams as Record<string, unknown>).objectPath as string).includes('/screenshots/'));
-
-            // For progress and status updates, change notification type to match the actual message
-            // so the UI can listen for the correct notification type
-            if (messageType === 'device:statusUpdate') {
-                notificationType = 'device:statusUpdate';
-                logger.debug('[MQTT Reply] Forwarding as device:statusUpdate', {
-                    originalType: ctx.type,
-                    action,
-                    status
-                });
-            } else if (messageType === 'device:progressUpdate') {
-                notificationType = 'device:progressUpdate';
-                logger.debug('[MQTT Reply] Forwarding as device:progressUpdate', {
-                    originalType: ctx.type,
-                    action,
-                    progress: resultObj.progress
-                });
-            } else if (isScreenshotResponse || hasScreenshotObjectPath) {
-                // Force type to 'device.screenshot' for screenshot responses
-                notificationType = 'device.screenshot';
-                logger.info('[MQTT Reply] Setting screenshot notification type to device.screenshot', {
-                    originalType: ctx.type,
-                    finalType: notificationType,
-                    flowId: ctx.flowId,
-                    isScreenshotResponse,
-                    hasScreenshotObjectPath,
-                    objectPath: hasScreenshotObjectPath ? (notificationParams as Record<string, unknown>).objectPath : undefined
-                });
-            } else {
-                logger.debug('[MQTT Reply] Using original notification type', {
-                    ctxType: ctx.type,
-                    messageType,
-                    isScreenshotResponse,
-                    hasScreenshotObjectPath,
-                    resultType: result && typeof result === 'object' ? (result as Record<string, unknown>).type : undefined
-                });
-            }
-
-            // Remove conflicting 'type' field from params to prevent client from reading wrong type
-            // The client reads payload.params.type first, which would override the JWT's type claim
-            const cleanParams = { ...notificationParams };
-            const hadConflictingType = 'type' in cleanParams;
-            delete cleanParams.type;
-
-            if (hadConflictingType) {
-                logger.debug('[MQTT Reply] Removed conflicting type field from params', {
-                    removedType: notificationParams.type,
-                    jwtType: notificationType
-                });
-            }
-
-            logger.info('[MQTT Reply] Forwarding notification to user', {
-                notificationType,
-                recipient: ctx.sub,
-                sub: ctx.recipient,
-                flowId: ctx.flowId,
-                hasParams: !!cleanParams,
-                paramKeys: cleanParams ? Object.keys(cleanParams) : []
-            });
-
-            await sendNotificationWithTicket({
-                prisma,
-                sub: ctx.recipient,
-                recipient: ctx.sub,
-                type: notificationType,
-                flowId: ctx.flowId,
-                params: cleanParams,
-                expiresIn: '5m'
-            });
-
-            logger.debug('[MQTT Reply] Notification forwarded successfully', {
-                notificationType,
-                recipient: ctx.sub
-            });
-        } catch (err) {
-            logger.error(
-                `[MQTT Reply] Failed to process reply message: ${
-                    err instanceof Error ? err.message : String(err)
-                }`,
-                { topic, rawReply }
-            );
-        }
-
+        const { handleReplyMessage } = await import('./replies/reply_router');
+        await handleReplyMessage(topic, payload, prisma);
         return;
     }
 
-    // Handle controller data streams (sensor preview) - STATELESS TICKET-BASED ROUTING
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // ROUTE 4: Data Streams (Sensor Preview)
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // High-frequency data streams from devices (e.g., camera preview frames)
+    // These use ticket-based stateless routing or legacy session-based routing
     if (topic.endsWith('/data')) {
-        const raw = payload.toString('utf8');
-        try {
-            const data = JSON.parse(raw);
-
-            // NEW: Ticket-based stateless routing (preferred)
-            // Controller echoes the ticket from preview.start with each data frame
-            if (data.type === 'preview.frame' && data.ticket) {
-                try {
-                    // Verify ticket and extract routing claims
-                    const claims = await decodeNotificationTicket(prisma, data.ticket);
-
-                    // Forward to USER (not device) - the sub contains the user subject
-                    // Topic format: user/{sub}/notifications
-                    const userNotificationTopic = `user/${claims.sub}/notifications`;
-                    const { getMqttTransport } = await import('../core/transport');
-                    const transport = getMqttTransport();
-
-                    const notification = {
-                        type: 'preview.data',
-                        flowId: claims.flowId,
-                        params: {
-                            sessionId: claims.params?.sessionId,
-                            sensorId: claims.params?.sensorId,
-                            timestamp: data.timestamp || Date.now(),
-                            data: data.data || data
-                        }
-                    };
-
-                    await transport.publish(userNotificationTopic, JSON.stringify(notification), { qos: 0 });
-                    // Note: Removed per-frame logging to reduce console spam
-                } catch (ticketErr) {
-                    // Ticket verification failed (expired, invalid signature, etc.)
-                    logger.debug('[Preview] Ticket verification failed, ignoring data frame', {
-                        error: ticketErr instanceof Error ? ticketErr.message : String(ticketErr)
-                    });
-                }
-                return;
-            }
-
-            // LEGACY: In-memory session-based routing (backwards compatibility)
-            // TODO: Deprecate once all controllers use ticket-based routing
-            if (data.type === 'preview.frame' && data.sessionId) {
-                const session = getPreviewSession(data.sessionId);
-
-                if (session && !isSessionExpired(data.sessionId)) {
-                    await sendNotificationWithTicket({
-                        prisma,
-                        sub: `device:${session.deviceId}`,
-                        recipient: `user:${session.userId}:${session.accountId}`,
-                        type: 'preview.data',
-                        flowId: session.flowId,
-                        params: {
-                            sessionId: session.sessionId,
-                            sensorId: session.sensorId,
-                            timestamp: data.timestamp || Date.now(),
-                            data: data.data || data
-                        },
-                        expiresIn: '1m'
-                    });
-                }
-            }
-        } catch (err) {
-            // Ignore malformed data messages to prevent log spam
-        }
+        const { handlePreviewDataMessage } = await import('./streams/preview_data_handler');
+        await handlePreviewDataMessage(topic, payload, prisma);
         return;
     }
 
-    logger.debug('[MQTT Messaging] No RPC handler matched and no reply handler applicable', { topic });
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // FALLBACK: Unmatched Topics
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // If we reach here, the topic didn't match any known pattern
+    logger.debug('[MQTT Messaging] No handler matched for topic', { topic });
 }

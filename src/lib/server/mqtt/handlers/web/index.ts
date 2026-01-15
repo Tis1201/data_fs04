@@ -13,6 +13,11 @@ import {
     handleGetLogs
 } from './device/handle_device_action';
 import {
+    handleRestartApp,
+    handleUninstallApp,
+    handleConfigApp
+} from './device/handle_app_actions';
+import {
     handleTerminalConnect,
     handleTerminalInput,
     handleTerminalResize,
@@ -47,6 +52,9 @@ export function registerWebHandlers(prisma: PrismaClient): void {
             'device.reboot': handleRebootDevice as any,
             'device.firmware.update': handleUpdateFirmware as any,
             'device.app.install': handleInstallApp as any,
+            'device.app.restart': handleRestartApp as any,
+            'device.app.uninstall': handleUninstallApp as any,
+            'device.app.config': handleConfigApp as any,
             'device.file.pull': handlePullFile as any,
             'device.file.push': handlePushFile as any,
             'device.logs.get': handleGetLogs as any,

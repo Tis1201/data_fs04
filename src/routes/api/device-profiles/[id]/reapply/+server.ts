@@ -185,7 +185,7 @@ export const POST: RequestHandler = restrict(
                         params: {
                             action: 'applyProfile',
                             deviceId: deviceId,
-                            logId: logId,
+                            operationId: logId,
                             requestId: logId,
                             profileId: profileId,
                             profileName: deviceProfile.name,

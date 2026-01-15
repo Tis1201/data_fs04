@@ -1,6 +1,7 @@
 import { BaseActionHandler } from './BaseActionHandler';
 import type { MessageData, ActionHandlerParams } from './types';
 import { MessageEntityMapper, type DeviceMessageEntity } from '$lib/entities/DeviceMessageEntity';
+import { mapActionTypeToDb } from './actionTypeMapping';
 
 /**
  * Handler for simple actions that send command and wait for completion
@@ -40,7 +41,9 @@ export class SimpleActionHandler extends BaseActionHandler {
    * Handle unified status update messages using entity
    */
   protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
-    const { action, status, message, logId, durationMs } = entity;
+    const { action, status, message, logId } = entity;
+    // Extract durationMs from entity or payload (server sends it in payload)
+    const durationMs = entity.durationMs ?? entity.payload?.durationMs;
     const actionType = this.actionType;
 
     console.log(`[${actionType}Handler] Unified status update:`, { 
@@ -52,6 +55,9 @@ export class SimpleActionHandler extends BaseActionHandler {
       entity
     });
 
+    // Use centralized action type mapping
+    const dbActionType = mapActionTypeToDb(actionType);
+
     if (status === 'complete' || status === 'success') {
       // Use server-calculated duration instead of calculating locally
       this.handleSuccess({ 
@@ -62,20 +68,12 @@ export class SimpleActionHandler extends BaseActionHandler {
         durationMs // Pass server-calculated duration
       }, logId);
     } else if (status === 'failed' || status === 'fail') {
-      // Map handler action type to database format
-      const actionMap: Record<string, string> = {
-        'uninstall': 'uninstall_app',
-        'restartApp': 'restart_app',
-        'config': 'config',
-        'reboot': 'reboot',
-        'restart': 'restart',
-        'refresh': 'refresh'
-      };
-      const dbActionType = actionMap[actionType] || actionType;
-      this.handleError(message || `${actionType} failed`, logId, dbActionType);
+      // Pass server-calculated duration if available
+      this.handleError(message || `${actionType} failed`, logId, dbActionType, durationMs);
     } else {
-      // Handle progress updates (in_progress, etc.)
-      this.handleProgress(0, message || `${actionType} in progress`, logId);
+      // Simple actions (refresh, reboot, restart) don't have progress
+      // Pass null for progress and the actionType
+      this.handleProgress(null, message || `${actionType} in progress`, logId, dbActionType);
     }
   }
 

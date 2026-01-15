@@ -12,6 +12,7 @@ import {
     pushFile as mqttPushFile,
     pullFile as mqttPullFile
 } from '$lib/client/mqtt/deviceActions';
+import { ActionLogSyncManager } from '$lib/client/sync/ActionLogSyncManager';
 
 export interface UseDeviceDetailOptions {
     deviceId: string;
@@ -58,9 +59,6 @@ export interface UseDeviceDetailOptions {
     firmwarePage: { get: () => number; set: (value: number) => void };
     firmwareTotalPages: { get: () => number; set: (value: number) => void };
     firmwareSearch: { get: () => string; set: (value: string) => void };
-    // Temp log IDs
-    pendingFirmwareTempId: { get: () => string | null; set: (value: string | null) => void };
-    pendingInstallAppTempId: { get: () => string | null; set: (value: string | null) => void };
 }
 
 /**
@@ -108,24 +106,31 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
         loadingFirmware,
         firmwarePage,
         firmwareTotalPages,
-        firmwareSearch,
-        pendingFirmwareTempId,
-        pendingInstallAppTempId
+        firmwareSearch
     } = options;
 
     const MAX_ACTION_LOGS = 15;
 
-    // Action log helpers
+    function sortActionLogs(logs: any[]): any[] {
+        return [...logs].sort((a, b) => {
+            // Sort by initiatedAt timestamp descending (newest first)
+            return new Date(b.initiatedAt).getTime() - new Date(a.initiatedAt).getTime();
+        });
+    }
+
     function addActionLogRow(actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed' = 'initiated', logId?: string) {
-        const id = logId || `temp-${actionType}-${Date.now()}`;
+        if (!logId) {
+            throw new Error('logId is required - cannot create temp logs');
+        }
         const currentLogs = actionLogs.get();
-        actionLogs.set([
+        const newLogs = [
             {
-                id,
+                id: logId,
                 deviceId: device.get().id,
                 actionType,
                 status,
                 progress: null,
+                initiatedBy: 'current_user',
                 initiatedAt: new Date().toISOString(),
                 completedAt: null,
                 durationMs: null,
@@ -133,11 +138,12 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 user: null
             },
             ...currentLogs
-        ].slice(0, MAX_ACTION_LOGS));
-        return id;
+        ];
+        actionLogs.set(sortActionLogs(newLogs).slice(0, MAX_ACTION_LOGS));
+        return logId;
     }
 
-    function updateTempActionLog(tempId: string | null, status: 'success' | 'failed', message?: string) {
+    function updateTempActionLog(tempId: string | null, status: 'success' | 'failed', message?: string, durationMs?: number | null) {
         if (!tempId) return;
         const currentLogs = actionLogs.get();
         const idx = currentLogs.findIndex((l) => l.id === tempId);
@@ -147,9 +153,10 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 ...existing,
                 status,
                 message: message ?? existing.message,
-                completedAt: new Date().toISOString()
+                completedAt: new Date().toISOString(),
+                durationMs: durationMs !== undefined && durationMs !== null ? durationMs : (existing.durationMs ?? null)
             };
-            actionLogs.set([...currentLogs]);
+            actionLogs.set(sortActionLogs(currentLogs));
         }
     }
 
@@ -297,28 +304,15 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             return;
         }
 
-        const tempId = `temp-${Date.now()}`;
-        pendingFirmwareTempId.set(tempId);
-        const currentLogs = actionLogs.get();
-        actionLogs.set([
-            {
-                id: tempId,
-                deviceId: device.get().id,
-                actionType: 'firmware_update',
-                status: 'in_progress',
-                progress: null,
-                initiatedAt: new Date().toISOString(),
-                completedAt: null,
-                durationMs: null,
-                message: 'Initiating firmware update…',
-                user: null
-            },
-            ...currentLogs
-        ].slice(0, MAX_ACTION_LOGS));
-
         isLoading.set(true);
 
         try {
+            actionStatus.set({
+                action: 'firmware',
+                status: 'in_progress',
+                message: 'Initiating firmware update...'
+            });
+
             const result = await mqttUpdateFirmware(
                 {
                     deviceId: device.get().id,
@@ -329,12 +323,24 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             );
 
             if (result.operationId) {
-                const logs = actionLogs.get();
-                const logIndex = logs.findIndex(log => log.id === tempId);
-                if (logIndex !== -1) {
-                    logs[logIndex].id = result.operationId;
-                    actionLogs.set([...logs]);
-                }
+                const currentLogs = actionLogs.get();
+                const newLogs = [
+                    {
+                        id: result.operationId,
+                        deviceId: device.get().id,
+                        actionType: 'firmware_update',
+                        status: 'initiated',
+                        progress: null,
+                        initiatedBy: 'current_user',
+                        initiatedAt: new Date().toISOString(),
+                        completedAt: null,
+                        durationMs: null,
+                        message: 'Initiating firmware update…',
+                        user: null
+                    },
+                    ...currentLogs
+                ];
+                actionLogs.set(sortActionLogs(newLogs).slice(0, MAX_ACTION_LOGS));
             }
 
             actionStatus.set({
@@ -352,20 +358,6 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             });
             toast.error('Failed to update firmware');
             console.error('Error updating firmware:', error);
-            
-            const logs = actionLogs.get();
-            const idx = logs.findIndex((l) => l.id === tempId);
-            if (idx >= 0) {
-                const existing = logs[idx];
-                logs[idx] = {
-                    ...existing,
-                    status: 'failed',
-                    message: existing.message || (error instanceof Error ? error.message : 'Failed to update firmware'),
-                    completedAt: new Date().toISOString()
-                };
-                actionLogs.set([...logs]);
-            }
-            pendingFirmwareTempId.set(null);
         } finally {
             isLoading.set(false);
         }
@@ -389,8 +381,6 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             return;
         }
 
-        const tempId = `temp-${Date.now()}`;
-        pendingInstallAppTempId.set(tempId);
         isLoading.set(true);
         
         try {
@@ -400,13 +390,22 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 message: 'Initiating app installation...'
             });
 
-            const currentLogs = actionLogs.get();
-            actionLogs.set([
+            const result = await mqttInstallApp(
                 {
-                    id: tempId,
+                    deviceId: device.get().id,
+                    packageName: app.packageName ?? 'unknown',
+                    resourceId: app.id
+                },
+                { timeoutMs: 60000 }
+            );
+
+            if (result.operationId) {
+                const currentLogs = actionLogs.get();
+                const newLog = {
+                    id: result.operationId,
                     deviceId: device.get().id,
                     actionType: 'install_app',
-                    status: 'in_progress',
+                    status: 'initiated',
                     progress: null,
                     initiatedBy: 'current_user',
                     initiatedAt: new Date().toISOString(),
@@ -425,26 +424,11 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                             format: app.format ?? null
                         }
                     }
-                },
-                ...currentLogs
-            ]);
-
-            const result = await mqttInstallApp(
-                {
-                    deviceId: device.get().id,
-                    packageName: app.packageName ?? 'unknown',
-                    resourceId: app.id
-                },
-                { timeoutMs: 60000 }
-            );
-
-            if (result.operationId) {
-                const logs = actionLogs.get();
-                const logIndex = logs.findIndex(log => log.id === tempId);
-                if (logIndex !== -1) {
-                    logs[logIndex].id = result.operationId;
-                    actionLogs.set([...logs]);
-                }
+                };
+                
+                actionLogs.set(sortActionLogs([newLog, ...currentLogs]).slice(0, MAX_ACTION_LOGS));
+            } else {
+                console.warn('[useDeviceDetail] No operationId in RPC response', { result });
             }
 
             actionStatus.set({
@@ -462,20 +446,6 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             });
             toast.error('Failed to install app');
             console.error('Error installing app:', error);
-            
-            const logs = actionLogs.get();
-            const idx = logs.findIndex((l) => l.id === tempId);
-            if (idx >= 0) {
-                const existing = logs[idx];
-                logs[idx] = {
-                    ...existing,
-                    status: 'failed',
-                    message: existing.message || (error instanceof Error ? error.message : 'Failed to install app'),
-                    completedAt: new Date().toISOString()
-                };
-                actionLogs.set([...logs]);
-            }
-            pendingInstallAppTempId.set(null);
         } finally {
             isLoading.set(false);
         }
@@ -595,8 +565,7 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
                 message: error instanceof Error ? error.message : 'Failed to pull file',
             });
             toast.error('Failed to pull file');
-            console.error('Error pulling file:', error);
-            addActionLogRow('pullFile', 'Failed to pull file', 'failed');
+            console.error('[useDeviceDetail] Error pulling file', { deviceId, error });
         } finally {
             isLoading.set(false);
         }
@@ -609,7 +578,8 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             toast.error('Device is offline');
             return;
         }
-        addActionLogRow('terminal', 'Opening terminal', 'initiated');
+        const terminalLogId = `terminal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        addActionLogRow('terminal', 'Opening terminal', 'initiated', terminalLogId);
         goto(`${basePath}/iot/devices/${deviceId}/terminal`);
     }
 
@@ -647,9 +617,20 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
     // MQTT handlers setup
     let unsubscribeDeviceRealtime: (() => void) | null = null;
     let mqttUnsubscribes: (() => void)[] = [];
+    let actionLogSyncManager: ActionLogSyncManager | null = null;
 
     function setupMQTTHandlers() {
-        // Subscribe to device action log updates (data handler)
+        try {
+            actionLogSyncManager = new ActionLogSyncManager(
+                deviceId,
+                () => actionLogs.get(),
+                (logs) => { actionLogs.set(sortActionLogs(logs)); }
+            );
+            console.log('[useDeviceDetail] ActionLogSyncManager initialized', { deviceId });
+        } catch (error) {
+            console.error('[useDeviceDetail] Failed to initialize ActionLogSyncManager', { deviceId, error });
+        }
+
         unsubscribeDeviceRealtime = subscribeActionLogUpdates(
             deviceId,
             () => actionLogs.get(),
@@ -657,9 +638,6 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             actionStatus
         );
 
-        // Setup UI handlers for modal closing and progress bars
-        // Note: Action log updates are handled by ActionHandlerManager via subscribeActionLogUpdates()
-        // These handlers only handle UI-specific concerns (modal closing, progress bars)
         const modalHandler = createModalHandler({
             deviceId,
             showPullFileModal,
@@ -681,6 +659,15 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
     }
 
     function cleanup() {
+        if (actionLogSyncManager) {
+            try {
+                actionLogSyncManager.cleanup();
+            } catch (error) {
+                console.error('[useDeviceDetail] Error cleaning up ActionLogSyncManager', { deviceId, error });
+            }
+            actionLogSyncManager = null;
+        }
+
         if (unsubscribeDeviceRealtime) {
             try { unsubscribeDeviceRealtime(); } catch {}
             unsubscribeDeviceRealtime = null;

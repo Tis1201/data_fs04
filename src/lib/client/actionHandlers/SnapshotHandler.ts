@@ -1,8 +1,10 @@
 import { BaseActionHandler } from './BaseActionHandler';
 import type { MessageData, ActionHandlerParams } from './types';
+import { MessageEntityMapper, type DeviceMessageEntity } from '$lib/entities/DeviceMessageEntity';
+import { mapActionTypeToDb } from './actionTypeMapping';
 
 /**
- * Handler for snapshot action that streams image data
+ * Handler for screenshot/snapshot actions
  */
 export class SnapshotHandler extends BaseActionHandler {
   constructor(params: ActionHandlerParams) {
@@ -10,10 +12,89 @@ export class SnapshotHandler extends BaseActionHandler {
   }
 
   handle(evtType: string, entity: any): void {
-    // Handle snapshot status message
-    if (evtType === 'device:snapshotStatus' || entity?.type === 'device:snapshotStatus') {
-      this.handleSnapshotStatus(evtType, entity);
+    if (evtType === 'device.screenshot') {
+      this.handleScreenshotCompletion(entity);
       return;
+    }
+
+    const mappedEntity = MessageEntityMapper.mapToEntity(entity);
+    
+    if (!mappedEntity) {
+      console.debug('[SnapshotHandler] Failed to map message to entity', { evtType });
+      return;
+    }
+
+    if (evtType === 'device:statusUpdate' || mappedEntity.type === 'device:statusUpdate') {
+      const action = mappedEntity.action || mappedEntity.payload?.action;
+      if (action === 'screenshot' || action === 'snapshot') {
+        this.handleUnifiedStatus(mappedEntity);
+        return;
+      }
+    }
+
+    if (evtType === 'device:snapshotStatus' || mappedEntity?.type === 'device:snapshotStatus') {
+      this.handleSnapshotStatus(evtType, mappedEntity);
+      return;
+    }
+  }
+
+  private handleScreenshotCompletion(entity: any): void {
+    const message = entity.message || 'Screenshot captured successfully';
+    const durationMs = entity.durationMs;
+    const objectPath = entity.objectPath;
+    
+    const logs = this.getLogs();
+    const screenshotLog = logs.find(log => 
+      log.deviceId === this.deviceId && 
+      (log.actionType === 'snapshot' || log.actionType === 'screenshot') &&
+      log.status === 'in_progress'
+    );
+
+    if (screenshotLog) {
+      this.handleSuccess({ 
+        action: 'screenshot', 
+        status: 'success', 
+        message, 
+        logId: screenshotLog.id, 
+        durationMs 
+      }, screenshotLog.id);
+    } else {
+      console.warn('[SnapshotHandler] No in-progress screenshot log found', { 
+        deviceId: this.deviceId,
+        logCount: logs.length
+      });
+    }
+  }
+
+  protected handleUnifiedStatus(entity: DeviceMessageEntity): void {
+    const payload = entity.payload ?? {};
+    const {
+      action,
+      status,
+      message,
+      logId,
+      durationMs
+    }: {
+      action?: string;
+      status?: string;
+      message?: string;
+      logId?: string;
+      durationMs?: number;
+    } = payload as any;
+
+    if (status === 'complete' || status === 'success') {
+      this.handleSuccess({ 
+        action, 
+        status, 
+        message: message || `${action} completed`, 
+        logId, 
+        durationMs 
+      }, logId);
+    } else if (status === 'failed' || status === 'error') {
+      const dbActionType = mapActionTypeToDb('screenshot');
+      this.handleError(message || `${action} failed`, logId, dbActionType, durationMs);
+    } else {
+      this.handleProgress(null, message || `${action} in progress`, logId);
     }
   }
 
@@ -22,14 +103,6 @@ export class SnapshotHandler extends BaseActionHandler {
 
     const { logId, status, message, completedAt, durationMs } = this.extractMessageData(data);
     const newStatus = this.mapStatus(status);
-
-    console.log('[Snapshot] Status received:', { 
-      evtType, 
-      status: newStatus, 
-      message, 
-      deviceId: this.deviceId, 
-      logId 
-    });
 
     const logs = this.getLogs();
     let updated = false;
@@ -81,7 +154,6 @@ export class SnapshotHandler extends BaseActionHandler {
     }
   }
 
-  // Helper methods (copied from base class for now)
   private isCorrectDevice(data: MessageData, targetDeviceId: string): boolean {
     return !!(data && data.deviceId === targetDeviceId);
   }

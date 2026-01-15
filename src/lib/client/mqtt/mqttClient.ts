@@ -123,8 +123,23 @@ class UserMqttClient {
     }
     
     if (this.status === 'connecting' || this.status === 'reconnecting') {
-      console.log('[MQTT Client] Already connecting/reconnecting');
-      return;
+      console.log('[MQTT Client] Already connecting/reconnecting, waiting for completion...');
+      // Wait for connection to complete
+      return new Promise<void>((resolve, reject) => {
+        const checkConnection = () => {
+          if (this.status === 'connected') {
+            console.log('[MQTT Client] Connection completed while waiting');
+            resolve();
+          } else if (this.status === 'error') {
+            console.log('[MQTT Client] Connection failed while waiting');
+            reject(new Error('MQTT connection failed'));
+          } else {
+            // Check again in 100ms
+            setTimeout(checkConnection, 100);
+          }
+        };
+        checkConnection();
+      });
     }
 
     if (this.reconnectTimer) {

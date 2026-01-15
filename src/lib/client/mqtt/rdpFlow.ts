@@ -25,6 +25,7 @@ export class RDPMqttClient {
     private deviceId: string;
     private onStatusCallback: ((status: string, data?: any) => void) | null = null;
     private onErrorCallback: ((error: string) => void) | null = null;
+    private onFrameCallback: ((frame: string, frameNumber?: number, timestamp?: string) => void) | null = null;
     private unsubscribe: (() => void) | null = null;
 
     constructor(deviceId: string) {
@@ -117,6 +118,13 @@ export class RDPMqttClient {
     }
 
     /**
+     * Register frame callback
+     */
+    onFrame(callback: (frame: string, frameNumber?: number, timestamp?: string) => void): void {
+        this.onFrameCallback = callback;
+    }
+
+    /**
      * Cleanup
      */
     cleanup(): void {
@@ -127,17 +135,24 @@ export class RDPMqttClient {
         }
         this.onStatusCallback = null;
         this.onErrorCallback = null;
+        this.onFrameCallback = null;
     }
 
     /**
      * Handle RDP message from device
      */
     private handleRDPMessage(payload: any): void {
-        console.debug('[RDPMqtt] Received RDP message', payload);
+        console.log('[RDPMqtt] Received RDP message', payload);
 
         // Extract message type from payload
+        // The MQTT client passes payloadData which has structure: { payload: { type: 'rdp:frame', ... } }
         let messageType = payload?.payload?.type || payload?.type;
         const data = payload?.payload || payload;
+        
+        // Also check if type is directly in payloadData (for some message formats)
+        if (!messageType && payload?.type) {
+            messageType = payload.type;
+        }
 
         // Infer message type if missing (for backward compatibility or simplified messages)
         if (!messageType) {
@@ -147,10 +162,13 @@ export class RDPMqttClient {
                 messageType = 'rdp:stopped';
             } else if (data?.error) {
                 messageType = 'rdp:error';
+            } else if (data?.frame) {
+                // If frame exists but no type, assume it's a frame message
+                messageType = 'rdp:frame';
             }
         }
 
-        console.debug('[RDPMqtt] Processing RDP message', { messageType, data });
+        console.log('[RDPMqtt] Processing RDP message', { messageType, hasFrame: !!data?.frame, frameSize: data?.frame?.length });
 
         switch (messageType) {
             case 'rdp:started':
@@ -178,6 +196,22 @@ export class RDPMqttClient {
                 console.error('[RDPMqtt] RDP error', data);
                 if (this.onErrorCallback && data.error) {
                     this.onErrorCallback(data.error);
+                }
+                break;
+
+            case 'rdp:frame':
+                // Handle video frame data
+                const frame = data?.frame as string | undefined;
+                const frameNumber = data?.frameNumber as number | undefined;
+                const timestamp = data?.timestamp as string | undefined;
+                
+                if (frame && this.onFrameCallback) {
+                    this.onFrameCallback(frame, frameNumber, timestamp);
+                } else if (frame) {
+                    console.debug('[RDPMqtt] Received RDP frame but no callback registered', {
+                        frameNumber,
+                        frameSize: frame.length
+                    });
                 }
                 break;
 

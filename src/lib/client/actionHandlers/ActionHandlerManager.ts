@@ -20,25 +20,21 @@ export class ActionHandlerManager {
   private handlers: Map<string, any> = new Map();
 
   constructor(params: ActionHandlerParams) {
-    // Initialize all action handlers
+    // All handlers use snake_case action names
     this.handlers.set('reboot', new RebootHandler(params));
     this.handlers.set('restart', new RestartHandler(params));
-    this.handlers.set('firmware_update', new FirmwareHandler(params));
-    this.handlers.set('install', new InstallAppHandler(params));
-    // Note: pull_file and push_file now use FileOperationHandler
-    this.handlers.set('logs', new LogsHandler(params));
+    this.handlers.set('refresh', new SimpleActionHandler(params, 'refresh'));
+    this.handlers.set('update_firmware', new FirmwareHandler(params));
+    this.handlers.set('install_app', new InstallAppHandler(params));
+    this.handlers.set('push_file', new FileOperationHandler(params, 'push'));
+    this.handlers.set('pull_file', new FileOperationHandler(params, 'pull'));
+    this.handlers.set('get_logs', new LogsHandler(params));
     this.handlers.set('snapshot', new SnapshotHandler(params));
     this.handlers.set('terminal', new TerminalHandler(params));
-    this.handlers.set('file_operation', new FileOperationHandler(params, 'push')); // For push operations
-    this.handlers.set('pull_file', new FileOperationHandler(params, 'pull')); // For pull operations
-    this.handlers.set('bundle_status', new BundleStatusHandler(params)); // For bundle status updates
-    
-    // App action handlers
-    this.handlers.set('uninstall', new SimpleActionHandler(params, 'uninstall'));
-    this.handlers.set('restartApp', new SimpleActionHandler(params, 'restartApp'));
-    this.handlers.set('config', new SimpleActionHandler(params, 'config'));
-    // Device action handlers
-    this.handlers.set('refresh', new SimpleActionHandler(params, 'refresh'));
+    this.handlers.set('bundle_status', new BundleStatusHandler(params));
+    this.handlers.set('uninstall_app', new SimpleActionHandler(params, 'uninstall_app'));
+    this.handlers.set('restart_app', new SimpleActionHandler(params, 'restart_app'));
+    this.handlers.set('config_app', new SimpleActionHandler(params, 'config_app'));
   }
 
   /**

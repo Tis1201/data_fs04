@@ -50,10 +50,6 @@
 
     const MAX_ACTION_LOGS = 15;
     let actionLogs: any[] = Array.isArray(deviceActionLogs) ? [...deviceActionLogs].slice(0, MAX_ACTION_LOGS) : [];
-    
-    // Track temporary optimistic log rows
-    let pendingFirmwareTempId: string | null = null;
-    let pendingInstallAppTempId: string | null = null;
 
     // State management
     const isLoading = writable(false);
@@ -170,9 +166,7 @@
         loadingFirmware: { get: () => loadingFirmware, set: (v) => { loadingFirmware = v; } },
         firmwarePage: { get: () => firmwarePage, set: (v) => { firmwarePage = v; } },
         firmwareTotalPages: { get: () => firmwareTotalPages, set: (v) => { firmwareTotalPages = v; } },
-        firmwareSearch: { get: () => firmwareSearch, set: (v) => { firmwareSearch = v; } },
-        pendingFirmwareTempId: { get: () => pendingFirmwareTempId, set: (v) => { pendingFirmwareTempId = v; } },
-        pendingInstallAppTempId: { get: () => pendingInstallAppTempId, set: (v) => { pendingInstallAppTempId = v; } }
+        firmwareSearch: { get: () => firmwareSearch, set: (v) => { firmwareSearch = v; } }
     });
 
     // Use composable functions
@@ -341,7 +335,6 @@
                     toast.error('Device is offline');
                     return;
                 }
-                addActionLogRow('remote_desktop', 'Opening remote desktop', 'initiated'); 
                 goto(`${basePath}/iot/devices/${device.id}/rdp`); 
             }}
         />

@@ -5,6 +5,7 @@ import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
 import { getStorageConfig, generatePresignedUrl, generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { broadcastDeviceActionUpdate } from '../../index';
 
 interface DeviceActionParams {
     deviceId: string;
@@ -73,6 +74,45 @@ async function executeDeviceAction(
         },
         expiresIn: '30m'
     });
+
+    // Broadcast initial "initiated" status to UI
+    try {
+        // Fetch device to get accountId for broadcasting
+        const device = await prisma.device.findUnique({
+            where: { id: deviceId },
+            select: { accountId: true, createdBy: true }
+        });
+
+        if (device && device.accountId) {
+            logger.info(`[Web${actionType}] Broadcasting initial status for action log ${actionLog.id}`, {
+                logId: actionLog.id,
+                action: normalizedActionType,
+                deviceId,
+                accountId: device.accountId
+            });
+
+            await broadcastDeviceActionUpdate({
+                prisma,
+                deviceId,
+                logId: actionLog.id,
+                action: normalizedActionType,
+                status: 'initiated',
+                message: `${actionType} initiated`,
+                accountId: device.accountId
+            });
+
+            logger.debug(`[Web${actionType}] Broadcasted initial status for action log ${actionLog.id}`);
+        } else {
+            logger.warn(`[Web${actionType}] Cannot broadcast initial status: device not found or missing accountId`, {
+                deviceId,
+                deviceExists: !!device,
+                accountId: device?.accountId
+            });
+        }
+    } catch (broadcastErr) {
+        // Non-fatal error - log but don't fail the action
+        logger.warn(`[Web${actionType}] Failed to broadcast initial status:`, broadcastErr);
+    }
 
     logger.info(
         `[Web${actionType}] Dispatched ${actionType} action for device ${deviceId}, operation=${actionLog.id}`
@@ -211,7 +251,7 @@ export async function handleInstallApp(
         params,
         args,
         {
-            action: 'installApp',
+            action: 'install_app',
             packageName: params.packageName,
             resourceId: params.resourceId,
             downloadUrl: result.downloadUrl,
@@ -297,7 +337,7 @@ export async function handlePullFile(
         params,
         args,
         {
-            action: 'pullFile',
+            action: 'pull_file',
             sourcePath: params.sourcePath,
             destinationPath: params.destinationPath,
             uploadUrl: presignedUrlResult.url,
@@ -366,10 +406,11 @@ export async function handlePushFile(
         params,
         args,
         {
-            action: 'pushFile',
+            action: 'push_file',
             sourcePath: result.downloadUrl,
             destinationPath: params.destinationPath,
-            resourceId: params.resourceId
+            resourceId: params.resourceId,
+            fileName: resource.name
         }
     );
 }
@@ -398,7 +439,7 @@ export async function handleGetLogs(
         throw new Error('GCloud bucket not configured');
     }
     
-    logger.info(`[WebGet Logs] Generating presigned upload URL for getLogs`, {
+    logger.info(`[WebGet Logs] Generating presigned upload URL for get_logs`, {
         mode: storageConfig.mode,
         bucket: storageConfig.bucket,
         objectPath,
@@ -447,7 +488,7 @@ export async function handleGetLogs(
         params,
         args,
         {
-            action: 'getLogs',
+            action: 'get_logs',
             format: format,
             uploadUrl: presignedUrlResult.url,
             objectPath: presignedUrlResult.objectPath

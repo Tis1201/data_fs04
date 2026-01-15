@@ -13,7 +13,7 @@ export interface DeviceActionCallbacks {
     onError?: (action: string, error: Error | string) => void;
     onProgress?: (action: string, progress: number, message?: string) => void;
     addActionLog?: (actionType: string, message: string, status: 'initiated' | 'in_progress' | 'success' | 'failed', logId?: string) => string;
-    updateActionLog?: (tempId: string | null, status: 'success' | 'failed', message?: string) => void;
+    updateActionLog?: (tempId: string | null, status: 'success' | 'failed', message?: string, durationMs?: number | null) => void;
 }
 
 /**
@@ -27,6 +27,29 @@ export class DeviceActionsService {
         private actionStatus: Writable<{ action: string; status: string; message: string }>,
         private callbacks: DeviceActionCallbacks = {}
     ) {}
+
+    /**
+     * Helper function to execute RPC action and create log with real operationId
+     * This ensures we never create temp logs - always wait for server response
+     */
+    private async executeActionWithLog<T extends { operationId?: string }>(
+        actionType: string,
+        actionLabel: string,
+        rpcCall: () => Promise<T>,
+        initMessage: string,
+        successMessage: string
+    ): Promise<{ result: T; operationId: string | undefined }> {
+        // Make RPC call FIRST to get real operationId
+        const result = await rpcCall();
+
+        // Create log with REAL ID from server response
+        const operationId = result.operationId;
+        if (operationId && this.callbacks.addActionLog) {
+            this.callbacks.addActionLog(actionType, initMessage, 'in_progress', operationId);
+        }
+
+        return { result, operationId };
+    }
 
     /**
      * Retrieve snapshot/screenshot from device via MQTT
@@ -45,17 +68,24 @@ export class DeviceActionsService {
             message: "Taking screenshot...",
         });
         
-        const tempId = this.callbacks.addActionLog?.('snapshot', 'Taking screenshot…', 'in_progress');
+        let operationId: string | undefined;
 
         try {
+            // Make RPC call FIRST to get real operationId
             const rpcResult = await callUserRpc<{
                 flowId?: string;
-                result: { deviceId: string };
+                result: { deviceId: string; objectPath: string; operationId: string };
             }>(
                 'device.screenshot',
                 { deviceId: this.deviceId },
                 { timeoutMs: 60000 }
             );
+
+            // Create log with REAL ID from server response
+            operationId = rpcResult?.result?.operationId;
+            if (operationId && this.callbacks.addActionLog) {
+                this.callbacks.addActionLog('snapshot', 'Taking screenshot…', 'in_progress', operationId);
+            }
 
             const flowId = rpcResult?.flowId;
             if (!flowId) {
@@ -71,7 +101,9 @@ export class DeviceActionsService {
 
                 this.actionStatus.set({ action: "snapshot", status: "success", message: "Screenshot captured" });
                 toast.success("Device screenshot captured successfully");
-                this.callbacks.updateActionLog?.(tempId || null, 'success', 'Screenshot captured');
+                if (operationId && this.callbacks.updateActionLog) {
+                    this.callbacks.updateActionLog(operationId, 'success', 'Screenshot captured');
+                }
             } else {
                 throw new Error("No image data received from device");
             }
@@ -83,7 +115,16 @@ export class DeviceActionsService {
             });
             toast.error("Failed to capture device screenshot");
             console.error("Error capturing screenshot via MQTT:", error);
-            this.callbacks.updateActionLog?.(tempId || null, 'failed', error instanceof Error ? error.message : 'Failed to capture screenshot');
+            if (operationId && this.callbacks.updateActionLog) {
+                // Extract durationMs from error if available (from device.screenshot notification)
+                const durationMs = (error as any)?.durationMs;
+                this.callbacks.updateActionLog(
+                    operationId, 
+                    'failed', 
+                    error instanceof Error ? error.message : 'Failed to capture screenshot',
+                    durationMs
+                );
+            }
         } finally {
             this.isLoading.set(false);
         }
@@ -99,18 +140,18 @@ export class DeviceActionsService {
             status: "loading",
             message: "Sending refresh command...",
         });
-        const tempId = this.callbacks.addActionLog?.('refresh', 'Sending refresh command…', 'in_progress');
+
+        let operationId: string | undefined;
 
         try {
-            const result = await mqttRefreshDevice(
-                { deviceId: this.deviceId },
-                { timeoutMs: 30000 }
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'refresh',
+                'Refresh',
+                () => mqttRefreshDevice({ deviceId: this.deviceId }, { timeoutMs: 30000 }),
+                'Refresh initiated…',
+                'Refresh command sent'
             );
-
-            if (result.operationId) {
-                // Update temp log with real operation ID
-                const logs = this.callbacks.addActionLog?.('refresh', 'Refresh initiated…', 'in_progress', result.operationId);
-            }
+            operationId = opId;
 
             this.actionStatus.set({
                 action: "refresh",
@@ -126,7 +167,9 @@ export class DeviceActionsService {
             });
             toast.error("Failed to refresh device");
             console.error("Error refreshing device:", error);
-            this.callbacks.updateActionLog?.(tempId || null, 'failed', error instanceof Error ? error.message : 'Failed to refresh device');
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to refresh device');
+            }
         } finally {
             this.isLoading.set(false);
         }
@@ -142,18 +185,18 @@ export class DeviceActionsService {
             status: "loading",
             message: "Sending reboot command...",
         });
-        const tempId = this.callbacks.addActionLog?.('reboot', 'Sending reboot command…', 'in_progress');
+
+        let operationId: string | undefined;
 
         try {
-            const result = await mqttRebootDevice(
-                { deviceId: this.deviceId },
-                { timeoutMs: 30000 }
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'reboot',
+                'Reboot',
+                () => mqttRebootDevice({ deviceId: this.deviceId }, { timeoutMs: 30000 }),
+                'Reboot initiated…',
+                'Reboot command sent'
             );
-
-            if (result.operationId) {
-                // Update temp log with real operation ID
-                this.callbacks.addActionLog?.('reboot', 'Reboot initiated…', 'in_progress', result.operationId);
-            }
+            operationId = opId;
 
             this.actionStatus.set({
                 action: "reboot",
@@ -169,7 +212,9 @@ export class DeviceActionsService {
             });
             toast.error("Failed to reboot device");
             console.error("Error rebooting device:", error);
-            this.callbacks.updateActionLog?.(tempId || null, 'failed', error instanceof Error ? error.message : 'Failed to reboot device');
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to reboot device');
+            }
         } finally {
             this.isLoading.set(false);
         }
@@ -186,15 +231,17 @@ export class DeviceActionsService {
             message: "Requesting logs from device...",
         });
 
-        try {
-            const result = await mqttGetDeviceLogs(
-                { deviceId: this.deviceId, format: 'zip' },
-                { timeoutMs: 60000 }
-            );
+        let operationId: string | undefined;
 
-            if (result.operationId) {
-                this.callbacks.addActionLog?.('getLogs', 'Logs request initiated…', 'in_progress', result.operationId);
-            }
+        try {
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'getLogs',
+                'Get Logs',
+                () => mqttGetDeviceLogs({ deviceId: this.deviceId, format: 'zip' }, { timeoutMs: 60000 }),
+                'Logs request initiated…',
+                'Logs request initiated'
+            );
+            operationId = opId;
 
             this.actionStatus.set({
                 action: "logs",
@@ -210,7 +257,9 @@ export class DeviceActionsService {
             });
             toast.error("Failed to get device logs");
             console.error('Error getting logs:', error);
-            this.callbacks.addActionLog?.('getLogs', 'Failed to get logs', 'failed');
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to get logs');
+            }
         } finally {
             this.isLoading.set(false);
         }
@@ -227,9 +276,8 @@ export class DeviceActionsService {
             message: 'Initiating firmware update...'
         });
 
-        const tempId = this.callbacks.addActionLog?.('firmware_update', 'Initiating firmware update…', 'in_progress');
-
         try {
+            // Make API call FIRST to get real operationId
             const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -249,9 +297,10 @@ export class DeviceActionsService {
 
             const result = await response.json();
             const realLogId = result.data?.operationId;
-            if (realLogId && tempId) {
-                // Update temp log with real log ID if callback supports it
-                // This would need to be handled by the composable
+            
+            // ✅ Create log with real ID from server response
+            if (realLogId && this.callbacks.addActionLog) {
+                this.callbacks.addActionLog('firmware_update', 'Initiating firmware update…', 'initiated', realLogId);
             }
 
             this.actionStatus.set({
@@ -268,7 +317,7 @@ export class DeviceActionsService {
             });
             toast.error('Failed to update firmware');
             console.error('Error updating firmware:', error);
-            this.callbacks.updateActionLog?.(tempId || null, 'failed', error instanceof Error ? error.message : 'Failed to update firmware');
+            // Note: No log entry created on error - operationId not available
         } finally {
             this.isLoading.set(false);
         }
@@ -285,9 +334,8 @@ export class DeviceActionsService {
             message: 'Initiating app installation...'
         });
 
-        const tempId = this.callbacks.addActionLog?.('install', 'Initiating app installation…', 'in_progress');
-
         try {
+            // Make API call FIRST to get real operationId
             const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -307,8 +355,10 @@ export class DeviceActionsService {
 
             const result = await response.json();
             const realLogId = result.data?.operationId;
-            if (realLogId && tempId) {
-                // Update temp log with real log ID if callback supports it
+            
+            // ✅ Create log with real ID from server response
+            if (realLogId && this.callbacks.addActionLog) {
+                this.callbacks.addActionLog('install', 'Initiating app installation…', 'initiated', realLogId);
             }
 
             this.actionStatus.set({
@@ -325,7 +375,7 @@ export class DeviceActionsService {
             });
             toast.error('Failed to install app');
             console.error('Error installing app:', error);
-            this.callbacks.updateActionLog?.(tempId || null, 'failed', error instanceof Error ? error.message : 'Failed to install app');
+            // Note: No log entry created on error - operationId not available
         } finally {
             this.isLoading.set(false);
         }
