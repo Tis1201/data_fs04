@@ -11,31 +11,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   openssl \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy package files (keep lockfile for faster builds)
+# Copy package files
 COPY package*.json ./
 
-# Install dependencies using lockfile, skip platform-specific optional deps
-RUN npm ci --legacy-peer-deps --omit=optional
+# Install dependencies
+RUN npm install --legacy-peer-deps
 
 # Copy source files
-# Copy source files
 COPY src ./src
+COPY static ./static
 COPY prisma ./prisma
 COPY schema.zmodel ./
+COPY svelte.config.js ./
+COPY vite.config.ts ./
 COPY tsconfig.json ./
 COPY scripts ./scripts
 COPY prodServer.js ./
+COPY postcss.config.js ./
+COPY tailwind.config.js ./
 COPY docker/entrypoint.sh ./entrypoint.sh
 
 # Create .svelte-kit directory
-RUN mkdir -p .svelte-kit && echo '{"compilerOptions":{"paths":{"$lib":["../src/lib"],"$lib/*":["../src/lib/*"]}}}' > .svelte-kit/tsconfig.json
+RUN mkdir -p .svelte-kit && echo '{"compilerOptions":{}}' > .svelte-kit/tsconfig.json
 
 # Generate Prisma and ZenStack clients
 RUN npx prisma generate
 RUN npx zenstack generate
 
 # Build the application
-# RUN npm run build
+RUN npm run build
 
 # Production stage
 FROM node:20.9.0-bookworm-slim
@@ -51,17 +55,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy built artifacts and dependencies
-# COPY --from=build /app/build ./build
-# Worker specific: Need src for tsx
-COPY --from=build /app/src ./src
+COPY --from=build /app/build ./build
+COPY --from=build /app/static ./static
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/schema.zmodel ./
 COPY --from=build /app/prodServer.js ./prodServer.js
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/entrypoint.sh ./entrypoint.sh
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/.svelte-kit ./.svelte-kit
 
 # Make entrypoint executable
 RUN chmod +x ./entrypoint.sh
@@ -70,4 +71,4 @@ EXPOSE 3000
 
 ENV PORT=3000
 
-CMD ["npm", "run", "mqtt:worker"]
+CMD ["./entrypoint.sh"]
