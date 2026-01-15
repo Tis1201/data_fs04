@@ -10,6 +10,8 @@ pnpm-lock.yaml
 
 workings/
 
+.build/
+
 # Database
 *.db
 *.sqlite

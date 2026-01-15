@@ -1,4 +1,15 @@
 -- SQLBook: Code
+CREATE USER IF NOT EXISTS fs04_admin
+IDENTIFIED WITH SHA256_PASSWORD BY 'XXXXXX';
+GRANT SELECT ON system.parts TO fs04_admin; GRANT SELECT ON system.tables TO fs04_admin;
+GRANT CREATE, DROP, ALTER, SELECT, INSERT ON fs_04.* TO fs04_admin;
+GRANT SELECT ON fs_04.* TO fs04_admin;
+
+
+GRANT SELECT ON system.parts TO fs04_admin; GRANT SELECT ON system.tables TO fs04_admin;
+GRANT CREATE, DROP, ALTER, SELECT, INSERT ON fs_04_dev.* TO fs04_admin;
+GRANT SELECT ON fs_04_dev.* TO fs04_admin;
+-- SQLBook: Code
 -- 1. Create database
 CREATE DATABASE IF NOT EXISTS fs_04;
 

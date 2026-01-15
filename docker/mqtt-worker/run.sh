@@ -46,6 +46,7 @@ if [ -f "$ENV_FILE" ]; then
   
   # Also force LOG_LEVEL=debug for now
   ENV_OPTS+=("-e" "LOG_LEVEL=debug")
+  # ENV_OPTS+=("-e" "EMQX_URL=http://host.docker.internal:18083")
 
 else
   echo "Warning: .env file not found."
