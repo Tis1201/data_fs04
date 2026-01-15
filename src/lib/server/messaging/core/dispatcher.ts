@@ -2,10 +2,6 @@ import type { InMessage } from "../interfaces/message";
 import { webrtcHandler } from '../../handlers/WebRTCHandler';
 import { terminalHandler } from '../../handlers/TerminalHandler';
 import { rdpHandler } from '../../handlers/RDPHandler';
-// import { ChatHandler } from '../handlers/chatHandler';
-// import { WebhookHandler } from '../handlers/webhookHandler';
-import { messageHandler } from '../handlers/messageHandler';
-import { whatsappHandler } from "../handlers/whatsappHandler";
 import { deviceHandler } from "../handlers/deviceHandler";
 import { handleDeviceConnection } from "../handlers/device/connectionHandler";
 import { roomHandler } from "../handlers/roomHandler";
@@ -18,14 +14,14 @@ export interface MessageDispatcher {
 export const MessageDispatcher: MessageDispatcher = {
   async dispatch(message: InMessage): Promise<void> {
     const { type, payload, scope } = message;
-    
+
     // Debug logging for all messages
-    console.log(`[Dispatcher] Received message:`, { 
-      type, 
+    console.log(`[Dispatcher] Received message:`, {
+      type,
       payload: payload ? { action: payload.action, type: payload.type, deviceId: payload.deviceId } : null,
-      scope 
+      scope
     });
-    
+
     // Log the received message for auditing
     AuditLogger.logReceived(message);
 
@@ -41,7 +37,7 @@ export const MessageDispatcher: MessageDispatcher = {
       }
       return;
     }
-    
+
     // Debug: Log if WebRTC message was not caught
     if (type === 'device' && typeof message.payload?.type === 'string' && message.payload.type.startsWith('webrtc:')) {
       console.log(`[Dispatcher] WARNING: WebRTC message not caught by handler!`, {
@@ -71,18 +67,6 @@ export const MessageDispatcher: MessageDispatcher = {
       return;
     }
 
-    if (type === 'webhook') {
-    //   return WebhookHandler.handle(message);
-    }
-
-    if (type === 'message') {
-      return messageHandler.handle(message);
-    }
-
-    if ( type === 'whatsapp') {
-      return whatsappHandler.handle(message);
-    }
-
     if (type === 'room') {
       try {
         await roomHandler.handle(message);
@@ -106,7 +90,7 @@ export const MessageDispatcher: MessageDispatcher = {
       return;
     }
 
-    if ( type === 'device' || type.startsWith('device:')){
+    if (type === 'device' || type.startsWith('device:')) {
       console.log(`[Dispatcher] Processing device message:`, { type, payload: message.payload });
       // Check if this is a WebRTC message and route to webrtcHandler
       if (webrtcHandler.supports(type, message)) {
@@ -119,7 +103,7 @@ export const MessageDispatcher: MessageDispatcher = {
         }
         return;
       }
-      
+
       // Check if this is a terminal message and route to terminalHandler
       if (terminalHandler.supports(type, message)) {
         console.log(`[Dispatcher] Terminal handler supports this message, routing to terminalHandler`);
@@ -131,7 +115,7 @@ export const MessageDispatcher: MessageDispatcher = {
         }
         return;
       }
-      
+
       // Handle device:restartAck messages specifically
       if (type === 'device:restartAck') {
         try {
@@ -191,7 +175,7 @@ export const MessageDispatcher: MessageDispatcher = {
         }
         return;
       }
-      
+
       // Handle device:installApp messages specifically
       if (type === 'device:installApp') {
         try {
@@ -271,7 +255,7 @@ export const MessageDispatcher: MessageDispatcher = {
         }
         return;
       }
-      
+
       // Default device handler for other device messages
       try {
         await deviceHandler.handle(message);
