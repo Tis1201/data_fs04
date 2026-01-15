@@ -32,13 +32,13 @@ enum CronJobStatus {
 }
 
 model Account {
-  id                       String              @id() @default(cuid())
+  id                       String                   @id() @default(cuid())
   name                     String
-  slug                     String              @unique()
-  status                   String              @default("ACTIVE")
-  isSystem                 Boolean             @default(false)
-  createdAt                DateTime            @default(now())
-  updatedAt                DateTime            @updatedAt()
+  slug                     String                   @unique()
+  status                   String                   @default("ACTIVE")
+  isSystem                 Boolean                  @default(false)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt()
   description              String?
   logoUrl                  String?
   settings                 String?
@@ -48,7 +48,7 @@ model Account {
   devices                  Device[]
   deviceTags               DeviceTag[]
   apiKeys                  ApiKey[]
-  primaryUsers             User[]              @relation("UserPrimaryAccount")
+  primaryUsers             User[]                   @relation("UserPrimaryAccount")
   resources                Resource[]
   bundles                  Bundle[]
   refreshTokens            RefreshToken[]
@@ -56,7 +56,7 @@ model Account {
   whatsappAccounts         WhatsAppAccount[]
   preclaimSets             PreclaimSet[]
   preclaimDevices          PreclaimDevice[]
-  factoryDevices           FactoryDevice[]     @relation("AccountFactoryDevices")
+  factoryDevices           FactoryDevice[]          @relation("AccountFactoryDevices")
   cronJobs                 CronJob[]
   licenses                 License[]
   entitlements             Entitlement[]
@@ -65,8 +65,8 @@ model Account {
   pinRules                 PinRule[]
   subscription             Subscription?
   userPermissionOverrides  UserPermissionOverride[]
-  parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
-  childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
+  parentAccountAssignments AccountAssignment[]      @relation("ParentAccountAssignments")
+  childAccountAssignments  AccountAssignment[]      @relation("ChildAccountAssignments")
   controllers              Controller[]
   sensors                  Sensor[]
 
@@ -216,15 +216,15 @@ model UserPermissionOverride {
 }
 
 model User {
-  id                        String                 @id() @default(cuid())
+  id                        String                   @id() @default(cuid())
   name                      String?
-  status                    String                 @default("ACTIVE")
-  createdAt                 DateTime               @default(now())
-  updatedAt                 DateTime               @updatedAt()
-  email                     String                 @unique()
+  status                    String                   @default("ACTIVE")
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt()
+  email                     String                   @unique()
   password                  String
-  rolesString               String                 @default("")
-  systemRole                String                 @default("USER")
+  rolesString               String                   @default("")
+  systemRole                String                   @default("USER")
   primaryAccountId          String?
   sessions                  Session[]
   keys                      Key[]
@@ -233,13 +233,13 @@ model User {
   listeners                 ListenerEndpoint[]
   devices                   Device[]
   accountMemberships        AccountMembership[]
-  primaryAccount            Account?               @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  primaryAccount            Account?                 @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
   invitationTokens          InvitationToken[]
   jwtSigningKeys            JwtSigningKey[]
   tokenUsageLogs            TokenUsageLog[]
   refreshTokens             RefreshToken[]
-  actionLogs                DeviceActionLog[]      @relation("UserToActionLogs")
-  bundleInstallSessions     BundleInstallSession[] @relation("UserToBundleInstallSession")
+  actionLogs                DeviceActionLog[]        @relation("UserToActionLogs")
+  bundleInstallSessions     BundleInstallSession[]   @relation("UserToBundleInstallSession")
   cronJobs                  CronJob[]
   pinRules                  PinRule[]
   userAppActions            UserAppAction[]
@@ -499,24 +499,26 @@ model DeviceTag {
 }
 
 model DeviceActionLog {
-  id           String    @id() @default(cuid())
-  deviceId     String
-  actionType   String
-  status       String
-  initiatedBy  String
-  initiatedAt  DateTime  @default(now())
-  completedAt  DateTime?
-  durationMs   Int?
-  progress     Int?
-  message      String?
-  error        String?
-  metadata     Json?
-  requestId    String?
-  connectionId String?
-  protocol     String?
-  device       Device    @relation("DeviceToActionLogs", fields: [deviceId], references: [id], onDelete: Cascade)
-  user         User      @relation("UserToActionLogs", fields: [initiatedBy], references: [id], onDelete: Cascade)
+  id             String    @id() @default(cuid())
+  deviceId       String
+  actionType     String
+  status         String
+  initiatedBy    String
+  initiatedAt    DateTime  @default(now())
+  completedAt    DateTime?
+  durationMs     Int?
+  progress       Int?
+  message        String?
+  error          String?
+  metadata       Json?
+  requestId      String?
+  connectionId   String?
+  protocol       String?
+  sequenceNumber Int?
+  device         Device    @relation("DeviceToActionLogs", fields: [deviceId], references: [id], onDelete: Cascade)
+  user           User      @relation("UserToActionLogs", fields: [initiatedBy], references: [id], onDelete: Cascade)
 
+  @@unique([deviceId, sequenceNumber])
   @@index([deviceId])
   @@index([actionType])
   @@index([status])
@@ -524,6 +526,11 @@ model DeviceActionLog {
   @@index([initiatedAt])
   @@index([deviceId, actionType, status])
   @@index([deviceId, initiatedAt])
+  @@index([deviceId, sequenceNumber])
+  @@index([deviceId, status, initiatedAt])
+  @@index([status, initiatedAt])
+  @@index([actionType, status, initiatedAt])
+  @@index([initiatedBy, initiatedAt])
 }
 
 model Setting {

@@ -742,6 +742,7 @@ model DeviceActionLog {
   requestId    String?
   connectionId String?
   protocol     String?  // 'sse', 'pushpin', 'websocket', ...
+  sequenceNumber Int?
 
   // Relations
   device       Device   @relation("DeviceToActionLogs", fields: [deviceId], references: [id], onDelete: Cascade)
@@ -755,6 +756,13 @@ model DeviceActionLog {
   @@index([initiatedAt])
   @@index([deviceId, actionType, status])
   @@index([deviceId, initiatedAt])
+  @@index([deviceId, sequenceNumber])
+  @@unique([deviceId, sequenceNumber])
+  
+  @@index([deviceId, status, initiatedAt]) // For filtering active logs
+  @@index([status, initiatedAt])           // For global dashboards
+  @@index([actionType, status, initiatedAt]) // For analytics
+  @@index([initiatedBy, initiatedAt])      // For user audit trails
 
   // Access policies
   // Admins can do everything
