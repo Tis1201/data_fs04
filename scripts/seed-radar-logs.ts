@@ -56,9 +56,7 @@ async function getClickHouseClient(): Promise<ClickHouseClient> {
         throw new Error('ClickHouse configuration missing: CLICKHOUSE_URL, CLICKHOUSE_USER_NAME, and CLICKHOUSE_PASSWORD must be set');
     }
     
-    // Select database based on NODE_ENV: fs_04_dev for dev, fs_04 for prod
-    const isProduction = process.env.NODE_ENV === 'production';
-    const database = isProduction ? 'fs_04' : 'fs_04_dev';
+    const database = process.env.CLICKHOUSE_DATABASE
 
     return createClient({
         url,
