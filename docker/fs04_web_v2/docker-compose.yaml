@@ -1,9 +1,12 @@
 services:
   app:
+    platform: linux/amd64
     build:
       context: ../..
       dockerfile: docker/fs04_web_v2/Dockerfile
-    image: registry.gitlab.com/fs040/web:${TAG:-v2-latest}
+      args:
+        PUBLIC_VANNA_API_URL: ${PUBLIC_VANNA_API_URL}
+    image: fs04_web_v2:${TAG:-latest}
     container_name: fs04_web_v2
     ports:
       - "${PORT:-3001}:3000"
@@ -18,3 +21,4 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
