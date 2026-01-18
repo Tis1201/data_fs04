@@ -16,12 +16,12 @@
     import { parseZipFile, parseApkFile, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
 
     export let data: PageData;
-    const title = "Add IoT Resource";
+    const title = "Add IoT Application & Resource";
     const pageCrumbs = [
         ["Dashboard", "/admin"],
         ["IoT", "/admin/iot"],
-        ["Resources", "/admin/iot/resources"],
-        "Add Resource"
+        ["Applications & Resources", "/admin/iot/resources"],
+        "Add Application & Resource"
     ];
 
     const {
@@ -54,20 +54,15 @@
     
     // Form locking state
     let formLocked = false;
-    
-    // Track if file is APK/CPK/ZIP to disable fields when auto-extracted
-    let isApkOrCpk = false;
-    let isApk = false; // Track if file is specifically an APK (for showing versionCode/signature)
-    let isAutoExtracted = false; // Track if fields were auto-extracted (for ZIP/CPK/APK)
 
     let nativeFileInput: HTMLInputElement | null = null;
     let containerRef: HTMLDivElement;
     let fileUploadRef: any;
 
-    const releaseTypeOptions = [
-        { value: 'Alpha', label: 'Alpha' },
-        { value: 'Beta', label: 'Beta' },
-        { value: 'Production', label: 'Production' }
+    const targetOptions = [
+        { value: 'user', label: 'User' },
+        { value: 'device', label: 'Device' },
+        { value: 'account', label: 'Account' }
     ];
 
     // Reactive clear of errors
@@ -115,10 +110,10 @@
         isApk = fileName.endsWith('.apk');
         const isCpk = fileName.endsWith('.cpk');
         const isZip = fileName.endsWith('.zip');
-        
+
         // Reset auto-extraction flag
         isAutoExtracted = false;
-        
+
         // Set flag for APK/CPK files (will be set to true if parsing succeeds)
         isApkOrCpk = false;
         
@@ -139,33 +134,33 @@
                 if (isApk) {
                     const apkResult = await parseApkFile(file);
                     console.log('[File Upload] APK parse result:', apkResult);
-                    
+
                     if (apkResult.success && apkResult.data) {
                         // Auto-populate package name
                         if (apkResult.data.packageName) {
                             $form.packageName = apkResult.data.packageName;
                         }
-                        
+
                         // Auto-populate version (versionName)
                         if (apkResult.data.versionName) {
                             $form.version = apkResult.data.versionName;
                         }
-                        
+
                         // Auto-populate versionCode (read-only)
                         if (apkResult.data.versionCode !== null && apkResult.data.versionCode !== undefined) {
                             $form.versionCode = apkResult.data.versionCode;
                         }
-                        
+
                         // Auto-populate signature (read-only)
                         if (apkResult.data.signature) {
                             $form.signature = apkResult.data.signature;
                         }
-                        
+
                         // Auto-populate display name (resource name)
                         if (apkResult.data.appName) {
                             $form.name = apkResult.data.appName;
                         }
-                        
+
                         console.log('[File Upload] After APK parsing - Form values:', {
                             name: $form.name,
                             packageName: $form.packageName,
@@ -173,7 +168,7 @@
                             versionCode: $form.versionCode,
                             signature: $form.signature
                         });
-                        
+
                         // Mark as auto-extracted and disable fields
                         isAutoExtracted = true;
                         isApkOrCpk = true;
@@ -189,10 +184,10 @@
                     // For ZIP/CPK files, use the existing logic
                     const result = await parseZipFile(file);
                     console.log('[File Upload] Parse result:', result);
-                    
+
                     if (result.success && result.appData) {
                         console.log('[File Upload] appData:', result.appData);
-                        
+
                         // Auto-populate package name
                         const packageName = generatePackageName(result.appData);
                         console.log('[File Upload] Extracted packageName:', packageName);
@@ -200,7 +195,7 @@
                             $form.packageName = packageName;
                             console.log('[File Upload] Set $form.packageName to:', $form.packageName);
                         }
-                        
+
                         // Auto-populate version
                         const version = extractVersion(result.appData);
                         console.log('[File Upload] Extracted version:', version);
@@ -208,7 +203,7 @@
                             $form.version = version;
                             console.log('[File Upload] Set $form.version to:', $form.version);
                         }
-                        
+
                         // Auto-populate display name (resource name)
                         const displayName = extractDisplayName(result.appData);
                         console.log('[File Upload] Extracted displayName:', displayName);
@@ -216,17 +211,17 @@
                             $form.name = displayName;
                             console.log('[File Upload] Set $form.name to:', $form.name);
                         }
-                        
+
                         console.log('[File Upload] After parsing - Form values:', {
                             name: $form.name,
                             packageName: $form.packageName,
                             version: $form.version
                         });
-                        
+
                         // Mark as auto-extracted and disable fields for ZIP/CPK
                         isAutoExtracted = true;
                         isApkOrCpk = true; // Make fields read-only for successfully parsed ZIP/CPK files
-                        
+
                         const fileType = fileName.endsWith('.cpk') ? 'CPK' : 'ZIP';
                         zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
                     } else {
@@ -330,7 +325,7 @@
         isApkOrCpk = false; // Reset flag when file is removed
         isApk = false; // Reset APK flag when file is removed
         isAutoExtracted = false; // Reset auto-extraction flag
-        
+
         if (['image', 'video', 'document', 'file'].includes($form.type)) {
             $form.path = '';
         }
@@ -493,7 +488,7 @@
                                     bind:this={fileUploadRef}
                                     id="file"
                                     name="file"
-                                    accept=".zip,.cpk,.apk"
+                                    accept=".zip,.cpk,.apk,.deb"
                                     bind:value={uploadedFiles}
                                     error={uploadError}
                                     disabled={formLocked}
@@ -510,7 +505,7 @@
                                     autoUpload={false}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
-                                Only .zip, .cpk, and .apk files are allowed. Upload a file by dragging and dropping.
+                                Only .zip, .cpk, .apk, and .deb files are allowed. Upload a file by dragging and dropping.
                             </p>
                             <!-- ZIP Parsing Status -->
                             {#if zipParsing}
