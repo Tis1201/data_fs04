@@ -139,25 +139,59 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
         
         // Determine compression format and extract accordingly
         // Note: control.tar.* contains files directly (not in DEBIAN/ subdirectory)
-        let extractCmd: string;
         if (controlTarFile.endsWith('.gz')) {
             // gzip compression
-            extractCmd = `tar -xzf "${controlTarPath}" control`;
+            logger.debug('[DEB Parser] Extracting control file (gzip)', { compression: 'gz' });
+            await execAsync(`tar -xzf "${controlTarPath}" control`, { cwd: workDir });
         } else if (controlTarFile.endsWith('.xz')) {
             // xz compression (most common in modern Debian packages)
-            extractCmd = `tar -xJf "${controlTarPath}" control`;
+            // Use two-step process: decompress with xz, then extract with tar
+            // This avoids PATH issues when tar tries to find xz
+            logger.debug('[DEB Parser] Decompressing xz file first', { compression: 'xz' });
+            const decompressedTarPath = join(workDir, 'control.tar');
+            await execAsync(`/usr/bin/xz -dc "${controlTarPath}" > "${decompressedTarPath}"`, { cwd: workDir });
+            
+            // List contents of decompressed tar to see what's inside
+            logger.debug('[DEB Parser] Listing contents of decompressed tar');
+            const tarListOutput = await execAsync(`tar -tf "${decompressedTarPath}"`, { cwd: workDir });
+            const tarContents = tarListOutput.stdout.trim().split('\n');
+            logger.debug('[DEB Parser] Tar contents:', { files: tarContents });
+            
+            // Find the control file (might be ./control or just control)
+            const controlFileName = tarContents.find(f => f.endsWith('control') || f === 'control') || 'control';
+            logger.debug('[DEB Parser] Extracting control file from decompressed tar', { 
+                compression: 'xz', 
+                controlFileName 
+            });
+            await execAsync(`tar -xf "${decompressedTarPath}" "${controlFileName}"`, { cwd: workDir });
+            
+            // Clean up decompressed tar file
+            try {
+                await unlink(decompressedTarPath);
+            } catch (err) {
+                // Ignore cleanup errors
+            }
+            
+            // If control file was extracted with path, move it to workDir root
+            const extractedPath = join(workDir, controlFileName);
+            const finalPath = join(workDir, 'control');
+            if (extractedPath !== finalPath) {
+                try {
+                    const { rename } = await import('fs/promises');
+                    await rename(extractedPath, finalPath);
+                } catch (err) {
+                    console.log('[DEB Parser] File move failed or not needed:', err);
+                }
+            }
         } else if (controlTarFile.endsWith('.zst')) {
             // zstd compression
-            extractCmd = `tar --zstd -xf "${controlTarPath}" control`;
+            logger.debug('[DEB Parser] Extracting control file (zstd)', { compression: 'zst' });
+            await execAsync(`tar --zstd -xf "${controlTarPath}" control`, { cwd: workDir });
         } else {
             // uncompressed tar
-            extractCmd = `tar -xf "${controlTarPath}" control`;
+            logger.debug('[DEB Parser] Extracting control file (uncompressed)', { compression: 'none' });
+            await execAsync(`tar -xf "${controlTarPath}" control`, { cwd: workDir });
         }
-        
-        // Extract control file from control.tar.*
-        // The control file is at the root of the tar archive, not in DEBIAN/ subdirectory
-        logger.debug('[DEB Parser] Extracting control file', { compression: controlTarFile.split('.').pop() });
-        await execAsync(extractCmd, { cwd: workDir });
         
         const controlFilePath = join(workDir, 'control');
         
@@ -177,6 +211,7 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
     } catch (error) {
         logger.error('[DEB Parser] Error parsing .deb file', {
             error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
             debFilePath
         });
         throw new Error(`Failed to parse .deb file: ${error instanceof Error ? error.message : String(error)}`);
