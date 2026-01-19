@@ -54,15 +54,20 @@
     
     // Form locking state
     let formLocked = false;
+    
+    // APK/CPK/DEB auto-extraction flags
+    let isApkOrCpk = false;
+    let isApk = false;
+    let isAutoExtracted = false;
 
     let nativeFileInput: HTMLInputElement | null = null;
     let containerRef: HTMLDivElement;
     let fileUploadRef: any;
 
-    const targetOptions = [
-        { value: 'user', label: 'User' },
-        { value: 'device', label: 'Device' },
-        { value: 'account', label: 'Account' }
+    const releaseTypeOptions = [
+        { value: 'Alpha', label: 'Alpha' },
+        { value: 'Beta', label: 'Beta' },
+        { value: 'Production', label: 'Production' }
     ];
 
     // Reactive clear of errors
@@ -106,10 +111,11 @@
         
         // Parse file if it's a supported format
         const fileName = file.name.toLowerCase();
-        const isSupportedFile = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk');
+        const isSupportedFile = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb');
         isApk = fileName.endsWith('.apk');
         const isCpk = fileName.endsWith('.cpk');
         const isZip = fileName.endsWith('.zip');
+        const isDeb = fileName.endsWith('.deb');
 
         // Reset auto-extraction flag
         isAutoExtracted = false;
@@ -181,7 +187,7 @@
                         isApkOrCpk = false;
                     }
                 } else {
-                    // For ZIP/CPK files, use the existing logic
+                    // For ZIP/CPK/DEB files, use the existing logic
                     const result = await parseZipFile(file);
                     console.log('[File Upload] Parse result:', result);
 
@@ -218,11 +224,11 @@
                             version: $form.version
                         });
 
-                        // Mark as auto-extracted and disable fields for ZIP/CPK
+                        // Mark as auto-extracted and disable fields for ZIP/CPK/DEB
                         isAutoExtracted = true;
-                        isApkOrCpk = true; // Make fields read-only for successfully parsed ZIP/CPK files
+                        isApkOrCpk = true; // Make fields read-only for successfully parsed ZIP/CPK/DEB files
 
-                        const fileType = fileName.endsWith('.cpk') ? 'CPK' : 'ZIP';
+                        const fileType = fileName.endsWith('.cpk') ? 'CPK' : fileName.endsWith('.deb') ? 'DEB' : 'ZIP';
                         zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
                     } else {
                         zipParseError = result.error || 'Failed to parse file';
@@ -569,7 +575,7 @@
                             />
                             {#if isApkOrCpk}
                                 <p class="text-xs text-muted-foreground mt-1">
-                                    Resource name is automatically extracted from the APK/CPK file, but you can edit it
+                                    Resource name is automatically extracted from the APK/CPK/DEB file, but you can edit it
                                 </p>
                             {:else}
                                 <p class="text-xs text-muted-foreground mt-1">
@@ -610,7 +616,7 @@
                             />
                             {#if isApkOrCpk}
                                 <p class="text-xs text-muted-foreground mt-1">
-                                    Version is automatically extracted from the APK/CPK file (read-only)
+                                    Version is automatically extracted from the APK/CPK/DEB file (read-only)
                                 </p>
                             {:else}
                                 <p class="text-xs text-muted-foreground mt-1">
@@ -633,7 +639,7 @@
                             />
                             {#if isApkOrCpk}
                                 <p class="text-xs text-muted-foreground mt-1">
-                                    Package name is automatically extracted from the APK/CPK file (read-only)
+                                    Package name is automatically extracted from the APK/CPK/DEB file (read-only)
                                 </p>
                             {:else}
                                 <p class="text-xs text-muted-foreground mt-1">
