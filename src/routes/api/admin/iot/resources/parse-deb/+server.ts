@@ -5,11 +5,61 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { downloadFileFromGcs, getStorageConfig } from '$lib/server/storage';
+import { getStorageConfig } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
 import { Storage } from '@google-cloud/storage';
+import { access } from 'fs/promises';
+import { constants } from 'fs';
 
 const execAsync = promisify(exec);
+
+async function findXzCommand(): Promise<string> {
+    const commonPaths = [
+        '/usr/bin/xz',
+        '/usr/local/bin/xz',
+        '/opt/homebrew/bin/xz',
+        '/bin/xz',
+        'xz'
+    ];
+
+    try {
+        const whichOutput = await execAsync('which xz');
+        const xzPath = whichOutput.stdout.trim();
+        if (xzPath) {
+            logger.debug('[DEB Parser] Found xz via which', { path: xzPath });
+            return xzPath;
+        }
+    } catch (err) {
+        // Continue to try common paths
+    }
+
+    for (const path of commonPaths) {
+        try {
+            if (path === 'xz') {
+                try {
+                    await execAsync(`${path} --version`);
+                    logger.debug('[DEB Parser] Found xz in PATH', { path });
+                    return path;
+                } catch (err) {
+                    continue;
+                }
+            } else {
+                try {
+                    await access(path, constants.F_OK | constants.X_OK);
+                    logger.debug('[DEB Parser] Found xz at path', { path });
+                    return path;
+                } catch (err) {
+                    continue;
+                }
+            }
+        } catch (err) {
+            continue;
+        }
+    }
+
+    logger.debug('[DEB Parser] Using xz from PATH (fallback)');
+    return 'xz';
+}
 
 interface DebMetadata {
     packageName: string;
@@ -22,10 +72,6 @@ interface DebMetadata {
     depends?: string;
 }
 
-/**
- * Parse DEBIAN/control file content
- * Control files use key-value format with continuation lines starting with space
- */
 function parseControlFile(content: string): DebMetadata {
     const lines = content.split('\n');
     const metadata: Partial<DebMetadata> = {};
@@ -33,9 +79,7 @@ function parseControlFile(content: string): DebMetadata {
     let currentValue = '';
     
     for (const line of lines) {
-        // Field line (starts with uppercase letter, ends with colon)
         if (/^[A-Z][a-zA-Z-]+:\s/.test(line)) {
-            // Save previous field
             if (currentField) {
                 const fieldKey = currentField.toLowerCase();
                 if (fieldKey === 'package') {
@@ -57,19 +101,16 @@ function parseControlFile(content: string): DebMetadata {
                 }
             }
             
-            // Start new field
             const match = line.match(/^([A-Z][a-zA-Z-]+):\s(.*)$/);
             if (match) {
                 currentField = match[1];
                 currentValue = match[2];
             }
         } else if (line.startsWith(' ') && currentField) {
-            // Continuation line (starts with space)
             currentValue += '\n' + line.trim();
         }
     }
     
-    // Save last field
     if (currentField) {
         const fieldKey = currentField.toLowerCase();
         if (fieldKey === 'package') {
@@ -91,7 +132,6 @@ function parseControlFile(content: string): DebMetadata {
         }
     }
     
-    // Validate required fields
     if (!metadata.packageName || !metadata.version) {
         throw new Error('Missing required fields: Package and Version are required');
     }
@@ -108,21 +148,14 @@ function parseControlFile(content: string): DebMetadata {
     };
 }
 
-/**
- * Extract and parse DEBIAN/control from .deb file
- * Uses system commands: ar and tar
- * Handles both .tar.gz and .tar.xz compression formats
- */
 async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMetadata> {
     try {
-        // First, list contents of ar archive to find control file
         logger.debug('[DEB Parser] Listing contents of .deb archive', { debFilePath, workDir });
         const listOutput = await execAsync(`ar t "${debFilePath}"`, { cwd: workDir });
         const archiveFiles = listOutput.stdout.trim().split('\n');
         
         logger.debug('[DEB Parser] Archive contents:', { files: archiveFiles });
         
-        // Find control.tar.* file (could be .gz, .xz, .zst, etc.)
         const controlTarFile = archiveFiles.find(file => file.startsWith('control.tar.'));
         
         if (!controlTarFile) {
@@ -131,33 +164,28 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
         
         logger.debug('[DEB Parser] Found control file:', { controlTarFile });
         
-        // Extract control.tar.* from .deb using ar
         logger.debug('[DEB Parser] Extracting control file from .deb archive');
         await execAsync(`ar x "${debFilePath}" "${controlTarFile}"`, { cwd: workDir });
         
         const controlTarPath = join(workDir, controlTarFile);
         
-        // Determine compression format and extract accordingly
-        // Note: control.tar.* contains files directly (not in DEBIAN/ subdirectory)
         if (controlTarFile.endsWith('.gz')) {
-            // gzip compression
             logger.debug('[DEB Parser] Extracting control file (gzip)', { compression: 'gz' });
             await execAsync(`tar -xzf "${controlTarPath}" control`, { cwd: workDir });
         } else if (controlTarFile.endsWith('.xz')) {
-            // xz compression (most common in modern Debian packages)
-            // Use two-step process: decompress with xz, then extract with tar
-            // This avoids PATH issues when tar tries to find xz
             logger.debug('[DEB Parser] Decompressing xz file first', { compression: 'xz' });
             const decompressedTarPath = join(workDir, 'control.tar');
-            await execAsync(`/usr/bin/xz -dc "${controlTarPath}" > "${decompressedTarPath}"`, { cwd: workDir });
+
+            const xzCommand = await findXzCommand();
+            logger.debug('[DEB Parser] Using xz command', { command: xzCommand });
+
+            await execAsync(`${xzCommand} -dc "${controlTarPath}" > "${decompressedTarPath}"`, { cwd: workDir });
             
-            // List contents of decompressed tar to see what's inside
             logger.debug('[DEB Parser] Listing contents of decompressed tar');
             const tarListOutput = await execAsync(`tar -tf "${decompressedTarPath}"`, { cwd: workDir });
             const tarContents = tarListOutput.stdout.trim().split('\n');
             logger.debug('[DEB Parser] Tar contents:', { files: tarContents });
             
-            // Find the control file (might be ./control or just control)
             const controlFileName = tarContents.find(f => f.endsWith('control') || f === 'control') || 'control';
             logger.debug('[DEB Parser] Extracting control file from decompressed tar', { 
                 compression: 'xz', 
@@ -165,14 +193,12 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
             });
             await execAsync(`tar -xf "${decompressedTarPath}" "${controlFileName}"`, { cwd: workDir });
             
-            // Clean up decompressed tar file
             try {
                 await unlink(decompressedTarPath);
             } catch (err) {
                 // Ignore cleanup errors
             }
             
-            // If control file was extracted with path, move it to workDir root
             const extractedPath = join(workDir, controlFileName);
             const finalPath = join(workDir, 'control');
             if (extractedPath !== finalPath) {
@@ -184,22 +210,18 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
                 }
             }
         } else if (controlTarFile.endsWith('.zst')) {
-            // zstd compression
             logger.debug('[DEB Parser] Extracting control file (zstd)', { compression: 'zst' });
             await execAsync(`tar --zstd -xf "${controlTarPath}" control`, { cwd: workDir });
         } else {
-            // uncompressed tar
             logger.debug('[DEB Parser] Extracting control file (uncompressed)', { compression: 'none' });
             await execAsync(`tar -xf "${controlTarPath}" control`, { cwd: workDir });
         }
         
         const controlFilePath = join(workDir, 'control');
         
-        // Read and parse control file
         logger.debug('[DEB Parser] Reading control file');
         const controlContent = await readFile(controlFilePath, 'utf-8');
         
-        // Parse control file
         const metadata = parseControlFile(controlContent);
         
         logger.info('[DEB Parser] Successfully parsed .deb file', {
@@ -226,9 +248,7 @@ export const POST: RequestHandler = async ({ request }) => {
     try {
         const contentType = request.headers.get('content-type') || '';
         
-        // Check if request contains GCS object path (new flow) or direct file upload (old flow)
         if (contentType.includes('application/json')) {
-            // New flow: JSON body with GCS object path
             const body = await request.json();
             const { objectPath, bucket } = body;
 
@@ -245,26 +265,27 @@ export const POST: RequestHandler = async ({ request }) => {
                 return json({ success: false, error: 'Bucket not configured' }, { status: 500 });
             }
 
-            // Create temp directory
             const tempDir = join(tmpdir(), 'deb-parser');
             try {
                 await mkdir(tempDir, { recursive: true });
             } catch (err) {
-                // Directory might already exist, ignore error
+                // Directory might already exist
             }
 
-            // Create work directory for extraction
             workDir = join(tempDir, `work-${Date.now()}`);
             await mkdir(workDir, { recursive: true });
 
-            // Download from GCS to temp file
             tempFilePath = join(tempDir, `${Date.now()}-${objectPath.split('/').pop() || 'deb'}`);
             gcsObjectPath = objectPath;
             
-            await downloadFileFromGcs(targetBucket, objectPath, tempFilePath);
+            const storage = new Storage({ 
+                projectId: config.projectId 
+            });
+            
+            const file = storage.bucket(targetBucket).file(objectPath);
+            await file.download({ destination: tempFilePath });
             logger.info('[DEB Parser] File downloaded from GCS', { tempFilePath });
         } else {
-            // Old flow: Direct file upload (fallback for compatibility)
             const formData = await request.formData();
             const file = formData.get('file') as File;
 
@@ -272,26 +293,22 @@ export const POST: RequestHandler = async ({ request }) => {
                 return json({ success: false, error: 'No file provided. Use new flow with objectPath or provide file in formData' }, { status: 400 });
             }
 
-            // Validate file type
             if (!file.name.toLowerCase().endsWith('.deb')) {
                 return json({ success: false, error: 'File must be a .deb file' }, { status: 400 });
             }
 
             logger.info('[DEB Parser] Parsing DEB from direct upload', { fileName: file.name, fileSize: file.size });
 
-            // Create temp directory if it doesn't exist
             const tempDir = join(tmpdir(), 'deb-parser');
             try {
                 await mkdir(tempDir, { recursive: true });
             } catch (err) {
-                // Directory might already exist, ignore error
+                // Directory might already exist
             }
 
-            // Create work directory for extraction
             workDir = join(tempDir, `work-${Date.now()}`);
             await mkdir(workDir, { recursive: true });
 
-            // Save file temporarily
             tempFilePath = join(tempDir, `${Date.now()}-${file.name}`);
             const buffer = Buffer.from(await file.arrayBuffer());
             await writeFile(tempFilePath, buffer);
@@ -302,7 +319,6 @@ export const POST: RequestHandler = async ({ request }) => {
             return json({ success: false, error: 'Failed to prepare file for parsing' }, { status: 500 });
         }
 
-        // Parse the .deb file
         const metadata = await parseDebFile(tempFilePath, workDir);
 
         const out = {
@@ -327,10 +343,8 @@ export const POST: RequestHandler = async ({ request }) => {
             error: 'Failed to parse .deb file: ' + (error instanceof Error ? error.message : String(error))
         }, { status: 500 });
     } finally {
-        // Clean up temp files and directories
         if (workDir) {
             try {
-                // Remove work directory and all contents
                 await execAsync(`rm -rf "${workDir}"`);
                 logger.debug('[DEB Parser] Work directory deleted', { workDir });
             } catch (err) {
@@ -347,7 +361,6 @@ export const POST: RequestHandler = async ({ request }) => {
             }
         }
         
-        // Clean up GCS file if it was a temporary upload
         if (gcsObjectPath && gcsObjectPath.startsWith('temp/deb-parser/')) {
             try {
                 const config = getStorageConfig();
