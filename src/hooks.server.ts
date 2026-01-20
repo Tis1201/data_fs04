@@ -22,6 +22,8 @@ import { hasModulePermission, getUserModulePermissions } from "$lib/server/secur
 // Set to 'true' to enable early route protection at hooks level
 const ENABLE_HOOKS_MODULE_CHECK = process.env.ENABLE_HOOKS_MODULE_CHECK === 'true';
 
+import { ensureDefaultAdmin } from "$lib/server/setup/admin";
+
 // Initialize main application process (WhatsApp, Device Presence Monitor)
 // Note: Bundle and cleanup processes run separately via npm scripts
 if (!building) {
@@ -33,6 +35,7 @@ if (!building) {
             // Delay initialization without blocking
             await new Promise(resolve => setTimeout(resolve, 1000));
             await initializeMainProcess();
+            await ensureDefaultAdmin();
         } catch (error: unknown) {
             const e = error as any;
             logger.error('❌ Error in main process initialization', {
@@ -158,10 +161,10 @@ export const handle: Handle = async ({ event, resolve }) => {
                         // Only check for protected routes (/user/* and /admin/*)
                         if ((path.startsWith('/user/') || path.startsWith('/admin/')) && accountId) {
                             const routeConfig = getRouteModuleConfig(path);
-                            
+
                             if (routeConfig && !routeConfig.skipCheck) {
                                 const action = getActionForMethod(method, routeConfig);
-                                
+
                                 const hasAccess = await hasModulePermission({
                                     userId: session.user.id,
                                     accountId,

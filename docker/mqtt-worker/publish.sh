@@ -16,7 +16,7 @@ cd "$PROJECT_ROOT"
 # 1. Build the image
 echo "Building local image: $IMAGE_NAME:$TAG..."
 # We use the existing build command logic
-docker build -t $IMAGE_NAME:$TAG -f docker/mqtt-worker/Dockerfile .
+docker build --platform linux/amd64 -t $IMAGE_NAME:$TAG -f docker/mqtt-worker/Dockerfile .
 
 # 2. Tag for remote registry
 REMOTE_IMAGE="$REGISTRY/$IMAGE_NAME:$TAG"
