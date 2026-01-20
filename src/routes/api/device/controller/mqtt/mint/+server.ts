@@ -1,7 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrictDevice } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
+import { buildMqttMintPayload, getMqttBrokerWsUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
 /**
@@ -17,51 +17,51 @@ import { createSuccessResponse, createErrorResponse } from '$lib/server/types/ap
  * - controllerId: ID of the controller (required)
  */
 export const POST: RequestHandler = restrictDevice(async ({ device, locals, request }) => {
-    logger.info(`[ControllerMqttMintAPI] Received MQTT mint request for device: ${String(device.id)}`);
+	logger.info(`[ControllerMqttMintAPI] Received MQTT mint request for device: ${String(device.id)}`);
 
-    const brokerUrl = getMqttBrokerUrl();
-    if (!brokerUrl) {
-        logger.error('[ControllerMqttMintAPI] MQTT_BROKER_URL is not configured');
-        return json(
-            createErrorResponse('MQTT broker URL is not configured', {
-                details: 'Set MQTT_BROKER_URL in the server environment'
-            }),
-            { status: 500 }
-        );
-    }
+	const brokerUrl = getMqttBrokerWsUrl();
+	if (!brokerUrl) {
+		logger.error('[ControllerMqttMintAPI] MQTT_BROKER_URL_EXTERNAL is not configured');
+		return json(
+			createErrorResponse('MQTT broker URL is not configured', {
+				details: 'Set MQTT_BROKER_URL_EXTERNAL in the server environment'
+			}),
+			{ status: 500 }
+		);
+	}
 
-    try {
-        // Parse request body
-        const body = await request.json();
-        const { type, controllerId } = body;
+	try {
+		// Parse request body
+		const body = await request.json();
+		const { type, controllerId } = body;
 
-        if (!type) {
-            return json(
-                createErrorResponse('Missing required field: type', {
-                    details: 'Request body must include "type" field (e.g., "radar", "camera")'
-                }),
-                { status: 400 }
-            );
-        }
+		if (!type) {
+			return json(
+				createErrorResponse('Missing required field: type', {
+					details: 'Request body must include "type" field (e.g., "radar", "camera")'
+				}),
+				{ status: 400 }
+			);
+		}
 
 		let controller;
 
 		if (controllerId) {
-        // Validate that the controller exists and belongs to this device
+			// Validate that the controller exists and belongs to this device
 			controller = await locals.prisma.controller.findFirst({
-            where: {
-                id: controllerId,
-                deviceId: device.id,
-                type: type,
-                isDeleted: false
-            }
-        });
+				where: {
+					id: controllerId,
+					deviceId: device.id,
+					type: type,
+					isDeleted: false
+				}
+			});
 
-        if (!controller) {
-            logger.warn(
-                `[ControllerMqttMintAPI] Controller not found: controllerId=${controllerId}, deviceId=${device.id}, type=${type}`
+			if (!controller) {
+				logger.warn(
+					`[ControllerMqttMintAPI] Controller not found: controllerId=${controllerId}, deviceId=${device.id}, type=${type}`
 				);
-				
+
 				// Check if controller exists but belongs to different device
 				const controllerExists = await locals.prisma.controller.findFirst({
 					where: {
@@ -78,19 +78,19 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
 						}
 					}
 				});
-				
+
 				if (controllerExists) {
 					logger.warn(
 						`[ControllerMqttMintAPI] Controller ${controllerId} belongs to different device: ${controllerExists.deviceId}`
-            );
-            return json(
+					);
+					return json(
 						createErrorResponse('Controller not found for this device', {
 							details: `Controller ${controllerId} has been assigned to a different device. Please call GET /api/device/controller?type=${type} to retrieve or create a new controller for this device.`
-                }),
-                { status: 404 }
-            );
+						}),
+						{ status: 404 }
+					);
 				}
-				
+
 				return json(
 					createErrorResponse('Controller not found', {
 						details: `No ${type} controller with ID ${controllerId} found. Use GET /api/device/controller?type=${type} to retrieve/create one.`
@@ -165,59 +165,59 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
 			} else {
 				logger.info(`[ControllerMqttMintAPI] Found existing controller: ${controller.id} (${controller.type})`);
 			}
-        }
+		}
 
-        logger.info(
-            `[ControllerMqttMintAPI] Validated controller: ${controller.id} (${controller.type}) for device ${device.id}`
-        );
+		logger.info(
+			`[ControllerMqttMintAPI] Validated controller: ${controller.id} (${controller.type}) for device ${device.id}`
+		);
 
-        // Build MQTT username and topic patterns
-        const mqttUsername = `device:${device.id}`;
+		// Build MQTT username and topic patterns
+		const mqttUsername = `device:${device.id}`;
 		const effectiveControllerId = controller.id;
 		const topicPrefix = `${mqttUsername}/controller/${type}:${effectiveControllerId}`;
 
-        const mintData = await mintIoTCoreCredentials({
-            username: mqttUsername,
+		const mintData = await mintIoTCoreCredentials({
+			username: mqttUsername,
 			pubTopics: [`${topicPrefix}/replies`, `${topicPrefix}/requests`, `${topicPrefix}/data`, `${topicPrefix}/loopback`],
 			subTopics: [`${topicPrefix}/response`, `${topicPrefix}/notifications`, `${topicPrefix}/loopback`]
-        });
+		});
 
-        if (!mintData) {
-            return json(
-                createErrorResponse('Failed to mint MQTT credentials from IoT Core', {
-                    details: 'See server logs for IoT Core mint failure details'
-                }),
-                { status: 502 }
-            );
-        }
+		if (!mintData) {
+			return json(
+				createErrorResponse('Failed to mint MQTT credentials from IoT Core', {
+					details: 'See server logs for IoT Core mint failure details'
+				}),
+				{ status: 502 }
+			);
+		}
 
-        const { token, clientId, username } = mintData;
+		const { token, clientId, username } = mintData;
 
-        logger.info(
+		logger.info(
 			`[ControllerMqttMintAPI] Minted MQTT credential for controller ${effectiveControllerId} (type=${type}, clientId=${clientId})`
-        );
+		);
 
-        const effectiveUsername = username ?? mqttUsername;
+		const effectiveUsername = username ?? mqttUsername;
 
-        const payload = buildMqttMintPayload({
-            brokerUrl,
-            clientId,
-            token,
-            username: effectiveUsername,
-            includeLegacyMqttUsername: true
-        });
+		const payload = buildMqttMintPayload({
+			brokerUrl,
+			clientId,
+			token,
+			username: effectiveUsername,
+			includeLegacyMqttUsername: true
+		});
 
-        // Include the controller ID in the response
-        return json(
-            createSuccessResponse({
-                ...payload,
-                controllerId: controller.id
-            })
-        );
-    } catch (err) {
-        logger.error(`[ControllerMqttMintAPI] Error: ${String(err)}`);
-        return json(createErrorResponse('Internal server error'), { status: 500 });
-    }
+		// Include the controller ID in the response
+		return json(
+			createSuccessResponse({
+				...payload,
+				controllerId: controller.id
+			})
+		);
+	} catch (err) {
+		logger.error(`[ControllerMqttMintAPI] Error: ${String(err)}`);
+		return json(createErrorResponse('Internal server error'), { status: 500 });
+	}
 });
 
 

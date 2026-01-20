@@ -1,6 +1,8 @@
 # Build stage
 FROM node:20.9.0-bookworm-slim AS build
 WORKDIR /app
+ARG PUBLIC_VANNA_API_URL
+ENV PUBLIC_VANNA_API_URL=$PUBLIC_VANNA_API_URL
 ENV ROLLUP_SKIP_NODE_NATIVE=1
 ENV NODE_OPTIONS=--max-old-space-size=5632
 
@@ -14,8 +16,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy package files
 COPY package*.json ./
 
+# Fix duplicate keys in package.json if any (legacy issue helper)
+COPY package.json ./package.json.original
+RUN grep -v '"preview": "vite preview",' ./package.json.original | grep -v '"start": "NODE_ENV=production node build",' > ./package.json
+
 # Install dependencies
-RUN npm install --legacy-peer-deps
+# Remove Mac-specific lockfile issues if any, ensuring clean linux resolution
+RUN rm -f package-lock.json && npm install --legacy-peer-deps
 
 # Copy source files
 COPY src ./src
@@ -63,6 +70,7 @@ COPY --from=build /app/prodServer.js ./prodServer.js
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/entrypoint.sh ./entrypoint.sh
+
 
 # Make entrypoint executable
 RUN chmod +x ./entrypoint.sh
