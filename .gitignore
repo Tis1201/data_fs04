@@ -103,3 +103,12 @@ __pycache__/
 *.pyc
 
 /TODO/*
+
+# Design System Dev Showcase (local only, not for production)
+src/routes/dev/ui
+
+# Design System Development Files (local only, for agent tasks)
+.cursorrules
+scripts/validate-design-system.sh
+src/lib/design-system/COMPONENT_AUDIT.md
+src/lib/design-system/WORKFLOW.md
