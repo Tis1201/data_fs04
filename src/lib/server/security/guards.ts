@@ -3,7 +3,7 @@ import type { RequestEvent, RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import type { UserInfo } from '$lib/server/types/user';
 import { userInfoByApiKey, userInfoByUserId } from '$lib/server/security/auth-utils';
-import { getEnhancedPrisma } from '$lib/server/prisma';
+import prisma, { getEnhancedPrisma } from '$lib/server/prisma';
 import type { Device } from '@prisma/client';
 import type { PermissionAction } from '$lib/constants/permissions';
 import { hasModulePermission, getUserModulePermissions } from '$lib/server/security/modulePermissions';
@@ -637,12 +637,34 @@ export function restrictModule<T>(
     }
 
     // Check module permission
-    const hasPermission = await hasModulePermission({
-      userId,
-      accountId: effectiveAccountId,
-      module,
-      action
-    });
+    let hasPermission = false;
+    try {
+      // Always use raw Prisma for ACL reads (avoid ZenStack-enhanced client missing models)
+      hasPermission = await hasModulePermission({
+        userId,
+        accountId: effectiveAccountId,
+        module,
+        action,
+        prismaClient: prisma
+      });
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      logger.error('Error checking module permission', {
+        error: err,
+        message: err.message,
+        stack: err.stack,
+        userId,
+        accountId: effectiveAccountId,
+        module,
+        action,
+        path: event.url.pathname,
+        hasPrisma: !!prisma
+      });
+      // If permission check fails, deny access for security.
+      // In dev, include the underlying error message to make debugging fast.
+      const isDev = process.env.NODE_ENV !== 'production';
+      throw error(500, isDev ? `Failed to verify permissions: ${err.message}` : 'Failed to verify permissions. Please try again later.');
+    }
 
     if (!hasPermission) {
       logger.warn('Module permission denied', {
@@ -661,7 +683,8 @@ export function restrictModule<T>(
     
     // Fetch and cache module permissions in locals for convenience
     try {
-      const modulePermissions = await getUserModulePermissions(userId, effectiveAccountId);
+      // Always use raw Prisma for ACL reads (avoid ZenStack-enhanced client missing models)
+      const modulePermissions = await getUserModulePermissions(userId, effectiveAccountId, prisma);
       (event.locals as any).modulePermissions = modulePermissions;
     } catch (e) {
       logger.warn('Failed to fetch module permissions for locals', { error: e });

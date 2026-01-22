@@ -1,4 +1,10 @@
-import { logger } from '$lib/server/logger';
+// Client-side logger (cannot use server logger in client code)
+const logger = {
+    info: (msg: string, ...args: any[]) => console.log(`[DeviceAPI] ${msg}`, ...args),
+    error: (msg: string, ...args: any[]) => console.error(`[DeviceAPI] ${msg}`, ...args),
+    warn: (msg: string, ...args: any[]) => console.warn(`[DeviceAPI] ${msg}`, ...args),
+    debug: (msg: string, ...args: any[]) => console.debug(`[DeviceAPI] ${msg}`, ...args)
+};
 
 export interface APIResponse<T = any> {
     success: boolean;

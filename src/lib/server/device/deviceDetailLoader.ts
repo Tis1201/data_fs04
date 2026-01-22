@@ -44,6 +44,7 @@ export async function loadDeviceDetail(
     deviceInformation: any;
     deviceProfile: any;
     deviceProfileForm: any;
+    availableTags: Array<{ id: string; name: string }>;
 }> {
     const { checkOwnership = false, userId, accountId, verboseLogging = false } = options;
 
@@ -194,11 +195,30 @@ export async function loadDeviceDetail(
             }
         });
 
-        const deviceInformation = await getLatestDeviceInformation(device.macAddress);
+        // Fetch device information from ClickHouse (optional - may not be configured)
+        // Try multiple MAC addresses: lanMac, wifiMac, macAddress
+        let deviceInformation = null;
+        try {
+            const macToTry = device.lanMac || device.wifiMac || device.macAddress;
+            deviceInformation = await getLatestDeviceInformation(macToTry);
+        } catch (clickhouseError) {
+            // ClickHouse may not be configured - this is optional data
+            logger.warn('[DeviceDetail] ClickHouse query failed (optional)', { 
+                error: clickhouseError instanceof Error ? clickhouseError.message : String(clickhouseError)
+            });
+        }
 
         // Check real-time online status from pushpin-tracker (Redis)
         // This is more accurate than the database 'connected' field
-        const isOnline = await isDeviceOnline(device.id);
+        let isOnline = device.connected || false;
+        try {
+            isOnline = await isDeviceOnline(device.id);
+        } catch (redisError) {
+            // Redis may not be available - fall back to database value
+            logger.warn('[DeviceDetail] Redis online check failed, using DB value', {
+                error: redisError instanceof Error ? redisError.message : String(redisError)
+            });
+        }
         
         if (verboseLogging) {
             logger.info('[DeviceDetail] Real-time online status', { deviceId: device.id, isOnline } as Record<string, any>);
@@ -210,6 +230,24 @@ export async function loadDeviceDetail(
             deviceId
         );
 
+        // Fetch available tags for the Edit Device modal
+        let availableTags: Array<{ id: string; name: string }> = [];
+        try {
+            availableTags = await prisma.deviceTag.findMany({
+                select: {
+                    id: true,
+                    name: true
+                },
+                orderBy: {
+                    name: 'asc'
+                }
+            });
+        } catch (err) {
+            logger.warn(`[DeviceDetail] Failed to load available tags: ${err}`);
+            // Continue with empty tags array - page can still load
+            availableTags = [];
+        }
+
         return {
             form,
             device: {
@@ -219,7 +257,8 @@ export async function loadDeviceDetail(
             deviceActionLogs,
             deviceInformation,
             deviceProfile,
-            deviceProfileForm
+            deviceProfileForm,
+            availableTags
         };
     } catch (e) {
         if (verboseLogging) {

@@ -80,17 +80,33 @@ export const GET = unifiedEndpoint(
 		});
 
 		// Fetch apps from ClickHouse (source does not know pinned/unpinned)
-		const sourceFilter = filter === 'pinned' || filter === 'unpinned' ? 'all' : filter;
-		const appData = await deviceAppService.getDeviceApps(deviceId, page, limit, {
-			search,
-			filter: sourceFilter,
-			sortBy,
-			sortOrder
-		});
+		// Check if ClickHouse is available first
+		let appData: { apps: any[]; total: number; page: number; limit: number };
+		
+		if (!deviceAppService.isAvailable()) {
+			logger.warn('[AppsWithPinsV2] ClickHouse not available, returning empty list');
+			appData = { apps: [], total: 0, page, limit };
+		} else {
+			try {
+				const sourceFilter = filter === 'pinned' || filter === 'unpinned' ? 'all' : filter;
+				appData = await deviceAppService.getDeviceApps(deviceId, page, limit, {
+					search,
+					filter: sourceFilter,
+					sortBy,
+					sortOrder
+				});
 
-		if (!appData || !Array.isArray(appData.apps)) {
-			logger.error(`[AppsWithPinsV2] Invalid app data`, { appData });
-			throw Object.assign(new Error('Invalid app data'), { status: 500, code: ErrorCodes.INTERNAL_ERROR });
+				if (!appData || !Array.isArray(appData.apps)) {
+					logger.error(`[AppsWithPinsV2] Invalid app data`, { appData });
+					appData = { apps: [], total: 0, page, limit };
+				}
+			} catch (e) {
+				logger.error('[AppsWithPinsV2] Failed to get apps from ClickHouse', {
+					error: e instanceof Error ? e.message : String(e),
+					deviceId
+				});
+				appData = { apps: [], total: 0, page, limit };
+			}
 		}
 
 		// Build applicable rules

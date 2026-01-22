@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
+import prisma from '$lib/server/prisma';
 
 export const load: LayoutServerLoad = async ({ locals }) => {
     // Validate session and get user directly from auth
@@ -35,7 +36,8 @@ export const load: LayoutServerLoad = async ({ locals }) => {
     
     if (user.systemRole !== 'ADMIN' && currentAccount?.account?.id) {
         try {
-            modulePermissions = await getUserModulePermissions(user.id, currentAccount.account.id);
+            // Always use raw Prisma for ACL reads (avoid ZenStack-enhanced client missing models)
+            modulePermissions = await getUserModulePermissions(user.id, currentAccount.account.id, prisma);
         } catch (err) {
             console.error('Failed to load module permissions:', err);
         }

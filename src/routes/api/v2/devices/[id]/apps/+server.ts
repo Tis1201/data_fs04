@@ -9,6 +9,7 @@ import { unifiedEndpoint, requireResourceAccess } from '$lib/server/api/unifiedE
 import { successResponse, paginatedResponse, errorResponse, ErrorCodes } from '$lib/types/api';
 import prisma from '$lib/server/prisma';
 import { deviceAppService } from '$lib/server/clickhouse/deviceAppService';
+import { logger } from '$lib/server/logger';
 
 /**
  * GET /api/v2/devices/[id]/apps
@@ -52,16 +53,44 @@ export const GET = unifiedEndpoint(
 			createdBy: device.createdBy
 		});
 		
-		// Get apps from ClickHouse
-		const result = await deviceAppService.getDeviceApps(deviceId, page, pageSize);
+		// Check if ClickHouse is available
+		if (!deviceAppService.isAvailable()) {
+			logger.warn('[DeviceAppsAPI] ClickHouse not available, returning empty list');
+			return paginatedResponse(
+				[],
+				0,
+				page,
+				pageSize,
+				{ requestId: context.requestId, warning: 'App data service unavailable' }
+			);
+		}
 		
-		return paginatedResponse(
-			result.apps,
-			result.total,
-			page,
-			pageSize,
-			{ requestId: context.requestId }
-		);
+		// Get apps from ClickHouse
+		try {
+			const result = await deviceAppService.getDeviceApps(deviceId, page, pageSize);
+			
+			return paginatedResponse(
+				result.apps,
+				result.total,
+				page,
+				pageSize,
+				{ requestId: context.requestId }
+			);
+		} catch (e) {
+			logger.error('[DeviceAppsAPI] Failed to get apps from ClickHouse', {
+				error: e instanceof Error ? e.message : String(e),
+				deviceId
+			});
+			
+			// Return empty list instead of error to allow page to load
+			return paginatedResponse(
+				[],
+				0,
+				page,
+				pageSize,
+				{ requestId: context.requestId, warning: 'Failed to load app data' }
+			);
+		}
 	},
 	{ skipPermission: true } // Access enforced via requireResourceAccess
 );

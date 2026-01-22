@@ -41,9 +41,12 @@ export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
     });
 
     if (!mintData) {
+      logger.error('[UserMqttMintAPI] Failed to mint credentials - likely missing LINK signing key');
       return json(
         createErrorResponse('Failed to mint MQTT credentials from IoT Core', {
-          details: 'See server logs for IoT Core mint failure details'
+          code: 'INTERNAL_ERROR',
+          details: 'No active primary LINK signing key found. Please create a LINK signing key in Admin → JWT → Signing Keys → Link Key. This error does not affect page loading, but MQTT real-time features will be unavailable.',
+          helpUrl: '/admin/jwt/signing_keys/link'
         }),
         { status: 502 }
       );

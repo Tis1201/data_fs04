@@ -11,9 +11,16 @@ import {
     createGenerateApiKeyAction, 
     createUpdateDeviceProfileAction 
 } from '$lib/server/device/deviceDetailActions';
+import { createDeviceActions } from '$lib/server/devices/deviceActions';
 
 const apiKeySchema = z.object({
     deviceId: z.string()
+});
+
+// Create device actions with user privileges (ownership check enabled)
+const deviceActions = createDeviceActions({
+    checkOwnership: true,  // Users can only edit devices they own
+    enableCreate: false    // Users cannot create devices from detail page
 });
 
 /*******************************************************************************************
@@ -120,6 +127,19 @@ export const actions: Actions = {
                 checkOwnership: true, // User routes need ownership check
                 accountId: (locals as any).currentAccount?.account.id
             }, request);
+        },
+        [SystemRole.USER]
+    ),
+
+    /**
+     * Update device from Edit Device modal
+     */
+    updateDevice: restrict(
+        async ({ request, locals }: AuthenticatedEvent) => {
+            return await deviceActions.updateDevice({
+                request,
+                locals
+            });
         },
         [SystemRole.USER]
     )

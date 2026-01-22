@@ -17,6 +17,8 @@ export function createDeviceActions(options: {
 }): {
     delete: (args: { request: Request; locals: any }) => Promise<any>;
     toggleStatus: (args: { request: Request; locals: any }) => Promise<any>;
+    assignTags: (args: { request: Request; locals: any }) => Promise<any>;
+    updateDevice: (args: { request: Request; locals: any }) => Promise<any>;
     create?: (args: { request: Request; locals: any }) => Promise<any>;
 } {
     return {
@@ -200,6 +202,211 @@ export function createDeviceActions(options: {
             } catch (err) {
                 logger.error(`Error toggling device status: ${err}`);
                 return fail(500, { error: 'Failed to update device status' });
+            }
+        },
+
+        /**
+         * Assign tags to device action
+         * Used by both list pages (admin and user)
+         */
+        assignTags: async ({ request, locals }: { request: Request; locals: any }) => {
+            try {
+                const data = await request.formData();
+                const id = data.get('id')?.toString();
+                const tagIdsRaw = data.get('tagIds')?.toString();
+                
+                if (!id) {
+                    return fail(400, { error: 'Device ID is required' });
+                }
+                
+                let tagIds: string[] = [];
+                try {
+                    tagIds = tagIdsRaw ? JSON.parse(tagIdsRaw) : [];
+                } catch {
+                    return fail(400, { error: 'Invalid tag IDs format' });
+                }
+                
+                // Get the authenticated user
+                const auth = await locals.auth.validate();
+                if (!auth?.user) {
+                    return fail(401, { error: 'Unauthorized' });
+                }
+
+                // Check if device exists and user has permission
+                const deviceWhere: any = { id };
+                
+                // Ownership check for user routes
+                if (options.checkOwnership) {
+                    deviceWhere.OR = [
+                        { createdBy: auth.user.id },
+                        {
+                            account: {
+                                members: {
+                                    some: {
+                                        userId: auth.user.id
+                                    }
+                                }
+                            }
+                        }
+                    ];
+                }
+
+                const device = await locals.prisma.device.findFirst({
+                    where: deviceWhere,
+                    include: { tags: true }
+                });
+                
+                if (!device) {
+                    return fail(404, { 
+                        error: options.checkOwnership 
+                            ? 'Device not found or you do not have permission to modify it'
+                            : 'Device not found'
+                    });
+                }
+
+                // Update device tags - connect new tags while keeping existing ones
+                await locals.prisma.device.update({
+                    where: { id },
+                    data: {
+                        tags: {
+                            connect: tagIds.map(tagId => ({ id: tagId }))
+                        },
+                        updatedAt: new Date()
+                    }
+                });
+
+                logger.info(`Tags assigned to device ${id}: ${tagIds.join(', ')}`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: { tags: device.tags.map(t => t.id) },
+                    newData: { tags: [...device.tags.map(t => t.id), ...tagIds] },
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+                
+                return { success: true };
+            } catch (err) {
+                logger.error(`Error assigning tags to device: ${err}`);
+                return fail(500, { error: 'Failed to assign tags to device' });
+            }
+        },
+
+        /**
+         * Update device action
+         * Used by both list pages (admin and user) for Edit Device modal
+         */
+        updateDevice: async ({ request, locals }: { request: Request; locals: any }) => {
+            try {
+                const data = await request.formData();
+                const id = data.get('id')?.toString();
+                
+                if (!id) {
+                    return fail(400, { error: 'Device ID is required' });
+                }
+                
+                // Get the authenticated user
+                const auth = await locals.auth.validate();
+                if (!auth?.user) {
+                    return fail(401, { error: 'Unauthorized' });
+                }
+
+                // Check if device exists and user has permission
+                const deviceWhere: any = { id };
+                
+                // Ownership check for user routes
+                if (options.checkOwnership) {
+                    deviceWhere.OR = [
+                        { createdBy: auth.user.id },
+                        {
+                            account: {
+                                members: {
+                                    some: {
+                                        userId: auth.user.id
+                                    }
+                                }
+                            }
+                        }
+                    ];
+                }
+
+                const device = await locals.prisma.device.findFirst({
+                    where: deviceWhere,
+                    include: { tags: true }
+                });
+                
+                if (!device) {
+                    return fail(404, { 
+                        error: options.checkOwnership 
+                            ? 'Device not found or you do not have permission to modify it'
+                            : 'Device not found'
+                    });
+                }
+
+                // Extract form data
+                const name = data.get('name')?.toString() || device.name;
+                const status = data.get('status')?.toString() || device.status;
+                const description = data.get('description')?.toString() || device.description;
+                
+                // Parse tags
+                let tagIds: string[] = [];
+                const tagsRaw = data.get('tags')?.toString();
+                if (tagsRaw) {
+                    try {
+                        tagIds = JSON.parse(tagsRaw);
+                    } catch {
+                        // Keep existing tags if parsing fails
+                        tagIds = device.tags.map(t => t.id);
+                    }
+                }
+
+                // Build update data
+                const updateData: any = {
+                    name,
+                    status,
+                    description,
+                    updatedAt: new Date()
+                };
+
+                // Handle tags - set (replace all) instead of connect (add)
+                if (tagIds.length > 0) {
+                    updateData.tags = {
+                        set: tagIds.map(tagId => ({ id: tagId }))
+                    };
+                } else {
+                    // Clear all tags if empty array
+                    updateData.tags = {
+                        set: []
+                    };
+                }
+
+                // Update device
+                const updatedDevice = await locals.prisma.device.update({
+                    where: { id },
+                    data: updateData,
+                    include: { tags: true }
+                });
+
+                logger.info(`Device ${id} updated successfully`);
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Device',
+                    recordId: id,
+                    oldData: device,
+                    newData: updatedDevice,
+                    userId: locals.user.id,
+                    ipAddress: locals.ipAddress,
+                    prisma: locals.prisma
+                });
+                
+                return { success: true };
+            } catch (err) {
+                logger.error(`Error updating device: ${err}`);
+                return fail(500, { error: 'Failed to update device' });
             }
         },
 

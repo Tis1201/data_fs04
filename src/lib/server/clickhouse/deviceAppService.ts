@@ -49,10 +49,38 @@ export interface DeviceAppSummary {
 }
 
 export class DeviceAppService {
-  private clickhouse = getClickHouseClient();
+  private _clickhouse: ReturnType<typeof getClickHouseClient> | null = null;
+  private _initError: Error | null = null;
 
   constructor() {
-    // ClickHouse client is initialized in the property declaration
+    // ClickHouse client is lazily initialized on first use
+  }
+
+  private get clickhouse() {
+    if (this._initError) {
+      throw this._initError;
+    }
+    if (!this._clickhouse) {
+      try {
+        this._clickhouse = getClickHouseClient();
+      } catch (e) {
+        this._initError = e instanceof Error ? e : new Error(String(e));
+        throw this._initError;
+      }
+    }
+    return this._clickhouse;
+  }
+
+  /**
+   * Check if ClickHouse is available
+   */
+  isAvailable(): boolean {
+    try {
+      this.clickhouse;
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

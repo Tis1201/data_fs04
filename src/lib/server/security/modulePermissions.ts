@@ -73,6 +73,13 @@ export async function getUserModulePermissions(
     prismaClient?: PrismaClient
 ): Promise<ModulePermissions> {
     const client = prismaClient || prisma;
+    
+    if (!client) {
+        logger.error('No Prisma client available for getUserModulePermissions', { userId, accountId });
+        // Fail closed: no permissions when DB client is unavailable
+        return {};
+    }
+    
     const cacheKey = getCacheKey(userId, accountId);
 
     // Try cache first
@@ -89,22 +96,30 @@ export async function getUserModulePermissions(
         }
     }
 
-    // Fetch from database
-    // 1. Get user's account membership
-    // For SYSTEM_ACCOUNT, we need to check even if role is 'SYSTEM'
-    const membership = await client.accountMembership.findFirst({
-        where: {
-            userId,
-            accountId,
-            // Don't filter by role - SYSTEM_ACCOUNT memberships can have role 'SYSTEM'
-            // We'll check if it's SYSTEM_ACCOUNT after fetching
-        },
-        include: {
-            account: {
-                select: { slug: true, isSystem: true }
+    // Fetch from database (fail-closed: on any error, return {})
+    let membership: any = null;
+    try {
+        // 1. Get user's account membership
+        // For SYSTEM_ACCOUNT, we need to check even if role is 'SYSTEM'
+        membership = await client.accountMembership.findFirst({
+            where: {
+                userId,
+                accountId
+            },
+            include: {
+                account: {
+                    select: { slug: true, isSystem: true }
+                }
             }
-        }
-    });
+        });
+    } catch (e) {
+        logger.error('Failed to query account membership for module permissions', {
+            error: e,
+            userId,
+            accountId
+        });
+        return {};
+    }
 
     if (!membership) {
         logger.debug('No account membership found', { userId, accountId });
@@ -127,22 +142,33 @@ export async function getUserModulePermissions(
     }
 
     // 2. Get all groups the user belongs to in this account
-    const groupMemberships = await client.groupMembership.findMany({
-        where: {
-            membershipId: membership.id
-        },
-        include: {
-            group: {
-                include: {
-                    permissions: {
-                        where: {
-                            allowed: true
+    let groupMemberships: any[] = [];
+    try {
+        groupMemberships = await client.groupMembership.findMany({
+            where: {
+                membershipId: membership.id
+            },
+            include: {
+                group: {
+                    include: {
+                        permissions: {
+                            where: {
+                                allowed: true
+                            }
                         }
                     }
                 }
             }
-        }
-    });
+        });
+    } catch (e) {
+        logger.error('Failed to query group memberships for module permissions', {
+            error: e,
+            userId,
+            accountId,
+            membershipId: membership?.id
+        });
+        return {};
+    }
 
     // 3. Aggregate permissions from all groups (union - OR logic)
     const groupPermissions: ModulePermissions = {};
@@ -159,17 +185,31 @@ export async function getUserModulePermissions(
 
     // 4. Get user-specific overrides
     const now = new Date();
-    const overrides = await client.userPermissionOverride.findMany({
-        where: {
-            userId,
-            accountId,
-            isActive: true,
-            OR: [
-                { expiresAt: null },
-                { expiresAt: { gt: now } }
-            ]
+    let overrides: any[] = [];
+    try {
+        const overrideModel = (client as any).userPermissionOverride;
+        if (!overrideModel) {
+            // Optional feature: some environments may not have this model in the generated Prisma client
+            overrides = [];
+        } else {
+            overrides = await overrideModel.findMany({
+            where: {
+                userId,
+                accountId,
+                isActive: true,
+                OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+            }
+            });
         }
-    });
+    } catch (e) {
+        logger.error('Failed to query user permission overrides', {
+            error: e,
+            userId,
+            accountId
+        });
+        // Overrides are optional; continue with group permissions only
+        overrides = [];
+    }
 
     // 5. Apply overrides to group permissions
     const finalPermissions: ModulePermissions = { ...groupPermissions };
@@ -256,7 +296,12 @@ export async function upsertUserPermissionOverride(
 ) {
     const client = prismaClient || prisma;
     
-    const override = await client.userPermissionOverride.upsert({
+    const overrideModel = (client as any).userPermissionOverride;
+    if (!overrideModel) {
+        throw new Error('UserPermissionOverride model is not available in Prisma client (run prisma generate / update schema).');
+    }
+
+    const override = await overrideModel.upsert({
         where: {
             userId_accountId_module_action: {
                 userId: input.userId,
@@ -305,7 +350,12 @@ export async function deleteUserPermissionOverride(
 ): Promise<void> {
     const client = prismaClient || prisma;
     
-    const override = await client.userPermissionOverride.findUnique({
+    const overrideModel = (client as any).userPermissionOverride;
+    if (!overrideModel) {
+        throw new Error('UserPermissionOverride model is not available in Prisma client (run prisma generate / update schema).');
+    }
+
+    const override = await overrideModel.findUnique({
         where: { id: overrideId },
         select: { userId: true, accountId: true }
     });
@@ -314,7 +364,7 @@ export async function deleteUserPermissionOverride(
         throw new Error('Override not found');
     }
 
-    await client.userPermissionOverride.delete({
+    await overrideModel.delete({
         where: { id: overrideId }
     });
 
@@ -336,6 +386,10 @@ export async function bulkCreateUserPermissionOverrides(
     if (overrides.length === 0) return 0;
 
     const client = prismaClient || prisma;
+    const overrideModel = (client as any).userPermissionOverride;
+    if (!overrideModel) {
+        throw new Error('UserPermissionOverride model is not available in Prisma client (run prisma generate / update schema).');
+    }
     
     // Group by userId+accountId to batch cache invalidation
     const accountKeys = new Set<string>();
@@ -345,7 +399,7 @@ export async function bulkCreateUserPermissionOverrides(
         let created = 0;
         
         for (const input of overrides) {
-            await tx.userPermissionOverride.upsert({
+            await (tx as any).userPermissionOverride.upsert({
                 where: {
                     userId_accountId_module_action: {
                         userId: input.userId,

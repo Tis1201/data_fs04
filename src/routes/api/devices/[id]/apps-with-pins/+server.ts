@@ -126,18 +126,26 @@ export const GET: RequestHandler = restrict(
       }
 
       // Fetch apps from ClickHouse (source does not know 'pinned'/'unpinned')
-      const sourceFilter = filter === 'pinned' || filter === 'unpinned' ? 'all' : filter;
-      const appData = await deviceAppService.getDeviceApps(deviceId, page, limit, {
-        search,
-        filter: sourceFilter,
-        sortBy,
-        sortOrder
-      });
+      // Check if ClickHouse is available first
+      let appData: { apps: any[]; total: number; page: number; limit: number };
+      
+      if (!deviceAppService.isAvailable()) {
+        logger.warn('[AppsWithPinsAPI] ClickHouse not available, returning empty list');
+        appData = { apps: [], total: 0, page, limit };
+      } else {
+        const sourceFilter = filter === 'pinned' || filter === 'unpinned' ? 'all' : filter;
+        appData = await deviceAppService.getDeviceApps(deviceId, page, limit, {
+          search,
+          filter: sourceFilter,
+          sortBy,
+          sortOrder
+        });
 
-      // Basic validation & diagnostic
-      if (!appData || !Array.isArray(appData.apps)) {
-        logger.error(`[AppsWithPinsAPI] Invalid app data:`, { appData, type: typeof appData });
-        throw new Error(`DeviceAppService returned invalid data: ${typeof appData}`);
+        // Basic validation & diagnostic
+        if (!appData || !Array.isArray(appData.apps)) {
+          logger.error(`[AppsWithPinsAPI] Invalid app data:`, { appData, type: typeof appData });
+          appData = { apps: [], total: 0, page, limit };
+        }
       }
 
       try {

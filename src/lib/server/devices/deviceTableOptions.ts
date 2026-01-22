@@ -6,14 +6,35 @@ import type { TableDataOptions } from '$lib/components/ui_components_sveltekit/t
  */
 const baseDeviceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac', 'osVersion'],
-    allowedFilters: ['types', 'statuses'],
-    defaultSortField: 'createdAt',
-    defaultSortOrder: 'desc' as const,
+    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac', 'osVersion', 'deviceType'],
+    // Device Listing (User/Admin) filters (aligned with Figma + UI)
+    // - deviceType: Android/Linux/Windows/macOS (Operating System column)
+    // - connected: Online/Offline (boolean)
+    // - statuses: Active/Inactive (device activation status)
+    allowedFilters: ['types', 'statuses', 'osVersions', 'connected', 'deviceType'],
+    // Figma listing shows default sort by Device Name
+    defaultSortField: 'name',
+    defaultSortOrder: 'asc' as const,
     defaultPerPage: 10,
     filterMappings: {
         'types': { field: 'deviceType', operator: 'in' },
-        'statuses': { field: 'status', operator: 'in' }
+        'statuses': { field: 'status', operator: 'in' },
+        'osVersions': { field: 'osVersion', operator: 'in' },
+        // deviceType filter (Operating System column)
+        'deviceType': { field: 'deviceType', operator: 'in' },
+        // 'connected' is a boolean column on Device; UI uses Online/Offline, so accept either.
+        'connected': {
+            field: 'connected',
+            operator: 'equals',
+            valueTransformer: (value: string) => {
+                const v = String(value).toLowerCase();
+                if (v === 'online') return true;
+                if (v === 'offline') return false;
+                if (v === 'true') return true;
+                if (v === 'false') return false;
+                return value;
+            }
+        }
     },
     include: {
         tags: {

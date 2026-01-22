@@ -55,17 +55,25 @@ export const GET = restrict(
       }
 
       // Get device app data from ClickHouse with pagination and filters
-      const result = await deviceAppService.getDeviceApps(deviceId, page, limit, {
-        search,
-        filter,
-        sortBy,
-        sortOrder
-      });
+      // Check if ClickHouse is available first
+      let result: { apps: any[]; total: number; page: number; limit: number };
       
-      // Check if result is valid
-      if (!result || !Array.isArray(result.apps)) {
-        logger.error(`[DeviceAppsAPI] Invalid result:`, { result, type: typeof result });
-        throw new Error(`DeviceAppService returned invalid data: ${typeof result}`);
+      if (!deviceAppService.isAvailable()) {
+        logger.warn('[DeviceAppsAPI] ClickHouse not available, returning empty list');
+        result = { apps: [], total: 0, page, limit };
+      } else {
+        result = await deviceAppService.getDeviceApps(deviceId, page, limit, {
+          search,
+          filter,
+          sortBy,
+          sortOrder
+        });
+        
+        // Check if result is valid
+        if (!result || !Array.isArray(result.apps)) {
+          logger.error(`[DeviceAppsAPI] Invalid result:`, { result, type: typeof result });
+          result = { apps: [], total: 0, page, limit };
+        }
       }
 
       logger.info(`Retrieved ${result.apps.length} apps for device ${deviceId} (page ${page}/${Math.ceil(result.total / limit)})`, {

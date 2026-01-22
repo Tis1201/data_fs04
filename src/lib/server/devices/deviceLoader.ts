@@ -104,13 +104,19 @@ export async function loadDeviceList(
 ) {
     try {
         // Create table options with optional ownership filtering
-        const tableOptions = options?.checkOwnership
-            ? createDeviceTableOptions({
-                checkOwnership: true,
-                userId: options.userId,
-                accountId: options.accountId
-            })
-            : createDeviceTableOptions(); // No ownership filtering for admin
+        let tableOptions;
+        try {
+            tableOptions = options?.checkOwnership
+                ? createDeviceTableOptions({
+                    checkOwnership: true,
+                    userId: options.userId,
+                    accountId: options.accountId
+                })
+                : createDeviceTableOptions(); // No ownership filtering for admin
+        } catch (err) {
+            logger.error(`Failed to create device table options: ${err}`);
+            throw err;
+        }
 
         // Handle tags filtering from URL
         const filteredTagIds = url.searchParams.get("tags");
@@ -134,72 +140,151 @@ export async function loadDeviceList(
         }
 
         // Fetch table data with the appropriate options
-        const result = await fetchTableData(locals, url, tableOptions);
+        let result;
+        try {
+            result = await fetchTableData(locals, url, tableOptions);
+        } catch (err) {
+            logger.error(`Failed to fetch table data: ${err}`);
+            throw err;
+        }
 
         // Fetch available tags for the filter
-        const availableTags = await locals.prisma.deviceTag.findMany({
-            select: {
-                id: true,
-                name: true
-            },
-            orderBy: {
-                name: 'asc'
-            }
-        });
+        // Wrap in try-catch to allow page to load even if tags query fails
+        let availableTags = [];
+        try {
+            availableTags = await locals.prisma.deviceTag.findMany({
+                select: {
+                    id: true,
+                    name: true
+                },
+                orderBy: {
+                    name: 'asc'
+                }
+            });
+        } catch (err) {
+            logger.warn(`Failed to load available tags: ${err}`);
+            // Continue with empty tags array - page can still load
+            availableTags = [];
+        }
 
         // Update online status from Redis (real-time presence tracking)
-        const devicesWithRealTimeStatus = options?.includeRealTimeStatus !== false
-            ? await Promise.all(
-                result.records.map(async (device: any) => {
-                    const isOnline = await isDeviceOnline(device.id);
-                    return {
-                        ...device,
-                        connected: isOnline  // Override DB value with real-time Redis status
-                    };
-                })
-            )
-            : result.records;
+        // Wrap in try-catch to allow page to load even if Redis is unavailable
+        let devicesWithRealTimeStatus = result.records;
+        if (options?.includeRealTimeStatus !== false) {
+            try {
+                devicesWithRealTimeStatus = await Promise.all(
+                    result.records.map(async (device: any) => {
+                        try {
+                            const isOnline = await isDeviceOnline(device.id);
+                            // Convert Date objects to ISO strings for serialization
+                            const serializedDevice = {
+                                ...device,
+                                connected: isOnline,  // Override DB value with real-time Redis status
+                                // Convert Date objects to ISO strings for SvelteKit serialization
+                                createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
+                                updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
+                                connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
+                                disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
+                            };
+                            return serializedDevice;
+                        } catch (err) {
+                            // If Redis check fails, use DB value but still serialize dates
+                            logger.warn(`Failed to check online status for device ${device.id}: ${err}`);
+                            return {
+                                ...device,
+                                createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
+                                updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
+                                connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
+                                disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
+                            };
+                        }
+                    })
+                );
+            } catch (err) {
+                // If Redis is completely unavailable, use DB values but serialize dates
+                logger.warn(`Failed to load real-time status from Redis: ${err}`);
+                devicesWithRealTimeStatus = result.records.map((device: any) => ({
+                    ...device,
+                    createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
+                    updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
+                    connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
+                    disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
+                }));
+            }
+        } else {
+            // Even if not using real-time status, still serialize dates
+            devicesWithRealTimeStatus = result.records.map((device: any) => ({
+                ...device,
+                createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
+                updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
+                connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
+                disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
+            }));
+        }
 
         // Load device information from ClickHouse for all devices
+        // Wrap in try-catch to allow page to load even if ClickHouse is unavailable
+        let deviceInfoMap = new Map();
         const macAddresses = devicesWithRealTimeStatus
             .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
             .filter(Boolean);
-        const deviceInfoMap = await getMultipleDeviceInformation(macAddresses);
+        if (macAddresses.length > 0) {
+            try {
+                deviceInfoMap = await getMultipleDeviceInformation(macAddresses);
+            } catch (err) {
+                // If ClickHouse is unavailable, continue without device information
+                logger.warn(`Failed to load device information from ClickHouse: ${err}`);
+                deviceInfoMap = new Map();
+            }
+        }
 
         // Calculate device statistics (admin only)
+        // Wrap in try-catch to allow page to load even if stats calculation fails
         let deviceStats = null;
         if (options?.includeStats) {
-            // Fetch all devices for statistics (with ownership filter if needed)
-            const statsWhere: any = {};
-            if (options.checkOwnership && options.userId) {
-                statsWhere.OR = [
-                    { createdBy: options.userId },
-                    {
-                        account: {
-                            members: {
-                                some: {
-                                    userId: options.userId
+            try {
+                // Fetch all devices for statistics (with ownership filter if needed)
+                const statsWhere: any = {};
+                if (options.checkOwnership && options.userId) {
+                    statsWhere.OR = [
+                        { createdBy: options.userId },
+                        {
+                            account: {
+                                members: {
+                                    some: {
+                                        userId: options.userId
+                                    }
                                 }
                             }
                         }
-                    }
-                ];
-            }
-
-            const allDevices = await locals.prisma.device.findMany({
-                where: statsWhere,
-                select: {
-                    id: true,
-                    osVersion: true,
-                    deviceType: true
+                    ];
                 }
-            });
 
-            // Batch check online status for all devices
-            const deviceIds = allDevices.map((d: { id: string; osVersion: string | null; deviceType: string | null }) => d.id);
-            const onlineStatusMap = await areDevicesOnline(deviceIds);
+                const allDevices = await locals.prisma.device.findMany({
+                    where: statsWhere,
+                    select: {
+                        id: true,
+                        osVersion: true,
+                        deviceType: true
+                    }
+                });
 
-            deviceStats = calculateDeviceStats(locals.prisma, allDevices, onlineStatusMap);
+                // Batch check online status for all devices
+                // Wrap in try-catch in case Redis is unavailable
+                let onlineStatusMap = new Map<string, boolean>();
+                try {
+                    const deviceIds = allDevices.map((d: { id: string; osVersion: string | null; deviceType: string | null }) => d.id);
+                    onlineStatusMap = await areDevicesOnline(deviceIds);
+                } catch (err) {
+                    logger.warn(`Failed to load online status for stats: ${err}`);
+                    // Use empty map - all devices will be marked as offline in stats
+                }
+
+                deviceStats = calculateDeviceStats(locals.prisma, allDevices, onlineStatusMap);
+            } catch (err) {
+                logger.warn(`Failed to calculate device statistics: ${err}`);
+                // Continue without stats - page can still load
+            }
         }
 
         // Get user info for user routes
@@ -211,20 +296,75 @@ export async function loadDeviceList(
                null)
             : null;
 
-        return {
-            devices: devicesWithRealTimeStatus,
-            deviceInformation: Object.fromEntries(deviceInfoMap), // Convert Map to object for serialization
-            availableTags,
-            meta: result.meta,
+        // Safely convert Map to object for serialization
+        let deviceInformationObject: Record<string, any> = {};
+        try {
+            if (deviceInfoMap && deviceInfoMap.size > 0) {
+                deviceInformationObject = Object.fromEntries(deviceInfoMap);
+            }
+        } catch (err) {
+            logger.warn(`Failed to convert deviceInfoMap to object: ${err}`);
+            deviceInformationObject = {};
+        }
+
+        // Ensure all required fields are present with safe defaults
+        const returnData = {
+            devices: Array.isArray(devicesWithRealTimeStatus) ? devicesWithRealTimeStatus : [],
+            deviceInformation: deviceInformationObject,
+            availableTags: Array.isArray(availableTags) ? availableTags : [],
+            meta: result?.meta || {
+                pagination: { 
+                    page: 1, 
+                    per_page: 10, 
+                    total: 0, 
+                    total_pages: 0,
+                    total_records: 0
+                },
+                sort: { 
+                    field: 'createdAt', 
+                    order: 'desc' 
+                },
+                filters: {}
+            },
             ...(deviceStats && { deviceStats }),
             ...(options?.checkOwnership && {
                 userRole: user?.systemRole || 'MEMBER',
                 accountId: userAccountId
             })
         };
+
+        logger.info('Returning device list data', {
+            deviceCount: returnData.devices.length,
+            tagCount: returnData.availableTags.length,
+            hasDeviceInfo: Object.keys(returnData.deviceInformation).length > 0,
+            hasStats: !!deviceStats
+        });
+
+        return returnData;
     } catch (e) {
-        logger.error(`Error loading devices: ${JSON.stringify(e)}`);
-        throw error(500, 'Failed to load devices');
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        const errorStack = e instanceof Error ? e.stack : undefined;
+        const errorName = e instanceof Error ? e.name : 'Unknown';
+        
+        logger.error(`Error loading devices: ${errorName}: ${errorMessage}`, {
+            error: e,
+            stack: errorStack,
+            options: {
+                checkOwnership: options?.checkOwnership,
+                userId: options?.userId,
+                accountId: options?.accountId,
+                includeStats: options?.includeStats,
+                includeRealTimeStatus: options?.includeRealTimeStatus
+            },
+            url: url.toString()
+        });
+        
+        // If it's already a SvelteKit error, re-throw it
+        if (e && typeof e === 'object' && 'status' in e) {
+            throw e;
+        }
+        
+        throw error(500, `Failed to load devices: ${errorMessage}`);
     }
 }
 
