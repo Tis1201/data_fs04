@@ -205,11 +205,11 @@
 					<div class="modal-close-btn-wrapper">
 						<Button
 							variant="text"
+							color="gray"
 							size="sm"
 							icon={X}
 							iconPosition="only"
 							iconSize={20}
-							iconColor="gray"
 							on:click={handleClose}
 							aria-label="Close modal"
 						/>

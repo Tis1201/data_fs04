@@ -86,9 +86,11 @@
 		}
 	}
 	
-	function handleToggleClick(event: MouseEvent) {
+	function handleToggleClick(event: CustomEvent | MouseEvent) {
 		// Stop propagation to prevent triggering parent click handlers
-		event.stopPropagation();
+		if (event instanceof MouseEvent) {
+			event.stopPropagation();
+		}
 		toggle();
 	}
 	
@@ -163,7 +165,7 @@
 			<Button
 				variant="ghost"
 				size={size}
-				iconOnly={true}
+				iconPosition="only"
 				disabled={disabled}
 				on:click={handleToggleClick}
 				aria-haspopup="menu"
@@ -193,7 +195,6 @@
 			style="{menuWidth} {externalTriggerRef ? '' : `top: ${menuPosition.top}px; left: ${menuPosition.left}px;`}"
 			role="menu"
 			tabindex="-1"
-			on:click|stopPropagation
 		>
 			{#each items as item}
 				<button
@@ -302,10 +303,11 @@
 		display: flex;
 		flex-direction: row;
 		align-items: center;
-		gap: var(--ds-spacing-3);
+		gap: var(--ds-space-3);
 		width: 100%;
-		padding: var(--ds-spacing-2) var(--ds-spacing-4);
-		min-height: 36px;
+		padding: var(--ds-space-2) var(--ds-space-4);
+		min-height: 54px;
+		/* Default: transparent background */
 		background: transparent;
 		border: none;
 		border-radius: var(--ds-radius-md);
@@ -314,12 +316,14 @@
 		transition: background-color 0.15s ease;
 	}
 	
+	/* Hover: #FAFAFA (Neutral - True/50) */
 	.menu-item:hover:not(.disabled) {
-		background: var(--ds-bg-tertiary);
+		background: var(--ds-color-neutral-true-50);
 	}
 	
+	/* Disabled: transparent background */
 	.menu-item.disabled {
-		opacity: 0.5;
+		background: transparent;
 		cursor: not-allowed;
 	}
 	
@@ -339,7 +343,13 @@
 		width: 20px;
 		height: 20px;
 		flex-shrink: 0;
-		color: var(--ds-color-gray-600);
+		/* Default/Hover: #292929 (Neutral - True/800) */
+		color: var(--ds-color-neutral-true-800);
+	}
+	
+	/* Disabled: #D6D6D6 (Neutral - True/300) */
+	.menu-item.disabled .menu-item-icon {
+		color: var(--ds-color-neutral-true-300);
 	}
 	
 	.menu-item-icon.destructive {
@@ -361,10 +371,21 @@
 		font-weight: var(--ds-font-regular);
 		font-size: var(--ds-text-sm);
 		line-height: var(--ds-leading-sm);
-		color: var(--ds-color-gray-800);
+		/* Default: #292929 (Neutral - True/800) */
+		color: var(--ds-color-neutral-true-800);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	
+	/* Hover: #141414 (Neutral - True/900) */
+	.menu-item:hover:not(.disabled) .menu-item-label {
+		color: var(--ds-color-neutral-true-900);
+	}
+	
+	/* Disabled: #D6D6D6 (Neutral - True/300) */
+	.menu-item.disabled .menu-item-label {
+		color: var(--ds-color-neutral-true-300);
 	}
 	
 	.menu-item-label.destructive {
@@ -377,7 +398,13 @@
 		font-size: var(--ds-text-xs);
 		line-height: var(--ds-leading-xs);
 		letter-spacing: 0.01em;
+		/* Default/Hover: #667085 (Gray/500) */
 		color: var(--ds-color-gray-500);
+	}
+	
+	/* Disabled: #D0D5DD (Gray/300) */
+	.menu-item.disabled .menu-item-shortcut {
+		color: var(--ds-color-gray-300);
 	}
 	
 	/* Menu Item Check */

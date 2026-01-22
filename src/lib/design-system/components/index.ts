@@ -18,7 +18,7 @@ export { default as DataTable } from './DataTable.svelte';
 export { default as Card } from './Card.svelte';
 export { default as Modal } from './Modal.svelte';
 export { default as Breadcrumbs } from './Breadcrumbs.svelte';
-export { default as FileUpload } from './FileUpload.svelte';
+export { default as FileUpload, type UploadedFile } from './FileUpload.svelte';
 export { default as Dropdown } from './Dropdown.svelte';
 export { default as ProgressBar } from './ProgressBar.svelte';
 export { default as Tab } from './Tab.svelte';
@@ -232,15 +232,7 @@ export interface BreadcrumbItem {
 // FileUpload Types
 export type FileUploadState = 'default' | 'error';
 export type FileItemState = 'ongoing' | 'failed' | 'success' | 'disabled' | 'view' | 'download';
-export interface UploadedFile {
-    id: string;
-    name: string;
-    size?: number;
-    progress?: number;
-    state: FileItemState;
-    errorMessage?: string;
-    url?: string;
-}
+// UploadedFile is exported from FileUpload.svelte component (see line 21)
 
 // Dropdown Types
 export type DropdownOptionType = 'none' | 'icon' | 'checkbox' | 'radio' | 'toggle';

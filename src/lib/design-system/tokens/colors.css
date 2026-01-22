@@ -38,11 +38,20 @@
   
   /* Neutral - True (from Figma Sidebar design) */
   --ds-color-neutral-true-25: #FCFCFC;  /* Active text color */
+  --ds-color-neutral-true-50: #FAFAFA;   /* Hover background */
+  --ds-color-neutral-true-100: #F5F5F5; /* Disabled background */
   --ds-color-neutral-true-200: #E5E5E5; /* Border color */
-  --ds-color-neutral-true-400: #A3A3A3; /* Icon inactive color */
-  --ds-color-neutral-true-500: #737373; /* Chevron color */
+  --ds-color-neutral-true-300: #D6D6D6; /* Input border default, disabled text */
+  --ds-color-neutral-true-400: #A3A3A3; /* Icon inactive color, placeholder */
+  --ds-color-neutral-true-500: #737373; /* Chevron color, caption text */
+  --ds-color-neutral-true-600: #525252;  /* Label color, focus border */
   --ds-color-neutral-true-700: #424242; /* Text color */
-  --ds-color-neutral-true-800: #292929;  /* Toggle button icon */
+  --ds-color-neutral-true-800: #292929;  /* Toggle button icon, icon border */
+  --ds-color-neutral-true-900: #141414;  /* Dark text, hover text */
+  
+  /* Input Field specific colors (from Figma) */
+  --ds-input-bg-default: #FEFEFE;  /* Input background default */
+  --ds-input-bg-disabled: #F5F5F5; /* Input background disabled */
   
   /* Base/Navy (from Figma Sidebar active state) */
   --ds-color-navy: #164070;  /* Sidebar active background */
@@ -98,6 +107,12 @@
   --ds-color-blue-light-700: #026AA2;
   --ds-color-blue-light-800: #065986;
   --ds-color-blue-light-900: #0B4A6F;
+  
+  /* File Upload Progress Colors (from Figma) */
+  --ds-color-progress-ongoing: #2771E7;  /* Ongoing upload progress bar */
+  --ds-color-progress-success: #3EAC57;  /* Success upload progress bar */
+  --ds-color-progress-failed: #EE2D2D;   /* Failed upload progress bar */
+  --ds-color-progress-bg: #EDEFF1;      /* Progress bar background */
 
   /* Info - Blue (using primary for now, can be customized) */
   --ds-color-info-25: #F5F8FF;

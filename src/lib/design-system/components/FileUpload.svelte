@@ -20,7 +20,7 @@
     import { Button } from '$lib/design-system/components';
 
     // Props
-    export let label: string = 'Label';
+    export let label: string = ''; // Optional label - empty string means no label
     export let required: boolean = false;
     export let state: FileUploadState = 'default';
     export let errorMessage: string = 'This field is required';
@@ -85,6 +85,8 @@
     }
     
     function handleBrowseButtonClick() {
+        // Both button click and drop zone click call handleBrowseClick()
+        // No need to stopPropagation as both actions are the same
         handleBrowseClick();
     }
 
@@ -111,9 +113,9 @@
 
     function getProgressBarColor(fileState: FileItemState): string {
         switch (fileState) {
-            case 'failed': return '#EE2D2D';
-            case 'success': return '#3EAC57';
-            default: return '#2771E7';
+            case 'failed': return 'var(--ds-color-progress-failed)'; // #EE2D2D
+            case 'success': return 'var(--ds-color-progress-success)'; // #3EAC57
+            default: return 'var(--ds-color-progress-ongoing)'; // #2771E7
         }
     }
 </script>
@@ -140,6 +142,7 @@
             on:dragleave={handleDragLeave}
             on:dragover={handleDragOver}
             on:drop={handleDrop}
+            on:click={handleBrowseClick}
             role="button"
             tabindex={disabled ? -1 : 0}
             on:keydown={(e) => e.key === 'Enter' && handleBrowseClick()}
@@ -164,13 +167,13 @@
             <div class="drop-zone-content">
                 <span class="drop-zone-text">Drag and drop your file here or</span>
                 <!-- Browse Button - dùng Button component từ design-system -->
+                <!-- Note: Click vào button này hoặc click vào drop-zone đều mở file picker -->
                 <Button
                     variant="text"
                     size="md"
                     color="primary"
                     disabled={disabled}
                     on:click={handleBrowseButtonClick}
-                    class="browse-link"
                 >
                     Browse files
                 </Button>
@@ -202,91 +205,100 @@
                     class="file-item"
                     class:file-item-disabled={file.state === 'disabled'}
                 >
-                    <!-- File Info -->
-                    <div class="file-info">
-                        {#if file.state === 'download'}
-                            <!-- Download link style - dùng Button component từ design-system -->
-                            <Button
-                                variant="text"
-                                size="sm"
-                                color="primary"
-                                on:click={() => handleDownload(file)}
-                                class="file-name-link"
-                            >
-                                {file.name}
-                            </Button>
-                        {:else}
-                            <span class="file-name">{file.name}</span>
-                            {#if file.size && file.state !== 'failed'}
-                                <span class="file-size">{formatFileSize(file.size)}</span>
+                    <!-- File Info and Actions - cùng dòng như design -->
+                    <div class="file-info-row">
+                        <!-- File Info -->
+                        <div class="file-info">
+                            {#if file.state === 'download'}
+                                <!-- Download link style - dùng <a> tag thay vì button, icon sau file name như design -->
+                                <!-- Figma: Download filename color #155EEF (primary-600) -->
+                                <a
+                                    href={file.url || '#'}
+                                    class="file-download-link"
+                                    on:click|preventDefault={() => handleDownload(file)}
+                                    role="button"
+                                    tabindex="0"
+                                >
+                                    <span class="file-download-text">{file.name}</span>
+                                    <Download size={14} strokeWidth={2} class="file-download-icon" />
+                                </a>
+                            {:else}
+                                <span class="file-name">{file.name}</span>
+                                {#if file.size && file.state !== 'failed'}
+                                    <span class="file-size">{formatFileSize(file.size)}</span>
+                                {/if}
                             {/if}
-                        {/if}
-                    </div>
+                        </div>
 
-                    <!-- Actions - dùng Button component từ design-system -->
-                    <div class="file-actions">
-                        {#if file.state === 'download'}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                iconOnly={true}
-                                icon={Download}
-                                iconSize={20}
-                                on:click={() => handleDownload(file)}
-                                title="Download"
-                                class="action-btn-download"
-                            />
-                        {:else if file.state === 'failed' || file.state === 'disabled'}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                iconOnly={true}
-                                icon={RefreshCw}
-                                iconSize={20}
-                                on:click={() => handleRetry(file)}
-                                title="Retry"
-                            />
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                iconOnly={true}
-                                icon={X}
-                                iconSize={20}
-                                on:click={() => handleRemove(file)}
-                                title="Remove"
-                            />
-                        {:else if file.state === 'view'}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                iconOnly={true}
-                                icon={Trash2}
-                                iconSize={20}
-                                color="danger"
-                                on:click={() => handleRemove(file)}
-                                title="Delete"
-                                class="action-btn-delete"
-                            />
-                        {:else}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                iconOnly={true}
-                                icon={X}
-                                iconSize={20}
-                                on:click={() => handleRemove(file)}
-                                title="Cancel"
-                            />
+                        <!-- Actions - dùng Button component từ design-system -->
+                        <!-- Figma: Buttons chỉ có background khi hover, default là transparent -->
+                        <!-- Download state không có action buttons riêng vì icon đã nằm sau file name -->
+                        {#if file.state !== 'download'}
+                            <div class="file-actions">
+                                {#if file.state === 'failed' || file.state === 'disabled'}
+                                    <div class="file-action-btn-wrapper">
+                                        <Button
+                                            variant="text"
+                                            size="sm"
+                                            icon={RefreshCw}
+                                            iconPosition="only"
+                                            iconSize={20}
+                                            disabled={file.state === 'disabled'}
+                                            on:click={() => handleRetry(file)}
+                                            aria-label="Retry"
+                                        />
+                                    </div>
+                                    <div class="file-action-btn-wrapper">
+                                        <Button
+                                            variant="text"
+                                            size="sm"
+                                            icon={X}
+                                            iconPosition="only"
+                                            iconSize={20}
+                                            disabled={file.state === 'disabled'}
+                                            on:click={() => handleRemove(file)}
+                                            aria-label="Remove"
+                                        />
+                                    </div>
+                                {:else if file.state === 'view'}
+                                    <div class="file-action-btn-wrapper file-action-btn-danger-wrapper">
+                                        <Button
+                                            variant="text"
+                                            size="sm"
+                                            icon={Trash2}
+                                            iconPosition="only"
+                                            iconSize={20}
+                                            color="danger"
+                                            on:click={() => handleRemove(file)}
+                                            aria-label="Delete"
+                                        />
+                                    </div>
+                                {:else if file.state === 'ongoing' || file.state === 'success'}
+                                    <!-- Ongoing và Success: có close button (X) -->
+                                    <div class="file-action-btn-wrapper">
+                                        <Button
+                                            variant="text"
+                                            size="sm"
+                                            icon={X}
+                                            iconPosition="only"
+                                            iconSize={20}
+                                            on:click={() => handleRemove(file)}
+                                            aria-label="Cancel"
+                                        />
+                                    </div>
+                                {/if}
+                            </div>
                         {/if}
                     </div>
 
                     <!-- Progress Bar -->
-                    {#if file.state === 'ongoing' || file.state === 'failed' || file.state === 'success'}
+                    {#if file.state === 'ongoing' || file.state === 'failed' || file.state === 'success' || file.state === 'disabled'}
                         <div class="progress-bar">
                             <div class="progress-track">
                                 <div 
                                     class="progress-fill"
-                                    style="width: {file.progress ?? 0}%; background-color: {getProgressBarColor(file.state)};"
+                                    class:progress-fill-hidden={file.state === 'disabled'}
+                                    style="width: {file.progress ?? 0}%; background-color: {file.state === 'disabled' ? 'transparent' : (file.state === 'ongoing' || file.state === 'failed' || file.state === 'success' ? getProgressBarColor(file.state) : 'transparent')};"
                                 />
                             </div>
                         </div>
@@ -310,7 +322,7 @@
         flex-direction: column;
         align-items: flex-start;
         padding: 0;
-        gap: 4px;
+        gap: var(--ds-space-1);
         font-family: var(--ds-font-family-primary);
         width: 100%;
     }
@@ -320,23 +332,23 @@
         display: flex;
         flex-direction: row;
         align-items: center;
-        padding: 2px;
-        gap: 2px;
+        padding: var(--ds-space-0-5);
+        gap: var(--ds-space-0-5);
     }
 
     .label-text {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #525252;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-600);
     }
 
     .label-required {
-        font-weight: 400;
-        font-size: 12px;
-        line-height: 16px;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
         letter-spacing: 0.01em;
-        color: #D92D20;
+        color: var(--ds-color-error-600);
     }
 
     /* Drop Zone */
@@ -346,35 +358,35 @@
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        padding: 16px;
-        gap: 8px;
+        padding: var(--ds-space-4); /* 16px - đúng theo design */
+        gap: var(--ds-space-2); /* 8px - spacing giữa icon và content */
         width: 100%;
         min-width: 128px;
-        height: 100px;
-        background: #FFFFFF;
-        border: 1px dashed #0086C9;
-        border-radius: 8px;
+        min-height: 100px; /* Min height thay vì fixed height để content tự điều chỉnh */
+        background: var(--ds-color-white);
+        border: 1px dashed var(--ds-color-blue-light-600);
+        border-radius: var(--ds-radius-lg);
         cursor: pointer;
         transition: all 0.15s ease;
     }
 
     .drop-zone:hover {
-        background: #F0F9FF;
+        background: var(--ds-color-blue-light-50);
     }
 
     .drop-zone-dragging {
-        background: #F0F9FF;
-        border-color: #026AA2;
+        background: var(--ds-color-blue-light-50);
+        border-color: var(--ds-color-blue-light-700);
         border-width: 2px;
     }
 
     .drop-zone-error {
-        border-color: #E51F23;
+        border-color: var(--ds-color-error-600);
     }
 
     .drop-zone-disabled {
-        background: #F5F5F5;
-        border-color: #D6D6D6;
+        background: var(--ds-input-bg-disabled);
+        border-color: var(--ds-color-neutral-true-300);
         cursor: not-allowed;
     }
 
@@ -388,17 +400,17 @@
         flex-direction: row;
         align-items: center;
         justify-content: center;
-        padding: 8px;
+        padding: var(--ds-space-2);
         width: 40px;
         height: 40px;
-        background: #F0F9FF;
+        background: var(--ds-color-blue-light-50);
         border-radius: 100px;
-        color: #0086C9;
+        color: var(--ds-color-blue-light-600);
     }
 
     .drop-zone-disabled .upload-icon {
-        background: #E5E5E5;
-        color: #A3A3A3;
+        background: var(--ds-color-neutral-true-200);
+        color: var(--ds-color-neutral-true-400);
     }
 
     /* Content */
@@ -407,41 +419,18 @@
         flex-direction: row;
         justify-content: center;
         align-items: center;
-        gap: 4px;
+        gap: var(--ds-space-1);
     }
 
     .drop-zone-text {
-        font-weight: 500;
-        font-size: 14px;
-        line-height: 20px;
-        color: #424242;
-    }
-
-    .drop-zone-disabled .drop-zone-text {
-        color: #A3A3A3;
-    }
-
-    .browse-link {
-        font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-medium);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
-        color: var(--ds-color-blue-light-600);
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 0;
-        margin: 0;
+        color: var(--ds-color-neutral-true-700);
     }
 
-    .browse-link:hover {
-        color: #026AA2;
-        text-decoration: underline;
-    }
-
-    .browse-link:disabled {
-        color: #A3A3A3;
-        cursor: not-allowed;
+    .drop-zone-disabled .drop-zone-text {
+        color: var(--ds-color-neutral-true-400);
     }
 
     /* Helper Text */
@@ -449,24 +438,24 @@
         display: flex;
         flex-direction: row;
         align-items: flex-start;
-        padding: 2px;
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #737373;
+        padding: var(--ds-space-0-5);
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-500);
     }
 
     .helper-text-error {
-        color: #D92D20;
+        color: var(--ds-color-error-600);
     }
 
     /* File List */
     .file-list {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: var(--ds-space-2);
         width: 100%;
-        margin-top: 8px;
+        margin-top: var(--ds-space-2);
     }
 
     /* File Item */
@@ -475,7 +464,7 @@
         flex-direction: column;
         align-items: flex-start;
         padding: 0;
-        gap: 4px;
+        gap: var(--ds-space-1);
         width: 100%;
     }
 
@@ -483,47 +472,69 @@
         opacity: 0.6;
     }
 
+    /* File Info and Actions - cùng dòng như design */
+    .file-info-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        gap: var(--ds-space-2);
+    }
+
     .file-info {
         display: flex;
         flex-direction: row;
         align-items: center;
-        gap: 8px;
-        width: 100%;
+        gap: var(--ds-space-2);
+        flex: 1;
+        min-width: 0; /* Allow text truncation */
     }
 
     .file-name {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #292929;
-    }
-
-    .file-item-disabled .file-name {
-        color: #A3A3A3;
-    }
-
-    .file-name-link {
-        font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
-        color: var(--ds-color-blue-600);
-        background: none;
-        border: none;
-        cursor: pointer;
-        padding: 0;
-        margin: 0;
+        color: var(--ds-color-neutral-true-800);
     }
 
-    .file-name-link:hover {
+    .file-item-disabled .file-name {
+        color: var(--ds-color-neutral-true-400);
+    }
+
+    /* Download link - dùng <a> tag thay vì button, Figma: #155EEF (primary-600) */
+    .file-download-link {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--ds-space-2); /* 8px - gap giữa text và icon */
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-primary-600); /* #155EEF */
+        text-decoration: none;
+        cursor: pointer;
+        transition: color 0.15s ease;
+    }
+
+    .file-download-link:hover {
+        color: var(--ds-color-primary-600); /* Keep same color on hover */
         text-decoration: underline;
     }
 
+    .file-download-text {
+        color: inherit;
+    }
+
+    .file-download-icon {
+        color: inherit;
+        flex-shrink: 0;
+    }
+
     .file-size {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #737373;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-500);
         flex-grow: 1;
     }
 
@@ -531,43 +542,53 @@
     .file-actions {
         display: flex;
         flex-direction: row;
-        align-items: flex-start;
-        gap: 8px;
-        margin-left: auto;
+        align-items: center;
+        gap: var(--ds-space-2);
+        flex-shrink: 0; /* Prevent actions from shrinking */
     }
 
-    .action-btn {
-        display: flex;
-        flex-direction: row;
-        justify-content: center;
+    /* Action Buttons - Figma: Transparent default, background only on hover */
+    .file-action-btn-wrapper {
+        display: inline-flex;
         align-items: center;
-        padding: 8px;
+        justify-content: center;
         width: 36px;
         height: 36px;
-        background: none;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        color: #026AA2;
+        border-radius: var(--ds-radius-lg);
+        /* Default: transparent background */
+        background: transparent;
         transition: background-color 0.15s ease;
     }
 
-    .action-btn:hover {
-        background: #F0F9FF;
+    /* Hover: Background #FAFAFA (Neutral - True/50) */
+    .file-action-btn-wrapper:hover {
+        background: var(--ds-color-neutral-true-50);
     }
 
-    .action-btn-delete {
-        color: #B42318;
+    /* Style Button inside wrapper */
+    .file-action-btn-wrapper :global(button) {
+        /* Override Button component styles to match Figma */
+        background: transparent !important;
+        border: none !important;
+        padding: var(--ds-space-2) !important;
+        width: 36px !important;
+        height: 36px !important;
+        /* Icon color: Blue light/700 (#026AA2) */
+        color: var(--ds-color-blue-light-700) !important;
     }
 
-    .action-btn-delete:hover {
-        background: #FEF3F2;
+    /* Hover: Text/Icon color: #141414 (Neutral - True/900) on hover */
+    .file-action-btn-wrapper:hover :global(button) {
+        color: var(--ds-color-neutral-true-900) !important;
     }
 
-    .action-btn-download {
-        padding: 4px;
-        width: 28px;
-        height: 28px;
+    /* Danger button (Trash) - Red color */
+    .file-action-btn-danger-wrapper :global(button) {
+        color: var(--ds-color-error-700) !important;
+    }
+
+    .file-action-btn-danger-wrapper:hover :global(button) {
+        color: var(--ds-color-error-700) !important;
     }
 
     /* Progress Bar */
@@ -576,7 +597,7 @@
         flex-direction: row;
         justify-content: center;
         align-items: center;
-        gap: 8px;
+        gap: var(--ds-space-2);
         width: 100%;
         height: 4px;
     }
@@ -584,8 +605,8 @@
     .progress-track {
         width: 100%;
         height: 4px;
-        background: #EDEFF1;
-        border-radius: 4px;
+        background: var(--ds-color-progress-bg); /* #EDEFF1 */
+        border-radius: var(--ds-radius-sm);
         overflow: hidden;
     }
 
@@ -595,12 +616,17 @@
         transition: width 0.3s ease;
     }
 
+    /* Disabled state: hide progress fill */
+    .progress-fill-hidden {
+        visibility: hidden;
+    }
+
     /* File Error Message */
     .file-error-message {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #EE2D2D;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-error-600);
         width: 100%;
     }
 </style>

@@ -36,10 +36,13 @@
     export let disabled: boolean = false;
     export let required: boolean = false;
     export let error: boolean = false;
+    export let success: boolean = false;
     export let errorMessage: string = '';
     export let helperText: string = '';
     export let maxHeight: number = 300;
     export let width: string = '100%';
+    export let clearable: boolean = true; // Show clear button when value is selected
+    export let displayText: string | undefined = undefined; // Custom display text (overrides displayValue, useful for toggle type)
 
     const dispatch = createEventDispatcher<{
         change: string | string[];
@@ -56,10 +59,23 @@
     $: selectedOptions = Array.isArray(value)
         ? options.filter(opt => value.includes(opt.id))
         : options.find(opt => opt.id === value);
+    
+    // For toggle type: get enabled toggles to display as tags
+    $: enabledToggleOptions = options.filter(opt => 
+        opt.type === 'toggle' && opt.checked && !opt.disabled
+    );
 
-    $: displayValue = multiple
+    $: computedDisplayValue = multiple
         ? (selectedOptions as DropdownOption[])?.map(o => o.label).join(', ') || ''
         : (selectedOptions as DropdownOption)?.label || '';
+    
+    // Use custom displayText if provided, otherwise use computed displayValue
+    $: displayValue = displayText !== undefined ? displayText : computedDisplayValue;
+    
+    // Debug: log when displayValue changes
+    $: if (typeof window !== 'undefined' && displayText !== undefined) {
+        console.log('[Dropdown] displayText:', displayText, 'displayValue:', displayValue);
+    }
 
     $: filteredOptions = searchQuery
         ? options.filter(opt => 
@@ -79,9 +95,9 @@
     function handleSelect(option: DropdownOption) {
         if (option.disabled) return;
 
+        // Toggle is handled by Toggle component's on:change event
+        // Don't handle click on row for toggle type
         if (option.type === 'toggle') {
-            const newChecked = !option.checked;
-            dispatch('toggle', { option, checked: newChecked });
             return;
         }
 
@@ -141,6 +157,9 @@
 
     // Reactive selected set for proper UI updates
     $: selectedSet = new Set(Array.isArray(value) ? value : (value ? [value] : []));
+    
+    // For radio group - ensure single string value
+    $: radioGroupValue = typeof value === 'string' ? value : '';
 
     function isSelected(optionId: string): boolean {
         return selectedSet.has(optionId);
@@ -183,8 +202,9 @@
         class="dropdown-trigger"
         class:dropdown-trigger-open={isOpen}
         class:dropdown-trigger-error={error}
+        class:dropdown-trigger-success={success}
         class:dropdown-trigger-disabled={disabled}
-        class:dropdown-trigger-chips={multiple && Array.isArray(selectedOptions) && selectedOptions.length > 0}
+        class:dropdown-trigger-chips={(multiple && Array.isArray(selectedOptions) && selectedOptions.length > 0) || enabledToggleOptions.length > 0}
         on:click={handleToggle}
         on:keydown={handleKeydown}
         {disabled}
@@ -203,24 +223,44 @@
                     />
                 {/each}
             </div>
+        {:else if enabledToggleOptions.length > 0}
+            <!-- Tags display for enabled toggles using Tag component -->
+            <div class="dropdown-tags">
+                {#each enabledToggleOptions as opt (opt.id)}
+                    <Tag 
+                        label={opt.label}
+                        size="sm"
+                        showClose={true}
+                        on:remove={(e) => {
+                            e.stopPropagation();
+                            // Disable toggle when tag is removed
+                            const toggleOption = options.find(o => o.id === opt.id);
+                            if (toggleOption && toggleOption.type === 'toggle') {
+                                // Dispatch toggle event to parent component
+                                dispatch('toggle', { option: toggleOption, checked: false });
+                            }
+                        }}
+                    />
+                {/each}
+            </div>
         {:else}
-            <span class="dropdown-trigger-text" class:placeholder={!displayValue}>
+            <span class="dropdown-trigger-text" class:placeholder={!displayValue && displayText === undefined}>
                 {displayValue || placeholder}
             </span>
         {/if}
 
         <div class="dropdown-trigger-actions">
-            {#if displayValue && !disabled && !multiple}
+            {#if displayValue && !disabled && !multiple && clearable}
                 <!-- Clear Button - dùng Button component từ design-system -->
                 <Button
-                    variant="ghost"
+                    variant="text"
+                    color="gray"
                     size="sm"
-                    iconOnly={true}
                     icon={X}
+                    iconPosition="only"
                     iconSize={16}
                     on:click={() => clearSelection()}
                     aria-label="Clear selection"
-                    class="dropdown-clear"
                 />
             {/if}
             <span class="dropdown-chevron">
@@ -237,7 +277,7 @@
     {#if isOpen}
         <div 
             class="dropdown-menu"
-            style="max-height: {maxHeight}px;"
+            style="max-height: {maxHeight}px; --dropdown-max-height: {maxHeight}px;"
             role="listbox"
             aria-multiselectable={multiple}
         >
@@ -285,8 +325,14 @@
                             {#key selectedSet.has(option.id)}
                                 <Radio 
                                     size="sm" 
-                                    checked={selectedSet.has(option.id)} 
+                                    value={option.id}
+                                    group={radioGroupValue}
                                     disabled={option.disabled}
+                                    on:change={(e) => {
+                                        if (e.detail === option.id) {
+                                            handleSelect(option);
+                                        }
+                                    }}
                                 />
                             {/key}
                         {:else if option.type === 'icon' && option.icon}
@@ -323,11 +369,23 @@
 
                         <!-- Right side: Toggle/Icon/Check -->
                         {#if option.type === 'toggle'}
-                            <Toggle 
-                                size="sm" 
-                                checked={option.checked || false}
-                                disabled={option.disabled}
-                            />
+                            <div 
+                                role="none"
+                                on:click|stopPropagation
+                                on:keydown|stopPropagation
+                            >
+                                <Toggle 
+                                    size="sm" 
+                                    checked={option.checked || false}
+                                    disabled={option.disabled}
+                                    on:change={(e) => {
+                                        // Update option.checked state
+                                        option.checked = e.detail;
+                                        // Dispatch toggle event for parent component
+                                        dispatch('toggle', { option, checked: e.detail });
+                                    }}
+                                />
+                            </div>
                         {:else if option.type === 'icon'}
                             <span class="dropdown-option-icon" class:icon-disabled={option.disabled}>
                                 <Circle size={20} strokeWidth={2} />
@@ -351,10 +409,14 @@
         </div>
     {/if}
 
-    <!-- Helper/Error Text -->
+    <!-- Helper/Error/Success Text -->
     {#if error && errorMessage}
         <div class="dropdown-helper dropdown-error-text">
             {errorMessage}
+        </div>
+    {:else if success && helperText}
+        <div class="dropdown-helper dropdown-success-text">
+            {helperText}
         </div>
     {:else if helperText}
         <div class="dropdown-helper">
@@ -367,7 +429,7 @@
     .dropdown-container {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--ds-space-1);
         font-family: var(--ds-font-family-primary);
         position: relative;
     }
@@ -381,17 +443,18 @@
     }
 
     .label-text {
-        font-weight: 500;
-        font-size: 14px;
-        line-height: 20px;
-        color: #344054;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-600);
     }
 
     .label-required {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #D92D20;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        letter-spacing: 0.01em;
+        color: var(--ds-color-error-600);
     }
 
     /* Trigger */
@@ -401,13 +464,15 @@
         flex-direction: row;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 14px;
-        gap: 8px;
+        padding: var(--ds-space-3) var(--ds-space-3-5);
+        gap: var(--ds-space-3);
         width: 100%;
-        min-height: 44px;
-        background: #FFFFFF;
-        border: 1px solid #D0D5DD;
-        border-radius: 8px;
+        height: 48px;
+        min-height: 48px;
+        max-height: 48px;
+        background: var(--ds-input-bg-default);
+        border: 1px solid var(--ds-color-neutral-true-300);
+        border-radius: var(--ds-radius-lg);
         cursor: pointer;
         transition: all 0.15s ease;
         font-family: inherit;
@@ -415,97 +480,116 @@
     }
 
     .dropdown-trigger:hover:not(.dropdown-trigger-disabled) {
-        border-color: #98A2B3;
+        border-color: var(--ds-color-gray-400);
     }
 
     .dropdown-trigger:focus {
         outline: none;
-        border-color: #7F56D9;
-        box-shadow: 0 0 0 4px rgba(127, 86, 217, 0.24);
+        /* Figma: Focus state uses darker gray border (#525252) with gray shadow */
+        border-color: var(--ds-color-neutral-true-600);
+        box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05), 0px 0px 0px 4px var(--ds-color-gray-100);
     }
 
     .dropdown-trigger-open {
-        border-color: #7F56D9;
-        box-shadow: 0 0 0 4px rgba(127, 86, 217, 0.24);
+        /* Figma: Open state uses darker gray border (#525252) with gray shadow */
+        border-color: var(--ds-color-neutral-true-600);
+        box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05), 0px 0px 0px 4px var(--ds-color-gray-100);
+    }
+
+    .dropdown-trigger-success {
+        border-color: var(--ds-color-success-600);
+    }
+
+    .dropdown-trigger-success:focus {
+        border-color: var(--ds-color-success-600);
+        box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05), 0px 0px 0px 4px var(--ds-color-success-50);
     }
 
     .dropdown-trigger-error {
-        border-color: #FDA29B;
+        border-color: var(--ds-color-error-600);
     }
 
     .dropdown-trigger-error:focus {
-        border-color: #F04438;
-        box-shadow: 0 0 0 4px rgba(240, 68, 56, 0.24);
+        border-color: var(--ds-color-error-600);
+        box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05), 0px 0px 0px 4px var(--ds-color-error-100);
     }
 
     .dropdown-trigger-disabled {
-        background: #F9FAFB;
-        border-color: #D0D5DD;
+        background: var(--ds-input-bg-disabled);
+        border-color: var(--ds-color-neutral-true-300);
         cursor: not-allowed;
     }
 
     .dropdown-trigger-text {
         flex: 1;
-        font-weight: 400;
-        font-size: 16px;
-        line-height: 24px;
-        color: #101828;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-base);
+        line-height: var(--ds-leading-base);
+        color: var(--ds-text-primary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
     .dropdown-trigger-text.placeholder {
-        color: #667085;
+        color: var(--ds-color-neutral-true-400);
     }
 
     .dropdown-trigger-disabled .dropdown-trigger-text {
-        color: #667085;
+        color: var(--ds-color-neutral-true-400);
     }
 
-    /* Tags for multiple selection */
+    /* Tags for multiple selection - height cố định 48px */
     .dropdown-trigger-chips {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+        height: 48px;
         min-height: 48px;
-        padding: 8px 14px;
+        max-height: 48px;
+        padding: var(--ds-space-2) var(--ds-space-3-5);
         align-items: center;
+        overflow: hidden;
     }
 
     .dropdown-tags {
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+        flex-wrap: nowrap;
+        gap: var(--ds-space-2);
         flex: 1;
         align-items: center;
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE/Edge */
+    }
+    
+    .dropdown-tags::-webkit-scrollbar {
+        display: none; /* Chrome/Safari */
     }
 
     .dropdown-trigger-actions {
         display: flex;
         align-items: center;
-        gap: 4px;
-    }
-
-    .dropdown-clear {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 4px;
-        background: none;
-        border: none;
-        cursor: pointer;
-        color: #667085;
-        border-radius: 4px;
-    }
-
-    .dropdown-clear:hover {
-        color: #344054;
-        background: #F2F4F7;
+        gap: var(--ds-space-1);
     }
 
     .dropdown-chevron {
         display: flex;
         align-items: center;
-        color: #667085;
+        color: var(--ds-color-neutral-true-800);
+    }
+    
+    .dropdown-trigger-disabled .dropdown-chevron {
+        color: var(--ds-color-neutral-true-400);
+    }
+    
+    .dropdown-trigger-error .dropdown-chevron {
+        color: var(--ds-color-error-600);
+    }
+    
+    .dropdown-trigger-success .dropdown-chevron {
+        color: var(--ds-color-neutral-true-800);
     }
 
     /* Menu */
@@ -515,22 +599,25 @@
         left: 0;
         right: 0;
         z-index: 100; /* Higher than modal (50) */
-        margin-top: 4px;
-        background: #FFFFFF;
-        border: 1px solid #EAECF0;
-        border-radius: 8px;
-        box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.08), 0px 4px 6px -2px rgba(16, 24, 40, 0.03);
+        margin-top: var(--ds-space-1);
+        background: var(--ds-bg-primary);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-lg);
+        box-shadow: var(--ds-shadow-lg);
         overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        max-height: var(--dropdown-max-height, 300px);
     }
 
     /* Search */
     .dropdown-search {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 10px 14px;
-        border-bottom: 1px solid #EAECF0;
-        color: #667085;
+        gap: var(--ds-space-2);
+        padding: var(--ds-space-2-5) var(--ds-space-3-5);
+        border-bottom: 1px solid var(--ds-border-default);
+        color: var(--ds-text-tertiary);
     }
 
     .dropdown-search-input {
@@ -540,18 +627,22 @@
         font-family: var(--ds-font-family-primary);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
-        color: var(--ds-color-gray-900);
+        color: var(--ds-text-primary);
         background: transparent;
     }
 
     .dropdown-search-input::placeholder {
-        color: #667085;
+        color: var(--ds-text-tertiary);
     }
 
     /* Options */
     .dropdown-options {
         overflow-y: auto;
-        padding: 4px;
+        overflow-x: hidden;
+        padding: var(--ds-space-1);
+        flex: 1;
+        min-height: 0;
+        max-height: 100%;
     }
 
     .dropdown-options::-webkit-scrollbar {
@@ -559,38 +650,55 @@
     }
 
     .dropdown-options::-webkit-scrollbar-track {
-        background: #FAFAFA;
+        background: var(--ds-bg-secondary);
     }
 
     .dropdown-options::-webkit-scrollbar-thumb {
-        background: #E5E5E5;
-        border-radius: 8px;
-        border: 4px solid #FAFAFA;
+        background: var(--ds-color-neutral-true-200);
+        border-radius: var(--ds-radius-lg);
+        border: 4px solid var(--ds-bg-secondary);
     }
 
+    /* Options Container */
+    .dropdown-options {
+        overflow-y: auto;
+        overflow-x: hidden;
+        flex: 1;
+        min-height: 0;
+    }
+    
     /* Option Item */
     .dropdown-option {
         display: flex;
         flex-direction: row;
         align-items: center;
-        padding: 8px 16px;
-        gap: 12px;
+        padding: var(--ds-space-2) var(--ds-space-4);
+        gap: var(--ds-space-3);
         min-height: 54px;
-        border-radius: 6px;
+        background: transparent;
+        border-radius: var(--ds-radius-md);
         cursor: pointer;
         transition: background-color 0.15s ease;
     }
 
+    /* Default State - transparent background */
+    .dropdown-option:not(.dropdown-option-disabled) {
+        background: transparent;
+    }
+
+    /* Hover State - Figma: #FAFAFA (Neutral - True/50) */
     .dropdown-option:hover:not(.dropdown-option-disabled),
     .dropdown-option-hover:not(.dropdown-option-disabled) {
-        background: #FAFAFA;
+        background: var(--ds-color-neutral-true-50);
     }
 
     .dropdown-option-selected:not(.dropdown-option-disabled) {
-        background: #F9F5FF;
+        background: var(--ds-color-primary-50);
     }
 
+    /* Disabled State - transparent background */
     .dropdown-option-disabled {
+        background: transparent;
         cursor: not-allowed;
     }
 
@@ -601,11 +709,13 @@
         justify-content: center;
         width: 20px;
         height: 20px;
-        color: #292929;
+        /* Default/Hover: #292929 (Neutral - True/800) */
+        color: var(--ds-color-neutral-true-800);
     }
 
+    /* Disabled Icon: #D6D6D6 (Neutral - True/300) */
     .dropdown-option-icon.icon-disabled {
-        color: #D6D6D6;
+        color: var(--ds-color-neutral-true-300);
     }
 
     /* Option Avatar */
@@ -622,9 +732,9 @@
         height: 8px;
         right: 0;
         bottom: 0;
-        background: #12B76A;
-        border: 1.5px solid #FFFFFF;
-        border-radius: 4px;
+        background: var(--ds-color-success-500);
+        border: 1.5px solid var(--ds-color-white);
+        border-radius: var(--ds-radius-sm);
     }
 
     /* Option Content */
@@ -638,35 +748,40 @@
     }
 
     .dropdown-option-text {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #292929;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        /* Default: #292929 (Neutral - True/800) */
+        color: var(--ds-color-neutral-true-800);
         width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
+    /* Hover: #141414 (Neutral - True/900) */
     .dropdown-option:hover:not(.dropdown-option-disabled) .dropdown-option-text,
     .dropdown-option-hover:not(.dropdown-option-disabled) .dropdown-option-text {
-        color: #141414;
+        color: var(--ds-color-neutral-true-900);
     }
 
+    /* Disabled: #D6D6D6 (Neutral - True/300) */
     .dropdown-option-text.text-disabled {
-        color: #D6D6D6;
+        color: var(--ds-color-neutral-true-300);
     }
 
     .dropdown-option-supporting {
-        font-weight: 400;
-        font-size: 12px;
-        line-height: 16px;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
         letter-spacing: 0.01em;
-        color: #667085;
+        /* Default/Hover: #667085 (Gray/500) */
+        color: var(--ds-color-gray-500);
     }
 
+    /* Disabled: #D0D5DD (Gray/300) */
     .dropdown-option-supporting.supporting-disabled {
-        color: #D0D5DD;
+        color: var(--ds-color-gray-300);
     }
 
     /* Option Check */
@@ -676,27 +791,32 @@
         justify-content: center;
         width: 20px;
         height: 20px;
+        /* Figma design uses purple (#7F56D9) for checkmark - design-specific color */
         color: #7F56D9;
     }
 
     /* Empty State */
     .dropdown-empty {
-        padding: 16px;
+        padding: var(--ds-space-4);
         text-align: center;
-        font-size: 14px;
-        line-height: 20px;
-        color: #667085;
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-text-tertiary);
     }
 
     /* Helper Text */
     .dropdown-helper {
-        font-weight: 400;
-        font-size: 14px;
-        line-height: 20px;
-        color: #667085;
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-500);
     }
 
     .dropdown-error-text {
-        color: #D92D20;
+        color: var(--ds-color-error-600);
+    }
+
+    .dropdown-success-text {
+        color: var(--ds-color-success-600);
     }
 </style>
