@@ -1,0 +1,263 @@
+/* =============================================================================
+   DESIGN SYSTEM - COLOR TOKENS
+   
+   Based on Figma Design System
+   Single source of truth for all colors in the application.
+   ============================================================================= */
+
+:root {
+  /* =========================================================================
+     COLOR PALETTE - From Figma
+     ========================================================================= */
+  
+  /* Primary - Navy Blue */
+  --ds-color-primary-25: #F5F8FF;
+  --ds-color-primary-50: #EFF4FF;
+  --ds-color-primary-100: #D1E0FF;
+  --ds-color-primary-200: #B2CCFF;
+  --ds-color-primary-300: #84ADFF;
+  --ds-color-primary-400: #528BFF;
+  --ds-color-primary-500: #2970FF;
+  --ds-color-primary-600: #155EEF;
+  --ds-color-primary-700: #004AEB;
+  --ds-color-primary-800: #0040C1;
+  --ds-color-primary-900: #00359E;
+
+  /* Gray / Neutral */
+  --ds-color-gray-25: #FCFCFD;
+  --ds-color-gray-50: #F9FAFB;
+  --ds-color-gray-100: #F2F4F7;
+  --ds-color-gray-200: #EAECF0;
+  --ds-color-gray-300: #D0D5DD;
+  --ds-color-gray-400: #98A2B3;
+  --ds-color-gray-500: #667085;
+  --ds-color-gray-600: #475467;
+  --ds-color-gray-700: #344054;
+  --ds-color-gray-800: #1D2939;
+  --ds-color-gray-900: #101828;
+  
+  /* Neutral - True (from Figma Sidebar design) */
+  --ds-color-neutral-true-25: #FCFCFC;  /* Active text color */
+  --ds-color-neutral-true-200: #E5E5E5; /* Border color */
+  --ds-color-neutral-true-400: #A3A3A3; /* Icon inactive color */
+  --ds-color-neutral-true-500: #737373; /* Chevron color */
+  --ds-color-neutral-true-700: #424242; /* Text color */
+  --ds-color-neutral-true-800: #292929;  /* Toggle button icon */
+  
+  /* Base/Navy (from Figma Sidebar active state) */
+  --ds-color-navy: #164070;  /* Sidebar active background */
+
+  /* Success - Green */
+  --ds-color-success-25: #F6FEF9;
+  --ds-color-success-50: #ECFDF3;
+  --ds-color-success-100: #D1FADF;
+  --ds-color-success-200: #A6F4C5;
+  --ds-color-success-300: #6CE9A6;
+  --ds-color-success-400: #32D583;
+  --ds-color-success-500: #12B76A;
+  --ds-color-success-600: #039855;
+  --ds-color-success-700: #027A48;
+  --ds-color-success-800: #05603A;
+  --ds-color-success-900: #054F31;
+
+  /* Warning - Amber/Orange */
+  --ds-color-warning-25: #FFFCF5;
+  --ds-color-warning-50: #FFFAEB;
+  --ds-color-warning-100: #FEF0C7;
+  --ds-color-warning-200: #FEDF89;
+  --ds-color-warning-300: #FEC84B;
+  --ds-color-warning-400: #FDB022;
+  --ds-color-warning-500: #F79009;
+  --ds-color-warning-600: #DC6803;
+  --ds-color-warning-700: #B54708;
+  --ds-color-warning-800: #93370D;
+  --ds-color-warning-900: #7A2E0E;
+
+  /* Error - Red */
+  --ds-color-error-25: #FFFBFA;
+  --ds-color-error-50: #FEF3F2;
+  --ds-color-error-100: #FEE4E2;
+  --ds-color-error-200: #FECDCA;
+  --ds-color-error-300: #FDA29B;
+  --ds-color-error-400: #F97066;
+  --ds-color-error-500: #F04438;
+  --ds-color-error-600: #D92D20;
+  --ds-color-error-700: #B42318;
+  --ds-color-error-800: #912018;
+  --ds-color-error-900: #7A271A;
+
+  /* Blue Light - Button Primary (from Figma) */
+  --ds-color-blue-light-25: #F5FBFF;
+  --ds-color-blue-light-50: #F0F9FF;
+  --ds-color-blue-light-100: #E0F2FE;
+  --ds-color-blue-light-200: #B9E6FE;
+  --ds-color-blue-light-300: #7CD4FD;
+  --ds-color-blue-light-400: #36BFFA;
+  --ds-color-blue-light-500: #0BA5EC;
+  --ds-color-blue-light-600: #0086C9;
+  --ds-color-blue-light-700: #026AA2;
+  --ds-color-blue-light-800: #065986;
+  --ds-color-blue-light-900: #0B4A6F;
+
+  /* Info - Blue (using primary for now, can be customized) */
+  --ds-color-info-25: #F5F8FF;
+  --ds-color-info-50: #EFF4FF;
+  --ds-color-info-100: #D1E0FF;
+  --ds-color-info-200: #B2CCFF;
+  --ds-color-info-300: #84ADFF;
+  --ds-color-info-400: #528BFF;
+  --ds-color-info-500: #2970FF;
+  --ds-color-info-600: #155EEF;
+  --ds-color-info-700: #004AEB;
+  --ds-color-info-800: #0040C1;
+  --ds-color-info-900: #00359E;
+
+  /* White & Black */
+  --ds-color-white: #FFFFFF;
+  --ds-color-black: #000000;
+
+  /* =========================================================================
+     SEMANTIC TOKENS - Light Theme (Default)
+     ========================================================================= */
+  
+  /* Backgrounds */
+  --ds-bg-primary: var(--ds-color-white);
+  --ds-bg-secondary: var(--ds-color-gray-50);
+  --ds-bg-tertiary: var(--ds-color-gray-100);
+  --ds-bg-inverse: var(--ds-color-gray-900);
+  --ds-bg-brand: var(--ds-color-primary-600);
+  --ds-bg-brand-subtle: var(--ds-color-primary-50);
+  
+  /* Surface (Cards, Modals, etc.) */
+  --ds-surface-primary: var(--ds-color-white);
+  --ds-surface-secondary: var(--ds-color-gray-50);
+  --ds-surface-elevated: var(--ds-color-white);
+  
+  /* Text */
+  --ds-text-primary: var(--ds-color-gray-900);
+  --ds-text-secondary: var(--ds-color-gray-600);
+  --ds-text-tertiary: var(--ds-color-gray-500);
+  --ds-text-placeholder: var(--ds-color-gray-400);
+  --ds-text-disabled: var(--ds-color-gray-300);
+  --ds-text-inverse: var(--ds-color-white);
+  --ds-text-brand: var(--ds-color-primary-600);
+  --ds-text-link: var(--ds-color-primary-600);
+  --ds-text-link-hover: var(--ds-color-primary-700);
+  
+  /* Borders */
+  --ds-border-default: var(--ds-color-gray-200);
+  --ds-border-subtle: var(--ds-color-gray-100);
+  --ds-border-strong: var(--ds-color-gray-300);
+  --ds-border-hover: var(--ds-color-gray-400);
+  --ds-border-focus: var(--ds-color-primary-500);
+  --ds-border-error: var(--ds-color-error-500);
+  --ds-border-success: var(--ds-color-success-500);
+  --ds-border-warning: var(--ds-color-warning-500);
+  
+  /* Interactive - Primary Button */
+  --ds-interactive-primary: var(--ds-color-primary-600);
+  --ds-interactive-primary-hover: var(--ds-color-primary-700);
+  --ds-interactive-primary-active: var(--ds-color-primary-800);
+  --ds-interactive-primary-disabled: var(--ds-color-primary-200);
+  
+  /* Interactive - Secondary Button */
+  --ds-interactive-secondary: var(--ds-color-gray-50);
+  --ds-interactive-secondary-hover: var(--ds-color-gray-100);
+  --ds-interactive-secondary-active: var(--ds-color-gray-200);
+  
+  /* Interactive - Destructive */
+  --ds-interactive-destructive: var(--ds-color-error-600);
+  --ds-interactive-destructive-hover: var(--ds-color-error-700);
+  --ds-interactive-destructive-active: var(--ds-color-error-800);
+  
+  /* Focus Ring */
+  --ds-focus-ring: 0 0 0 2px var(--ds-color-white), 0 0 0 4px var(--ds-color-primary-500);
+  --ds-focus-ring-error: 0 0 0 2px var(--ds-color-white), 0 0 0 4px var(--ds-color-error-500);
+  
+  /* Status Colors */
+  --ds-status-success-bg: var(--ds-color-success-50);
+  --ds-status-success-text: var(--ds-color-success-700);
+  --ds-status-success-border: var(--ds-color-success-200);
+  
+  --ds-status-warning-bg: var(--ds-color-warning-50);
+  --ds-status-warning-text: var(--ds-color-warning-700);
+  --ds-status-warning-border: var(--ds-color-warning-200);
+  
+  --ds-status-error-bg: var(--ds-color-error-50);
+  --ds-status-error-text: var(--ds-color-error-700);
+  --ds-status-error-border: var(--ds-color-error-200);
+  
+  --ds-status-info-bg: var(--ds-color-info-50);
+  --ds-status-info-text: var(--ds-color-info-700);
+  --ds-status-info-border: var(--ds-color-info-200);
+  
+  --ds-status-neutral-bg: var(--ds-color-gray-100);
+  --ds-status-neutral-text: var(--ds-color-gray-700);
+  --ds-status-neutral-border: var(--ds-color-gray-200);
+}
+
+/* =============================================================================
+   DARK THEME
+   ============================================================================= */
+
+.dark {
+  /* Backgrounds */
+  --ds-bg-primary: var(--ds-color-gray-900);
+  --ds-bg-secondary: var(--ds-color-gray-800);
+  --ds-bg-tertiary: var(--ds-color-gray-700);
+  --ds-bg-inverse: var(--ds-color-white);
+  --ds-bg-brand: var(--ds-color-primary-600);
+  --ds-bg-brand-subtle: var(--ds-color-primary-900);
+  
+  /* Surface */
+  --ds-surface-primary: var(--ds-color-gray-800);
+  --ds-surface-secondary: var(--ds-color-gray-700);
+  --ds-surface-elevated: var(--ds-color-gray-800);
+  
+  /* Text */
+  --ds-text-primary: var(--ds-color-gray-50);
+  --ds-text-secondary: var(--ds-color-gray-300);
+  --ds-text-tertiary: var(--ds-color-gray-400);
+  --ds-text-placeholder: var(--ds-color-gray-500);
+  --ds-text-disabled: var(--ds-color-gray-600);
+  --ds-text-inverse: var(--ds-color-gray-900);
+  --ds-text-brand: var(--ds-color-primary-400);
+  --ds-text-link: var(--ds-color-primary-400);
+  --ds-text-link-hover: var(--ds-color-primary-300);
+  
+  /* Borders */
+  --ds-border-default: var(--ds-color-gray-700);
+  --ds-border-subtle: var(--ds-color-gray-800);
+  --ds-border-strong: var(--ds-color-gray-600);
+  --ds-border-hover: var(--ds-color-gray-500);
+  
+  /* Interactive */
+  --ds-interactive-secondary: var(--ds-color-gray-700);
+  --ds-interactive-secondary-hover: var(--ds-color-gray-600);
+  --ds-interactive-secondary-active: var(--ds-color-gray-500);
+  
+  /* Focus Ring */
+  --ds-focus-ring: 0 0 0 2px var(--ds-color-gray-900), 0 0 0 4px var(--ds-color-primary-500);
+  --ds-focus-ring-error: 0 0 0 2px var(--ds-color-gray-900), 0 0 0 4px var(--ds-color-error-500);
+  
+  /* Status Colors - Dark */
+  --ds-status-success-bg: var(--ds-color-success-900);
+  --ds-status-success-text: var(--ds-color-success-300);
+  --ds-status-success-border: var(--ds-color-success-700);
+  
+  --ds-status-warning-bg: var(--ds-color-warning-900);
+  --ds-status-warning-text: var(--ds-color-warning-300);
+  --ds-status-warning-border: var(--ds-color-warning-700);
+  
+  --ds-status-error-bg: var(--ds-color-error-900);
+  --ds-status-error-text: var(--ds-color-error-300);
+  --ds-status-error-border: var(--ds-color-error-700);
+  
+  --ds-status-info-bg: var(--ds-color-info-900);
+  --ds-status-info-text: var(--ds-color-info-300);
+  --ds-status-info-border: var(--ds-color-info-700);
+  
+  --ds-status-neutral-bg: var(--ds-color-gray-800);
+  --ds-status-neutral-text: var(--ds-color-gray-300);
+  --ds-status-neutral-border: var(--ds-color-gray-600);
+}

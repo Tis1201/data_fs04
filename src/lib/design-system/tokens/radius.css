@@ -1,0 +1,60 @@
+/* =============================================================================
+   DESIGN SYSTEM - BORDER RADIUS TOKENS
+   
+   Consistent border radius values for rounded corners.
+   ============================================================================= */
+
+:root {
+  /* =========================================================================
+     BORDER RADIUS SCALE
+     ========================================================================= */
+  --ds-radius-none: 0;
+  --ds-radius-sm: 0.25rem;     /* 4px */
+  --ds-radius-md: 0.375rem;    /* 6px */
+  --ds-radius-lg: 0.5rem;      /* 8px */
+  --ds-radius-xl: 0.75rem;     /* 12px */
+  --ds-radius-2xl: 1rem;       /* 16px */
+  --ds-radius-3xl: 1.5rem;     /* 24px */
+  --ds-radius-full: 9999px;
+
+  /* =========================================================================
+     COMPONENT-SPECIFIC RADIUS
+     ========================================================================= */
+  
+  /* Buttons */
+  --ds-button-radius: var(--ds-radius-md);
+  --ds-button-radius-sm: var(--ds-radius-sm);
+  --ds-button-radius-lg: var(--ds-radius-lg);
+  --ds-button-radius-full: var(--ds-radius-full);
+  
+  /* Inputs */
+  --ds-input-radius: var(--ds-radius-md);
+  --ds-input-radius-sm: var(--ds-radius-sm);
+  --ds-input-radius-lg: var(--ds-radius-lg);
+  
+  /* Cards */
+  --ds-card-radius: var(--ds-radius-lg);
+  --ds-card-radius-sm: var(--ds-radius-md);
+  --ds-card-radius-lg: var(--ds-radius-xl);
+  
+  /* Modals */
+  --ds-modal-radius: var(--ds-radius-xl);
+  
+  /* Badges */
+  --ds-badge-radius: var(--ds-radius-md);
+  --ds-badge-radius-full: var(--ds-radius-full);
+  
+  /* Avatars */
+  --ds-avatar-radius: var(--ds-radius-full);
+  --ds-avatar-radius-square: var(--ds-radius-md);
+  
+  /* Tooltips */
+  --ds-tooltip-radius: var(--ds-radius-md);
+  
+  /* Dropdowns */
+  --ds-dropdown-radius: var(--ds-radius-lg);
+  
+  /* Tags/Chips */
+  --ds-tag-radius: var(--ds-radius-md);
+  --ds-tag-radius-full: var(--ds-radius-full);
+}

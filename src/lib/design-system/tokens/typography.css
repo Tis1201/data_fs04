@@ -1,0 +1,180 @@
+/* =============================================================================
+   DESIGN SYSTEM - TYPOGRAPHY TOKENS
+   
+   Based on Figma Design System
+   Using Inter as the primary font family.
+   ============================================================================= */
+
+:root {
+  /* =========================================================================
+     FONT FAMILIES
+     ========================================================================= */
+  --ds-font-family-primary: 'Poppins', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ds-font-family-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+  /* =========================================================================
+     FONT SIZES - From Figma
+     ========================================================================= */
+  --ds-text-xs: 0.75rem;       /* 12px */
+  --ds-text-sm: 0.875rem;      /* 14px */
+  --ds-text-md: 1rem;          /* 16px */
+  --ds-text-lg: 1.125rem;      /* 18px */
+  --ds-text-xl: 1.25rem;       /* 20px */
+  
+  /* Display sizes */
+  --ds-display-xs: 1.5rem;     /* 24px */
+  --ds-display-sm: 1.875rem;   /* 30px */
+  --ds-display-md: 2.25rem;    /* 36px */
+  --ds-display-lg: 3rem;       /* 48px */
+  --ds-display-xl: 3.75rem;    /* 60px */
+  --ds-display-2xl: 4.5rem;    /* 72px */
+
+  /* =========================================================================
+     FONT WEIGHTS
+     ========================================================================= */
+  --ds-font-regular: 400;
+  --ds-font-medium: 500;
+  --ds-font-semibold: 600;
+  --ds-font-bold: 700;
+
+  /* =========================================================================
+     LINE HEIGHTS - From Figma
+     ========================================================================= */
+  --ds-leading-xs: 1.125rem;   /* 18px - for text-xs */
+  --ds-leading-sm: 1.25rem;    /* 20px - for text-sm */
+  --ds-leading-md: 1.5rem;     /* 24px - for text-md */
+  --ds-leading-lg: 1.75rem;    /* 28px - for text-lg */
+  --ds-leading-xl: 1.875rem;   /* 30px - for text-xl */
+  
+  /* Display line heights */
+  --ds-leading-display-xs: 2rem;      /* 32px */
+  --ds-leading-display-sm: 2.375rem;  /* 38px */
+  --ds-leading-display-md: 2.75rem;   /* 44px */
+  --ds-leading-display-lg: 3.75rem;   /* 60px */
+  --ds-leading-display-xl: 4.5rem;    /* 72px */
+  --ds-leading-display-2xl: 5.625rem; /* 90px */
+
+  /* Generic line heights */
+  --ds-leading-none: 1;
+  --ds-leading-tight: 1.25;
+  --ds-leading-snug: 1.375;
+  --ds-leading-normal: 1.5;
+  --ds-leading-relaxed: 1.625;
+  --ds-leading-loose: 2;
+
+  /* =========================================================================
+     LETTER SPACING (Tracking) - From Figma
+     ========================================================================= */
+  --ds-tracking-display: -0.02em;  /* -2% for display text */
+  --ds-tracking-tight: -0.01em;    /* -1% */
+  --ds-tracking-normal: 0;
+  --ds-tracking-wide: 0.01em;
+  --ds-tracking-wider: 0.02em;
+
+  /* =========================================================================
+     TEXT PRESETS - Display (for headings, heroes)
+     
+     Format: weight size/line-height family
+     Usage: font: var(--ds-display-2xl-semibold);
+     ========================================================================= */
+  
+  /* Display 2xl - 72px */
+  --ds-display-2xl-regular: var(--ds-font-regular) var(--ds-display-2xl)/var(--ds-leading-display-2xl) var(--ds-font-family-primary);
+  --ds-display-2xl-medium: var(--ds-font-medium) var(--ds-display-2xl)/var(--ds-leading-display-2xl) var(--ds-font-family-primary);
+  --ds-display-2xl-semibold: var(--ds-font-semibold) var(--ds-display-2xl)/var(--ds-leading-display-2xl) var(--ds-font-family-primary);
+  --ds-display-2xl-bold: var(--ds-font-bold) var(--ds-display-2xl)/var(--ds-leading-display-2xl) var(--ds-font-family-primary);
+  
+  /* Display xl - 60px */
+  --ds-display-xl-regular: var(--ds-font-regular) var(--ds-display-xl)/var(--ds-leading-display-xl) var(--ds-font-family-primary);
+  --ds-display-xl-medium: var(--ds-font-medium) var(--ds-display-xl)/var(--ds-leading-display-xl) var(--ds-font-family-primary);
+  --ds-display-xl-semibold: var(--ds-font-semibold) var(--ds-display-xl)/var(--ds-leading-display-xl) var(--ds-font-family-primary);
+  --ds-display-xl-bold: var(--ds-font-bold) var(--ds-display-xl)/var(--ds-leading-display-xl) var(--ds-font-family-primary);
+  
+  /* Display lg - 48px */
+  --ds-display-lg-regular: var(--ds-font-regular) var(--ds-display-lg)/var(--ds-leading-display-lg) var(--ds-font-family-primary);
+  --ds-display-lg-medium: var(--ds-font-medium) var(--ds-display-lg)/var(--ds-leading-display-lg) var(--ds-font-family-primary);
+  --ds-display-lg-semibold: var(--ds-font-semibold) var(--ds-display-lg)/var(--ds-leading-display-lg) var(--ds-font-family-primary);
+  --ds-display-lg-bold: var(--ds-font-bold) var(--ds-display-lg)/var(--ds-leading-display-lg) var(--ds-font-family-primary);
+  
+  /* Display md - 36px */
+  --ds-display-md-regular: var(--ds-font-regular) var(--ds-display-md)/var(--ds-leading-display-md) var(--ds-font-family-primary);
+  --ds-display-md-medium: var(--ds-font-medium) var(--ds-display-md)/var(--ds-leading-display-md) var(--ds-font-family-primary);
+  --ds-display-md-semibold: var(--ds-font-semibold) var(--ds-display-md)/var(--ds-leading-display-md) var(--ds-font-family-primary);
+  --ds-display-md-bold: var(--ds-font-bold) var(--ds-display-md)/var(--ds-leading-display-md) var(--ds-font-family-primary);
+  
+  /* Display sm - 30px */
+  --ds-display-sm-regular: var(--ds-font-regular) var(--ds-display-sm)/var(--ds-leading-display-sm) var(--ds-font-family-primary);
+  --ds-display-sm-medium: var(--ds-font-medium) var(--ds-display-sm)/var(--ds-leading-display-sm) var(--ds-font-family-primary);
+  --ds-display-sm-semibold: var(--ds-font-semibold) var(--ds-display-sm)/var(--ds-leading-display-sm) var(--ds-font-family-primary);
+  --ds-display-sm-bold: var(--ds-font-bold) var(--ds-display-sm)/var(--ds-leading-display-sm) var(--ds-font-family-primary);
+  
+  /* Display xs - 24px */
+  --ds-display-xs-regular: var(--ds-font-regular) var(--ds-display-xs)/var(--ds-leading-display-xs) var(--ds-font-family-primary);
+  --ds-display-xs-medium: var(--ds-font-medium) var(--ds-display-xs)/var(--ds-leading-display-xs) var(--ds-font-family-primary);
+  --ds-display-xs-semibold: var(--ds-font-semibold) var(--ds-display-xs)/var(--ds-leading-display-xs) var(--ds-font-family-primary);
+  --ds-display-xs-bold: var(--ds-font-bold) var(--ds-display-xs)/var(--ds-leading-display-xs) var(--ds-font-family-primary);
+
+  /* =========================================================================
+     TEXT PRESETS - Text (for body, labels, UI)
+     ========================================================================= */
+  
+  /* Text xl - 20px */
+  --ds-text-xl-regular: var(--ds-font-regular) var(--ds-text-xl)/var(--ds-leading-xl) var(--ds-font-family-primary);
+  --ds-text-xl-medium: var(--ds-font-medium) var(--ds-text-xl)/var(--ds-leading-xl) var(--ds-font-family-primary);
+  --ds-text-xl-semibold: var(--ds-font-semibold) var(--ds-text-xl)/var(--ds-leading-xl) var(--ds-font-family-primary);
+  --ds-text-xl-bold: var(--ds-font-bold) var(--ds-text-xl)/var(--ds-leading-xl) var(--ds-font-family-primary);
+  
+  /* Text lg - 18px */
+  --ds-text-lg-regular: var(--ds-font-regular) var(--ds-text-lg)/var(--ds-leading-lg) var(--ds-font-family-primary);
+  --ds-text-lg-medium: var(--ds-font-medium) var(--ds-text-lg)/var(--ds-leading-lg) var(--ds-font-family-primary);
+  --ds-text-lg-semibold: var(--ds-font-semibold) var(--ds-text-lg)/var(--ds-leading-lg) var(--ds-font-family-primary);
+  --ds-text-lg-bold: var(--ds-font-bold) var(--ds-text-lg)/var(--ds-leading-lg) var(--ds-font-family-primary);
+  
+  /* Text md - 16px (base) */
+  --ds-text-md-regular: var(--ds-font-regular) var(--ds-text-md)/var(--ds-leading-md) var(--ds-font-family-primary);
+  --ds-text-md-medium: var(--ds-font-medium) var(--ds-text-md)/var(--ds-leading-md) var(--ds-font-family-primary);
+  --ds-text-md-semibold: var(--ds-font-semibold) var(--ds-text-md)/var(--ds-leading-md) var(--ds-font-family-primary);
+  --ds-text-md-bold: var(--ds-font-bold) var(--ds-text-md)/var(--ds-leading-md) var(--ds-font-family-primary);
+  
+  /* Text sm - 14px */
+  --ds-text-sm-regular: var(--ds-font-regular) var(--ds-text-sm)/var(--ds-leading-sm) var(--ds-font-family-primary);
+  --ds-text-sm-medium: var(--ds-font-medium) var(--ds-text-sm)/var(--ds-leading-sm) var(--ds-font-family-primary);
+  --ds-text-sm-semibold: var(--ds-font-semibold) var(--ds-text-sm)/var(--ds-leading-sm) var(--ds-font-family-primary);
+  --ds-text-sm-bold: var(--ds-font-bold) var(--ds-text-sm)/var(--ds-leading-sm) var(--ds-font-family-primary);
+  
+  /* Text xs - 12px */
+  --ds-text-xs-regular: var(--ds-font-regular) var(--ds-text-xs)/var(--ds-leading-xs) var(--ds-font-family-primary);
+  --ds-text-xs-medium: var(--ds-font-medium) var(--ds-text-xs)/var(--ds-leading-xs) var(--ds-font-family-primary);
+  --ds-text-xs-semibold: var(--ds-font-semibold) var(--ds-text-xs)/var(--ds-leading-xs) var(--ds-font-family-primary);
+  --ds-text-xs-bold: var(--ds-font-bold) var(--ds-text-xs)/var(--ds-leading-xs) var(--ds-font-family-primary);
+
+  /* =========================================================================
+     LEGACY ALIASES (for backward compatibility)
+     ========================================================================= */
+  --ds-text-base: var(--ds-text-md);
+  
+  /* Heading shortcuts */
+  --ds-heading-1: var(--ds-display-lg-semibold);
+  --ds-heading-2: var(--ds-display-md-semibold);
+  --ds-heading-3: var(--ds-display-sm-semibold);
+  --ds-heading-4: var(--ds-display-xs-semibold);
+  --ds-heading-5: var(--ds-text-xl-semibold);
+  --ds-heading-6: var(--ds-text-lg-semibold);
+  
+  /* Body shortcuts */
+  --ds-body-lg: var(--ds-text-lg-regular);
+  --ds-body-base: var(--ds-text-md-regular);
+  --ds-body-sm: var(--ds-text-sm-regular);
+  --ds-body-xs: var(--ds-text-xs-regular);
+  
+  /* Label shortcuts */
+  --ds-label-lg: var(--ds-text-md-medium);
+  --ds-label-base: var(--ds-text-sm-medium);
+  --ds-label-sm: var(--ds-text-xs-medium);
+
+  /* =========================================================================
+     CODE TEXT
+     ========================================================================= */
+  --ds-code-base: var(--ds-font-regular) var(--ds-text-sm)/var(--ds-leading-normal) var(--ds-font-family-mono);
+  --ds-code-sm: var(--ds-font-regular) var(--ds-text-xs)/var(--ds-leading-normal) var(--ds-font-family-mono);
+}

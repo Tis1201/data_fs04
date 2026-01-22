@@ -1,0 +1,187 @@
+/* =============================================================================
+   DESIGN SYSTEM - TRANSITION & ANIMATION TOKENS
+   
+   Consistent timing and easing for animations.
+   ============================================================================= */
+
+:root {
+  /* =========================================================================
+     DURATION
+     ========================================================================= */
+  --ds-duration-instant: 0ms;
+  --ds-duration-fast: 100ms;
+  --ds-duration-normal: 200ms;
+  --ds-duration-slow: 300ms;
+  --ds-duration-slower: 500ms;
+  --ds-duration-slowest: 700ms;
+
+  /* =========================================================================
+     EASING FUNCTIONS
+     ========================================================================= */
+  --ds-ease-linear: linear;
+  --ds-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ds-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ds-ease-smooth: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  /* =========================================================================
+     TRANSITION PRESETS
+     
+     Usage:
+     transition: var(--ds-transition-colors);
+     ========================================================================= */
+  
+  /* Property-specific transitions */
+  --ds-transition-none: none;
+  --ds-transition-all: all var(--ds-duration-normal) var(--ds-ease-in-out);
+  --ds-transition-colors: color, background-color, border-color, text-decoration-color, fill, stroke var(--ds-duration-normal) var(--ds-ease-in-out);
+  --ds-transition-opacity: opacity var(--ds-duration-normal) var(--ds-ease-in-out);
+  --ds-transition-shadow: box-shadow var(--ds-duration-normal) var(--ds-ease-in-out);
+  --ds-transition-transform: transform var(--ds-duration-normal) var(--ds-ease-in-out);
+
+  /* =========================================================================
+     COMPONENT TRANSITIONS
+     ========================================================================= */
+  
+  /* Buttons */
+  --ds-button-transition: 
+    background-color var(--ds-duration-fast) var(--ds-ease-in-out),
+    border-color var(--ds-duration-fast) var(--ds-ease-in-out),
+    color var(--ds-duration-fast) var(--ds-ease-in-out),
+    box-shadow var(--ds-duration-fast) var(--ds-ease-in-out),
+    transform var(--ds-duration-fast) var(--ds-ease-in-out);
+  
+  /* Inputs */
+  --ds-input-transition:
+    border-color var(--ds-duration-fast) var(--ds-ease-in-out),
+    box-shadow var(--ds-duration-fast) var(--ds-ease-in-out),
+    background-color var(--ds-duration-fast) var(--ds-ease-in-out);
+  
+  /* Cards */
+  --ds-card-transition:
+    box-shadow var(--ds-duration-normal) var(--ds-ease-in-out),
+    transform var(--ds-duration-normal) var(--ds-ease-in-out),
+    border-color var(--ds-duration-normal) var(--ds-ease-in-out);
+  
+  /* Links */
+  --ds-link-transition: color var(--ds-duration-fast) var(--ds-ease-in-out);
+  
+  /* Modals */
+  --ds-modal-transition: 
+    opacity var(--ds-duration-normal) var(--ds-ease-out),
+    transform var(--ds-duration-normal) var(--ds-ease-out);
+  
+  /* Sidebar */
+  --ds-sidebar-transition: width var(--ds-duration-slow) var(--ds-ease-in-out);
+  
+  /* Dropdowns */
+  --ds-dropdown-transition:
+    opacity var(--ds-duration-fast) var(--ds-ease-out),
+    transform var(--ds-duration-fast) var(--ds-ease-out);
+
+  /* =========================================================================
+     ANIMATION KEYFRAMES DURATION
+     ========================================================================= */
+  --ds-animation-spin: 1s linear infinite;
+  --ds-animation-ping: 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --ds-animation-pulse: 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --ds-animation-bounce: 1s infinite;
+}
+
+/* =========================================================================
+   KEYFRAME ANIMATIONS
+   ========================================================================= */
+
+@keyframes ds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ds-ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes ds-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes ds-bounce {
+  0%, 100% {
+    transform: translateY(-25%);
+    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+  }
+  50% {
+    transform: none;
+    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+@keyframes ds-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ds-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ds-slide-in-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes ds-slide-in-down {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes ds-scale-in {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes ds-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  10%, 30%, 50%, 70%, 90% {
+    transform: translateX(-4px);
+  }
+  20%, 40%, 60%, 80% {
+    transform: translateX(4px);
+  }
+}
