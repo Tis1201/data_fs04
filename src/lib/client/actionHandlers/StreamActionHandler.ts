@@ -167,6 +167,8 @@ export class LogsHandler extends StreamActionHandler {
 
   private async triggerLogsDownload(logId: string, objectPath: string): Promise<void> {
     try {
+      console.log(`[LogsHandler] Fetching download URL for logs:`, { logId, objectPath, deviceId: this.deviceId });
+      
       const downloadResponse = await fetch(
         `/api/v2/devices/${this.deviceId}/pull-file-download-url?logId=${logId}`,
         { 
@@ -183,18 +185,25 @@ export class LogsHandler extends StreamActionHandler {
       const response = await downloadResponse.json();
       const data = response.data || response;
       const downloadUrl = data.downloadUrl;
+      // Extract filename from objectPath or use default
+      const fileName = data.fileName || (objectPath ? objectPath.split('/').pop() || 'logs.zip' : 'logs.zip');
+      
+      console.log(`[LogsHandler] Download URL received:`, { downloadUrl, fileName, response });
       
       if (!downloadUrl) {
-        throw new Error(`Download URL is missing from API response`);
+        throw new Error(`Download URL is missing from API response: ${JSON.stringify(response)}`);
       }
       
+      console.log(`[LogsHandler] Triggering download via anchor click`);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.target = '_blank';
+      // Remove target='_blank' to avoid pop-up blocker - browser will download directly
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      
+      console.log(`[LogsHandler] Logs download triggered`);
     } catch (error) {
       console.error('[LogsHandler] Error triggering logs download', { logId, error });
     }
