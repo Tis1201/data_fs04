@@ -25,7 +25,7 @@
 	
 	export let expanded: boolean = true;
 	export let logoText: string = 'Data Realities';
-	export let logoSrc: string = '/logo-data-realities.svg';
+	export let logoSrc: string = '/data-realities-logo.svg';
 	
 	// Main navigation items
 	export let mainNavItems: NavItem[] = [];

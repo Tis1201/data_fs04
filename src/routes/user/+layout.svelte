@@ -1,106 +1,270 @@
 <script lang="ts">
     import { page } from "$app/stores";
-    import { onMount } from "svelte";
-    import UserSidebar from "$lib/components/user/UserSidebar.svelte";
-    import { fly } from "svelte/transition";
-    import { LogOut, User } from "lucide-svelte";
-    import { goto } from "$app/navigation";
-    import EnhancedMenubar from "$lib/components/ui_components_sveltekit/menubar/EnhancedMenubar.svelte";
-    import { topMenuItems } from "$lib/stores/menuStore";
+    import { createEventDispatcher } from 'svelte';
+    import { Sidebar, type NavItem } from '$lib/design-system/components';
+    import { TopNavigation } from '$lib/design-system/components';
+    import type { TopNavStyle, UserInfo } from '$lib/design-system/components';
     import AccountSelector from "$lib/components/account/AccountSelector.svelte";
+    import { goto } from "$app/navigation";
+    
+    // Import Design System Tokens - CRITICAL for design system to work
+    import "$lib/design-system/tokens/index.css";
+    import {
+        LayoutGrid,
+        Settings,
+        CircleHelp,
+        Globe,
+        LayoutList,
+        Box,
+        Radio
+
+    } from "lucide-svelte";
 
     export let data;
-    let collapsed = false;
-    let showMenu = false;
-    
-    // Force reactivity with page changes
-    $: {
-        // This will re-evaluate whenever the page changes
-        const path = $page.url.pathname;
-        
-        // Only reset menu items when navigating away from pages with custom menus
-        if (!path.includes('/user/settings') && 
-            !path.includes('/user/profile')) {
-            topMenuItems.set(null);
+
+    const dispatch = createEventDispatcher();
+
+    // Sidebar state
+    let sidebarExpanded = true;
+
+    // Module permissions from layout data
+    const modulePermissions: Record<string, string[]> = data.modulePermissions || {};
+    const userSystemRole: string = data.user?.systemRole || 'USER';
+
+    // Main navigation items matching Figma design
+    const mainNavItems: NavItem[] = [
+        {
+            id: 'dashboard',
+            label: 'Dashboard',
+            icon: LayoutGrid,
+            href: '/user/dashboard'
+        },
+        {
+            id: 'devices',
+            label: 'Devices',
+            icon: LayoutList,
+            children: [
+                // Module mới chưa có design - dẫn đến route riêng (sẽ 404)
+                { id: 'device-listing', label: 'Device Listing', href: '/user/devices/listing' },
+                { id: 'tags', label: 'Tags', href: '/user/devices/tags' }
+            ]
+        },
+        {
+            id: 'organization',
+            label: 'Organization',
+            icon: Globe,
+            href: '/user/settings/account',
+            dividerAfter: true
+        },
+        // RDM Management Section
+        {
+            id: 'rdm-management',
+            label: 'RDM Management',
+            icon: Box,
+            children: [
+                { id: 'rdm-devices', label: 'Devices', href: '/user/iot/devices' },
+                { id: 'bulk-deployment', label: 'Bulk Deployment', href: '/user/iot/bundles' },
+                { id: 'applications', label: 'Application & Resources', href: '/user/resources' },
+                { id: 'pre-enrollment', label: 'Pre-Enrollment', href: '/user/iot/preclaims' },
+                { id: 'app-pinning', label: 'App Pinning Rules', href: '/user/iot/pin-rules' },
+                { id: 'profiles', label: 'Profiles', href: '/user/iot/device-profiles' }
+            ]
+        },
+        // IoT Management Section
+        {
+            id: 'iot-management',
+            label: 'IoT Management',
+            icon: Radio,
+            children: [
+                { id: 'sensors', label: 'Sensors', href: '/user/controllers/radar' },
+                { id: 'templates', label: 'Templates', href: '/user/iot/templates' },
+                { id: 'data', label: 'Data', href: '/user/analytics/radar' },
+                { id: 'api-keys', label: 'API Keys', href: '/user/settings/api-keys' }
+            ]
         }
+    ];
+
+    // Footer navigation items
+    const footerNavItems: NavItem[] = [
+        {
+            id: 'settings',
+            label: 'Settings',
+            icon: Settings,
+            href: '/user/profile'
+        },
+        {
+            id: 'help',
+            label: 'Help & Support',
+            icon: CircleHelp,
+            href: '/user/support'
+        }
+    ];
+
+    // User info for TopNavigation
+    let userInfo: UserInfo;
+    $: userInfo = {
+        email: data.user?.email || '',
+        role: data.user?.systemRole || 'USER',
+        name: data.user?.email?.split('@')[0] || 'User'
+    };
+
+    // Page config based on route
+    $: pageConfig = getPageConfig($page.url.pathname);
+
+    function getPageConfig(pathname: string): {
+        headerStyle: TopNavStyle;
+        title: string;
+        subtitle: string;
+    } {
+        if (pathname.includes('/iot/devices/new')) {
+            return {
+                headerStyle: 'page',
+                title: 'Claim Device',
+                subtitle: 'Connect a new device to your account'
+            };
+        }
+        if (pathname.includes('/iot/devices/') && pathname.endsWith('/edit')) {
+            return {
+                headerStyle: 'page',
+                title: 'Edit Device',
+                subtitle: 'Update device information'
+            };
+        }
+        if (pathname.includes('/iot/devices/') && pathname.endsWith('/terminal')) {
+            return {
+                headerStyle: 'page',
+                title: 'Terminal',
+                subtitle: 'Remote terminal session'
+            };
+        }
+        if (pathname.includes('/iot/devices/') && pathname.endsWith('/rdp')) {
+            return {
+                headerStyle: 'page',
+                title: 'Remote Desktop',
+                subtitle: 'Remote device screen'
+            };
+        }
+        if (pathname.includes('/iot/devices')) {
+            return {
+                headerStyle: 'page',
+                title: 'Devices',
+                subtitle: 'View, filter, and manage all registered devices'
+            };
+        }
+        if (pathname.includes('/dashboard')) {
+            return {
+                headerStyle: 'page',
+                title: 'Dashboard',
+                subtitle: 'Overview of your account'
+            };
+        }
+        // Default
+        return {
+            headerStyle: 'page',
+            title: '',
+            subtitle: ''
+        };
+    }
+
+    function handleSidebarToggle(e: CustomEvent<boolean>) {
+        sidebarExpanded = e.detail;
+        dispatch('sidebarToggle', sidebarExpanded);
+    }
+
+    function handleItemClick(e: CustomEvent<NavItem>) {
+        if (e.detail.href) {
+            goto(e.detail.href);
+        }
+        dispatch('navigate', e.detail);
+    }
+
+    function handleUserMenuClick() {
+        // Handle user menu click (profile, logout, etc.)
+        // This will be handled by TopNavigation component
+    }
+
+    function handleUserMenuAction(e: CustomEvent<{ id: string }>) {
+        const id = e.detail?.id;
+        if (!id) return;
+        if (id === 'settings') {
+            goto('/user/settings/account');
+            return;
+        }
+        if (id === 'logout') {
+            // Use hard navigation so cookies/session are cleared reliably
+            window.location.href = '/auth/logout';
+            return;
+        }
+    }
+
+    function handleSearch() {
+        // Handle search
+    }
+
+    function handleNotifications() {
+        // Handle notifications
+    }
+
+    function handleBack() {
+        window.history.back();
+    }
+
+    function handleGridClick() {
+        // Handle grid view toggle
     }
 </script>
 
-<div class="relative flex h-screen">
-    <UserSidebar 
-        bind:collapsed 
-        modulePermissions={data.modulePermissions || {}}
-        userSystemRole={data.user?.systemRole || 'USER'}
+<div class="flex h-screen bg-white">
+    <!-- Sidebar using design system component -->
+    <Sidebar
+        expanded={sidebarExpanded}
+        logoText="Data Realities"
+        {mainNavItems}
+        {footerNavItems}
+        on:toggle={handleSidebarToggle}
+        on:itemClick={handleItemClick}
     />
-    <div class="flex-1 flex flex-col">
-        <header class="border-b">
-            <div class="relative flex h-12 items-center px-4 gap-4">
-                <div class="flex-1">
-                    {#if $topMenuItems}
-                        <EnhancedMenubar 
-                            items={$topMenuItems.items || []} 
-                            activeItem={$topMenuItems.activeItem || null} 
-                        />
-                    {/if}
+
+    <!-- Main content area -->
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <!-- Top Navigation using design system component -->
+        <div class="relative">
+            <TopNavigation
+                style={pageConfig.headerStyle}
+                mode="light"
+                title={pageConfig.title}
+                subtitle={pageConfig.subtitle}
+                user={userInfo}
+                userMenuItems={[
+                    { id: 'settings', label: 'Settings' },
+                    { id: 'logout', label: 'Logout', destructive: true }
+                ]}
+                showSearch={false}
+                showNotifications={false}
+                showBackButton={false}
+                showUserMenu={true}
+                showDivider={false}
+                showGridButton={false}
+                on:search={handleSearch}
+                on:notifications={handleNotifications}
+                on:userMenuClick={handleUserMenuClick}
+                on:userMenuAction={handleUserMenuAction}
+                on:back={handleBack}
+                on:gridClick={handleGridClick}
+            />
+            <!-- Account Selector - positioned absolutely before user menu -->
+            {#if data.accountMemberships && data.accountMemberships.length > 0}
+                <div class="absolute right-24 top-1/2 -translate-y-1/2">
+                    <!-- <AccountSelector 
+                        currentAccount={data.currentAccount} 
+                        accountMemberships={data.accountMemberships} 
+                    /> -->
                 </div>
-                <div class="flex items-center gap-4">
-                    <!-- Account Selector Component -->
-                    {#if data.accountMemberships && data.accountMemberships.length > 0}
-                        <AccountSelector 
-                            currentAccount={data.currentAccount} 
-                            accountMemberships={data.accountMemberships} 
-                        />
-                    {/if}
-                    <div class="relative">
-                        <button
-                            type="button"
-                            class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-primary"
-                            on:click={() => showMenu = !showMenu}
-                        >
-                            <span class="text-sm font-medium">
-                                {data.user?.email?.[0]?.toUpperCase() ?? "U"}
-                            </span>
-                        </button>
-                        
-                        {#if showMenu}
-                        <div 
-                            class="absolute right-0 top-full mt-1 w-56 rounded-md border bg-white shadow-lg"
-                            transition:fly={{ y: -5, duration: 150 }}
-                            role="menu"
-                            tabindex="0"
-                            on:mouseleave={() => showMenu = false}
-                        >
-                            <div class="p-2">
-                                <div class="px-2 py-1.5">
-                                    <div class="text-sm font-medium leading-none">
-                                        {data.user?.email}
-                                    </div>
-                                </div>
-                                <div class="h-px my-1 bg-gray-200" />
-                                <a 
-                                    href="/user/profile"
-                                    class="flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-100"
-                                    role="menuitem"
-                                >
-                                    <User class="h-4 w-4" />
-                                    <span>My Profile</span>
-                                </a>
-                                <a 
-                                    href="/auth/logout"
-                                    class="flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-100"
-                                    role="menuitem"
-                                >
-                                    <LogOut class="h-4 w-4" />
-                                    <span>Log out</span>
-                                </a>
-                            </div>
-                        </div>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-        </header>
-        <main class="flex-1 p-2 overflow-y-auto">
+            {/if}
+        </div>
+
+        <!-- Page content -->
+        <main class="flex-1 overflow-auto bg-[#F9FAFB]">
             <slot />
         </main>
     </div>
