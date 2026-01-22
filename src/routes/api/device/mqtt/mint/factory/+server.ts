@@ -2,7 +2,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
 import { logger } from '$lib/server/logger';
-import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
+import { buildMqttMintPayload, getMqttBrokerWsUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 import { createErrorResponse, createSuccessResponse } from '$lib/server/types/api';
 import { getClientIp } from '$lib/utils/request-utils';
 
@@ -15,12 +15,12 @@ import { getClientIp } from '$lib/utils/request-utils';
  *   username, and jwt (used as MQTT password).
  ********************************************************************************************/
 async function mintFactoryMqttCredentials(factoryDeviceId: string) {
-    const brokerUrl = getMqttBrokerUrl();
+    const brokerUrl = getMqttBrokerWsUrl();
     if (!brokerUrl) {
-        logger.error('[FactoryMqttMintAPI] MQTT_BROKER_URL is not configured');
+        logger.error('[FactoryMqttMintAPI] MQTT_BROKER_URL_EXTERNAL is not configured');
         return json(
             createErrorResponse('MQTT broker URL is not configured', {
-                details: 'Set MQTT_BROKER_URL in the server environment'
+                details: 'Set MQTT_BROKER_URL_EXTERNAL in the server environment'
             }),
             { status: 500 }
         );
@@ -94,7 +94,7 @@ export const POST: RequestHandler = async (event) => {
         // Update FactoryToken record to mark it as used
         try {
             const factoryToken = await locals.prisma.factoryToken.findFirst({
-                where: { 
+                where: {
                     token: factoryTokenString,
                     isUsed: false,
                     expiresAt: { gt: new Date() }

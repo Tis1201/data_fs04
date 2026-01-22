@@ -33,6 +33,8 @@ export const MIME_EXT_MAP: Record<string, string> = {
     'application/x-zip-compressed': 'zip',
     'application/vnd.android.package-archive': 'apk',
     'application/octet-stream': 'cpk', // Custom package files
+    'application/vnd.debian.binary-package': 'deb', // Debian package
+    'application/x-deb': 'deb', // Alternative MIME type for .deb
     
     // Legacy mappings (for reference, but not allowed)
     'image/png': 'png',
@@ -49,7 +51,7 @@ export const MIME_EXT_MAP: Record<string, string> = {
 
 /**
  * Infer resource type and format from the uploaded file.
- * Only supports .zip, .cpk, and .apk files.
+ * Supports .zip, .cpk, .apk, and .deb files.
  */
 export function inferTypeAndFormatFromFile(file: File): { type: string; format: string } {
     const mime = file.type || '';
@@ -65,6 +67,8 @@ export function inferTypeAndFormatFromFile(file: File): { type: string; format: 
     
     // Set type based on format for supported file types
     if (format === 'apk') {
+        type = 'application';
+    } else if (format === 'deb') {
         type = 'application';
     } else if (format === 'zip') {
         type = 'archive';

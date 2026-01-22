@@ -34,24 +34,7 @@ export function getMqttBrokerUrl(): string | null {
  * Falls back to converting MQTT_BROKER_URL from mqtt:// to ws:// with port 8083.
  */
 export function getMqttBrokerWsUrl(): string | null {
-    // First check for explicit WS URL
-    if (process.env.MQTT_BROKER_WS_URL) {
-        return process.env.MQTT_BROKER_WS_URL;
-    }
-    
-    // Fall back to converting TCP URL to WS
-    const tcpUrl = process.env.MQTT_BROKER_URL;
-    if (!tcpUrl) return null;
-    
-    try {
-        // Convert mqtt://localhost:1883 -> ws://localhost:8083/mqtt
-        const url = new URL(tcpUrl.replace('mqtt://', 'http://').replace('mqtts://', 'https://'));
-        const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsPort = url.port === '1883' ? '8083' : url.port === '8883' ? '8084' : url.port;
-        return `${wsProtocol}//${url.hostname}:${wsPort}/mqtt`;
-    } catch {
-        return null;
-    }
+    return process.env.MQTT_BROKER_URL_EXTERNAL || null;
 }
 
 /**

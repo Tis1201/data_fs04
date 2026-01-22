@@ -1,19 +1,19 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrictDevice } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
-import { buildMqttMintPayload, getMqttBrokerUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
+import { buildMqttMintPayload, getMqttBrokerWsUrl, mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
 export const POST: RequestHandler = restrictDevice(async ({ device }) => {
   logger.info(`[DeviceMqttMintAPI] Received MQTT mint request for device: ${String(device.id)}`);
 
-  const brokerUrl = getMqttBrokerUrl();
+  const brokerUrl = getMqttBrokerWsUrl();
   if (!brokerUrl) {
-    logger.error('[DeviceMqttMintAPI] MQTT_BROKER_URL is not configured');
+    logger.error('[DeviceMqttMintAPI] MQTT_BROKER_URL_EXTERNAL is not configured');
     return json(
       createErrorResponse('MQTT broker URL is not configured', {
-        details: 'Set MQTT_BROKER_URL in the server environment'
+        details: 'Set MQTT_BROKER_URL_EXTERNAL in the server environment'
       }),
       { status: 500 }
     );

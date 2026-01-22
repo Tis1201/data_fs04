@@ -30,6 +30,21 @@ export interface ApkParseResult {
   error?: string;
 }
 
+export interface DebParseResult {
+  success: boolean;
+  data?: {
+    packageName: string;
+    version: string;
+    description: string;
+    architecture?: string | null;
+    section?: string | null;
+    priority?: string | null;
+    maintainer?: string | null;
+    depends?: string | null;
+  };
+  error?: string;
+}
+
 /**
  * Parse an APK file using the server-side parser
  * @param file - The APK file to parse
@@ -72,14 +87,59 @@ export async function parseApkFile(file: File): Promise<ApkParseResult> {
 }
 
 /**
- * Parse a ZIP/APK/CPK file and extract app.json data
+ * Parse a .deb file using the server-side parser
+ * Uses direct file upload (FormData) for simplicity
+ * @param file - The .deb file to parse
+ * @returns Promise with parsing result
+ */
+export async function parseDebFile(file: File): Promise<DebParseResult> {
+  console.log('[DEB Parser] Starting DEB file parsing:', {
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type
+  });
+
+  try {
+    // Use FormData for direct file upload (simpler than presigned URL for now)
+    const formData = new FormData();
+    formData.append('file', file);
+
+    console.log('[DEB Parser] Uploading file to server for parsing...');
+    const parseResponse = await fetch('/api/admin/iot/resources/parse-deb', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!parseResponse.ok) {
+      const errorData = await parseResponse.json();
+      return {
+        success: false,
+        error: errorData.error || 'Failed to parse .deb file'
+      };
+    }
+
+    const result = await parseResponse.json();
+    console.log('[DEB Parser] Successfully parsed DEB:', result.data);
+    return result;
+  } catch (error) {
+    console.error('[DEB Parser] DEB parsing error:', error);
+    return {
+      success: false,
+      error: 'Failed to parse .deb file: ' + (error instanceof Error ? error.message : String(error))
+    };
+  }
+}
+
+/**
+ * Parse a ZIP/APK/CPK/DEB file and extract app.json data
  * Note: For APK files, this will use app-info-parser to read Android manifest
  * For ZIP and CPK files, this will read app.json from the archive
- * @param file - The ZIP/APK/CPK file to parse
+ * For DEB files, this will use server-side parser to read DEBIAN/control
+ * @param file - The ZIP/APK/CPK/DEB file to parse
  * @returns Promise with parsing result
  */
 export async function parseZipFile(file: File): Promise<ZipParseResult> {
-  console.log('[ZIP Parser] Starting ZIP/APK/CPK file parsing:', {
+  console.log('[ZIP Parser] Starting ZIP/APK/CPK/DEB file parsing:', {
     fileName: file.name,
     fileSize: file.size,
     fileType: file.type
@@ -90,11 +150,40 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
   const isZipFile = fileName.endsWith('.zip');
   const isApkFile = fileName.endsWith('.apk');
   const isCpkFile = fileName.endsWith('.cpk');
+  const isDebFile = fileName.endsWith('.deb');
   
-  if (!isZipFile && !isApkFile && !isCpkFile) {
+  if (!isZipFile && !isApkFile && !isCpkFile && !isDebFile) {
     return {
       success: false,
-      error: 'File must be a .zip, .apk, or .cpk file'
+      error: 'File must be a .zip, .apk, .cpk, or .deb file'
+    };
+  }
+
+  // For DEB files, use the server-side parser
+  if (isDebFile) {
+    console.log('[ZIP Parser] Detected DEB file, using DEB parser...');
+    const debResult = await parseDebFile(file);
+    
+    if (!debResult.success || !debResult.data) {
+      return {
+        success: false,
+        error: debResult.error || 'Failed to parse .deb file'
+      };
+    }
+
+    // Convert DEB result to ZipParseResult format for compatibility
+    const appData: AppJsonData = {
+      name: debResult.data.packageName,
+      display_name: debResult.data.packageName, // Use package name as display name
+      domain: '',
+      version: debResult.data.version,
+      main: '',
+      hidden: ''
+    };
+
+    return {
+      success: true,
+      appData
     };
   }
 
@@ -211,10 +300,10 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
 export function generatePackageName(appData: AppJsonData): string {
   console.log('[ZIP Parser] generatePackageName called with:', appData);
   
-  // For APK files, the name field already contains the full package name
-  // (domain is empty for APK files)
+  // For APK and DEB files, the name field already contains the full package name
+  // (domain is empty for APK and DEB files)
   if (!appData.domain && appData.name) {
-    console.log('[ZIP Parser] APK format detected, using name as package name:', appData.name);
+    console.log('[ZIP Parser] APK/DEB format detected, using name as package name:', appData.name);
     return appData.name;
   }
   
@@ -239,6 +328,7 @@ export function generatePackageName(appData: AppJsonData): string {
  * Extract display name from app.json data
  * For APK files, this returns the appName from the Android manifest
  * For ZIP/CPK files, this returns the display_name from app.json
+ * For DEB files, this returns the package name (name field)
  * @param appData - The parsed app.json data
  * @returns Display name
  */
@@ -265,6 +355,7 @@ export function extractDisplayName(appData: AppJsonData): string {
  * Extract version from app.json data
  * For APK files, this returns the versionName from the Android manifest
  * For ZIP/CPK files, this returns the version from app.json
+ * For DEB files, this returns the version from DEBIAN/control
  * @param appData - The parsed app.json data
  * @returns Version string
  */
