@@ -38,7 +38,14 @@ export interface LogEntry {
 }
 
 export class LogService {
-    private client = getClickHouseClient();
+    private _client: ReturnType<typeof getClickHouseClient> | null = null;
+
+    private get client() {
+        if (!this._client) {
+            this._client = getClickHouseClient();
+        }
+        return this._client;
+    }
 
     /**
      * Get logs with pagination and filtering
@@ -68,8 +75,8 @@ export class LogService {
                 }).then(r => r.json())
             ]);
 
-            const total = Number(countResult.data[0].total);
-            const logs = logsResult.data as LogEntry[];
+            const total = Number((countResult as any).data[0].total);
+            const logs = (logsResult as any).data as LogEntry[];
 
             return { logs, total };
         } catch (error) {

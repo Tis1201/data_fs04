@@ -49,10 +49,17 @@ export interface DeviceAppSummary {
 }
 
 export class DeviceAppService {
-  private clickhouse = getClickHouseClient();
+  private _clickhouse: ReturnType<typeof getClickHouseClient> | null = null;
+
+  private get clickhouse() {
+    if (!this._clickhouse) {
+      this._clickhouse = getClickHouseClient();
+    }
+    return this._clickhouse;
+  }
 
   constructor() {
-    // ClickHouse client is initialized in the property declaration
+    // ClickHouse client is lazily initialized when first accessed
   }
 
   /**
