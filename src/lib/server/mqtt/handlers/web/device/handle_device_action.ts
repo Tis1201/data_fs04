@@ -5,6 +5,7 @@ import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
 import { getStorageConfig, generatePresignedUrl, generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
 import { broadcastDeviceActionUpdate } from '../../index';
 
 interface DeviceActionParams {
@@ -230,8 +231,11 @@ export async function handleInstallApp(
         throw new Error('Resource has no file path');
     }
 
+    // Extract filename with extension from path
+    const filename = extractFilenameWithExtension(resource.path, resource.name);
+    
     // Generate signed download URL for the app file
-    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
+    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, filename);
     
     if (!result) {
         throw new Error('Failed to generate download URL for resource');

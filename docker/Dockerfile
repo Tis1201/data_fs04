@@ -58,10 +58,14 @@ WORKDIR /app
 ENV ROLLUP_SKIP_NODE_NATIVE=1
 
 # Install runtime libraries for node-canvas and system deps
+# Also install binutils (ar), xz-utils (xz), and tar (needed for DEB file parsing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates bash \
   libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 libfreetype6 \
   openssl \
+  binutils \
+  xz-utils \
+  tar \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy built app and necessary files from build stage

@@ -593,8 +593,12 @@ export const POST: RequestHandler = restrict(
                     payload.packageSize = resource.size;
                     payload.appName = packageName; // For backward compatibility
                     
+                    // Extract filename with extension from path
+                    const { extractFilenameWithExtension } = await import('$lib/server/storage/gcloudUrlUtils');
+                    const filename = extractFilenameWithExtension(resource.path, resource.name);
+                    
                     // Generate signed download URL for the app file
-                    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
+                    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, filename);
                     
                     if (result) {
                         downloadUrlData = {
