@@ -17,7 +17,7 @@
 </script>
 
 <script lang="ts">
-    import { createEventDispatcher, onMount, onDestroy } from 'svelte';
+    import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
     import { ChevronDown, ChevronUp, Check, Circle, Search, X } from 'lucide-svelte';
     import { Checkbox } from './index';
     import { Radio } from './index';
@@ -53,8 +53,10 @@
     let isOpen = false;
     let searchQuery = '';
     let containerRef: HTMLDivElement;
+    let triggerRef: HTMLButtonElement;
     let searchInputRef: HTMLInputElement;
     let hoveredIndex = -1;
+    let dropdownPosition = { top: 0, left: 0, width: 0 };
 
     $: selectedOptions = Array.isArray(value)
         ? options.filter(opt => value.includes(opt.id))
@@ -84,11 +86,29 @@
           )
         : options;
 
-    function handleToggle() {
+    // Update dropdown position
+    function updateDropdownPosition() {
+        if (triggerRef && typeof window !== 'undefined') {
+            const rect = triggerRef.getBoundingClientRect();
+            dropdownPosition = {
+                top: rect.bottom + 4, // 4px = var(--ds-space-1) margin
+                left: rect.left,
+                width: rect.width
+            };
+        }
+    }
+
+    async function handleToggle() {
         if (disabled) return;
+        const wasOpen = isOpen;
         isOpen = !isOpen;
-        if (isOpen && searchable) {
-            setTimeout(() => searchInputRef?.focus(), 0);
+        if (isOpen && !wasOpen) {
+            // Wait for DOM to render then compute position
+            await tick();
+            updateDropdownPosition();
+            if (searchable) {
+                setTimeout(() => searchInputRef?.focus(), 0);
+            }
         }
     }
 
@@ -205,6 +225,7 @@
         class:dropdown-trigger-success={success}
         class:dropdown-trigger-disabled={disabled}
         class:dropdown-trigger-chips={(multiple && Array.isArray(selectedOptions) && selectedOptions.length > 0) || enabledToggleOptions.length > 0}
+        bind:this={triggerRef}
         on:click={handleToggle}
         on:keydown={handleKeydown}
         {disabled}
@@ -251,7 +272,7 @@
 
         <div class="dropdown-trigger-actions">
             {#if displayValue && !disabled && !multiple && clearable}
-                <!-- Clear Button - dùng Button component từ design-system -->
+                <!-- Clear Button - uses Button component from design-system -->
                 <Button
                     variant="text"
                     color="gray"
@@ -274,10 +295,11 @@
     </button>
 
     <!-- Dropdown Menu -->
+    <!-- position: fixed so it is not clipped by parent overflow -->
     {#if isOpen}
         <div 
             class="dropdown-menu"
-            style="max-height: {maxHeight}px; --dropdown-max-height: {maxHeight}px;"
+            style="max-height: {maxHeight}px; --dropdown-max-height: {maxHeight}px; top: {dropdownPosition.top}px; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
             role="listbox"
             aria-multiselectable={multiple}
         >
@@ -539,7 +561,7 @@
         color: var(--ds-color-neutral-true-400);
     }
 
-    /* Tags for multiple selection - height cố định 48px */
+    /* Tags for multiple selection - fixed height 48px */
     .dropdown-trigger-chips {
         flex-wrap: nowrap;
         height: 48px;
@@ -593,13 +615,11 @@
     }
 
     /* Menu */
+    /* position: fixed so it is not clipped by parent overflow (e.g. modal-body) */
     .dropdown-menu {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        z-index: 100; /* Higher than modal (50) */
-        margin-top: var(--ds-space-1);
+        position: fixed;
+        /* top, left, width set from JS based on trigger button */
+        z-index: 150; /* Above modal-backdrop (50) and modal-body (0) */
         background: var(--ds-bg-primary);
         border: 1px solid var(--ds-border-default);
         border-radius: var(--ds-radius-lg);

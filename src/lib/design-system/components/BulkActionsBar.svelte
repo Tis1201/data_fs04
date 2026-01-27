@@ -59,7 +59,7 @@
 		<!-- Divider -->
 		<div class="divider" />
 		
-		<!-- Action Buttons - dùng Button component từ design-system -->
+		<!-- Action Buttons - use Button component from design-system -->
 		<div class="actions">
 			{#each actions as action}
 				<Button
@@ -133,7 +133,7 @@
 			gap: 12px;
 		}
 		
-		/* Button component sẽ tự handle responsive sizing */
+		/* Button component handles responsive sizing */
 		
 		.selection-count {
 			font-size: 13px;

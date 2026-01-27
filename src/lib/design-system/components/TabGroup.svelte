@@ -51,6 +51,9 @@
             styles.push('border-bottom: 1px solid #EAECF0');
             styles.push('position: relative');
             styles.push('width: 100%'); // Always full width for underline type
+            styles.push('overflow-x: auto'); // Allow horizontal scroll on small screens
+            styles.push('overflow-y: hidden'); // Prevent vertical scroll
+            styles.push('-webkit-overflow-scrolling: touch'); // Smooth scrolling on iOS
         }
 
         return styles.join('; ');
@@ -86,12 +89,38 @@
         font-family: var(--ds-font-family-primary);
     }
 
+    /* Hide scrollbar but keep functionality */
+    .tab-group::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .tab-group::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .tab-group::-webkit-scrollbar-thumb {
+        background: #D0D5DD;
+        border-radius: 2px;
+    }
+
+    .tab-group::-webkit-scrollbar-thumb:hover {
+        background: #98A2B3;
+    }
+
+    /* Firefox scrollbar */
+    .tab-group {
+        scrollbar-width: thin;
+        scrollbar-color: #D0D5DD transparent;
+    }
+
     .tab-wrapper {
         flex: none;
+        min-width: fit-content; /* Prevent tabs from shrinking too much */
     }
 
     .tab-wrapper.full-width {
         flex: 1;
+        min-width: 0; /* Allow shrinking when full-width */
     }
 
     .tab-wrapper.full-width :global(button) {

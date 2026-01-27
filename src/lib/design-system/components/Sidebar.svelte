@@ -159,7 +159,7 @@
 		currentHoverItem = null;
 	}
 	
-	// Sidebar width - từ Figma: expanded 336px, collapsed 80px
+	// Sidebar width - from Figma: expanded 336px, collapsed 80px
 	$: sidebarWidth = expanded ? '336px' : '80px';
 	
 	// Current path for reactivity
@@ -201,7 +201,7 @@
 				<img src={logoSrc} alt={logoText} class="logo-image" />
 			</div>
 		{/if}
-		<!-- Toggle Button - dùng Button component từ design-system (36x36px từ Figma) -->
+		<!-- Toggle Button - uses Button component from design-system (36x36px from Figma) -->
 		<div class="header-toggle-wrapper">
 			<Button
 				variant="text"
@@ -381,13 +381,13 @@
 		flex-direction: column;
 		height: 100%;
 		background: var(--ds-bg-primary); /* #FFFFFF */
-		border-right: 1px solid var(--ds-color-neutral-true-200); /* #E5E5E5 - từ Figma */
+		border-right: 1px solid var(--ds-color-neutral-true-200); /* #E5E5E5 - from Figma */
 		transition: width 0.2s ease;
 		position: relative;
 		box-sizing: border-box;
 	}
 	
-	/* Header - từ Figma: padding 16px, height 68px */
+	/* Header - from Figma: padding 16px, height 68px */
 	.sidebar-header {
 		display: flex;
 		flex-direction: row;
@@ -397,7 +397,7 @@
 		height: 68px;
 		min-height: 68px;
 		border-bottom: 1px solid var(--ds-color-neutral-true-200); /* #E5E5E5 */
-		gap: var(--ds-space-4); /* 16px - gap giữa logo và button */
+		gap: var(--ds-space-4); /* 16px - gap between logo and button */
 		overflow: hidden; /* Prevent button from overflowing */
 		box-sizing: border-box;
 		position: relative;
@@ -406,7 +406,7 @@
 	.sidebar.collapsed .sidebar-header {
 		justify-content: center;
 		padding: var(--ds-space-4); /* 16px all sides */
-		gap: 0; /* Không cần gap khi collapsed */
+		gap: 0; /* No gap when collapsed */
 	}
 	
 	.header-logo-wrapper {
@@ -424,14 +424,14 @@
 	}
 	
 	.logo-image {
-		width: 186px; /* Từ Figma */
-		height: 20px; /* Từ Figma: 19.89px ≈ 20px */
+		width: 186px; /* From Figma */
+		height: 20px; /* From Figma: 19.89px ≈ 20px */
 		flex-shrink: 0;
 		object-fit: contain;
 		max-width: 100%;
 	}
 	
-	/* Navigation - từ Figma: padding 16px 8px, gap 8px */
+	/* Navigation - from Figma: padding 16px 8px, gap 8px */
 	.sidebar-nav {
 		flex: 1;
 		overflow-y: auto;
@@ -447,7 +447,7 @@
 		padding: 0;
 	}
 	
-	/* Section Divider - từ Figma: padding 2px 0px, border 1px solid #E5E5E5 */
+	/* Section Divider - from Figma: padding 2px 0px, border 1px solid #E5E5E5 */
 	.section-divider {
 		padding: var(--ds-space-0-5) 0; /* 2px */
 	}
@@ -471,13 +471,13 @@
 		display: flex;
 		flex-direction: row;
 		align-items: center;
-		padding: var(--ds-space-2) var(--ds-space-3); /* 8px 12px - từ Figma */
-		gap: var(--ds-space-2); /* 8px - từ Figma */
+		padding: var(--ds-space-2) var(--ds-space-3); /* 8px 12px - from Figma */
+		gap: var(--ds-space-2); /* 8px - from Figma */
 		width: 100%;
-		min-height: 40px; /* Từ Figma */
+		min-height: 40px; /* From Figma */
 		height: 40px;
 		background: var(--ds-bg-primary);
-		border-radius: var(--ds-radius-lg); /* 8px - từ Figma */
+		border-radius: var(--ds-radius-lg); /* 8px - from Figma */
 		border: none;
 		cursor: pointer;
 		text-decoration: none;
@@ -495,11 +495,11 @@
 	}
 	
 	.nav-item.active {
-		background: var(--ds-color-navy); /* #164070 - từ Figma Base/Navy */
+		background: var(--ds-color-navy); /* #164070 - from Figma Base/Navy */
 	}
 	
 	.nav-item.active:hover {
-		background: var(--ds-color-navy); /* Giữ nguyên khi hover */
+		background: var(--ds-color-navy); /* Keep same on hover */
 	}
 	
 	/* Parent with active child in expanded mode - no active state */
@@ -523,10 +523,10 @@
 	.nav-item-label {
 		flex: 1;
 		font-family: var(--ds-font-family-primary);
-		font-weight: var(--ds-font-medium); /* 500 - từ Figma */
+		font-weight: var(--ds-font-medium); /* 500 - from Figma */
 		font-size: var(--ds-text-sm); /* 14px */
 		line-height: var(--ds-leading-sm); /* 20px */
-		color: var(--ds-color-neutral-true-700); /* #424242 - từ Figma */
+		color: var(--ds-color-neutral-true-700); /* #424242 - from Figma */
 		text-align: left;
 		white-space: nowrap;
 		overflow: hidden;
@@ -534,7 +534,7 @@
 	}
 	
 	.nav-item.active .nav-item-label {
-		color: var(--ds-color-neutral-true-25); /* #FCFCFC - từ Figma */
+		color: var(--ds-color-neutral-true-25); /* #FCFCFC - from Figma */
 	}
 	
 	.nav-item-chevron {
@@ -554,7 +554,7 @@
 		transform: translateY(-50%);
 	}
 	
-	/* Sub Navigation - từ Figma: gap 0px (items liền nhau) */
+	/* Sub Navigation - from Figma: gap 0px (items adjacent) */
 	.sub-nav {
 		display: flex;
 		flex-direction: column;
@@ -568,7 +568,7 @@
 		display: flex;
 		flex-direction: row;
 		align-items: center;
-		padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-2) 48px; /* 8px 12px 8px 48px - từ Figma */
+		padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-2) 48px; /* 8px 12px 8px 48px - from Figma */
 		width: 100%;
 		min-height: 40px;
 		height: 40px;
@@ -584,23 +584,23 @@
 	}
 	
 	.sub-nav-item.active {
-		background: var(--ds-color-navy); /* #164070 - từ Figma */
+		background: var(--ds-color-navy); /* #164070 - from Figma */
 	}
 	
 	.sub-nav-label {
 		font-family: var(--ds-font-family-primary);
-		font-weight: var(--ds-font-medium); /* 500 - từ Figma */
+		font-weight: var(--ds-font-medium); /* 500 - from Figma */
 		font-size: var(--ds-text-sm); /* 14px */
 		line-height: var(--ds-leading-sm); /* 20px */
-		color: var(--ds-color-neutral-true-700); /* #424242 - từ Figma */
+		color: var(--ds-color-neutral-true-700); /* #424242 - from Figma */
 	}
 	
 	.sub-nav-item.active .sub-nav-label {
-		color: var(--ds-color-neutral-true-25); /* #FCFCFC - từ Figma */
+		color: var(--ds-color-neutral-true-25); /* #FCFCFC - from Figma */
 		font-weight: var(--ds-font-medium);
 	}
 	
-	/* Footer - từ Figma: padding 16px, gap 16px */
+	/* Footer - from Figma: padding 16px, gap 16px */
 	.sidebar-footer {
 		padding: var(--ds-space-4); /* 16px */
 	}
@@ -616,7 +616,7 @@
 	}
 	
 	.footer-nav {
-		gap: var(--ds-space-4); /* 16px - từ Figma */
+		gap: var(--ds-space-4); /* 16px - from Figma */
 	}
 	
 	/* Flyout Menu */
@@ -665,8 +665,8 @@
 	}
 	
 	.flyout-item.active {
-		background: var(--ds-color-navy); /* #164070 - từ Figma */
-		color: var(--ds-color-neutral-true-25); /* #FCFCFC - từ Figma */
+		background: var(--ds-color-navy); /* #164070 - from Figma */
+		color: var(--ds-color-neutral-true-25); /* #FCFCFC - from Figma */
 		font-weight: var(--ds-font-medium);
 	}
 </style>

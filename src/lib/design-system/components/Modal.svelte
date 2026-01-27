@@ -6,7 +6,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
-	import { X, AlertTriangle, Info, AlertCircle } from 'lucide-svelte';
+	import { X, AlertTriangle, Info, CircleAlert } from 'lucide-svelte';
 	import { Button } from '$lib/design-system/components';
 
 	// ==========================================================================
@@ -145,7 +145,7 @@
 			iconColor: '#DC6803' // Warning/600
 		},
 		error: { 
-			icon: AlertCircle, 
+			icon: CircleAlert, // circle-alert icon from Figma
 			iconColor: '#F04438' // Error/500
 		}
 	};
@@ -201,7 +201,7 @@
 				{/if}
 				
 				{#if showCloseButton}
-					<!-- Close Button - dùng Button component từ design-system -->
+					<!-- Close Button - uses Button component from design-system -->
 					<div class="modal-close-btn-wrapper">
 						<Button
 							variant="text"
@@ -228,7 +228,7 @@
 					{#if $$slots.footer}
 						<slot name="footer" />
 					{:else}
-						<!-- Footer Buttons - dùng Button component từ design-system -->
+						<!-- Footer Buttons - use Button component from design-system -->
 						{#if showTextButton && textButtonText}
 							<div class="modal-btn-wrapper">
 								<Button
@@ -303,7 +303,9 @@
 		background: #FFFFFF;
 		border-radius: 16px;
 		box-shadow: 0px 20px 24px -4px rgba(16, 24, 40, 0.08), 0px 8px 8px -4px rgba(16, 24, 40, 0.03);
-		overflow: visible; /* Allow dropdowns to overflow */
+		overflow: hidden; /* Prevent content from overflowing container */
+		max-height: calc(100vh - 32px); /* Account for backdrop padding */
+		max-height: calc(100dvh - 32px); /* Use dynamic viewport height for mobile */
 	}
 
 	/* Modal Header - Figma specs */
@@ -315,13 +317,14 @@
 		padding: 16px;
 		gap: 12px;
 		width: 100%;
+		min-height: 56px;
 		height: 56px;
 		background: #FFFFFF;
 		border-radius: 16px 16px 0 0; /* Match parent top corners */
 		flex: none;
+		flex-shrink: 0; /* Prevent header from shrinking */
 		order: 0;
 		align-self: stretch;
-		flex-grow: 0;
 	}
 
 	.modal-header.has-border {
@@ -340,22 +343,22 @@
 		justify-content: center;
 	}
 
-	/* Modal Title - using Design System tokens */
+	/* Modal Title - using Design System tokens (18px/24px from Figma) */
 	.modal-title {
 		height: 24px;
 		font-family: var(--ds-font-family-primary);
 		font-style: normal;
-		font-weight: var(--ds-font-medium);
-		font-size: var(--ds-text-lg);
-		line-height: var(--ds-leading-md);
-		color: var(--ds-color-gray-900);
+		font-weight: var(--ds-font-medium); /* 500 from Figma */
+		font-size: var(--ds-text-lg); /* 18px from Figma */
+		line-height: var(--ds-leading-md); /* 24px from Figma */
+		color: var(--ds-color-neutral-true-900); /* #141414 from Figma */
 		flex: none;
 		order: 1;
 		flex-grow: 1;
 		margin: 0;
 	}
 
-	/* Close Button Wrapper - Button component với custom positioning */
+	/* Close Button Wrapper - Button component with custom positioning */
 	.modal-close-btn-wrapper {
 		flex: none;
 		order: 2;
@@ -377,10 +380,15 @@
 		width: 100%;
 		box-sizing: border-box;
 		background: var(--ds-color-white);
-		flex: none;
+		flex: 1 1 auto; /* Allow body to grow and shrink, but can scroll */
 		order: 1;
 		align-self: stretch;
-		flex-grow: 1;
+		overflow-y: auto; /* Enable scrolling when content exceeds available space */
+		overflow-x: visible; /* Allow dropdowns to overflow horizontally if needed */
+		min-height: 0; /* Important: allows flex child to shrink below content size */
+		/* Stacking context so dropdown can appear above other elements */
+		position: relative;
+		z-index: 0;
 		font-family: var(--ds-font-family-primary);
 		font-weight: var(--ds-font-regular);
 		font-size: var(--ds-text-md);
@@ -404,16 +412,17 @@
 		padding: 16px;
 		gap: 16px;
 		width: 100%;
+		min-height: 76px;
 		height: 76px;
 		background: #FFFFFF;
 		border-top: 1px solid #E5E5E5;
 		border-radius: 0 0 16px 16px; /* Match parent bottom corners */
 		flex: none;
+		flex-shrink: 0; /* Prevent footer from shrinking */
 		order: 2;
-		flex-grow: 0;
 	}
 
-	/* Footer Button Wrappers - Button component với custom min-width từ Figma specs */
+	/* Footer Button Wrappers - Button component with custom min-width from Figma specs */
 	.modal-btn-wrapper {
 		min-width: 100px;
 	}

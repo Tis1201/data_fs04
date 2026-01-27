@@ -23,6 +23,7 @@
     export let prefixIcon: boolean = false;
     export let suffixIcon: boolean = false;
     export let maxlength: number | undefined = undefined;
+    export let align: 'left' | 'center' | 'right' = 'left'; // Text alignment for label and input content
 
     // For controlled focus state in showcase
     export let visualState: InputState | undefined = undefined;
@@ -132,10 +133,10 @@
     $: inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`;
 </script>
 
-<div class="input-field-wrapper">
+<div class="input-field-wrapper" class:input-field-center={align === 'center'} class:input-field-right={align === 'right'}>
     <!-- Label -->
     {#if label}
-        <label for={inputId} class="input-label">
+        <label for={inputId} class="input-label" class:input-label-center={align === 'center'} class:input-label-right={align === 'right'}>
             <span class="input-label-text">{label}</span>
             {#if required}
                 <span class="input-required">*</span>
@@ -176,6 +177,8 @@
             {readonly}
             {maxlength}
             class="input-element"
+            class:input-element-center={align === 'center'}
+            class:input-element-right={align === 'right'}
             style="color: {config.textColor}; --placeholder-color: {config.placeholderColor};"
             on:input={handleInput}
             on:change={handleChange}
@@ -239,6 +242,16 @@
         width: 100%;
     }
 
+    /* Center alignment */
+    .input-field-center {
+        align-items: center;
+    }
+
+    /* Right alignment */
+    .input-field-right {
+        align-items: flex-end;
+    }
+
     /* Label */
     .input-label {
         display: flex;
@@ -248,12 +261,22 @@
         gap: 2px;
     }
 
+    /* Center label alignment */
+    .input-label-center {
+        justify-content: center;
+    }
+
+    /* Right label alignment */
+    .input-label-right {
+        justify-content: flex-end;
+    }
+
     .input-label-text {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
-        font-size: var(--ds-text-sm);
-        line-height: var(--ds-leading-sm);
-        color: var(--ds-color-gray-600);
+        font-size: var(--ds-text-sm); /* 14px from Figma */
+        line-height: var(--ds-leading-sm); /* 20px from Figma */
+        color: var(--ds-color-neutral-true-600); /* #525252 from Figma */
     }
 
     .input-required {
@@ -297,11 +320,22 @@
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-md);
         line-height: var(--ds-leading-md);
+        text-align: left; /* Default left alignment */
         
         background: transparent;
         border: none;
         outline: none;
         padding: 0;
+    }
+
+    /* Center input text alignment */
+    .input-element-center {
+        text-align: center;
+    }
+
+    /* Right input text alignment */
+    .input-element-right {
+        text-align: right;
     }
 
     .input-element::placeholder {

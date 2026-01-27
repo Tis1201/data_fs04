@@ -19,6 +19,10 @@
 	
 	export let items: ActionMenuItem[] = [];
 	export let triggerIcon: 'dots-vertical' | 'dots-horizontal' | 'chevron-down' | 'none' = 'dots-vertical';
+	/** Trigger button color: use "gray" for kebab in tables (neutral, per design) */
+	export let triggerColor: 'primary' | 'gray' | 'danger' = 'gray';
+	/** Trigger variant: "text" = Gray Text (transparent bg, gray icon) for table kebabs */
+	export let triggerVariant: 'ghost' | 'text' = 'ghost';
 	export let disabled: boolean = false;
 	export let align: 'left' | 'right' = 'right';
 	export let size: 'sm' | 'md' = 'md';
@@ -156,30 +160,30 @@
 	
 	$: iconSize = size === 'sm' ? 16 : 20;
 	$: menuWidth = width === 'auto' ? 'min-width: 150px;' : `width: ${width};`;
+	// Use Button icon prop for dots so Button applies icon-only sizing (36×36 for sm). Slot content makes Button use min-w-[100px].
+	$: triggerIconComponent = (triggerIcon === 'dots-vertical' ? MoreVertical : triggerIcon === 'dots-horizontal' ? MoreHorizontal : null);
 </script>
 
 <div class="action-menu">
-	<!-- Trigger Button - dùng Button component từ design-system -->
+	<!-- Trigger Button - uses Button component from design-system -->
 	{#if showTrigger}
 		<div bind:this={triggerWrapperRef} class="action-menu-trigger-wrapper">
 			<Button
-				variant="ghost"
+				variant={triggerVariant}
+				color={triggerColor}
 				size={size}
+				icon={triggerIconComponent}
 				iconPosition="only"
 				disabled={disabled}
 				on:click={handleToggleClick}
 				aria-haspopup="menu"
 				aria-expanded={open}
 			>
-				{#if triggerIcon === 'dots-vertical'}
-					<MoreVertical size={iconSize} strokeWidth={2} />
-				{:else if triggerIcon === 'dots-horizontal'}
-					<MoreHorizontal size={iconSize} strokeWidth={2} />
-				{:else if triggerIcon === 'chevron-down'}
+				{#if triggerIcon === 'chevron-down'}
 					<span class="chevron" class:open>
 						<ChevronDown size={iconSize} strokeWidth={2} />
 					</span>
-				{:else}
+				{:else if triggerIcon === 'none' || triggerIcon === undefined}
 					<slot name="trigger" />
 				{/if}
 			</Button>
@@ -261,7 +265,7 @@
 		font-family: var(--ds-font-family-primary);
 	}
 	
-	/* Trigger Button Wrapper - Button component với custom wrapper */
+	/* Trigger Button Wrapper - Button component with custom wrapper */
 	.action-menu-trigger-wrapper {
 		display: inline-flex;
 		align-items: center;

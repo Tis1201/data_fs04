@@ -166,8 +166,8 @@
             <!-- Content -->
             <div class="drop-zone-content">
                 <span class="drop-zone-text">Drag and drop your file here or</span>
-                <!-- Browse Button - dùng Button component từ design-system -->
-                <!-- Note: Click vào button này hoặc click vào drop-zone đều mở file picker -->
+                <!-- Browse Button - uses Button component from design-system -->
+                <!-- Note: Clicking this button or the drop-zone both open the file picker -->
                 <Button
                     variant="text"
                     size="md"
@@ -205,12 +205,12 @@
                     class="file-item"
                     class:file-item-disabled={file.state === 'disabled'}
                 >
-                    <!-- File Info and Actions - cùng dòng như design -->
+                    <!-- File Info and Actions - same row as in design -->
                     <div class="file-info-row">
                         <!-- File Info -->
                         <div class="file-info">
                             {#if file.state === 'download'}
-                                <!-- Download link style - dùng <a> tag thay vì button, icon sau file name như design -->
+                                <!-- Download link style - use <a> tag instead of button, icon after file name per design -->
                                 <!-- Figma: Download filename color #155EEF (primary-600) -->
                                 <a
                                     href={file.url || '#'}
@@ -230,9 +230,9 @@
                             {/if}
                         </div>
 
-                        <!-- Actions - dùng Button component từ design-system -->
-                        <!-- Figma: Buttons chỉ có background khi hover, default là transparent -->
-                        <!-- Download state không có action buttons riêng vì icon đã nằm sau file name -->
+                        <!-- Actions - use Button component from design-system -->
+                        <!-- Figma: Buttons have background only on hover, default is transparent -->
+                        <!-- Download state has no separate action buttons because icon is already after file name -->
                         {#if file.state !== 'download'}
                             <div class="file-actions">
                                 {#if file.state === 'failed' || file.state === 'disabled'}
@@ -274,7 +274,7 @@
                                         />
                                     </div>
                                 {:else if file.state === 'ongoing' || file.state === 'success'}
-                                    <!-- Ongoing và Success: có close button (X) -->
+                                    <!-- Ongoing and Success: have close button (X) -->
                                     <div class="file-action-btn-wrapper">
                                         <Button
                                             variant="text"
@@ -358,11 +358,11 @@
         flex-direction: column;
         justify-content: center;
         align-items: center;
-        padding: var(--ds-space-4); /* 16px - đúng theo design */
-        gap: var(--ds-space-2); /* 8px - spacing giữa icon và content */
+        padding: var(--ds-space-4); /* 16px - per design */
+        gap: var(--ds-space-2); /* 8px - spacing between icon and content */
         width: 100%;
         min-width: 128px;
-        min-height: 100px; /* Min height thay vì fixed height để content tự điều chỉnh */
+        min-height: 100px; /* Min height instead of fixed height so content can adjust */
         background: var(--ds-color-white);
         border: 1px dashed var(--ds-color-blue-light-600);
         border-radius: var(--ds-radius-lg);
@@ -472,7 +472,7 @@
         opacity: 0.6;
     }
 
-    /* File Info and Actions - cùng dòng như design */
+    /* File Info and Actions - same row as in design */
     .file-info-row {
         display: flex;
         flex-direction: row;
@@ -502,11 +502,11 @@
         color: var(--ds-color-neutral-true-400);
     }
 
-    /* Download link - dùng <a> tag thay vì button, Figma: #155EEF (primary-600) */
+    /* Download link - use <a> tag instead of button, Figma: #155EEF (primary-600) */
     .file-download-link {
         display: inline-flex;
         align-items: center;
-        gap: var(--ds-space-2); /* 8px - gap giữa text và icon */
+        gap: var(--ds-space-2); /* 8px - gap between text and icon */
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);

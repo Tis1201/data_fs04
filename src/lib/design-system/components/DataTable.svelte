@@ -85,6 +85,8 @@
         
         // For moreMenu cell
         menuActions?: ActionDef<T>[];
+        /** When set, builds menu actions per row (e.g. from row status). Overrides menuActions when present. */
+        getMenuActions?: (row: T) => ActionDef<T>[];
         
         // For action cells
         actions?: ActionDef<T>[];
@@ -132,12 +134,13 @@
 
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, CreditCard, HelpCircle, ArrowUp, ArrowDown } from 'lucide-svelte';
+    import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, CreditCard, HelpCircle, ArrowUp, ArrowDown, Pin } from 'lucide-svelte';
     import Checkbox from './Checkbox.svelte';
     import Badge from './Badge.svelte';
     import Tag from './Tag.svelte';
     import Avatar from './Avatar.svelte';
     import Button from './Button.svelte';
+    import ActionMenu from './ActionMenu.svelte';
 
     // ==========================================================================
     // PROPS
@@ -173,6 +176,8 @@
     export let striped: boolean = false;
     export let hoverable: boolean = true;
     export let bordered: boolean = true;
+    /** When false, th/td have no border-bottom (for borderless table design). */
+    export let cellBorders: boolean = true;
     export let compact: boolean = false;
     export let stickyHeader: boolean = false;
     export let emptyMessage: string = 'No data available';
@@ -273,6 +278,17 @@
         dispatch('pageSizeChange', newSize);
     }
 
+    /** Build pagination page slots: [1, 2, 3, '...', 8, 9, 10] per Figma */
+    function getPaginationPages(): (number | 'ellipsis')[] {
+        const total = pagination.totalPages;
+        if (total <= 7) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+        }
+        return [1, 2, 3, 'ellipsis', total - 2, total - 1, total];
+    }
+
+    $: paginationPages = paginated && pagination.totalPages > 0 ? getPaginationPages() : [];
+
     function formatDate(value: any): string {
         if (!value) return '-';
         const date = new Date(value);
@@ -316,23 +332,23 @@
         'border-collapse'
     ].filter(Boolean).join(' ');
 
-    // Header cell: h=44px, px=24px, py=12px, bg=#F9FAFB, border-b=#EAECF0
+    // Header cell: h=44px, px=24px, py=12px, bg=#F9FAFB, border-b=#EAECF0 (omit when cellBorders=false)
     $: headerCellClasses = [
         'h-[44px] px-6 py-3',
         'text-left',
         'bg-[#F9FAFB]',
-        'border-b border-[#EAECF0]',
+        cellBorders ? 'border-b border-[#EAECF0]' : '',
         stickyHeader ? 'sticky top-0 z-10' : ''
     ].filter(Boolean).join(' ');
 
     // Header text: 12px, 500 (medium), line-height 18px, color #475467
     const headerTextClasses = 'text-[12px] font-medium leading-[18px] text-[#475467]';
 
-    // Data cell: h=72px, px=24px, py=16px, bg=#FFFFFF, border-b=#EAECF0
+    // Data cell: h=72px, px=24px, py=16px, bg=#FFFFFF, border-b=#EAECF0 (omit when cellBorders=false)
     $: bodyCellClasses = [
         compact ? 'h-[52px] px-4 py-2' : 'h-[72px] px-6 py-4',
         'bg-white',
-        'border-b border-[#EAECF0]',
+        cellBorders ? 'border-b border-[#EAECF0]' : '',
         'align-middle'
     ].filter(Boolean).join(' ');
 
@@ -358,7 +374,7 @@
     const checkboxCellWidth = 'w-[64px]';
 </script>
 
-<div class="ds-datatable overflow-hidden rounded-lg {bordered ? 'border border-[#EAECF0]' : ''} shadow-sm">
+<div class="ds-datatable overflow-hidden rounded-lg {bordered ? 'border border-[#EAECF0]' : ''} {!cellBorders ? 'dt-no-cell-borders' : ''} shadow-sm">
     <!-- Table Container -->
     <div class="overflow-x-auto">
         <table class="{tableClasses}">
@@ -704,7 +720,7 @@
                                             {/each}
                                         </div>
                                     {:else if column.type === 'pin'}
-                                        <!-- Pin icon -->
+                                        <!-- Pin: filled when pinned, outline when not -->
                                         {@const isPinned = column.pinField ? row[column.pinField] : Boolean(value)}
                                         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                                         <div on:click|stopPropagation>
@@ -713,32 +729,54 @@
                                                 class="p-1 rounded transition-colors hover:bg-[#F9FAFB]"
                                                 on:click={() => column.onPin?.(row, !isPinned)}
                                             >
-                                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" class="transform {isPinned ? 'rotate-45' : ''}">
-                                                    <path 
-                                                        d="M10 1.5V8.5M10 8.5L6 4.5M10 8.5L14 4.5M5 18.5H15M10 18.5V11.5" 
-                                                        stroke={isPinned ? '#7F56D9' : '#475467'} 
-                                                        stroke-width="1.67" 
-                                                        stroke-linecap="round" 
-                                                        stroke-linejoin="round"
-                                                    />
-                                                </svg>
+                                                <Pin
+                                                    size={20}
+                                                    strokeWidth={isPinned ? 2 : 1.67}
+                                                    color={isPinned ? '#424242' : '#737373'}
+                                                    fill={isPinned ? '#424242' : 'none'}
+                                                />
                                             </button>
                                         </div>
                                     {:else if column.type === 'moreMenu'}
-                                        <!-- 3-dot more menu -->
+                                        {@const actions = column.getMenuActions ? column.getMenuActions(row) : (column.menuActions ?? [])}
+                                        <!-- 3-dot more menu: use ActionMenu when menuActions or getMenuActions provided -->
                                         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                                         <div on:click|stopPropagation>
-                                            <button
-                                                type="button"
-                                                class="p-2 rounded-lg hover:bg-[#F9FAFB] transition-colors"
-                                                on:click={() => dispatch('action', { actionId: 'moreMenu', row })}
-                                            >
-                                                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                                                    <path d="M10 10.5C10.2761 10.5 10.5 10.2761 10.5 10C10.5 9.72386 10.2761 9.5 10 9.5C9.72386 9.5 9.5 9.72386 9.5 10C9.5 10.2761 9.72386 10.5 10 10.5Z" stroke="#475467" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                                    <path d="M10 5.5C10.2761 5.5 10.5 5.27614 10.5 5C10.5 4.72386 10.2761 4.5 10 4.5C9.72386 4.5 9.5 4.72386 9.5 5C9.5 5.27614 9.72386 5.5 10 5.5Z" stroke="#475467" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                                    <path d="M10 15.5C10.2761 15.5 10.5 15.2761 10.5 15C10.5 14.7239 10.2761 14.5 10 14.5C9.72386 14.5 9.5 14.7239 9.5 15C9.5 15.2761 9.72386 15.5 10 15.5Z" stroke="#475467" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                                </svg>
-                                            </button>
+                                            {#if actions.length > 0}
+                                                <ActionMenu
+                                                    items={actions
+                                                        .filter(a => !a.hidden || !a.hidden(row))
+                                                        .map(a => ({
+                                                            id: a.id,
+                                                            label: a.label ?? a.id,
+                                                            icon: a.icon,
+                                                            destructive: a.color === 'danger',
+                                                            disabled: a.disabled ? a.disabled(row) : false
+                                                        }))}
+                                                    triggerIcon="dots-vertical"
+                                                    align="right"
+                                                    size="sm"
+                                                    triggerVariant="text"
+                                                    width="140px"
+                                                    on:select={(e) => {
+                                                        const act = actions.find(x => x.id === e.detail.id);
+                                                        act?.onClick?.(row);
+                                                        dispatch('action', { actionId: e.detail.id, row });
+                                                    }}
+                                                />
+                                            {:else}
+                                                <button
+                                                    type="button"
+                                                    class="p-2 rounded-lg hover:bg-[#F9FAFB] transition-colors"
+                                                    on:click={() => dispatch('action', { actionId: 'moreMenu', row })}
+                                                >
+                                                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                                        <path d="M10 10.5C10.2761 10.5 10.5 10.2761 10.5 10C10.5 9.72386 10.2761 9.5 10 9.5C9.72386 9.5 9.5 9.72386 9.5 10C9.5 10.2761 9.72386 10.5 10 10.5Z" stroke="#475467" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        <path d="M10 5.5C10.2761 5.5 10.5 5.27614 10.5 5C10.5 4.72386 10.2761 4.5 10 4.5C9.72386 4.5 9.5 4.72386 9.5 5C9.5 5.27614 9.72386 5.5 10 5.5Z" stroke="#475467" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        <path d="M10 15.5C10.2761 15.5 10.5 15.2761 10.5 15C10.5 14.7239 10.2761 14.5 10 14.5C9.72386 14.5 9.5 14.7239 9.5 15C9.5 15.2761 9.72386 15.5 10 15.5Z" stroke="#475467" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                    </svg>
+                                                </button>
+                                            {/if}
                                         </div>
                                     {:else if column.type === 'avatar'}
                                         <!-- Avatar 40x40 per Figma -->
@@ -835,69 +873,67 @@
         </table>
     </div>
 
-    <!-- Pagination -->
+    <!-- Pagination: Type=Card button group right aligned, Shape=Square (Figma) -->
     {#if paginated && pagination.totalPages > 0}
-        <div class="flex items-center justify-between px-6 py-4 border-t border-[#EAECF0] bg-white">
-            <!-- Page Size Selector -->
-            <div class="flex items-center gap-2">
-                <span class="text-[14px] font-normal text-[#475467]">Rows per page:</span>
-                <select
-                    class="h-9 px-3 rounded-lg border border-[#D0D5DD] bg-white text-[14px] font-medium text-[#344054] focus:outline-none focus:ring-2 focus:ring-[#D6BBFB] focus:border-[#7F56D9]"
-                    value={pagination.pageSize}
-                    on:change={handlePageSizeChange}
-                >
-                    {#each pageSizeOptions as size}
-                        <option value={size}>{size}</option>
+        <div class="ds-datatable-pagination">
+            <!-- Details: "X - Y of Z" – Body/14-Regular, Neutral-True/600 #525252 -->
+            <span class="ds-pagination-details">
+                {(pagination.page - 1) * pagination.pageSize + 1} - {Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of {pagination.totalItems}
+            </span>
+            <!-- Pagination numbers group: << < [1][2][3][...][8][9][10] > >>, gap 2px -->
+            <div class="ds-pagination-controls">
+                <Button
+                    variant="ghost"
+                    color="gray"
+                    size="sm"
+                    icon={ChevronsLeft}
+                    iconPosition="only"
+                    disabled={pagination.page === 1}
+                    on:click={() => handlePageChange(1)}
+                />
+                <Button
+                    variant="ghost"
+                    color="gray"
+                    size="sm"
+                    icon={ChevronLeft}
+                    iconPosition="only"
+                    disabled={pagination.page === 1}
+                    on:click={() => handlePageChange(pagination.page - 1)}
+                />
+                <div class="ds-pagination-numbers">
+                    {#each paginationPages as slot}
+                        {#if slot === 'ellipsis'}
+                            <span class="ds-pagination-ellipsis" aria-hidden="true">...</span>
+                        {:else}
+                            <button
+                                type="button"
+                                class="ds-pagination-page"
+                                class:active={slot === pagination.page}
+                                on:click={() => handlePageChange(slot)}
+                            >
+                                {slot}
+                            </button>
+                        {/if}
                     {/each}
-                </select>
-            </div>
-
-            <!-- Page Info -->
-            <div class="flex items-center gap-4">
-                <span class="text-[14px] font-normal text-[#475467]">
-                    {(pagination.page - 1) * pagination.pageSize + 1} - {Math.min(pagination.page * pagination.pageSize, pagination.totalItems)} of {pagination.totalItems}
-                </span>
-
-                <!-- Page Navigation -->
-                <div class="flex items-center gap-1">
-                    <button
-                        type="button"
-                        class="p-2 rounded-lg hover:bg-[#F9FAFB] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        disabled={pagination.page === 1}
-                        on:click={() => handlePageChange(1)}
-                    >
-                        <ChevronsLeft class="h-5 w-5 text-[#475467]" />
-                    </button>
-                    <button
-                        type="button"
-                        class="p-2 rounded-lg hover:bg-[#F9FAFB] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        disabled={pagination.page === 1}
-                        on:click={() => handlePageChange(pagination.page - 1)}
-                    >
-                        <ChevronLeft class="h-5 w-5 text-[#475467]" />
-                    </button>
-                    
-                    <span class="px-3 text-[14px] font-medium text-[#344054]">
-                        Page {pagination.page} of {pagination.totalPages}
-                    </span>
-                    
-                    <button
-                        type="button"
-                        class="p-2 rounded-lg hover:bg-[#F9FAFB] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        disabled={pagination.page === pagination.totalPages}
-                        on:click={() => handlePageChange(pagination.page + 1)}
-                    >
-                        <ChevronRight class="h-5 w-5 text-[#475467]" />
-                    </button>
-                    <button
-                        type="button"
-                        class="p-2 rounded-lg hover:bg-[#F9FAFB] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        disabled={pagination.page === pagination.totalPages}
-                        on:click={() => handlePageChange(pagination.totalPages)}
-                    >
-                        <ChevronsRight class="h-5 w-5 text-[#475467]" />
-                    </button>
                 </div>
+                <Button
+                    variant="ghost"
+                    color="gray"
+                    size="sm"
+                    icon={ChevronRight}
+                    iconPosition="only"
+                    disabled={pagination.page === pagination.totalPages}
+                    on:click={() => handlePageChange(pagination.page + 1)}
+                />
+                <Button
+                    variant="ghost"
+                    color="gray"
+                    size="sm"
+                    icon={ChevronsRight}
+                    iconPosition="only"
+                    disabled={pagination.page === pagination.totalPages}
+                    on:click={() => handlePageChange(pagination.totalPages)}
+                />
             </div>
         </div>
     {/if}
@@ -931,5 +967,86 @@
     
     .ds-datatable th {
         vertical-align: middle;
+    }
+
+    /* Pagination: Type=Card button group right aligned, Shape=Square, Breakpoint=Desktop */
+    .ds-datatable-pagination {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 8px 24px;
+        gap: 8px;
+        min-height: 56px;
+        box-sizing: border-box;
+        border-top: 1px solid #EAECF0;
+        background: #fff;
+    }
+    .ds-pagination-details {
+        /* Body/14-Regular, Neutral-True/600 #525252 */
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: #525252;
+        flex: none;
+    }
+    .ds-pagination-controls {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px; /* gap between << < [numbers] > >> */
+    }
+    .ds-pagination-numbers {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 0;
+        gap: 2px;
+    }
+    .ds-pagination-page {
+        /* _Pagination number base: 40×40, radius 8px, Inter 500 14px/20px */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        border: none;
+        background: transparent;
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        text-align: center;
+        color: #475467;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+    .ds-pagination-page:hover {
+        background: #F5F5F5;
+    }
+    .ds-pagination-page.active {
+        /* Gray/50 #F9FAFB, Gray/800 #1D2939 */
+        background: #F9FAFB;
+        color: #1D2939;
+    }
+    .ds-pagination-ellipsis {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        color: #475467;
+    }
+
+    /* When cellBorders=false: remove border-bottom on th/td (override all Tailwind classes) */
+    .ds-datatable.dt-no-cell-borders table th,
+    .ds-datatable.dt-no-cell-borders table td {
+        border-bottom: none !important;
     }
 </style>

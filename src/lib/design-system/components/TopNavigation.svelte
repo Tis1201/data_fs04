@@ -16,7 +16,7 @@
 	import { Search, Bell, ChevronDown, ChevronLeft, Grip, Monitor, Radio } from 'lucide-svelte';
 	import Divider from './Divider.svelte';
 	import { Avatar } from '$lib/design-system/components';
-	// TODO: Refactor để dùng ActionMenu component khi external trigger support hoàn thiện
+	// TODO: Refactor to use ActionMenu component when external trigger support is complete
 	// import { ActionMenu } from '$lib/design-system/components';
 	// import type { ActionMenuItem } from '$lib/design-system/components';
 	
@@ -86,7 +86,7 @@
 		? 'bg-white border border-[#D6D6D6] shadow-[0px_1px_2px_rgba(16,24,40,0.05)]' 
 		: 'bg-transparent';
 	
-	// Avatar gradient based on mode - exact từ Figma
+	// Avatar gradient based on mode - exact from Figma
 	$: avatarGradient = mode === 'light' 
 		? 'linear-gradient(26.57deg, #1D2939 8.33%, #344054 91.67%)'
 		: 'linear-gradient(90deg, #7F56D9 0%, #9E77ED 100%)';
@@ -213,7 +213,7 @@
 			</button>
 		{/if}
 		
-		<!-- Title Section - exact specs từ Figma -->
+		<!-- Title Section - exact specs from Figma -->
 		<div class="flex flex-col items-start" style="width: 322px; height: 46px; gap: 2px;">
 			{#if title}
 				<h1 
@@ -237,7 +237,7 @@
 		<div class="flex-1"></div>
 	{/if}
 	
-	<!-- User Menu (common to both styles) - dùng ActionMenu component từ design-system -->
+	<!-- User Menu (common to both styles) - uses ActionMenu component from design-system -->
 	{#if showUserMenu && user}
 		<div class="user-menu-container">
 			<!-- User Info Button (trigger) -->
@@ -250,7 +250,7 @@
 				aria-haspopup="menu"
 				aria-expanded={showUserDropdown}
 			>
-				<!-- Avatar - dùng Avatar component từ design-system với gradient -->
+				<!-- Avatar - uses Avatar component from design-system with gradient -->
 				<Avatar
 					src={user.avatarUrl}
 					name={user.name || user.email}
@@ -259,7 +259,7 @@
 					className="user-avatar"
 				/>
 				
-				<!-- Text and Supporting Text - exact specs từ Figma -->
+				<!-- Text and Supporting Text - exact specs from Figma -->
 				<div class="user-info">
 					<span class="user-email">
 						{user.email}
@@ -278,7 +278,7 @@
 				/>
 			</button>
 
-			<!-- User Dropdown - TODO: Refactor để dùng ActionMenu component khi external trigger support hoàn thiện -->
+			<!-- User Dropdown - TODO: Refactor to use ActionMenu component when external trigger support is complete -->
 			{#if showUserDropdown}
 				<div
 					class="user-dropdown"
@@ -308,14 +308,14 @@
 	
 	<!-- Style 2 additional elements -->
 	{#if style === 'page'}
-		<!-- Divider - exact specs từ Figma -->
+		<!-- Divider - exact specs from Figma -->
 		{#if showDivider}
 			<div class="flex items-center justify-center" style="width: 4px; height: 40px; padding: 0px 2px;">
 				<div style="width: 0px; height: 40px; border-left: 1px solid {borderColor};"></div>
 			</div>
 		{/if}
 		
-		<!-- Grid Button - exact specs từ Figma -->
+		<!-- Grid Button - exact specs from Figma -->
 		{#if showGridButton}
 			<div class="grid-menu-container" style="position: relative;">
 				<button

@@ -87,7 +87,7 @@
 </script>
 
 <div class="relative inline-block">
-	<!-- Trigger Button - dùng Button component từ design-system -->
+	<!-- Trigger Button - uses Button component from design-system -->
 	<div bind:this={triggerWrapperRef} class="inline-block">
 		<Button
 			variant="text"
@@ -140,7 +140,7 @@
 			
 			{#if selectedValues.length > 0}
 				<div class="border-t border-[#EAECF0] mt-2 pt-2">
-					<!-- Clear Button - dùng Button component từ design-system -->
+					<!-- Clear Button - uses Button component from design-system -->
 					<Button
 						variant="text"
 						size="md"

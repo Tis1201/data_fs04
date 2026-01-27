@@ -460,28 +460,28 @@
 	$: iconCenter = size === '2xl' ? 12 : 10;
 	
 	// Determine icon position: prioritize new icon prop, fallback to deprecated props
-	// Chỉ hiển thị icon nếu có iconLeft/iconRight/iconOnly props hoặc có icon prop
+	// Only show icon if iconLeft/iconRight/iconOnly props or icon prop is set
 	$: hasIcon = !!icon;
 	$: hasIconProps = iconLeft || iconRight || iconOnly;
 	
-	// Nếu có icon prop, dùng iconPosition hoặc mặc định 'left'
-	// Nếu không có icon prop, dùng deprecated props (iconLeft/iconRight/iconOnly)
+	// If icon prop is set, use iconPosition or default 'left'
+	// If no icon prop, use deprecated props (iconLeft/iconRight/iconOnly)
 	$: finalIconPosition = hasIcon 
 		? (iconPosition || 'left')
 		: (iconOnly ? 'only' : iconRight ? 'right' : iconLeft ? 'left' : undefined);
 	
-	// Chỉ show icon nếu có iconLeft/iconRight/iconOnly props HOẶC có icon prop
+	// Only show icon if iconLeft/iconRight/iconOnly props OR icon prop is set
 	$: showIconLeft = hasIcon 
 		? (finalIconPosition === 'left')
-		: iconLeft; // Chỉ show nếu có iconLeft prop
+		: iconLeft; // Show only if iconLeft prop is set
 	
 	$: showIconRight = hasIcon
 		? (finalIconPosition === 'right')
-		: iconRight; // Chỉ show nếu có iconRight prop
+		: iconRight; // Show only if iconRight prop is set
 		
 	$: showIconOnly = hasIcon
 		? (finalIconPosition === 'only')
-		: iconOnly; // Chỉ show nếu có iconOnly prop
+		: iconOnly; // Show only if iconOnly prop is set
 </script>
 
 <button

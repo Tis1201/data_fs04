@@ -181,6 +181,8 @@ export interface ColumnDef<T = any> {
     
     // For moreMenu cell
     menuActions?: ActionDef<T>[];
+    /** When set, builds menu actions per row (e.g. from row status). Overrides menuActions when present. */
+    getMenuActions?: (row: T) => ActionDef<T>[];
     
     // For action cells
     actions?: ActionDef<T>[];

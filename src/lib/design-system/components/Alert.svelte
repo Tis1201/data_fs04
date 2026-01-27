@@ -23,9 +23,9 @@
     const severityConfig = {
         info: {
             outline: {
-                background: '#F5F8FF',
-                iconColor: '#004EEB',
-                textColor: '#292929',
+                background: '#FAFAFA', // Neutral - True/50 (from Figma Frame 34)
+                iconColor: '#525252', // Neutral - True/600 (from Figma Vector border)
+                textColor: '#292929', // Neutral - True/800
                 closeColor: '#737373'
             },
             filled: {
@@ -115,7 +115,11 @@
                 {#if hasTitle}
                     <span class="alert-title">{title}</span>
                 {/if}
-                <span class="alert-message">{message}</span>
+                {#if message}
+                    <span class="alert-message">{message}</span>
+                {/if}
+                <!-- Slot for custom content (e.g., bullet points) -->
+                <slot />
             </div>
             
             <!-- Close button -->
@@ -140,18 +144,18 @@
         align-items: flex-start;
         padding: 0;
         width: 100%;
-        max-width: 360px;
+        max-width: 100%; /* Remove max-width constraint for full width in modal */
         background: var(--alert-bg);
         box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.08), 0px 4px 6px -2px rgba(16, 24, 40, 0.03);
-        border-radius: 4px;
+        border-radius: var(--ds-radius-lg); /* 8px from Figma Frame 34 */
     }
     
     .alert-content {
         display: flex;
         flex-direction: row;
-        align-items: center;
-        padding: 8px 12px 8px 16px;
-        gap: 8px;
+        align-items: flex-start; /* Changed from center to flex-start so slot content displays correctly */
+        padding: var(--ds-space-3); /* 12px from Figma Frame 34 */
+        gap: var(--ds-space-2); /* 8px from Figma Frame 34 */
         width: 100%;
         box-sizing: border-box;
     }
@@ -169,7 +173,7 @@
     .alert-text {
         display: flex;
         flex-direction: column;
-        justify-content: center;
+        justify-content: flex-start; /* Changed from center to flex-start so slot content displays correctly */
         align-items: flex-start;
         padding: 0;
         gap: 2px;
@@ -180,9 +184,9 @@
     .alert-title {
         font-family: var(--ds-font-family-primary);
         font-style: normal;
-        font-weight: var(--ds-font-medium);
-        font-size: var(--ds-text-md);
-        line-height: var(--ds-leading-md);
+        font-weight: var(--ds-font-semibold); /* 600 from Figma "Need help finding your device PIN?" */
+        font-size: var(--ds-text-sm); /* 14px from Figma */
+        line-height: var(--ds-leading-sm); /* 20px from Figma */
         color: var(--alert-text-color);
     }
     
@@ -194,6 +198,26 @@
         line-height: var(--ds-leading-sm);
         color: var(--alert-text-color);
         word-break: break-word;
+    }
+    
+    /* Slot content styling - from Figma Frame 34 content */
+    .alert-text :global(ul),
+    .alert-text :global(ol) {
+        margin: var(--ds-space-2) 0 0 0;
+        padding-left: var(--ds-space-5);
+        list-style: disc;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm); /* 14px from Figma */
+        line-height: var(--ds-leading-sm); /* 20px from Figma */
+        color: var(--ds-color-neutral-true-500); /* #737373 from Figma content text */
+    }
+    
+    .alert-text :global(li) {
+        margin-bottom: var(--ds-space-1);
+    }
+    
+    .alert-text :global(li:last-child) {
+        margin-bottom: 0;
     }
     
     .alert-close {
