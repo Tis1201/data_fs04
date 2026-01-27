@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // Define modules and their available actions
+// Admin routes use DEVICES, DASHBOARD, etc.; /user/* routes use USER_DEVICES, USER_DASHBOARD, etc.
+// Seed must include USER_* so that user account members (e.g. owner@blue.com) can access /user/iot/devices etc.
 const MODULES = {
     DASHBOARD: ['VIEW'],
     USERS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
@@ -17,7 +19,21 @@ const MODULES = {
     RADAR: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
     ANALYTICS: ['VIEW'],
     ACCOUNT_SETTINGS: ['VIEW', 'EDIT'],
-    GROUPS: ['VIEW', 'CREATE', 'EDIT', 'DELETE']
+    GROUPS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    // User-scoped modules for /user/* routes (required for 403 fix after seed-all)
+    USER_DASHBOARD: ['VIEW'],
+    USER_DEVICES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_DEVICE_TAGS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_DEVICE_PROFILES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_BUNDLES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_PRECLAIMS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_PIN_RULES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_CONTROLLERS_RADAR: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_RESOURCES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_ACCOUNT_SETTINGS: ['VIEW', 'EDIT'],
+    USER_USERS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+    USER_PROFILE: ['VIEW', 'EDIT'],
+    USER_SUPPORT: ['VIEW']
 } as const;
 
 // Default groups configuration
@@ -55,7 +71,20 @@ const DEFAULT_GROUPS: Array<{
             RADAR: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
             ANALYTICS: ['VIEW'],
             ACCOUNT_SETTINGS: ['VIEW', 'EDIT'],
-            GROUPS: ['VIEW', 'CREATE', 'EDIT', 'DELETE']
+            GROUPS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_DASHBOARD: ['VIEW'],
+            USER_DEVICES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_DEVICE_TAGS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_DEVICE_PROFILES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_BUNDLES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_PRECLAIMS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_PIN_RULES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_CONTROLLERS_RADAR: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_RESOURCES: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_ACCOUNT_SETTINGS: ['VIEW', 'EDIT'],
+            USER_USERS: ['VIEW', 'CREATE', 'EDIT', 'DELETE'],
+            USER_PROFILE: ['VIEW', 'EDIT'],
+            USER_SUPPORT: ['VIEW']
         }
     },
     {
@@ -72,7 +101,19 @@ const DEFAULT_GROUPS: Array<{
             PIN_RULES: ['VIEW'],
             CONTROLLERS: ['VIEW', 'EDIT'],
             RADAR: ['VIEW', 'EDIT'],
-            ANALYTICS: ['VIEW']
+            ANALYTICS: ['VIEW'],
+            USER_DASHBOARD: ['VIEW'],
+            USER_DEVICES: ['VIEW', 'EDIT'],
+            USER_DEVICE_TAGS: ['VIEW'],
+            USER_DEVICE_PROFILES: ['VIEW'],
+            USER_BUNDLES: ['VIEW'],
+            USER_PRECLAIMS: ['VIEW'],
+            USER_PIN_RULES: ['VIEW'],
+            USER_CONTROLLERS_RADAR: ['VIEW', 'EDIT'],
+            USER_RESOURCES: ['VIEW'],
+            USER_ACCOUNT_SETTINGS: ['VIEW', 'EDIT'],
+            USER_PROFILE: ['VIEW', 'EDIT'],
+            USER_SUPPORT: ['VIEW']
         }
     },
     {
@@ -89,7 +130,19 @@ const DEFAULT_GROUPS: Array<{
             PIN_RULES: ['VIEW'],
             CONTROLLERS: ['VIEW'],
             RADAR: ['VIEW'],
-            ANALYTICS: ['VIEW']
+            ANALYTICS: ['VIEW'],
+            USER_DASHBOARD: ['VIEW'],
+            USER_DEVICES: ['VIEW'],
+            USER_DEVICE_TAGS: ['VIEW'],
+            USER_DEVICE_PROFILES: ['VIEW'],
+            USER_BUNDLES: ['VIEW'],
+            USER_PRECLAIMS: ['VIEW'],
+            USER_PIN_RULES: ['VIEW'],
+            USER_CONTROLLERS_RADAR: ['VIEW'],
+            USER_RESOURCES: ['VIEW'],
+            USER_ACCOUNT_SETTINGS: ['VIEW', 'EDIT'],
+            USER_PROFILE: ['VIEW', 'EDIT'],
+            USER_SUPPORT: ['VIEW']
         }
     }
 ];
