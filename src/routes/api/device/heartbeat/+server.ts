@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { logger } from '$lib/server/logger';
 import { getAdminPrisma } from '$lib/server/prisma';
+import redis from '$lib/server/redis';
 
 /**
  * POST /api/device/heartbeat
@@ -76,6 +77,29 @@ export const POST: RequestHandler = async ({ request }) => {
         } catch (pgError) {
             // Log but don't fail - Postgres update is secondary
             logger.warn(`[Heartbeat] Postgres update failed: ${pgError instanceof Error ? pgError.message : String(pgError)}`);
+        }
+
+        // Update Redis presence for real-time online status tracking
+        try {
+            if (redis) {
+                const presenceKey = `presence:device:${data.deviceId}`;
+                // Set presence key with 60 second TTL (will be refreshed by next heartbeat)
+                // Using hash to store additional metadata
+                await redis.hset(presenceKey, {
+                    deviceId: data.deviceId,
+                    timestamp: now.toISOString(),
+                    source: 'heartbeat',
+                    channel: `device:${data.deviceId}`,
+                    mode: 'presence',
+                    subscribers: '1'
+                });
+                // Set TTL to 60 seconds (device should send heartbeat every 30s)
+                await redis.expire(presenceKey, 60);
+                logger.debug(`[Heartbeat] Updated Redis presence for device ${data.deviceId}`);
+            }
+        } catch (redisError) {
+            // Log but don't fail - Redis is optional for presence tracking
+            logger.warn(`[Heartbeat] Redis presence update failed: ${redisError instanceof Error ? redisError.message : String(redisError)}`);
         }
 
         // Try to insert into ClickHouse

@@ -167,6 +167,7 @@ export async function getLatestDeviceInformation(macAddress: string | null): Pro
         disk_usage
       FROM mv_device_information
       WHERE mac_lan = {macAddress: String}
+         OR mac_wifi = {macAddress: String}
       ORDER BY created_at DESC
       LIMIT 1
     `;
@@ -193,6 +194,107 @@ export async function getLatestDeviceInformation(macAddress: string | null): Pro
   } catch (error) {
     logger.error(`[ClickHouse] Failed to query device_information for MAC address ${macAddress}: ${error instanceof Error ? error.message : String(error)}`);
     return null;
+  }
+}
+
+/** Fetch latest device_information by device_id (e.g. for emulators that report metrics but use synthetic mac_lan). */
+export async function getLatestDeviceInformationByDeviceId(deviceId: string | null): Promise<DeviceInformation | null> {
+  if (!deviceId) return null;
+  const client = getClickHouseClient();
+  try {
+    const query = `
+      SELECT 
+        last_connected_at,
+        last_status_at,
+        os_version,
+        system_uptime_seconds,
+        firmware,
+        model,
+        network_interface,
+        wifi_ssid,
+        signal_strength_dbm,
+        mac_wifi,
+        mac_lan,
+        orientation,
+        resolution,
+        timezone,
+        public_ip,
+        private_ip,
+        created_at,
+        cpu_usage,
+        ram_usage,
+        disk_usage
+      FROM mv_device_information
+      WHERE device_id = {deviceId: String}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const result = await client.query({ query, query_params: { deviceId } });
+    const data = await result.json();
+    const rows = data.data || [];
+    if (rows.length === 0) return null;
+    return rows[0] as DeviceInformation;
+  } catch (error) {
+    logger.debug(`[ClickHouse] No device_information by device_id ${deviceId}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/** Fetch latest device_information for multiple device_ids (e.g. for listing when devices use synthetic mac_lan). */
+export async function getBulkDeviceInformationByDeviceIds(deviceIds: string[]): Promise<Map<string, DeviceInformation>> {
+  const resultMap = new Map<string, DeviceInformation>();
+  if (!deviceIds.length) return resultMap;
+  const validIds = deviceIds.filter((id) => id && id.trim().length > 0);
+  if (!validIds.length) return resultMap;
+  const client = getClickHouseClient();
+  try {
+    const query = `
+      SELECT 
+        device_id,
+        last_connected_at,
+        last_status_at,
+        os_version,
+        system_uptime_seconds,
+        firmware,
+        model,
+        network_interface,
+        wifi_ssid,
+        signal_strength_dbm,
+        mac_wifi,
+        mac_lan,
+        orientation,
+        resolution,
+        timezone,
+        public_ip,
+        private_ip,
+        created_at,
+        cpu_usage,
+        ram_usage,
+        disk_usage
+      FROM (
+        SELECT 
+          *,
+          ROW_NUMBER() OVER (PARTITION BY device_id ORDER BY created_at DESC) as rn
+        FROM mv_device_information
+        WHERE device_id IN {deviceIds:Array(String)}
+      ) ranked
+      WHERE rn = 1
+    `;
+    const result = await client.query({ query, query_params: { deviceIds: validIds } });
+    const data = await result.json();
+    const rows = data.data || [];
+    for (const row of rows) {
+      const info = row as DeviceInformation & { device_id?: string };
+      if (info.device_id) {
+        const { device_id: _, ...rest } = info;
+        resultMap.set(info.device_id, rest as DeviceInformation);
+      }
+    }
+    logger.debug(`[ClickHouse] Found device_information for ${resultMap.size} of ${validIds.length} device_ids`);
+    return resultMap;
+  } catch (error) {
+    logger.debug(`[ClickHouse] getBulkDeviceInformationByDeviceIds failed: ${error instanceof Error ? error.message : String(error)}`);
+    return resultMap;
   }
 }
 
