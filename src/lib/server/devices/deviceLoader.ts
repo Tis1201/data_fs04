@@ -3,7 +3,7 @@ import { logger } from '$lib/server/logger';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { createDeviceTableOptions } from './deviceTableOptions';
 import { isDeviceOnline, areDevicesOnline } from '$lib/server/device/devicePresence';
-import { getMultipleDeviceInformation } from '$lib/server/clickhouse/client';
+import { getMultipleDeviceInformation, getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
 
 /**
  * Calculate device statistics grouped by OS
@@ -167,6 +167,42 @@ export async function loadDeviceList(
             availableTags = [];
         }
 
+        // Fetch available device profiles for the Edit Device modal
+        // Wrap in try-catch to allow page to load even if profiles query fails
+        let availableProfiles = [];
+        try {
+            // Get user's account memberships for filtering if ownership check is enabled
+            let accountIds: string[] = [];
+            if (options?.checkOwnership && options?.userId) {
+                const userAccountMemberships = await locals.prisma.accountMembership.findMany({
+                    where: { userId: options.userId },
+                    select: { accountId: true }
+                });
+                accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+            }
+
+            const profileWhere: any = {};
+            if (options?.checkOwnership && accountIds.length > 0) {
+                profileWhere.accountId = { in: accountIds };
+            }
+
+            availableProfiles = await locals.prisma.deviceProfile.findMany({
+                where: profileWhere,
+                select: {
+                    id: true,
+                    name: true,
+                    description: true
+                },
+                orderBy: {
+                    name: 'asc'
+                }
+            });
+        } catch (err) {
+            logger.warn(`Failed to load available profiles: ${err}`);
+            // Continue with empty profiles array - page can still load
+            availableProfiles = [];
+        }
+
         // Update online status from Redis (real-time presence tracking)
         // Wrap in try-catch to allow page to load even if Redis is unavailable
         let devicesWithRealTimeStatus = result.records;
@@ -223,8 +259,8 @@ export async function loadDeviceList(
         }
 
         // Load device information from ClickHouse for all devices
-        // Wrap in try-catch to allow page to load even if ClickHouse is unavailable
-        let deviceInfoMap = new Map();
+        // 1) By MAC (lanMac/wifiMac/macAddress); 2) by device_id for devices with no MAC hit (e.g. Node emulator)
+        let deviceInfoMap = new Map<string, any>();
         const macAddresses = devicesWithRealTimeStatus
             .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
             .filter(Boolean);
@@ -232,9 +268,20 @@ export async function loadDeviceList(
             try {
                 deviceInfoMap = await getMultipleDeviceInformation(macAddresses);
             } catch (err) {
-                // If ClickHouse is unavailable, continue without device information
                 logger.warn(`Failed to load device information from ClickHouse: ${err}`);
                 deviceInfoMap = new Map();
+            }
+        }
+        let deviceInfoByDeviceIdMap = new Map<string, any>();
+        const deviceIdsWithoutInfo = devicesWithRealTimeStatus.filter((d: any) => {
+            const mac = d.macAddress || d.lanMac || d.wifiMac;
+            return !mac || !deviceInfoMap.has(mac);
+        }).map((d: any) => d.id);
+        if (deviceIdsWithoutInfo.length > 0) {
+            try {
+                deviceInfoByDeviceIdMap = await getBulkDeviceInformationByDeviceIds(deviceIdsWithoutInfo);
+            } catch (err) {
+                logger.warn(`Failed to load device information by device_id: ${err}`);
             }
         }
 
@@ -296,22 +343,27 @@ export async function loadDeviceList(
                null)
             : null;
 
-        // Safely convert Map to object for serialization
+        // Safely convert Maps to objects for serialization
         let deviceInformationObject: Record<string, any> = {};
+        let deviceInformationByDeviceIdObject: Record<string, any> = {};
         try {
             if (deviceInfoMap && deviceInfoMap.size > 0) {
                 deviceInformationObject = Object.fromEntries(deviceInfoMap);
             }
+            if (deviceInfoByDeviceIdMap && deviceInfoByDeviceIdMap.size > 0) {
+                deviceInformationByDeviceIdObject = Object.fromEntries(deviceInfoByDeviceIdMap);
+            }
         } catch (err) {
-            logger.warn(`Failed to convert deviceInfoMap to object: ${err}`);
-            deviceInformationObject = {};
+            logger.warn(`Failed to convert deviceInfo maps to object: ${err}`);
         }
 
         // Ensure all required fields are present with safe defaults
         const returnData = {
             devices: Array.isArray(devicesWithRealTimeStatus) ? devicesWithRealTimeStatus : [],
             deviceInformation: deviceInformationObject,
+            deviceInformationByDeviceId: deviceInformationByDeviceIdObject,
             availableTags: Array.isArray(availableTags) ? availableTags : [],
+            availableProfiles: Array.isArray(availableProfiles) ? availableProfiles : [],
             meta: result?.meta || {
                 pagination: { 
                     page: 1, 
@@ -336,6 +388,7 @@ export async function loadDeviceList(
         logger.info('Returning device list data', {
             deviceCount: returnData.devices.length,
             tagCount: returnData.availableTags.length,
+            profileCount: returnData.availableProfiles.length,
             hasDeviceInfo: Object.keys(returnData.deviceInformation).length > 0,
             hasStats: !!deviceStats
         });

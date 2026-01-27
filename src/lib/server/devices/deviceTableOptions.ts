@@ -43,7 +43,10 @@ const baseDeviceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
                 name: true
             }
         }
-    }
+    },
+    // Note: When using include, Prisma automatically includes all scalar fields
+    // So profileId and all config fields (kioskLockMode, displayResolution, etc.) 
+    // will be automatically included in the result
 };
 
 /**

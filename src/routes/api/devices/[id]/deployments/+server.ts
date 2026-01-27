@@ -203,6 +203,11 @@ export const GET: RequestHandler = restrict(
                     scheduledAt: bundle.scheduledAt,
                     createdAt: bundle.createdAt,
                     updatedAt: bundle.updatedAt,
+                    // Top-level dates for Started On / Ended On (from progress or null)
+                    startedAt: progress?.startedAt ?? null,
+                    completedAt: progress?.completedAt ?? null,
+                    // Required for "Remove" action: unassign device from bundle
+                    bundleDeviceId: bundleDevice?.id ?? null,
                     apps: bundle.apps.map(app => ({
                         id: app.id,
                         order: app.order,

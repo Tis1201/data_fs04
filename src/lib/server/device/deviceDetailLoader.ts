@@ -4,7 +4,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import type { z } from 'zod';
 import { logger } from '$lib/server/logger';
-import { getLatestDeviceInformation } from '$lib/server/clickhouse/client';
+import { getLatestDeviceInformation, getLatestDeviceInformationByDeviceId } from '$lib/server/clickhouse/client';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
 import { loadDeviceProfileWithForm } from '$lib/server/device/deviceProfileLoader';
 
@@ -45,6 +45,7 @@ export async function loadDeviceDetail(
     deviceProfile: any;
     deviceProfileForm: any;
     availableTags: Array<{ id: string; name: string }>;
+    availableProfiles: Array<{ id: string; name: string; description?: string }>;
 }> {
     const { checkOwnership = false, userId, accountId, verboseLogging = false } = options;
 
@@ -196,11 +197,14 @@ export async function loadDeviceDetail(
         });
 
         // Fetch device information from ClickHouse (optional - may not be configured)
-        // Try multiple MAC addresses: lanMac, wifiMac, macAddress
+        // Try by MAC first; if none, try by device_id (e.g. Node emulator uses synthetic mac_lan)
         let deviceInformation = null;
         try {
             const macToTry = device.lanMac || device.wifiMac || device.macAddress;
             deviceInformation = await getLatestDeviceInformation(macToTry);
+            if (!deviceInformation) {
+                deviceInformation = await getLatestDeviceInformationByDeviceId(deviceId);
+            }
         } catch (clickhouseError) {
             // ClickHouse may not be configured - this is optional data
             logger.warn('[DeviceDetail] ClickHouse query failed (optional)', { 
@@ -248,6 +252,41 @@ export async function loadDeviceDetail(
             availableTags = [];
         }
 
+        // Fetch available device profiles for the Edit Device modal
+        let availableProfiles: Array<{ id: string; name: string; description?: string }> = [];
+        try {
+            // Get user's account memberships for filtering if ownership check is enabled
+            let accountIds: string[] = [];
+            if (checkOwnership && userId) {
+                const userAccountMemberships = await prisma.accountMembership.findMany({
+                    where: { userId },
+                    select: { accountId: true }
+                });
+                accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+            }
+
+            const profileWhere: any = {};
+            if (checkOwnership && accountIds.length > 0) {
+                profileWhere.accountId = { in: accountIds };
+            }
+
+            availableProfiles = await prisma.deviceProfile.findMany({
+                where: profileWhere,
+                select: {
+                    id: true,
+                    name: true,
+                    description: true
+                },
+                orderBy: {
+                    name: 'asc'
+                }
+            });
+        } catch (err) {
+            logger.warn(`[DeviceDetail] Failed to load available profiles: ${err}`);
+            // Continue with empty profiles array - page can still load
+            availableProfiles = [];
+        }
+
         return {
             form,
             device: {
@@ -258,7 +297,8 @@ export async function loadDeviceDetail(
             deviceInformation,
             deviceProfile,
             deviceProfileForm,
-            availableTags
+            availableTags,
+            availableProfiles
         };
     } catch (e) {
         if (verboseLogging) {

@@ -15,7 +15,7 @@
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
     import { writable } from "svelte/store";
-    import { toast } from "svelte-sonner";
+    import { toast } from "$lib/stores/alertToast";
     import { api_post } from "$lib/utils/ApiUtils";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";

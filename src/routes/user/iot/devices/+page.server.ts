@@ -116,6 +116,20 @@ export const actions: Actions = {
     ),
 
     /**
+     * Get device details action - requires VIEW permission
+     */
+    getDeviceDetails: restrictModule(
+        async ({ request, locals }: ModuleAuthenticatedEvent) => {
+            return await deviceActions.getDeviceDetails({
+                request,
+                locals
+            });
+        },
+        'USER_DEVICES',
+        { action: 'VIEW' }
+    ),
+
+    /**
      * Update device action - requires EDIT permission
      */
     updateDevice: restrictModule(

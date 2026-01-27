@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { goto } from "$app/navigation";
-  import { toast } from "svelte-sonner";
+  import { toast } from "$lib/stores/alertToast";
   import { AlertTriangle, CheckCircle, ArrowLeft } from "lucide-svelte";
   import { Button, Card, InputField } from "$lib/design-system/components";
   import { deviceStore } from "$lib/stores/device-store";

@@ -2,6 +2,7 @@
     import { page } from "$app/stores";
     import { createEventDispatcher } from 'svelte';
     import { Sidebar, type NavItem } from '$lib/design-system/components';
+    import AlertToastContainer from '$lib/components/AlertToastContainer.svelte';
     import { TopNavigation } from '$lib/design-system/components';
     import type { TopNavStyle, UserInfo } from '$lib/design-system/components';
     import AccountSelector from "$lib/components/account/AccountSelector.svelte";
@@ -44,7 +45,7 @@
             label: 'Devices',
             icon: LayoutList,
             children: [
-                // Module mới chưa có design - dẫn đến route riêng (sẽ 404)
+                // New module not designed yet - leads to separate route (will 404)
                 { id: 'device-listing', label: 'Device Listing', href: '/user/devices/listing' },
                 { id: 'tags', label: 'Tags', href: '/user/devices/tags' }
             ]
@@ -268,4 +269,7 @@
             <slot />
         </main>
     </div>
+
+    <!-- Alert-based toasts (design system) - replaces svelte-sonner in user mode -->
+    <AlertToastContainer />
 </div>

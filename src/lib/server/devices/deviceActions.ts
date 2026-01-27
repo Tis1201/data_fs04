@@ -6,6 +6,7 @@ import { getStatusBeforeToggled } from '$lib/utils';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { deviceSchema } from '$lib/schemas/device';
+import { DeviceProfileService } from '$lib/server/device/profile';
 
 /**
  * Create device actions factory
@@ -18,6 +19,7 @@ export function createDeviceActions(options: {
     delete: (args: { request: Request; locals: any }) => Promise<any>;
     toggleStatus: (args: { request: Request; locals: any }) => Promise<any>;
     assignTags: (args: { request: Request; locals: any }) => Promise<any>;
+    getDeviceDetails: (args: { request: Request; locals: any }) => Promise<any>;
     updateDevice: (args: { request: Request; locals: any }) => Promise<any>;
     create?: (args: { request: Request; locals: any }) => Promise<any>;
 } {
@@ -281,8 +283,8 @@ export function createDeviceActions(options: {
                     actionType: AuditActionType.UPDATE,
                     tableName: 'Device',
                     recordId: id,
-                    oldData: { tags: device.tags.map(t => t.id) },
-                    newData: { tags: [...device.tags.map(t => t.id), ...tagIds] },
+                    oldData: { tags: device.tags.map((t: any) => t.id) },
+                    newData: { tags: [...device.tags.map((t: any) => t.id), ...tagIds] },
                     userId: locals.user.id,
                     ipAddress: locals.ipAddress,
                     prisma: locals.prisma
@@ -292,6 +294,100 @@ export function createDeviceActions(options: {
             } catch (err) {
                 logger.error(`Error assigning tags to device: ${err}`);
                 return fail(500, { error: 'Failed to assign tags to device' });
+            }
+        },
+
+        /**
+         * Get device details action
+         * Used by both list pages (admin and user) for Edit Device modal
+         */
+        getDeviceDetails: async ({ request, locals }: { request: Request; locals: any }) => {
+            try {
+                const data = await request.formData();
+                const id = data.get('id')?.toString();
+                
+                if (!id) {
+                    return fail(400, { error: 'Device ID is required' });
+                }
+                
+                // Get the authenticated user
+                const auth = await locals.auth.validate();
+                if (!auth?.user) {
+                    return fail(401, { error: 'Unauthorized' });
+                }
+
+                // Check if device exists and user has permission
+                const deviceWhere: any = { id };
+                
+                // Ownership check for user routes
+                if (options.checkOwnership) {
+                    deviceWhere.OR = [
+                        { createdBy: auth.user.id },
+                        {
+                            account: {
+                                members: {
+                                    some: {
+                                        userId: auth.user.id
+                                    }
+                                }
+                            }
+                        }
+                    ];
+                }
+
+                const device = await locals.prisma.device.findFirst({
+                    where: deviceWhere,
+                    include: {
+                        tags: {
+                            select: {
+                                id: true,
+                                name: true
+                            }
+                        }
+                    }
+                    // Note: When using include, Prisma automatically includes all scalar fields
+                    // So profileId and all config fields (kioskLockMode, displayResolution, etc.) 
+                    // will be automatically included in the result
+                });
+                
+                if (!device) {
+                    return fail(404, { 
+                        error: options.checkOwnership 
+                            ? 'Device not found or you do not have permission to view it'
+                            : 'Device not found'
+                    });
+                }
+
+                // Convert Prisma device to plain object to avoid serialization issues
+                // SvelteKit actions serialize data, so we need to ensure it's a plain object
+                const deviceData = {
+                    id: device.id,
+                    name: device.name,
+                    description: device.description,
+                    status: device.status,
+                    deviceType: device.deviceType,
+                    osVersion: device.osVersion,
+                    profileId: device.profileId,
+                    kioskLockMode: device.kioskLockMode,
+                    exitLockdownPassword: device.exitLockdownPassword,
+                    kioskApplication: device.kioskApplication,
+                    displayResolution: device.displayResolution,
+                    screenOrientation: device.screenOrientation,
+                    brightnessLevel: device.brightnessLevel,
+                    audioEnabled: device.audioEnabled,
+                    audioVolume: device.audioVolume,
+                    timezone: device.timezone,
+                    homeLauncher: device.homeLauncher,
+                    powerManagementSchedule: device.powerManagementSchedule,
+                    rebootSchedule: device.rebootSchedule,
+                    downloadSchedule: device.downloadSchedule,
+                    tags: device.tags || []
+                };
+
+                return { success: true, device: deviceData };
+            } catch (err) {
+                logger.error(`Error fetching device details: ${err}`);
+                return fail(500, { error: 'Failed to fetch device details' });
             }
         },
 
@@ -346,30 +442,180 @@ export function createDeviceActions(options: {
                     });
                 }
 
-                // Extract form data
-                const name = data.get('name')?.toString() || device.name;
-                const status = data.get('status')?.toString() || device.status;
-                const description = data.get('description')?.toString() || device.description;
+                // Extract form data - Details tab
+                // Always use form data if provided (form data takes precedence)
+                const nameValue = data.get('name')?.toString();
+                const statusValue = data.get('status')?.toString();
+                const descriptionValue = data.get('description')?.toString();
                 
-                // Parse tags
+                // Use form values if provided, otherwise keep device values
+                // For name: form value takes precedence, fallback to device.name
+                const name = (nameValue !== null && nameValue !== undefined) ? nameValue : (device.name || '');
+                // For status: form value takes precedence, must be valid, fallback to device.status
+                const status = (statusValue && ['ACTIVE', 'INACTIVE'].includes(statusValue)) ? statusValue : device.status;
+                // For description: form value takes precedence (even if empty string), fallback to device.description or empty string
+                const description = (descriptionValue !== null && descriptionValue !== undefined) 
+                    ? descriptionValue 
+                    : (device.description !== null && device.description !== undefined ? device.description : '');
+                
+                // Parse tags - always parse if provided
                 let tagIds: string[] = [];
                 const tagsRaw = data.get('tags')?.toString();
-                if (tagsRaw) {
+                if (tagsRaw !== null && tagsRaw !== undefined) {
                     try {
-                        tagIds = JSON.parse(tagsRaw);
-                    } catch {
-                        // Keep existing tags if parsing fails
-                        tagIds = device.tags.map(t => t.id);
+                        const parsed = JSON.parse(tagsRaw);
+                        tagIds = Array.isArray(parsed) ? parsed : [];
+                    } catch (e) {
+                        logger.warn(`Failed to parse tags JSON: ${tagsRaw}`, e);
+                        // If parsing fails, use empty array (user wants to clear tags)
+                        tagIds = [];
                     }
+                } else {
+                    // If tags not provided in form, keep existing tags
+                    tagIds = device.tags.map((t: any) => t.id);
                 }
 
-                // Build update data
+                // Extract Configuration tab fields
+                const profileId = data.get('profileId')?.toString();
+                const isCustom = data.get('isCustom')?.toString() === 'true';
+                const kioskLockMode = data.get('kioskLockMode')?.toString() === 'true';
+                const exitLockdownPassword = data.get('exitLockdownPassword')?.toString();
+                const kioskApplication = data.get('kioskApplication')?.toString();
+                const displayResolution = data.get('displayResolution')?.toString();
+                const screenOrientation = data.get('screenOrientation')?.toString();
+                const brightnessLevel = data.get('brightnessLevel')?.toString();
+                const audioEnabled = data.get('audioEnabled')?.toString() === 'true';
+                const audioVolume = data.get('audioVolume')?.toString();
+                const timezone = data.get('timezone')?.toString();
+                const homeLauncher = data.get('homeLauncher')?.toString();
+                const powerManagementSchedule = data.get('powerManagementSchedule')?.toString() === 'true';
+                const rebootSchedule = data.get('rebootSchedule')?.toString() === 'true';
+                const downloadSchedule = data.get('downloadSchedule')?.toString() === 'true';
+
+                // Build update data - Details tab fields (always update these)
                 const updateData: any = {
                     name,
                     status,
                     description,
                     updatedAt: new Date()
                 };
+
+                // Handle Configuration tab fields
+                if (isCustom) {
+                    // Custom mode: Save as device-specific overrides using DeviceProfileService
+                    // First, ensure device has a profile assigned (required for overrides)
+                    const currentAssignment = await locals.prisma.deviceProfileAssignment.findUnique({
+                        where: { deviceId: id }
+                    });
+                    
+                    if (!currentAssignment) {
+                        // Custom mode requires a base profile to override
+                        // If no assignment exists, we need to get the original profileId from device
+                        // or use the profileId from form if provided (user might have selected a profile before editing)
+                        let baseProfileId = profileId && profileId !== '__CUSTOM__' ? profileId : null;
+                        
+                        // If still no profileId, try to get from device's previous assignment or use first available profile
+                        if (!baseProfileId) {
+                            // Get device to check if it had a profile before
+                            const deviceWithAssignment = await locals.prisma.device.findUnique({
+                                where: { id },
+                                include: {
+                                    profileAssignment: true
+                                }
+                            });
+                            baseProfileId = deviceWithAssignment?.profileAssignment?.profileId || null;
+                        }
+                        
+                        if (!baseProfileId) {
+                            // Cannot save custom overrides without a base profile
+                            return fail(400, { 
+                                error: 'Cannot save custom settings without a base profile. Please select a profile first.' 
+                            });
+                        }
+                        
+                        // Create assignment with the base profile
+                        await locals.prisma.deviceProfileAssignment.create({
+                            data: {
+                                deviceId: id,
+                                profileId: baseProfileId,
+                                assignedBy: auth.user.id
+                            }
+                        });
+                        logger.info(`Created profile assignment ${baseProfileId} for device ${id} before saving custom overrides`);
+                    }
+                    
+                    // Build settings object in snake_case format (as expected by profile system)
+                    const customSettings: Record<string, any> = {};
+                    if (data.has('kioskLockMode')) {
+                        customSettings.kiosk_lock_mode = kioskLockMode ? 'enabled' : 'disabled';
+                    }
+                    if (exitLockdownPassword !== null && exitLockdownPassword !== undefined) {
+                        customSettings.exit_lockdown_password = exitLockdownPassword || '';
+                    }
+                    if (kioskApplication !== null && kioskApplication !== undefined) {
+                        customSettings.kiosk_application = kioskApplication || '';
+                    }
+                    if (displayResolution !== null && displayResolution !== undefined) {
+                        customSettings.display_resolution = displayResolution || '';
+                    }
+                    if (screenOrientation !== null && screenOrientation !== undefined) {
+                        customSettings.screen_orientation = screenOrientation || '';
+                    }
+                    if (brightnessLevel !== null && brightnessLevel !== undefined) {
+                        customSettings.brightness_level = brightnessLevel || '';
+                    }
+                    if (data.has('audioEnabled')) {
+                        customSettings.enable_audio = audioEnabled ? 'enabled' : 'disabled';
+                    }
+                    if (audioVolume !== null && audioVolume !== undefined) {
+                        customSettings.volume_level = audioVolume || '';
+                    }
+                    if (timezone !== null && timezone !== undefined) {
+                        customSettings.timezone = timezone || '';
+                    }
+                    if (homeLauncher !== null && homeLauncher !== undefined) {
+                        customSettings.home_launcher = homeLauncher || '';
+                    }
+                    if (data.has('powerManagementSchedule')) {
+                        customSettings.power_management_schedule = powerManagementSchedule ? 'enabled' : 'disabled';
+                    }
+                    if (data.has('rebootSchedule')) {
+                        customSettings.reboot_schedule_enabled = rebootSchedule ? 'enabled' : 'disabled';
+                    }
+                    if (data.has('downloadSchedule')) {
+                        customSettings.download_schedule_enabled = downloadSchedule ? 'enabled' : 'disabled';
+                    }
+                    
+                    // Save custom overrides using DeviceProfileService
+                    if (Object.keys(customSettings).length > 0) {
+                        const profileService = new DeviceProfileService(locals.prisma);
+                        const userId = auth.user.id;
+                        await profileService.updateDeviceSettings(id, customSettings, userId);
+                        logger.info(`Saved custom overrides for device ${id}`);
+                    }
+                } else if (profileId && profileId !== '__CUSTOM__') {
+                    // Profile mode: Assign profile to device
+                    // Remove any existing assignment first
+                    await locals.prisma.deviceProfileAssignment.deleteMany({
+                        where: { deviceId: id }
+                    });
+                    
+                    // Create new assignment
+                    await locals.prisma.deviceProfileAssignment.create({
+                        data: {
+                            deviceId: id,
+                            profileId: profileId,
+                            assignedBy: auth.user.id
+                        }
+                    });
+                    
+                    // Remove any custom overrides (device now uses profile defaults)
+                    await locals.prisma.deviceProfileOverride.deleteMany({
+                        where: { deviceId: id }
+                    });
+                    
+                    logger.info(`Assigned profile ${profileId} to device ${id} by user ${auth.user.id}`);
+                }
 
                 // Handle tags - set (replace all) instead of connect (add)
                 if (tagIds.length > 0) {
@@ -392,21 +638,33 @@ export function createDeviceActions(options: {
 
                 logger.info(`Device ${id} updated successfully`);
 
-                await logAudit({
-                    actionType: AuditActionType.UPDATE,
-                    tableName: 'Device',
-                    recordId: id,
-                    oldData: device,
-                    newData: updatedDevice,
-                    userId: locals.user.id,
-                    ipAddress: locals.ipAddress,
-                    prisma: locals.prisma
-                });
+                // Log audit - use auth.user.id
+                try {
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'Device',
+                        recordId: id,
+                        oldData: device,
+                        newData: updatedDevice,
+                        userId: auth.user.id,
+                        ipAddress: locals.ipAddress || request.headers.get('x-forwarded-for') || 'unknown',
+                        prisma: locals.prisma
+                    });
+                } catch (auditErr) {
+                    // Don't fail the update if audit logging fails
+                    logger.warn(`Failed to log audit for device update ${id}: ${auditErr}`);
+                }
                 
                 return { success: true };
             } catch (err) {
-                logger.error(`Error updating device: ${err}`);
-                return fail(500, { error: 'Failed to update device' });
+                logger.error(`Error updating device ${id}:`, err);
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                logger.error(`Error details:`, {
+                    error: errorMessage,
+                    stack: err instanceof Error ? err.stack : undefined,
+                    deviceId: id
+                });
+                return fail(500, { error: `Failed to update device: ${errorMessage}` });
             }
         },
 

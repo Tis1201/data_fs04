@@ -1,8 +1,8 @@
 import { fail, error } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { z } from 'zod';
-import { restrict } from '$lib/server/security/guards';
-import type { AuthenticatedEvent, AuthenticatedLoadEvent } from '$lib/server/security/guards';
+import { restrict, restrictModule } from '$lib/server/security/guards';
+import type { AuthenticatedEvent, AuthenticatedLoadEvent, ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { deviceEditSchema } from '../../../../admin/iot/devices/[id]/schema';
 import { loadDeviceDetail } from '$lib/server/devices/deviceLoader';
@@ -134,13 +134,14 @@ export const actions: Actions = {
     /**
      * Update device from Edit Device modal
      */
-    updateDevice: restrict(
-        async ({ request, locals }: AuthenticatedEvent) => {
+    updateDevice: restrictModule(
+        async ({ request, locals }: ModuleAuthenticatedEvent) => {
             return await deviceActions.updateDevice({
                 request,
                 locals
             });
         },
-        [SystemRole.USER]
+        'USER_DEVICES',
+        { action: 'EDIT' }
     )
 };

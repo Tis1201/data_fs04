@@ -4,7 +4,7 @@
     import type { DeviceRow, DeviceTablePagination, DeviceTableSort } from "$lib/design-system/components/DeviceTable.svelte";
     import { goto, invalidate } from "$app/navigation";
     import { page } from "$app/stores";
-    import { Search, Filter, Plus, Tags, GitFork, Server, BookUp2, Eye, EyeOff, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info, PackageOpen } from "lucide-svelte";
+    import { Search, Filter, Plus, Tags, GitFork, Server, BookUp2, Eye, EyeOff, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info } from "lucide-svelte";
     import { callUserRpc } from "$lib/client/mqtt/userRpc";
     import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
     import type { PageData } from "./$types";
@@ -1642,16 +1642,9 @@
                     </button>
                 {/each}
                 {#if assignDeploymentFilteredOptions.length === 0}
-                    {#if assignDeploymentAppsLoading}
-                        <div class="assign-deployment-empty assign-deployment-loading">
-                            <span class="no-data-state-inline-text">Loading…</span>
-                        </div>
-                    {:else}
-                        <div class="assign-deployment-empty no-data-state-inline">
-                            <PackageOpen size={72} color="var(--ds-text-tertiary)" strokeWidth={1.5} />
-                            <span class="no-data-state-inline-text">No Data Available</span>
-                        </div>
-                    {/if}
+                    <div class="assign-deployment-empty">
+                        {assignDeploymentAppsLoading ? 'Loading…' : 'No apps found'}
+                    </div>
                 {/if}
             </div>
         {/if}
@@ -2513,22 +2506,6 @@
         font-family: var(--ds-font-family-primary);
         font-size: var(--ds-text-sm);
         color: var(--ds-color-gray-500);
-    }
-    .assign-deployment-empty.no-data-state-inline,
-    .assign-deployment-empty.assign-deployment-loading {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: var(--ds-space-3);
-        padding: var(--ds-space-8) var(--ds-space-4);
-        min-height: 160px;
-    }
-    .no-data-state-inline-text {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-base);
-        font-weight: var(--ds-font-regular);
-        color: var(--ds-text-tertiary);
     }
 
     /* Assign Deployment Modal - Input container so dropdown is not clipped */
