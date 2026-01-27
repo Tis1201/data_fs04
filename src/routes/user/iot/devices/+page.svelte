@@ -1,18 +1,28 @@
 <script lang="ts">
-    import { DeviceTable, Button, InputField, Modal, Checkbox, BulkActionsBar, Dropdown, Alert, TabGroup, TextareaField, Toggle } from "$lib/design-system/components";
+    import { tick } from "svelte";
+    import { DeviceTable, Button, InputField, Modal, Checkbox, BulkActionsBar, Dropdown, Tag, Radio } from "$lib/design-system/components";
     import type { DeviceRow, DeviceTablePagination, DeviceTableSort } from "$lib/design-system/components/DeviceTable.svelte";
-    import type { TabItem } from "$lib/design-system/components/TabGroup.svelte";
     import { goto, invalidate } from "$app/navigation";
     import { page } from "$app/stores";
-    import { Search, Filter, Plus, Tag as TagIcon, Workflow, MonitorSmartphone, ArrowUpFromLine, Eye, EyeOff } from "lucide-svelte";
+    import { Search, Filter, Plus, Tags, GitFork, Server, BookUp2, Eye, EyeOff, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info, PackageOpen } from "lucide-svelte";
     import { callUserRpc } from "$lib/client/mqtt/userRpc";
     import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
     import type { PageData } from "./$types";
+    import EditDeviceModal from "$lib/components/devices/EditDeviceModal.svelte";
+    import { toast } from "$lib/stores/alertToast";
 
     // Type for available tags
     interface AvailableTag {
         id: string;
         name: string;
+    }
+
+    // Type for device profiles
+    interface DeviceProfile {
+        id: string;
+        name: string;
+        description?: string;
+        settings?: string; // JSON string of settings array
     }
 
     export let data: PageData;
@@ -48,61 +58,6 @@
     // =========================
     let showEditDeviceModal = false;
     let editDevice: DeviceRow | null = null;
-    let editDeviceLoading = false;
-    let editDeviceError: string | null = null;
-    
-    // Edit Device form state - Details tab
-    let editDeviceName = "";
-    let editDeviceActive = true;
-    let editDeviceTags: string[] = [];
-    let editDeviceDescription = "";
-    
-    // Edit Device form state - Configuration tab
-    let editActiveTab = "details";
-    let editAssignedProfile = "";
-    let editKioskLockMode = false;
-    let editExitLockdownPassword = "";
-    let editShowPassword = false;
-    let editKioskApplication = "";
-    let editDisplayResolution = "";
-    let editScreenOrientation = "";
-    let editBrightnessLevel = 100;
-    let editAudioEnabled = true;
-    let editAudioVolume = 100;
-    let editTimezone = "";
-    let editHomeLauncher = "";
-    let editPowerManagementSchedule = false;
-    let editRebootSchedule = false;
-    let editDownloadSchedule = false;
-
-    // Edit Device tabs
-    const editDeviceTabs: TabItem[] = [
-        { id: 'details', label: 'Details' },
-        { id: 'configuration', label: 'Configuration' }
-    ];
-
-    // Computed: Tag options for Edit Device modal
-    $: editTagOptions = availableTags.map((t) => ({ id: t.id, label: t.name, type: 'checkbox' as const }));
-
-    // =========================
-    // Toast/Alert notifications
-    // =========================
-    type ToastType = 'success' | 'error';
-    let toasts: Array<{ id: number; type: ToastType; message: string }> = [];
-    let toastIdCounter = 0;
-
-    function showToast(type: ToastType, message: string) {
-        const id = ++toastIdCounter;
-        toasts = [...toasts, { id, type, message }];
-        // Auto dismiss after 5 seconds
-        setTimeout(() => {
-            toasts = toasts.filter(t => t.id !== id);
-        }, 5000);
-    }
-
-    function dismissToast(id: number) {
-        toasts = toasts.filter(t => t.id !== id);
-    }
 
     // Filter modal selections (UI values)
     // Include '__all__' type for "All" option
@@ -154,6 +109,9 @@
         ...availableTags.map((t) => ({ id: t.id, label: t.name, type: 'checkbox' as const }))
     ];
 
+    // Device Profiles - load from server-side data (similar to availableTags)
+    $: availableProfiles = ((data as any)?.availableProfiles || []) as DeviceProfile[];
+
     $: deviceStatusOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
         { id: 'ACTIVE', label: 'Active', type: 'checkbox' as const },
@@ -176,18 +134,42 @@
         if (!serverData?.devices) return [];
         
         return serverData.devices.map((device: any) => {
-            const deviceInfo = serverData.deviceInformation?.[device.macAddress || device.lanMac || device.wifiMac];
-            
+            const mac = device.macAddress || device.lanMac || device.wifiMac;
+            const deviceInfo = serverData.deviceInformation?.[mac]
+                ?? serverData.deviceInformationByDeviceId?.[device.id];
+            const osFromInfo = deviceInfo?.os_version;
+            const deviceTypeFromInfo = osFromInfo
+                ? (/\b(darwin|macos|ios|apple)\b/i.test(osFromInfo) ? 'Apple'
+                    : /\b(android)\b/i.test(osFromInfo) ? 'Android'
+                    : /\b(linux|ubuntu|debian|centos|fedora|rhel|arch|suse)\b/i.test(osFromInfo) ? 'Linux'
+                    : /\b(windows|win|nt)\b/i.test(osFromInfo) ? 'Windows'
+                    : osFromInfo)
+                : null;
             return {
                 id: device.id,
                 name: device.name || 'Unnamed Device',
-                macAddress: device.macAddress || device.lanMac || device.wifiMac || 'N/A',
-                osVersion: device.osVersion || 'Unknown',
-                deviceType: device.deviceType || 'Unknown',  // Operating System column
+                macAddress: mac || 'N/A',
+                osVersion: device.osVersion ?? osFromInfo ?? 'Unknown',
+                deviceType: device.deviceType ?? deviceTypeFromInfo ?? 'Unknown',  // Operating System column
                 status: device.status || 'INACTIVE',
                 connected: device.connected ?? false,
                 connectedAt: device.connectedAt ? new Date(device.connectedAt) : undefined,
                 disconnectedAt: device.disconnectedAt ? new Date(device.disconnectedAt) : undefined,
+                // Include profileId and config fields for Edit Device modal
+                profileId: device.profileId || null,
+                kioskLockMode: device.kioskLockMode ?? false,
+                exitLockdownPassword: device.exitLockdownPassword || null,
+                kioskApplication: device.kioskApplication || null,
+                displayResolution: device.displayResolution || null,
+                screenOrientation: device.screenOrientation || null,
+                brightnessLevel: device.brightnessLevel ?? null,
+                audioEnabled: device.audioEnabled ?? null,
+                audioVolume: device.audioVolume ?? null,
+                timezone: device.timezone || null,
+                homeLauncher: device.homeLauncher || null,
+                powerManagementSchedule: device.powerManagementSchedule ?? false,
+                rebootSchedule: device.rebootSchedule ?? false,
+                downloadSchedule: device.downloadSchedule ?? false,
                 // Database uses lastUsedAt, UI expects lastSeenAt
                 lastSeenAt: device.lastUsedAt ? new Date(device.lastUsedAt) : (device.lastSeenAt ? new Date(device.lastSeenAt) : undefined),
                 tags: (device.tags || []).map((tag: any) => ({
@@ -295,98 +277,30 @@
         await goto(`/user/iot/devices/${device.id}`);
     }
 
-    function handleEdit(event: CustomEvent<DeviceRow>) {
+    async function handleEdit(event: CustomEvent<DeviceRow>) {
         const device = event.detail;
-        openEditDeviceModal(device);
+        await openEditDeviceModal(device);
     }
 
-    function openEditDeviceModal(device: DeviceRow) {
+    async function openEditDeviceModal(device: DeviceRow) {
         editDevice = device;
-        editActiveTab = "details";
-        editDeviceError = null;
-        
-        // Populate Details tab
-        editDeviceName = device.name || "";
-        editDeviceActive = device.status === 'ACTIVE';
-        editDeviceTags = device.tags?.map(t => t.id) || [];
-        editDeviceDescription = (device as any).description || "";
-        
-        // Populate Configuration tab (with defaults - actual values would come from device data)
-        editAssignedProfile = (device as any).profileId || "";
-        editKioskLockMode = (device as any).kioskLockMode || false;
-        editExitLockdownPassword = "";
-        editShowPassword = false;
-        editKioskApplication = (device as any).kioskApplication || "";
-        editDisplayResolution = (device as any).displayResolution || "1920x1080";
-        editScreenOrientation = (device as any).screenOrientation || "Portrait";
-        editBrightnessLevel = (device as any).brightnessLevel ?? 100;
-        editAudioEnabled = (device as any).audioEnabled ?? true;
-        editAudioVolume = (device as any).audioVolume ?? 100;
-        editTimezone = (device as any).timezone || "Asia/Ho_Chi_Minh";
-        editHomeLauncher = (device as any).homeLauncher || "";
-        editPowerManagementSchedule = (device as any).powerManagementSchedule || false;
-        editRebootSchedule = (device as any).rebootSchedule || false;
-        editDownloadSchedule = (device as any).downloadSchedule || false;
-        
         showEditDeviceModal = true;
     }
 
-    async function saveEditDevice() {
-        if (!editDevice) return;
-        
-        editDeviceLoading = true;
-        editDeviceError = null;
-        
-        try {
-            const fd = new FormData();
-            fd.set('id', editDevice.id);
-            fd.set('name', editDeviceName);
-            fd.set('status', editDeviceActive ? 'ACTIVE' : 'INACTIVE');
-            fd.set('description', editDeviceDescription);
-            fd.set('tags', JSON.stringify(editDeviceTags));
-            
-            // Configuration fields
-            fd.set('profileId', editAssignedProfile);
-            fd.set('kioskLockMode', String(editKioskLockMode));
-            if (editExitLockdownPassword) {
-                fd.set('exitLockdownPassword', editExitLockdownPassword);
-            }
-            fd.set('kioskApplication', editKioskApplication);
-            fd.set('displayResolution', editDisplayResolution);
-            fd.set('screenOrientation', editScreenOrientation);
-            fd.set('brightnessLevel', String(editBrightnessLevel));
-            fd.set('audioEnabled', String(editAudioEnabled));
-            fd.set('audioVolume', String(editAudioVolume));
-            fd.set('timezone', editTimezone);
-            fd.set('homeLauncher', editHomeLauncher);
-            fd.set('powerManagementSchedule', String(editPowerManagementSchedule));
-            fd.set('rebootSchedule', String(editRebootSchedule));
-            fd.set('downloadSchedule', String(editDownloadSchedule));
-            
-            const res = await fetch('?/updateDevice', { method: 'POST', body: fd });
-            
-            if (!res.ok) {
-                const payload = await res.json().catch(() => ({}));
-                throw new Error(payload?.error || res.statusText);
-            }
-            
-            showToast('success', 'Device saved successfully!');
-            showEditDeviceModal = false;
-            editDevice = null;
-            await invalidate('app:userDevices');
-        } catch (error) {
-            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            editDeviceError = errorMsg;
-            showToast('error', 'Unable to save device. Please try again!');
-        } finally {
-            editDeviceLoading = false;
-        }
-    }
-
-    function closeEditDeviceModal() {
+    function handleEditDeviceSave() {
+        toast.success('Device saved successfully!');
         showEditDeviceModal = false;
         editDevice = null;
-        editDeviceError = null;
+        invalidate('app:userDevices');
+    }
+
+    function handleEditDeviceError(error: string) {
+        toast.error( `Unable to save device: ${error}`);
+    }
+
+    function handleEditDeviceClose() {
+        showEditDeviceModal = false;
+        editDevice = null;
     }
 
     // Open Deactivate/Reactivate confirmation modal
@@ -416,11 +330,11 @@
                 throw new Error(payload?.error || res.statusText);
             }
             
-            showToast('success', `Device ${actionName} successfully!`);
+            toast.success( `Device ${actionName} successfully!`);
             await invalidate('app:userDevices');
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            showToast('error', `Unable to ${device.status === 'ACTIVE' ? 'deactivate' : 'reactivate'}. Please try again!`);
+            toast.error( `Unable to ${device.status === 'ACTIVE' ? 'deactivate' : 'reactivate'}. Please try again!`);
             console.error(`Failed to ${actionName}:`, errorMsg);
         } finally {
             actionLoading = false;
@@ -443,10 +357,10 @@
                 throw new Error(payload?.error || res.statusText);
             }
             
-            showToast('success', 'Device rebooted successfully!');
+            toast.success( 'Device rebooted successfully!');
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            showToast('error', 'Unable to reboot Device. Please try again!');
+            toast.error( 'Unable to reboot Device. Please try again!');
             console.error("Failed to reboot:", errorMsg);
         }
     }
@@ -475,11 +389,11 @@
                 throw new Error(payload?.error || res.statusText);
             }
             
-            showToast('success', 'Device deleted successfully!');
+            toast.success( 'Device deleted successfully!');
             await invalidate('app:userDevices');
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            showToast('error', 'Unable to delete device. Please try again!');
+            toast.error( 'Unable to delete device. Please try again!');
             console.error("Failed to delete:", errorMsg);
         } finally {
             actionLoading = false;
@@ -578,13 +492,13 @@
 
             const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
             showAddDeviceModal = false;
-            showToast('success', 'Device added successfully!');
+            toast.success( 'Device added successfully!');
             // give device time to reconnect with new creds
             await new Promise((r) => setTimeout(r, 1000));
             await goto(`/user/iot/devices/${confirmation.deviceId}`);
         } catch (e) {
             claimError = e instanceof Error ? e.message : String(e);
-            showToast('error', 'Unable to add device. Please try again!');
+            toast.error( 'Unable to add device. Please try again!');
         } finally {
             claimLoading = false;
         }
@@ -593,14 +507,21 @@
     // =========================
     // Bulk actions (Figma)
     // =========================
-    const bulkActions = [
-        { id: 'assign-tag', label: 'Assign Tag', icon: TagIcon },
-        { id: 'assign-deployment', label: 'Assign Deployment', icon: Workflow },
-          { id: 'install-app', label: 'Install App', icon: MonitorSmartphone },
-          { id: 'update', label: 'Update', icon: ArrowUpFromLine },
-        { id: 'deactivate', label: 'Deactivate', destructive: true },
-        { id: 'reboot', label: 'Reboot', destructive: true }
-    ] as const;
+    // Compute bulk actions dynamically based on selected devices' status
+    // If all selected devices are INACTIVE, show "Reactivate", otherwise show "Deactivate"
+    $: bulkActions = (() => {
+        const allInactive = selectedRows.length > 0 && selectedRows.every(row => row.status === 'INACTIVE');
+        const deactivateLabel = allInactive ? 'Reactivate' : 'Deactivate';
+        
+        return [
+            { id: 'assign-tag', label: 'Assign Tag', icon: Tags },
+            { id: 'assign-deployment', label: 'Assign Deployment', icon: GitFork },
+            { id: 'install-app', label: 'Install App', icon: Server },
+            { id: 'update', label: 'Update', icon: BookUp2 },
+            { id: 'deactivate', label: deactivateLabel, destructive: true },
+            { id: 'reboot', label: 'Reboot', destructive: true }
+        ];
+    })();
 
     let showBulkConfirmModal = false;
     let bulkConfirmAction: 'deactivate' | 'reboot' | null = null;
@@ -614,11 +535,25 @@
     let assignTagLoading = false;
     let assignTagDropdownOpen = false;
     let assignTagDropdownInteracting = false;
+    let assignTagInputContainer: HTMLDivElement;
+    let assignTagDropdownPosition = { top: 0, left: 0, width: 0 };
 
     // Computed: filtered tags for Assign Tag modal
     $: assignTagFilteredOptions = availableTags.filter((t) => 
         t.name.toLowerCase().includes(assignTagSearch.toLowerCase())
     );
+
+    // Update dropdown position
+    function updateAssignTagDropdownPosition() {
+        if (assignTagInputContainer) {
+            const rect = assignTagInputContainer.getBoundingClientRect();
+            assignTagDropdownPosition = {
+                top: rect.bottom + 4, // 4px = var(--ds-space-1) margin
+                left: rect.left,
+                width: rect.width
+            };
+        }
+    }
 
     function openAssignTagModal() {
         assignTagSearch = "";
@@ -628,11 +563,14 @@
         showAssignTagModal = true;
     }
     
-    function handleAssignTagFocus() {
+    async function handleAssignTagFocus(e: CustomEvent<FocusEvent>) {
         assignTagDropdownOpen = true;
+        // Wait for DOM to render then compute position
+        await tick();
+        updateAssignTagDropdownPosition();
     }
-    
-    function handleAssignTagBlur(e: FocusEvent) {
+
+    function handleAssignTagBlur(e: CustomEvent<FocusEvent>) {
         // Delay closing to allow click on options
         setTimeout(() => {
             if (!assignTagDropdownInteracting) {
@@ -659,14 +597,10 @@
     let assignDeploymentLoading = false;
     let assignDeploymentDropdownOpen = false;
     let assignDeploymentDropdownInteracting = false;
-
-    // Mock app options for Assign Deployment (replace with real data from server)
-    const availableDeploymentApps: DeploymentAppOption[] = [
-        { id: 'app-1', name: 'MDM Agent', packageName: 'com.datarealities.android' },
-        { id: 'app-2', name: 'Shift Management', packageName: 'com.datarealities.android' },
-        { id: 'app-3', name: 'Weather App', packageName: 'com.weatherapp.datarealities.com' },
-        { id: 'app-4', name: 'Chart App', packageName: 'chartapp.datarealities.com' }
-    ];
+    let assignDeploymentInputContainer: HTMLDivElement;
+    let assignDeploymentDropdownPosition = { top: 0, left: 0, width: 0 };
+    let availableDeploymentApps: DeploymentAppOption[] = [];
+    let assignDeploymentAppsLoading = false;
 
     // Computed: filtered apps for Assign Deployment modal
     $: assignDeploymentFilteredOptions = availableDeploymentApps.filter((app) => 
@@ -679,19 +613,54 @@
         return assignDeploymentSelectedApps.some(a => a.id === appId);
     }
 
+    async function loadAvailableDeploymentApps() {
+        assignDeploymentAppsLoading = true;
+        try {
+            const res = await fetch('/api/user/resources/apps?pageSize=100');
+            if (!res.ok) throw new Error('Failed to load apps');
+            const data = await res.json();
+            availableDeploymentApps = (data.items || []).map((item: { id: string; name?: string; packageName?: string }) => ({
+                id: item.id,
+                name: item.name || 'Unknown App',
+                packageName: item.packageName || '-'
+            }));
+        } catch (_e) {
+            availableDeploymentApps = [];
+        } finally {
+            assignDeploymentAppsLoading = false;
+        }
+    }
+
     function openAssignDeploymentModal() {
         assignDeploymentSearch = "";
         assignDeploymentSelectedApps = [];
         assignDeploymentDropdownOpen = false;
         assignDeploymentDropdownInteracting = false;
+        availableDeploymentApps = [];
         showAssignDeploymentModal = true;
+        loadAvailableDeploymentApps();
     }
     
-    function handleAssignDeploymentFocus() {
+    // Update dropdown position
+    function updateAssignDeploymentDropdownPosition() {
+        if (assignDeploymentInputContainer) {
+            const rect = assignDeploymentInputContainer.getBoundingClientRect();
+            assignDeploymentDropdownPosition = {
+                top: rect.bottom + 4, // 4px = var(--ds-space-1) margin
+                left: rect.left,
+                width: rect.width
+            };
+        }
+    }
+
+    async function handleAssignDeploymentFocus(e: CustomEvent<FocusEvent>) {
         assignDeploymentDropdownOpen = true;
+        // Wait for DOM to render then compute position
+        await tick();
+        updateAssignDeploymentDropdownPosition();
     }
     
-    function handleAssignDeploymentBlur(e: FocusEvent) {
+    function handleAssignDeploymentBlur(e: CustomEvent<FocusEvent>) {
         // Only close if not interacting with dropdown
         setTimeout(() => {
             if (!assignDeploymentDropdownInteracting) {
@@ -730,10 +699,10 @@
             
             showAssignDeploymentModal = false;
             selectedRows = [];
-            showToast('success', 'App added successfully!');
+            toast.success( 'App added successfully!');
             await invalidate('app:userDevices');
         } catch (e) {
-            showToast('error', 'Unable to add App. Please try again!');
+            toast.error( 'Unable to add App. Please try again!');
             console.error('Failed to add app:', e);
         } finally {
             assignDeploymentLoading = false;
@@ -753,6 +722,8 @@
     let installAppLoading = false;
     let installAppDropdownOpen = false;
     let installAppDropdownInteracting = false;
+    let installAppInputContainer: HTMLDivElement;
+    let installAppDropdownPosition = { top: 0, left: 0, width: 0 };
 
     // App options loaded from API
     let availableApps: AppOption[] = [];
@@ -794,11 +765,26 @@
         loadAvailableApps();
     }
     
-    function handleInstallAppFocus() {
+    // Update dropdown position
+    function updateInstallAppDropdownPosition() {
+        if (installAppInputContainer) {
+            const rect = installAppInputContainer.getBoundingClientRect();
+            installAppDropdownPosition = {
+                top: rect.bottom + 4, // 4px = var(--ds-space-1) margin
+                left: rect.left,
+                width: rect.width
+            };
+        }
+    }
+
+    async function handleInstallAppFocus(e: CustomEvent<FocusEvent>) {
         installAppDropdownOpen = true;
+        // Wait for DOM to render then compute position
+        await tick();
+        updateInstallAppDropdownPosition();
     }
     
-    function handleInstallAppBlur(e: FocusEvent) {
+    function handleInstallAppBlur(e: CustomEvent<FocusEvent>) {
         setTimeout(() => {
             if (!installAppDropdownInteracting) {
                 installAppDropdownOpen = false;
@@ -851,16 +837,16 @@
             selectedRows = [];
             
             if (failCount === 0) {
-                showToast('success', 'App installation initiated successfully!');
+                toast.success( 'App installation initiated successfully!');
             } else if (successCount > 0) {
-                showToast('success', `App installation initiated on ${successCount} device(s). ${failCount} failed.`);
+                toast.success( `App installation initiated on ${successCount} device(s). ${failCount} failed.`);
             } else {
-                showToast('error', 'Failed to install app on all devices.');
+                toast.error( 'Failed to install app on all devices.');
             }
             
             await invalidate('app:userDevices');
         } catch (e) {
-            showToast('error', 'Unable to install New App. Please try again!');
+            toast.error( 'Unable to install New App. Please try again!');
             console.error('Failed to install app:', e);
         } finally {
             installAppLoading = false;
@@ -987,16 +973,16 @@
             selectedRows = [];
             
             if (failCount === 0) {
-                showToast('success', 'Firmware update initiated successfully!');
+                toast.success( 'Firmware update initiated successfully!');
             } else if (successCount > 0) {
-                showToast('success', `Firmware update initiated on ${successCount} device(s). ${failCount} failed.`);
+                toast.success( `Firmware update initiated on ${successCount} device(s). ${failCount} failed.`);
             } else {
-                showToast('error', 'Failed to update firmware on all devices.');
+                toast.error( 'Failed to update firmware on all devices.');
             }
             
             await invalidate('app:userDevices');
         } catch (e) {
-            showToast('error', 'Unable to update Firmware. Please try again!');
+            toast.error( 'Unable to update Firmware. Please try again!');
             console.error('Failed to update firmware:', e);
         } finally {
             updateFirmwareLoading = false;
@@ -1033,10 +1019,10 @@
             }
             showAssignTagModal = false;
             selectedRows = [];
-            showToast('success', 'Tag assigned successfully!');
+            toast.success( 'Tag assigned successfully!');
             await invalidate('app:userDevices');
         } catch (e) {
-            showToast('error', 'Unable to assign Tag. Please try again!');
+            toast.error( 'Unable to assign Tag. Please try again!');
             console.error('Failed to assign tags:', e);
         } finally {
             assignTagLoading = false;
@@ -1095,18 +1081,18 @@
             
             // Show success toast based on action type
             if (actionType === 'reboot') {
-                showToast('success', 'Device rebooted successfully!');
+                toast.success( 'Device rebooted successfully!');
             } else if (actionType === 'deactivate') {
-                showToast('success', 'Device deactivated successfully!');
+                toast.success( 'Device deactivated successfully!');
             }
         } catch (e) {
             bulkError = e instanceof Error ? e.message : String(e);
             
             // Show error toast based on action type
             if (actionType === 'reboot') {
-                showToast('error', 'Unable to reboot Device. Please try again!');
+                toast.error( 'Unable to reboot Device. Please try again!');
             } else if (actionType === 'deactivate') {
-                showToast('error', 'Unable to deactivate Device. Please try again!');
+                toast.error( 'Unable to deactivate Device. Please try again!');
             }
         } finally {
             bulkWorking = false;
@@ -1145,26 +1131,25 @@
         <!-- Spacer: flex-grow: 1 -->
         <div style="flex: 1;"></div>
 
-        <!-- Filter Button: 44x44px, border #D6D6D6, shadow -->
+        <!-- Filter Button: 44x44px, using design tokens -->
         <Button 
             variant="outline" 
             color="gray" 
             size="lg"
             iconOnly={true}
-            style="width: 44px; height: 44px; border: 1px solid #D6D6D6; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            icon={Filter}
+            iconPosition="only"
             on:click={openFilter}
-        >
-            <Filter size={20} slot="icon" />
-        </Button>
+        />
 
-        <!-- Add Device Button: 156px width, height 44px, background #0086C9 -->
+        <!-- Add Device Button: 156px width, height 44px, background var(--ds-color-blue-light-600) -->
         <Button 
             variant="filled" 
             color="primary" 
             size="lg" 
             iconLeft={true}
             on:click={openAddDeviceModal}
-            style="width: 156px; height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            style="width: 156px; height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
             <Plus size={20} slot="icon-left" />
             Add Device
@@ -1218,45 +1203,30 @@
     on:close={() => (showAddDeviceModal = false)}
 >
     <!-- PIN Code Input -->
-    <div class="w-full flex flex-col items-center" style="width: 100%;">
-        <label 
-            for="device-pin-input"
-            class="block text-center mb-2 ds-text-body"
-        >
-            Device PIN Code <span class="ds-text-error">*</span>
-        </label>
-        <input
+    <div class="w-full">
+        <InputField
             id="device-pin-input"
             type="text"
+            label="Device PIN Code"
             placeholder="000 000"
             bind:value={claimPin}
-            maxlength="6"
-            class="w-full text-center ds-input"
-            class:ds-input-error={claimError}
-            on:focus={(e) => e.currentTarget.style.borderColor = 'var(--ds-color-blue-light-600)'}
-            on:blur={(e) => e.currentTarget.style.borderColor = claimError ? 'var(--ds-color-error-500)' : 'var(--ds-border-default)'}
+            maxlength={6}
+            required={true}
+            state={claimError ? 'error' : 'default'}
+            helperText={claimError || undefined}
+            align="center"
         />
-        {#if claimError}
-            <p class="ds-text-error" style="margin-top: 4px;">
-                {claimError}
-            </p>
-        {/if}
     </div>
 
-    <!-- Help Info Box -->
-    <div class="ds-info-box">
-        <div class="flex items-start gap-2">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink: 0; margin-top: 2px;">
-                <circle cx="12" cy="12" r="10" stroke="var(--ds-color-gray-600)" stroke-width="2"/>
-                <path d="M12 16V12M12 8H12.01" stroke="var(--ds-color-gray-600)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span class="ds-info-box-title">
-                Need help finding your device PIN?
-            </span>
+    <!-- Help Info Frame - Frame 34 from Figma (info frame, not Alert component) -->
+    <div class="add-device-help-frame">
+        <div class="add-device-help-header">
+            <Info size={20} class="add-device-help-icon" />
+            <span class="add-device-help-title">Need help finding your device PIN?</span>
         </div>
-        <ul class="ds-info-box-list">
-            <li style="margin-bottom: 4px;">The PIN is a 6-digit code displayed on your device or terminal during setup</li>
-            <li style="margin-bottom: 4px;">For camera devices, the PIN may appear on the device's screen</li>
+        <ul class="add-device-help-list">
+            <li>The PIN is a 6-digit code displayed on your device or terminal during setup</li>
+            <li>For camera devices, the PIN may appear on the device's screen</li>
             <li>If you can't find the PIN, try resetting the device</li>
         </ul>
     </div>
@@ -1278,9 +1248,9 @@
             size="lg"
             on:click={confirmClaimDevice}
             disabled={claimLoading || claimPin.length < 6}
-            style="height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            loading={claimLoading}
         >
-            {claimLoading ? 'Claiming…' : 'Claim Device'}
+            Claim Device
         </Button>
     </div>
 </Modal>
@@ -1297,9 +1267,9 @@
     on:close={() => (showFilterModal = false)}
 >
     <!-- Match screenshot: 4 stacked dropdown selects -->
-    <div class="w-full" style="width: 100%;">
-        <div class="flex flex-col items-start" style="gap: 16px; width: 100%;">
-            <div style="width: 518px;">
+    <div class="w-full">
+        <div class="flex flex-col items-start" style="gap: var(--ds-space-4); width: 100%;">
+            <div style="width: 100%; max-width: 518px;">
                 <Dropdown
                     label="Device Status"
                     placeholder="Select"
@@ -1310,7 +1280,7 @@
                 />
             </div>
 
-            <div style="width: 518px;">
+            <div style="width: 100%; max-width: 518px;">
                 <Dropdown
                     label="Connection Status"
                     placeholder="Select"
@@ -1321,7 +1291,7 @@
                 />
             </div>
 
-            <div style="width: 518px;">
+            <div style="width: 100%; max-width: 518px;">
                 <Dropdown
                     label="OS Version"
                     placeholder="Select"
@@ -1332,7 +1302,7 @@
                 />
             </div>
 
-            <div style="width: 518px;">
+            <div style="width: 100%; max-width: 518px;">
                 <Dropdown
                     label="Tag"
                     placeholder="Select"
@@ -1348,12 +1318,11 @@
     </div>
 
     <!-- Footer: Clear All + Apply -->
-    <div slot="footer" class="flex items-center justify-end gap-4 w-full">
+    <div slot="footer" class="flex items-center justify-end" style="gap: var(--ds-space-4); width: 100%;">
         <Button
             variant="text"
             color="primary"
             size="lg"
-            style="height: 44px;"
             on:click={clearFilterModal}
         >
             Clear All
@@ -1363,7 +1332,6 @@
             color="primary"
             size="lg"
             on:click={applyFilterModal}
-            style="height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05); min-width: 100px;"
         >
             Apply
         </Button>
@@ -1374,19 +1342,20 @@
 <Modal
     open={showBulkConfirmModal}
     title={bulkConfirmAction === 'reboot' ? 'Reboot devices' : 'Deactivate devices'}
+    type="error"
     size="md"
     overlayBg="rgba(0, 78, 235, 0.03)"
     showFooter={true}
     on:close={() => (showBulkConfirmModal = false)}
 >
-    <div class="text-sm text-[#292929]" style="font-family: var(--ds-font-family-primary);">
+    <div style="font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); color: var(--ds-text-primary);">
         {#if bulkConfirmAction === 'reboot'}
             This will reboot {selectedRows.length} device(s). Continue?
         {:else}
             This will deactivate {selectedRows.length} device(s). Continue?
         {/if}
         {#if bulkError}
-            <div class="mt-2 text-sm text-[#B42318]">{bulkError}</div>
+            <div style="margin-top: var(--ds-space-2); font-size: var(--ds-text-sm); color: var(--ds-color-error-600);">{bulkError}</div>
         {/if}
     </div>
 
@@ -1400,9 +1369,9 @@
             size="lg"
             on:click={confirmBulkAction}
             disabled={bulkWorking}
-            style="height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            loading={bulkWorking}
         >
-            {bulkWorking ? 'Working…' : 'Confirm'}
+            Confirm
         </Button>
     </div>
 </Modal>
@@ -1417,7 +1386,7 @@
     showFooter={true}
     on:close={cancelDeactivateModal}
 >
-    <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 16px; line-height: 24px; color: #292929; margin: 0;">
+    <p style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-md); line-height: var(--ds-leading-md); color: var(--ds-text-primary); margin: 0;">
         Are you sure you want to {pendingActionDevice?.status === 'ACTIVE' ? 'deactivate' : 'reactivate'} this device?
     </p>
 
@@ -1438,13 +1407,9 @@
             size="lg"
             on:click={confirmToggleStatus}
             disabled={actionLoading}
-            style="height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            loading={actionLoading}
         >
-            {#if actionLoading}
-                Working…
-            {:else}
-                {pendingActionDevice?.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
-            {/if}
+            {pendingActionDevice?.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
         </Button>
     </div>
 </Modal>
@@ -1459,7 +1424,7 @@
     showFooter={true}
     on:close={cancelDeleteModal}
 >
-    <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 16px; line-height: 24px; color: #292929; margin: 0;">
+    <p style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-md); line-height: var(--ds-leading-md); color: var(--ds-text-primary); margin: 0;">
         Are you sure you want to delete this device? This action can not be reverse.
     </p>
 
@@ -1480,499 +1445,27 @@
             size="lg"
             on:click={confirmDelete}
             disabled={actionLoading}
-            style="height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            loading={actionLoading}
         >
-            {actionLoading ? 'Deleting…' : 'Delete'}
+            Delete
         </Button>
     </div>
 </Modal>
 
-<!-- Edit Device Modal (Figma) -->
-<Modal
-    open={showEditDeviceModal}
-    title="Edit Device"
-    size="lg"
-    overlayBg="rgba(0, 78, 235, 0.03)"
-    closeOnBackdrop={false}
-    closeOnEscape={true}
-    showFooter={true}
-    on:close={closeEditDeviceModal}
->
-    <!-- Device Name Row with Active Toggle aligned to input -->
-    <div class="w-full" style="margin-bottom: 24px;">
-        <label 
-            for="edit-device-name"
-            style="display: block; font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #344054; margin-bottom: 6px;"
-        >
-            Device Name
-        </label>
-        <div class="flex items-center gap-4">
-            <div class="flex-1">
-                <input
-                    id="edit-device-name"
-                    type="text"
-                    placeholder="Enter device name"
-                    bind:value={editDeviceName}
-                    style="
-                        box-sizing: border-box;
-                        width: 100%;
-                        padding: 10px 14px;
-                        height: 44px;
-                        background: #FFFFFF;
-                        border: 1px solid {editDeviceError ? '#FDA29B' : '#D0D5DD'};
-                        border-radius: 8px;
-                        font-family: var(--ds-font-family-primary);
-                        font-size: 16px;
-                        line-height: 24px;
-                        color: #101828;
-                        outline: none;
-                    "
-                    on:focus={(e) => e.currentTarget.style.borderColor = '#0086C9'}
-                    on:blur={(e) => e.currentTarget.style.borderColor = editDeviceError ? '#FDA29B' : '#D0D5DD'}
-                />
-            </div>
-            <div class="flex items-center gap-2">
-                <Toggle
-                    bind:checked={editDeviceActive}
-                    size="sm"
-                />
-                <span style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929;">
-                    Active
-                </span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Tabs -->
-    <div style="margin-bottom: 24px; width: 100%;">
-        <TabGroup
-            tabs={editDeviceTabs}
-            bind:activeTab={editActiveTab}
-            type="underline"
-            size="sm"
-        />
-    </div>
-
-    <!-- Tab Content -->
-    {#if editActiveTab === 'details'}
-        <!-- Details Tab -->
-        <div class="flex flex-col" style="width: 100%; gap: 24px;">
-            <!-- Tag Dropdown -->
-            <Dropdown
-                label="Tag"
-                placeholder="Select tags"
-                multiple={true}
-                searchable={true}
-                options={editTagOptions}
-                value={editDeviceTags}
-                on:change={(e) => editDeviceTags = Array.isArray(e.detail) ? e.detail : [e.detail]}
-            />
-
-            <!-- Description -->
-            <TextareaField
-                label="Description"
-                placeholder="Enter device description"
-                bind:value={editDeviceDescription}
-                rows={4}
-            />
-        </div>
-    {:else}
-        <!-- Configuration Tab -->
-        <div class="flex flex-col gap-4" style="width: 100%; max-height: 500px; overflow-y: auto;">
-            
-            <!-- Assigned Profile Dropdown (standalone) -->
-            <Dropdown
-                label="Assigned Profile"
-                placeholder="Select"
-                options={[
-                    { id: 'profile1', label: '<Value>', supportingText: '<Value>' },
-                    { id: 'profile2', label: '<Value>', supportingText: '<Value>' },
-                    { id: 'profile3', label: '<Value>', supportingText: '<Value>' },
-                    { id: 'profile4', label: '<Value>', supportingText: '<Value>' }
-                ]}
-                value={editAssignedProfile}
-                on:change={(e) => editAssignedProfile = String(e.detail)}
-            />
-
-            <!-- Block 1: Kiosk Settings -->
-            <div style="background: #F9FAFB; border-radius: 12px; padding: 0;">
-                <!-- Kiosk Lock Mode -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Kiosk Lock Mode
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Enable kiosk mode to lock the device interface
-                        </p>
-                    </div>
-                    <Toggle bind:checked={editKioskLockMode} size="sm" />
-                </div>
-
-                <!-- Exit Lockdown Password -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Exit Lockdown Password
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Password required to exit kiosk mode
-                        </p>
-                    </div>
-                    <div class="relative" style="width: 200px;">
-                        {#if editShowPassword}
-                            <input
-                                type="text"
-                                bind:value={editExitLockdownPassword}
-                                placeholder="******"
-                                class="w-full"
-                                style="
-                                    box-sizing: border-box;
-                                    padding: 10px 40px 10px 14px;
-                                    height: 44px;
-                                    background: #FFFFFF;
-                                    border: 1px solid #D6D6D6;
-                                    border-radius: 8px;
-                                    font-family: var(--ds-font-family-primary);
-                                    font-size: 14px;
-                                    outline: none;
-                                "
-                            />
-                        {:else}
-                            <input
-                                type="password"
-                                bind:value={editExitLockdownPassword}
-                                placeholder="******"
-                                class="w-full"
-                                style="
-                                    box-sizing: border-box;
-                                    padding: 10px 40px 10px 14px;
-                                    height: 44px;
-                                    background: #FFFFFF;
-                                    border: 1px solid #D6D6D6;
-                                    border-radius: 8px;
-                                    font-family: var(--ds-font-family-primary);
-                                    font-size: 14px;
-                                    outline: none;
-                                "
-                            />
-                        {/if}
-                        <button
-                            type="button"
-                            class="absolute right-3 top-1/2 -translate-y-1/2"
-                            on:click={() => editShowPassword = !editShowPassword}
-                            style="background: none; border: none; cursor: pointer; padding: 0;"
-                        >
-                            {#if editShowPassword}
-                                <EyeOff size={20} color="#737373" />
-                            {:else}
-                                <Eye size={20} color="#737373" />
-                            {/if}
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Kiosk Application -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Kiosk Application
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Application to run in kiosk mode
-                        </p>
-                    </div>
-                    <div style="width: 200px;">
-                        <Dropdown
-                            placeholder="<App Name>"
-                            options={[
-                                { id: 'app1', label: '<Value>', supportingText: '<Value>' },
-                                { id: 'app2', label: '<Value>', supportingText: '<Value>' },
-                                { id: 'app3', label: '<Value>', supportingText: '<Value>' },
-                                { id: 'app4', label: '<Value>', supportingText: '<Value>' }
-                            ]}
-                            value={editKioskApplication}
-                            on:change={(e) => editKioskApplication = String(e.detail)}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            <!-- Block 2: Display Settings -->
-            <div style="background: #F9FAFB; border-radius: 12px; padding: 0;">
-                <!-- Display Resolution -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Display Resolution
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Screen resolution for device
-                        </p>
-                    </div>
-                    <div style="width: 200px;">
-                        <Dropdown
-                            placeholder="Select"
-                            options={[
-                                { id: '640x480', label: '640x480' },
-                                { id: '800x600', label: '800x600' },
-                                { id: '1024x768', label: '1024x768' },
-                                { id: '1152x864', label: '1152x864' }
-                            ]}
-                            value={editDisplayResolution}
-                            on:change={(e) => editDisplayResolution = String(e.detail)}
-                        />
-                    </div>
-                </div>
-
-                <!-- Screen Orientation -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Screen Orientation
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Screen orientation preference
-                        </p>
-                    </div>
-                    <div style="width: 200px;">
-                        <Dropdown
-                            placeholder="Select"
-                            options={[
-                                { id: 'Portrait', label: 'Portrait' },
-                                { id: 'Landscape', label: 'Landscape' }
-                            ]}
-                            value={editScreenOrientation}
-                            on:change={(e) => editScreenOrientation = String(e.detail)}
-                        />
-                    </div>
-                </div>
-
-                <!-- Brightness Level -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Brightness Level
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Screen brightness level (0-100%)
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-3" style="width: 280px;">
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            bind:value={editBrightnessLevel}
-                            class="config-slider"
-                            style="flex: 1; height: 8px; -webkit-appearance: none; appearance: none; background: linear-gradient(to right, #344054 0%, #344054 {editBrightnessLevel}%, #E5E5E5 {editBrightnessLevel}%, #E5E5E5 100%); border-radius: 4px; outline: none;"
-                        />
-                        <div class="flex items-center gap-1" style="min-width: 70px;">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                bind:value={editBrightnessLevel}
-                                style="
-                                    width: 50px;
-                                    padding: 6px 8px;
-                                    border: 1px solid #D6D6D6;
-                                    border-radius: 6px;
-                                    font-family: var(--ds-font-family-primary);
-                                    font-size: 14px;
-                                    text-align: center;
-                                    background: #FFFFFF;
-                                "
-                            />
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #737373;">%</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Block 3: Audio Settings -->
-            <div style="background: #F9FAFB; border-radius: 12px; padding: 0;">
-                <!-- Audio -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Audio
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Enable or disable audio output
-                        </p>
-                    </div>
-                    <Toggle bind:checked={editAudioEnabled} size="sm" />
-                </div>
-
-                <!-- Audio Volume -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Audio Volume
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Audio volume level (0-100%)
-                        </p>
-                    </div>
-                    <div class="flex items-center gap-3" style="width: 280px;">
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            bind:value={editAudioVolume}
-                            class="config-slider"
-                            style="flex: 1; height: 8px; -webkit-appearance: none; appearance: none; background: linear-gradient(to right, #344054 0%, #344054 {editAudioVolume}%, #E5E5E5 {editAudioVolume}%, #E5E5E5 100%); border-radius: 4px; outline: none;"
-                        />
-                        <div class="flex items-center gap-1" style="min-width: 70px;">
-                            <input
-                                type="number"
-                                min="0"
-                                max="100"
-                                bind:value={editAudioVolume}
-                                style="
-                                    width: 50px;
-                                    padding: 6px 8px;
-                                    border: 1px solid #D6D6D6;
-                                    border-radius: 6px;
-                                    font-family: var(--ds-font-family-primary);
-                                    font-size: 14px;
-                                    text-align: center;
-                                    background: #FFFFFF;
-                                "
-                            />
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #737373;">%</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Block 4: System Settings -->
-            <div style="background: #F9FAFB; border-radius: 12px; padding: 0;">
-                <!-- Timezone -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Timezone
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Device timezone settings
-                        </p>
-                    </div>
-                    <div style="width: 200px;">
-                        <Dropdown
-                            placeholder="Select"
-                            options={[
-                                { id: 'Asia/Ho_Chi_Minh', label: '<Value>', supportingText: '<Value>' },
-                                { id: 'Asia/Bangkok', label: '<Value>', supportingText: '<Value>' },
-                                { id: 'Asia/Singapore', label: '<Value>', supportingText: '<Value>' },
-                                { id: 'UTC', label: '<Value>', supportingText: '<Value>' }
-                            ]}
-                            value={editTimezone}
-                            on:change={(e) => editTimezone = String(e.detail)}
-                        />
-                    </div>
-                </div>
-
-                <!-- Home/Launcher -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Home/ Launcher
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Default home screen launcher
-                        </p>
-                    </div>
-                    <div style="width: 64px; height: 64px; background: #FFFFFF; border: 1px solid #EAECF0; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                        {#if editHomeLauncher}
-                            <img src={editHomeLauncher} alt="Launcher" style="width: 100%; height: 100%; object-fit: cover;" />
-                        {:else}
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="3" y="3" width="18" height="18" rx="2" stroke="#98A2B3" stroke-width="2"/>
-                                <circle cx="8.5" cy="8.5" r="1.5" fill="#98A2B3"/>
-                                <path d="M21 15L16 10L5 21" stroke="#98A2B3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        {/if}
-                    </div>
-                </div>
-            </div>
-
-            <!-- Block 5: Schedule Settings -->
-            <div style="background: #F9FAFB; border-radius: 12px; padding: 0;">
-                <!-- Power Management Schedule -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Power Management Schedule
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Enable scheduled power on/off times
-                        </p>
-                    </div>
-                    <Toggle bind:checked={editPowerManagementSchedule} size="sm" />
-                </div>
-
-                <!-- Reboot Schedule -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px; border-bottom: 1px solid #EAECF0;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Reboot Schedule
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Enable scheduled device reboots
-                        </p>
-                    </div>
-                    <Toggle bind:checked={editRebootSchedule} size="sm" />
-                </div>
-
-                <!-- Download Schedule -->
-                <div class="flex items-center justify-between" style="padding: 16px 20px;">
-                    <div>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 14px; line-height: 20px; color: #292929; margin: 0;">
-                            Download Schedule
-                        </p>
-                        <p style="font-family: var(--ds-font-family-primary); font-weight: 400; font-size: 14px; line-height: 20px; color: #737373; margin: 0;">
-                            Enable scheduled content downloads
-                        </p>
-                    </div>
-                    <Toggle bind:checked={editDownloadSchedule} size="sm" />
-                </div>
-            </div>
-        </div>
-    {/if}
-
-    <!-- Error Message -->
-    {#if editDeviceError}
-        <div style="margin-top: 16px;">
-            <Alert severity="error" variant="outline" message={editDeviceError} />
-        </div>
-    {/if}
-
-    <!-- Footer -->
-    <div slot="footer" class="flex items-center justify-end gap-4 w-full">
-        <Button
-            variant="outline"
-            color="primary"
-            size="lg"
-            style="height: 44px;"
-            on:click={closeEditDeviceModal}
-            disabled={editDeviceLoading}
-        >
-            Cancel
-        </Button>
-        <Button
-            variant="filled"
-            color="primary"
-            size="lg"
-            on:click={saveEditDevice}
-            disabled={editDeviceLoading || !editDeviceName.trim()}
-            style="height: 44px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
-        >
-            {editDeviceLoading ? 'Saving…' : 'Save'}
-        </Button>
-    </div>
-</Modal>
+<!-- Edit Device Modal (Shared Component) -->
+<EditDeviceModal
+    bind:open={showEditDeviceModal}
+    device={editDevice}
+    availableTags={availableTags}
+    availableProfiles={availableProfiles}
+    saveActionUrl="?/updateDevice"
+    onSaveSuccess={handleEditDeviceSave}
+    onSaveError={handleEditDeviceError}
+    on:close={handleEditDeviceClose}
+    on:save={async () => {
+        await invalidate('app:userDevices');
+    }}
+/>
 
 <!-- Assign Tag Modal (Figma) -->
 <Modal
@@ -1985,62 +1478,34 @@
     showFooter={true}
     on:close={() => (showAssignTagModal = false)}
 >
-    <!-- Search Input with Dropdown -->
-    <div class="w-full relative" style="margin-bottom: 16px;">
-        <!-- Search Input -->
-        <div 
-            class="flex items-center"
-            style="
-                box-sizing: border-box;
-                width: 100%;
-                height: 48px;
-                padding: 12px 14px;
-                background: #FEFEFE;
-                border: 1px solid {assignTagDropdownOpen ? '#525252' : '#D6D6D6'};
-                border-radius: {assignTagDropdownOpen ? '8px 8px 0 0' : '8px'};
-                gap: 12px;
-                transition: border-color 0.15s ease, border-radius 0.15s ease;
-            "
+    <!-- Search Input with Dropdown - uses InputField from design-system -->
+    <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
+    <div 
+        class="w-full assign-tag-input-container" 
+        style="margin-bottom: var(--ds-space-4);"
+        bind:this={assignTagInputContainer}
+    >
+        <InputField
+            type="text"
+            placeholder="Search and select tag"
+            bind:value={assignTagSearch}
+            state={assignTagDropdownOpen ? 'focused' : 'default'}
+            on:focus={handleAssignTagFocus}
+            on:blur={handleAssignTagBlur}
         >
-            <input
-                type="text"
-                placeholder="Search and select tag"
-                bind:value={assignTagSearch}
-                on:focus={handleAssignTagFocus}
-                on:blur={handleAssignTagBlur}
-                class="flex-1"
-                style="
-                    border: none;
-                    outline: none;
-                    background: transparent;
-                    font-family: var(--ds-font-family-primary);
-                    font-size: 16px;
-                    line-height: 24px;
-                    color: #292929;
-                "
-            />
-            <Search size={22} color="#292929" />
-        </div>
+            <svelte:fragment slot="suffix-icon">
+                <Search size={22} />
+            </svelte:fragment>
+        </InputField>
         
-        <!-- Tag Options Dropdown (only show when focused) -->
+        <!-- Tag Options Dropdown (only show when focused) - uses Checkbox from design-system -->
+        <!-- position: fixed so it is not clipped by modal-body overflow -->
         {#if assignTagDropdownOpen}
             <div 
                 role="listbox"
                 tabindex="-1"
-                style="
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    background: #FFFFFF;
-                    border: 1px solid #D6D6D6;
-                    border-top: none;
-                    border-radius: 0 0 8px 8px;
-                    max-height: 152px;
-                    overflow-y: auto;
-                    z-index: 10;
-                    box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.08), 0px 4px 6px -2px rgba(16, 24, 40, 0.03);
-                "
+                class="assign-tag-dropdown"
+                style="top: {assignTagDropdownPosition.top}px; left: {assignTagDropdownPosition.left}px; width: {assignTagDropdownPosition.width}px;"
                 on:mouseenter={() => assignTagDropdownInteracting = true}
                 on:mouseleave={() => assignTagDropdownInteracting = false}
             >
@@ -2048,40 +1513,19 @@
                     {@const isSelected = assignTagSelected.includes(tag.id)}
                     <button
                         type="button"
-                        class="w-full flex items-center gap-3 hover:bg-[#FAFAFA] transition-colors"
-                        style="
-                            padding: 8px 16px;
-                            border: none;
-                            background: transparent;
-                            cursor: pointer;
-                            text-align: left;
-                        "
+                        class="assign-tag-option"
                         on:mousedown|preventDefault={() => toggleAssignTag(tag.id)}
                     >
-                        <div 
-                            class="flex items-center justify-center"
-                            style="
-                                width: 16px;
-                                height: 16px;
-                                background: {isSelected ? '#141414' : '#FFFFFF'};
-                                border: 1px solid {isSelected ? '#141414' : '#D6D6D6'};
-                                border-radius: 4px;
-                                flex-shrink: 0;
-                            "
-                        >
-                            {#if isSelected}
-                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M10 3L4.5 8.5L2 6" stroke="#FFFFFF" stroke-width="1.67" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            {/if}
-                        </div>
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #292929;">
-                            {tag.name}
-                        </span>
+                        <Checkbox
+                            checked={isSelected}
+                            size="sm"
+                            disabled={false}
+                        />
+                        <span class="assign-tag-option-label">{tag.name}</span>
                     </button>
                 {/each}
                 {#if assignTagFilteredOptions.length === 0}
-                    <div class="px-4 py-3 text-center" style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085;">
+                    <div class="assign-tag-empty">
                         No tags found
                     </div>
                 {/if}
@@ -2089,44 +1533,25 @@
         {/if}
     </div>
 
-    <!-- Selected Tags -->
+    <!-- Selected Tags - uses Tag component from design-system -->
     <div class="w-full">
-        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 16px; line-height: 24px; color: #292929; margin: 0 0 8px 0;">
+        <p class="assign-tag-selected-label">
             Selected ({assignTagSelected.length} items)
         </p>
-        <div class="flex flex-wrap gap-2" style="min-height: 28px;">
+        <div class="assign-tag-selected-container">
             {#each assignTagSelected as tagId}
                 {@const tag = availableTags.find(t => t.id === tagId)}
                 {#if tag}
-                    <div 
-                        class="flex items-center gap-1.5"
-                        style="
-                            box-sizing: border-box;
-                            padding: 4px 6px;
-                            background: #FFFFFF;
-                            border: 1px solid #D6D6D6;
-                            border-radius: 6px;
-                        "
-                    >
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #424242;">
-                            {tag.name}
-                        </span>
-                        <button
-                            type="button"
-                            on:click={() => removeAssignTag(tagId)}
-                            style="padding: 2px; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;"
-                        >
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M9 3L3 9M3 3L9 9" stroke="#A3A3A3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
-                    </div>
+                    <Tag
+                        label={tag.name}
+                        size="md"
+                        showClose={true}
+                        on:remove={() => removeAssignTag(tagId)}
+                    />
                 {/if}
             {/each}
             {#if assignTagSelected.length === 0}
-                <span style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085;">
-                    No tags selected
-                </span>
+                <span class="assign-tag-empty-state">No tags selected</span>
             {/if}
         </div>
     </div>
@@ -2149,7 +1574,7 @@
             size="lg"
             on:click={confirmAssignTag}
             disabled={assignTagLoading || assignTagSelected.length === 0}
-            style="height: 44px; min-width: 100px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            style="height: 44px; min-width: 100px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
             {assignTagLoading ? 'Assigning…' : 'Assign'}
         </Button>
@@ -2167,62 +1592,34 @@
     showFooter={true}
     on:close={() => (showAssignDeploymentModal = false)}
 >
-    <!-- Search Input with Dropdown -->
-    <div class="w-full relative" style="margin-bottom: 16px;">
-        <!-- Search Input -->
-        <div 
-            class="flex items-center"
-            style="
-                box-sizing: border-box;
-                width: 100%;
-                height: 48px;
-                padding: 12px 14px;
-                background: #FEFEFE;
-                border: 1px solid {assignDeploymentDropdownOpen ? '#525252' : '#D6D6D6'};
-                border-radius: {assignDeploymentDropdownOpen ? '8px 8px 0 0' : '8px'};
-                gap: 12px;
-                transition: border-color 0.15s ease, border-radius 0.15s ease;
-            "
+    <!-- Search Input with Dropdown - uses InputField and Checkbox from design-system -->
+    <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
+    <div 
+        class="w-full assign-deployment-input-container" 
+        style="margin-bottom: var(--ds-space-4);"
+        bind:this={assignDeploymentInputContainer}
+    >
+        <InputField
+            type="text"
+            placeholder="Search and select app"
+            bind:value={assignDeploymentSearch}
+            state={assignDeploymentDropdownOpen ? 'focused' : 'default'}
+            on:focus={handleAssignDeploymentFocus}
+            on:blur={handleAssignDeploymentBlur}
         >
-            <input
-                type="text"
-                placeholder="Search and select app"
-                bind:value={assignDeploymentSearch}
-                on:focus={handleAssignDeploymentFocus}
-                on:blur={handleAssignDeploymentBlur}
-                class="flex-1"
-                style="
-                    border: none;
-                    outline: none;
-                    background: transparent;
-                    font-family: var(--ds-font-family-primary);
-                    font-size: 16px;
-                    line-height: 24px;
-                    color: #292929;
-                "
-            />
-            <Search size={22} color="#292929" />
-        </div>
+            <svelte:fragment slot="suffix-icon">
+                <Search size={22} />
+            </svelte:fragment>
+        </InputField>
         
-        <!-- App Options Dropdown (only show when focused) -->
+        <!-- App Options Dropdown (only show when focused) - uses Checkbox from design-system -->
+        <!-- position: fixed so it is not clipped by modal-body overflow -->
         {#if assignDeploymentDropdownOpen}
             <div 
                 role="listbox"
                 tabindex="-1"
-                style="
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    background: #FFFFFF;
-                    border: 1px solid #D6D6D6;
-                    border-top: none;
-                    border-radius: 0 0 8px 8px;
-                    max-height: 180px;
-                    overflow-y: auto;
-                    z-index: 10;
-                    box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.08), 0px 4px 6px -2px rgba(16, 24, 40, 0.03);
-                "
+                class="assign-deployment-dropdown"
+                style="top: {assignDeploymentDropdownPosition.top}px; left: {assignDeploymentDropdownPosition.left}px; width: {assignDeploymentDropdownPosition.width}px;"
                 on:mouseenter={() => assignDeploymentDropdownInteracting = true}
                 on:mouseleave={() => assignDeploymentDropdownInteracting = false}
             >
@@ -2230,47 +1627,31 @@
                     {@const isSelected = assignDeploymentSelectedApps.some(a => a.id === app.id)}
                     <button
                         type="button"
-                        class="w-full flex items-center gap-3 hover:bg-[#FAFAFA] transition-colors"
-                        style="
-                            padding: 8px 16px;
-                            border: none;
-                            background: transparent;
-                            cursor: pointer;
-                            text-align: left;
-                        "
+                        class="assign-deployment-option"
                         on:mousedown|preventDefault={() => toggleAssignDeploymentApp(app.id)}
                     >
-                        <div 
-                            class="flex items-center justify-center"
-                            style="
-                                width: 16px;
-                                height: 16px;
-                                background: {isSelected ? '#141414' : '#FFFFFF'};
-                                border: 1px solid {isSelected ? '#141414' : '#D6D6D6'};
-                                border-radius: 4px;
-                                flex-shrink: 0;
-                            "
-                        >
-                            {#if isSelected}
-                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M10 3L4.5 8.5L2 6" stroke="#FFFFFF" stroke-width="1.67" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            {/if}
-                        </div>
-                        <div class="flex flex-col">
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #292929;">
-                                {app.name}
-                            </span>
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 12px; line-height: 16px; color: #667085;">
-                                {app.packageName}
-                            </span>
+                        <Checkbox
+                            checked={isSelected}
+                            size="sm"
+                            disabled={false}
+                        />
+                        <div class="assign-deployment-option-content">
+                            <span class="assign-deployment-option-name">{app.name}</span>
+                            <span class="assign-deployment-option-package">{app.packageName}</span>
                         </div>
                     </button>
                 {/each}
                 {#if assignDeploymentFilteredOptions.length === 0}
-                    <div class="px-4 py-3 text-center" style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085;">
-                        No apps found
-                    </div>
+                    {#if assignDeploymentAppsLoading}
+                        <div class="assign-deployment-empty assign-deployment-loading">
+                            <span class="no-data-state-inline-text">Loading…</span>
+                        </div>
+                    {:else}
+                        <div class="assign-deployment-empty no-data-state-inline">
+                            <PackageOpen size={72} color="var(--ds-text-tertiary)" strokeWidth={1.5} />
+                            <span class="no-data-state-inline-text">No Data Available</span>
+                        </div>
+                    {/if}
                 {/if}
             </div>
         {/if}
@@ -2317,7 +1698,7 @@
                                         cursor: pointer;
                                         position: relative;
                                         transition: background-color 0.2s ease;
-                                        background: {selectedApp.autoOpen ? '#0086C9' : '#E5E5E5'};
+                                        background: {selectedApp.autoOpen ? 'var(--ds-color-blue-light-600)' : '#E5E5E5'};
                                     "
                                 >
                                     <span
@@ -2375,7 +1756,7 @@
             size="lg"
             on:click={confirmAssignDeployment}
             disabled={assignDeploymentLoading || assignDeploymentSelectedApps.length === 0}
-            style="height: 44px; min-width: 100px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            style="height: 44px; min-width: 100px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
             {assignDeploymentLoading ? 'Adding…' : 'Assign'}
         </Button>
@@ -2393,62 +1774,34 @@
     showFooter={true}
     on:close={() => (showInstallAppModal = false)}
 >
-    <!-- Search Input with Dropdown -->
-    <div class="w-full relative" style="margin-bottom: 16px;">
-        <!-- Search Input -->
-        <div 
-            class="flex items-center"
-            style="
-                box-sizing: border-box;
-                width: 100%;
-                height: 48px;
-                padding: 12px 14px;
-                background: #FEFEFE;
-                border: 1px solid {installAppDropdownOpen ? '#525252' : '#D6D6D6'};
-                border-radius: {installAppDropdownOpen ? '8px 8px 0 0' : '8px'};
-                gap: 12px;
-                transition: border-color 0.15s ease, border-radius 0.15s ease;
-            "
+    <!-- Search Input with Dropdown - uses InputField from design-system -->
+    <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
+    <div 
+        class="w-full install-app-input-container" 
+        style="margin-bottom: var(--ds-space-4);"
+        bind:this={installAppInputContainer}
+    >
+        <InputField
+            type="text"
+            placeholder="Search and select app"
+            bind:value={installAppSearch}
+            state={installAppDropdownOpen ? 'focused' : 'default'}
+            on:focus={handleInstallAppFocus}
+            on:blur={handleInstallAppBlur}
         >
-            <input
-                type="text"
-                placeholder="Search and select app"
-                bind:value={installAppSearch}
-                on:focus={handleInstallAppFocus}
-                on:blur={handleInstallAppBlur}
-                class="flex-1"
-                style="
-                    border: none;
-                    outline: none;
-                    background: transparent;
-                    font-family: var(--ds-font-family-primary);
-                    font-size: 16px;
-                    line-height: 24px;
-                    color: #292929;
-                "
-            />
-            <Search size={22} color="#292929" />
-        </div>
+            <svelte:fragment slot="suffix-icon">
+                <Search size={22} />
+            </svelte:fragment>
+        </InputField>
         
-        <!-- App Options Dropdown (only show when focused) -->
+        <!-- App Options Dropdown (only show when focused) - uses Checkbox from design-system -->
+        <!-- position: fixed so it is not clipped by modal-body overflow -->
         {#if installAppDropdownOpen}
             <div 
                 role="listbox"
                 tabindex="-1"
-                style="
-                    position: absolute;
-                    top: 100%;
-                    left: 0;
-                    right: 0;
-                    background: #FFFFFF;
-                    border: 1px solid #D6D6D6;
-                    border-top: none;
-                    border-radius: 0 0 8px 8px;
-                    max-height: 180px;
-                    overflow-y: auto;
-                    z-index: 10;
-                    box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.08), 0px 4px 6px -2px rgba(16, 24, 40, 0.03);
-                "
+                class="install-app-dropdown"
+                style="top: {installAppDropdownPosition.top}px; left: {installAppDropdownPosition.left}px; width: {installAppDropdownPosition.width}px;"
                 on:mouseenter={() => installAppDropdownInteracting = true}
                 on:mouseleave={() => installAppDropdownInteracting = false}
             >
@@ -2456,45 +1809,22 @@
                     {@const isSelected = installAppSelected.includes(app.id)}
                     <button
                         type="button"
-                        class="w-full flex items-center gap-3 hover:bg-[#FAFAFA] transition-colors"
-                        style="
-                            padding: 8px 16px;
-                            border: none;
-                            background: transparent;
-                            cursor: pointer;
-                            text-align: left;
-                        "
+                        class="install-app-option"
                         on:mousedown|preventDefault={() => toggleInstallApp(app.id)}
                     >
-                        <div 
-                            class="flex items-center justify-center"
-                            style="
-                                width: 16px;
-                                height: 16px;
-                                background: {isSelected ? '#141414' : '#FFFFFF'};
-                                border: 1px solid {isSelected ? '#141414' : '#D6D6D6'};
-                                border-radius: 4px;
-                                flex-shrink: 0;
-                            "
-                        >
-                            {#if isSelected}
-                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M10 3L4.5 8.5L2 6" stroke="#FFFFFF" stroke-width="1.67" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            {/if}
-                        </div>
-                        <div class="flex flex-col">
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #292929;">
-                                {app.name}
-                            </span>
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 12px; line-height: 16px; color: #667085;">
-                                {app.packageName}
-                            </span>
+                        <Checkbox
+                            checked={isSelected}
+                            size="sm"
+                            disabled={false}
+                        />
+                        <div class="install-app-option-content">
+                            <span class="install-app-option-name">{app.name}</span>
+                            <span class="install-app-option-package">{app.packageName}</span>
                         </div>
                     </button>
                 {/each}
                 {#if installAppFilteredOptions.length === 0}
-                    <div class="px-4 py-3 text-center" style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085;">
+                    <div class="install-app-empty">
                         No apps found
                     </div>
                 {/if}
@@ -2502,47 +1832,34 @@
         {/if}
     </div>
 
-    <!-- Selected Apps (Simple list without Auto open toggle) -->
+    <!-- Selected Apps - uses Tag component from design-system -->
     <div class="w-full">
-        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 16px; line-height: 24px; color: #292929; margin: 0 0 8px 0;">
+        <p class="install-app-selected-label">
             Selected ({installAppSelected.length} items)
         </p>
-        <div class="flex flex-col" style="gap: 0;">
+        <div class="install-app-selected-container">
             {#each installAppSelected as appId}
                 {@const app = availableApps.find(a => a.id === appId)}
                 {#if app}
-                    <div 
-                        class="flex items-center justify-between"
-                        style="
-                            padding: 12px 0;
-                            border-bottom: 1px solid #EAECF0;
-                        "
-                    >
-                        <div class="flex flex-col">
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; font-weight: 500; color: #292929;">
-                                {app.name}
-                            </span>
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 12px; line-height: 16px; color: #667085;">
-                                {app.packageName}
-                            </span>
+                    <div class="install-app-selected-item">
+                        <div class="install-app-selected-content">
+                            <span class="install-app-selected-name">{app.name}</span>
+                            <span class="install-app-selected-package">{app.packageName}</span>
                         </div>
-                        <!-- Remove button -->
-                        <button
-                            type="button"
+                        <Button
+                            variant="text"
+                            size="sm"
+                            icon={X}
+                            iconPosition="only"
+                            iconSize={16}
                             on:click={() => removeInstallApp(appId)}
-                            style="padding: 4px; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;"
-                        >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M12 4L4 12M4 4L12 12" stroke="#A3A3A3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
+                            aria-label="Remove"
+                        />
                     </div>
                 {/if}
             {/each}
             {#if installAppSelected.length === 0}
-                <span style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085; padding: 12px 0;">
-                    No apps selected
-                </span>
+                <span class="install-app-empty-state">No apps selected</span>
             {/if}
         </div>
     </div>
@@ -2565,7 +1882,7 @@
             size="lg"
             on:click={confirmInstallApp}
             disabled={installAppLoading || installAppSelected.length === 0}
-            style="height: 44px; min-width: 100px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            style="height: 44px; min-width: 100px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
             {installAppLoading ? 'Installing…' : 'Confirm'}
         </Button>
@@ -2583,231 +1900,126 @@
     showFooter={true}
     on:close={() => (showUpdateFirmwareModal = false)}
 >
-    <!-- Search Input -->
-    <div class="w-full" style="margin-bottom: 16px;">
-        <div 
-            class="flex items-center"
-            style="
-                box-sizing: border-box;
-                width: 100%;
-                height: 48px;
-                padding: 12px 14px;
-                background: #FEFEFE;
-                border: 1px solid #D6D6D6;
-                border-radius: 8px;
-                gap: 12px;
-            "
+    <!-- Search Input - uses InputField from design-system -->
+    <div class="w-full" style="margin-bottom: var(--ds-space-4);">
+        <InputField
+            type="text"
+            placeholder="Search and select firmware"
+            bind:value={updateFirmwareSearch}
         >
-            <input
-                type="text"
-                placeholder="Search and select firmware"
-                bind:value={updateFirmwareSearch}
-                class="flex-1"
-                style="
-                    border: none;
-                    outline: none;
-                    background: transparent;
-                    font-family: var(--ds-font-family-primary);
-                    font-size: 16px;
-                    line-height: 24px;
-                    color: #292929;
-                "
-            />
-            <Search size={22} color="#292929" />
-        </div>
+            <svelte:fragment slot="suffix-icon">
+                <Search size={22} />
+            </svelte:fragment>
+        </InputField>
     </div>
 
-    <!-- Firmware List with Radio Buttons -->
-    <div class="w-full flex flex-col" style="gap: 8px;">
+    <!-- Firmware List with Radio Buttons - uses Radio component from design-system -->
+    <div class="w-full flex flex-col" style="gap: var(--ds-space-2);">
         {#each updateFirmwarePaginatedOptions as firmware (firmware.id)}
             {@const isSelected = updateFirmwareSelected === firmware.id}
             <button
                 type="button"
-                class="w-full flex flex-col hover:opacity-90 transition-opacity"
-                style="
-                    padding: 12px 16px;
-                    border: {isSelected ? '2px solid #0BA5EC' : 'none'};
-                    background: #FAFAFA;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    text-align: left;
-                    gap: 4px;
-                "
+                class="firmware-list-item"
+                class:firmware-list-item-selected={isSelected}
                 on:click={() => selectFirmware(firmware.id)}
             >
                 <!-- Main Row: Radio + Name/Package + Version + Size -->
-                <div class="flex items-start w-full">
-                    <!-- Radio Button -->
-                    <div 
-                        class="flex items-center justify-center flex-shrink-0"
-                        style="
-                            width: 20px;
-                            height: 20px;
-                            border-radius: 50%;
-                            border: 1px solid {isSelected ? '#141414' : '#D6D6D6'};
-                            background: #FFFFFF;
-                            margin-right: 12px;
-                            margin-top: 2px;
-                        "
-                    >
-                        {#if isSelected}
-                            <div style="width: 10px; height: 10px; border-radius: 50%; background: #141414;"></div>
-                        {/if}
-                    </div>
+                <div class="firmware-list-item-row">
+                    <!-- Radio Button - uses Radio component -->
+                    <Radio
+                        group={updateFirmwareSelected ?? ''}
+                        value={firmware.id}
+                        size="sm"
+                        on:change={(e) => selectFirmware(e.detail)}
+                    />
                     
                     <!-- Name + Package Name (flex: 1) -->
-                    <div class="flex flex-col" style="flex: 1; min-width: 0; gap: 2px;">
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 16px; line-height: 24px; font-weight: 500; color: #292929;">
-                            {firmware.name}
-                        </span>
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085;">
-                            {firmware.packageName}
-                        </span>
+                    <div class="firmware-list-item-content">
+                        <span class="firmware-list-item-name">{firmware.name}</span>
+                        <span class="firmware-list-item-package">{firmware.packageName}</span>
                     </div>
                     
                     <!-- Version Column (fixed width) -->
-                    <div class="flex flex-col flex-shrink-0" style="width: 120px; padding-left: 16px;">
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085;">
-                            Version
-                        </span>
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #141414;">
-                            {firmware.version}
-                        </span>
+                    <div class="firmware-list-item-column">
+                        <span class="firmware-list-item-label">Version</span>
+                        <span class="firmware-list-item-value">{firmware.version}</span>
                     </div>
                     
                     <!-- Size Column (fixed width) -->
-                    <div class="flex flex-col flex-shrink-0" style="width: 100px; padding-left: 16px;">
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085;">
-                            Size
-                        </span>
-                        <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #141414;">
-                            {firmware.size}
-                        </span>
+                    <div class="firmware-list-item-column">
+                        <span class="firmware-list-item-label">Size</span>
+                        <span class="firmware-list-item-value">{firmware.size}</span>
                     </div>
                 </div>
                 
                 <!-- Created On Row -->
-                <div class="flex items-center" style="padding-left: 32px;">
-                    <span style="font-family: var(--ds-font-family-primary); font-size: 12px; line-height: 16px; letter-spacing: 0.01em; color: #667085;">
-                        Created On: {firmware.createdOn}
-                    </span>
+                <div class="firmware-list-item-created">
+                    <span class="firmware-list-item-created-text">Created On: {firmware.createdOn}</span>
                 </div>
             </button>
         {/each}
         {#if updateFirmwarePaginatedOptions.length === 0}
-            <div class="px-4 py-8 text-center" style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085; background: #FAFAFA; border-radius: 6px;">
+            <div class="firmware-list-empty">
                 No firmware found
             </div>
         {/if}
     </div>
 
-    <!-- Pagination -->
+    <!-- Pagination - uses Button component from design-system -->
     {#if updateFirmwareFilteredOptions.length > 0}
-        <div 
-            class="flex items-center justify-end w-full" 
-            style="
-                padding: 8px 0;
-                gap: 8px;
-                border-top: 1px solid #EAECF0;
-                margin-top: 16px;
-            "
-        >
-            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #525252;">
+        <div class="firmware-pagination">
+            <span class="firmware-pagination-info">
                 {(updateFirmwarePage - 1) * updateFirmwarePerPage + 1} - {Math.min(updateFirmwarePage * updateFirmwarePerPage, updateFirmwareFilteredOptions.length)} of {updateFirmwareFilteredOptions.length}
             </span>
-            <div class="flex items-center" style="gap: 2px;">
+            <div class="firmware-pagination-controls">
                 <!-- First Page -->
-                <button
-                    type="button"
+                <Button
+                    variant="text"
+                    size="sm"
+                    icon={ChevronsLeft}
+                    iconPosition="only"
+                    iconSize={20}
                     disabled={updateFirmwarePage === 1}
                     on:click={() => updateFirmwarePage = 1}
-                    class="flex items-center justify-center"
-                    style="
-                        width: 36px;
-                        height: 36px;
-                        background: none;
-                        border: none;
-                        border-radius: 8px;
-                        cursor: {updateFirmwarePage === 1 ? 'not-allowed' : 'pointer'};
-                    "
-                >
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M11 14L7 10L11 6" stroke="{updateFirmwarePage === 1 ? '#A3A3A3' : '#525252'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M15 14L11 10L15 6" stroke="{updateFirmwarePage === 1 ? '#A3A3A3' : '#525252'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                    aria-label="First page"
+                />
                 <!-- Previous Page -->
-                <button
-                    type="button"
+                <Button
+                    variant="text"
+                    size="sm"
+                    icon={ChevronLeft}
+                    iconPosition="only"
+                    iconSize={20}
                     disabled={updateFirmwarePage === 1}
                     on:click={() => updateFirmwarePage = Math.max(1, updateFirmwarePage - 1)}
-                    class="flex items-center justify-center"
-                    style="
-                        width: 36px;
-                        height: 36px;
-                        background: none;
-                        border: none;
-                        border-radius: 8px;
-                        cursor: {updateFirmwarePage === 1 ? 'not-allowed' : 'pointer'};
-                    "
-                >
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12.5 15L7.5 10L12.5 5" stroke="{updateFirmwarePage === 1 ? '#A3A3A3' : '#525252'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                    aria-label="Previous page"
+                />
                 <!-- Current Page -->
-                <div 
-                    class="flex items-center justify-center"
-                    style="
-                        width: 40px;
-                        height: 40px;
-                        background: #F9FAFB;
-                        border-radius: 8px;
-                    "
-                >
-                    <span style="font-family: var(--ds-font-family-primary); font-size: 14px; font-weight: 500; line-height: 20px; color: #1D2939;">
-                        {updateFirmwarePage}
-                    </span>
+                <div class="firmware-pagination-current">
+                    <span>{updateFirmwarePage}</span>
                 </div>
                 <!-- Next Page -->
-                <button
-                    type="button"
+                <Button
+                    variant="text"
+                    size="sm"
+                    icon={ChevronRight}
+                    iconPosition="only"
+                    iconSize={20}
                     disabled={updateFirmwarePage >= updateFirmwareTotalPages}
                     on:click={() => updateFirmwarePage = Math.min(updateFirmwareTotalPages, updateFirmwarePage + 1)}
-                    class="flex items-center justify-center"
-                    style="
-                        width: 36px;
-                        height: 36px;
-                        background: none;
-                        border: none;
-                        border-radius: 8px;
-                        cursor: {updateFirmwarePage >= updateFirmwareTotalPages ? 'not-allowed' : 'pointer'};
-                    "
-                >
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M7.5 15L12.5 10L7.5 5" stroke="{updateFirmwarePage >= updateFirmwareTotalPages ? '#A3A3A3' : '#525252'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                    aria-label="Next page"
+                />
                 <!-- Last Page -->
-                <button
-                    type="button"
+                <Button
+                    variant="text"
+                    size="sm"
+                    icon={ChevronsRight}
+                    iconPosition="only"
+                    iconSize={20}
                     disabled={updateFirmwarePage >= updateFirmwareTotalPages}
                     on:click={() => updateFirmwarePage = updateFirmwareTotalPages}
-                    class="flex items-center justify-center"
-                    style="
-                        width: 36px;
-                        height: 36px;
-                        background: none;
-                        border: none;
-                        border-radius: 8px;
-                        cursor: {updateFirmwarePage >= updateFirmwareTotalPages ? 'not-allowed' : 'pointer'};
-                    "
-                >
-                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 14L13 10L9 6" stroke="{updateFirmwarePage >= updateFirmwareTotalPages ? '#A3A3A3' : '#525252'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        <path d="M5 14L9 10L5 6" stroke="{updateFirmwarePage >= updateFirmwareTotalPages ? '#A3A3A3' : '#525252'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                    aria-label="Last page"
+                />
             </div>
         </div>
     {/if}
@@ -2830,27 +2042,12 @@
             size="lg"
             on:click={confirmUpdateFirmware}
             disabled={updateFirmwareLoading || !updateFirmwareSelected}
-            style="height: 44px; min-width: 100px; background: #0086C9; border: 1px solid #0086C9; box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            style="height: 44px; min-width: 100px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
             {updateFirmwareLoading ? 'Updating…' : 'Confirm'}
         </Button>
     </div>
 </Modal>
-
-<!-- Toast Notifications -->
-{#if toasts.length > 0}
-    <div class="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3">
-        {#each toasts as toast (toast.id)}
-            <Alert
-                severity={toast.type}
-                variant="filled"
-                message={toast.message}
-                dismissible={true}
-                on:dismiss={() => dismissToast(toast.id)}
-            />
-        {/each}
-    </div>
-{/if}
 
 <style>
     /* Design System Typography Classes */
@@ -3054,5 +2251,678 @@
 
     .config-slider::-moz-range-thumb:hover {
         border-color: var(--ds-color-gray-400);
+    }
+
+    /* Assign Tag Modal - Dropdown styles - match Dropdown component from design-system */
+    /* position: fixed so it is not clipped by modal-body overflow */
+    .assign-tag-dropdown {
+        position: fixed;
+        /* top, left, width set from JS based on input container */
+        background: var(--ds-bg-primary);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-lg);
+        /* Height: enough for multiple items - match Dropdown component */
+        max-height: 300px; /* Match Dropdown component default max-height */
+        min-height: 200px; /* Min height for ~3-4 items */
+        overflow-y: auto;
+        overflow-x: hidden;
+        /* Z-index above modal so it is not covered */
+        z-index: 150; /* Above modal-backdrop (50) and modal-body (0) */
+        /* Shadow - match Dropdown component from design-system */
+        box-shadow: var(--ds-shadow-lg);
+        /* Padding for options container - match Dropdown component */
+        padding: var(--ds-space-1);
+        display: flex;
+        flex-direction: column;
+        /* Keep dropdown from being clipped - use fixed positioning */
+        margin-top: var(--ds-space-1); /* Small gap between input and dropdown */
+    }
+
+    /* Scrollbar styling - match Dropdown component */
+    .assign-tag-dropdown::-webkit-scrollbar {
+        width: 16px;
+    }
+
+    .assign-tag-dropdown::-webkit-scrollbar-track {
+        background: var(--ds-bg-secondary);
+    }
+
+    .assign-tag-dropdown::-webkit-scrollbar-thumb {
+        background: var(--ds-color-neutral-true-200);
+        border-radius: var(--ds-radius-lg);
+        border: 4px solid var(--ds-bg-secondary);
+    }
+
+    .assign-tag-option {
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-3);
+        padding: var(--ds-space-2) var(--ds-space-4);
+        border: none;
+        background: transparent;
+        border-radius: var(--ds-radius-md);
+        cursor: pointer;
+        text-align: left;
+        transition: background-color 0.15s ease;
+        /* Match Dropdown component option styling */
+        min-height: 54px; /* Match Dropdown .dropdown-option min-height */
+    }
+
+    .assign-tag-option:hover {
+        background: var(--ds-color-neutral-true-50);
+    }
+
+    .assign-tag-option-label {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-800);
+        flex: 1;
+        min-width: 0;
+    }
+
+    .assign-tag-empty {
+        padding: var(--ds-space-3) var(--ds-space-4);
+        text-align: center;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+    }
+
+    .assign-tag-selected-label {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-medium);
+        font-size: var(--ds-text-md);
+        line-height: var(--ds-leading-md);
+        color: var(--ds-color-neutral-true-800);
+        margin: 0 0 var(--ds-space-2) 0;
+    }
+
+    .assign-tag-selected-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ds-space-2);
+        min-height: 28px;
+    }
+
+    .assign-tag-empty-state {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+    }
+
+    /* Assign Tag Modal - Input container so dropdown is not clipped */
+    .assign-tag-input-container {
+        position: relative;
+        /* Ensure container does not clip dropdown */
+        overflow: visible;
+        /* Stacking context so dropdown can appear above other elements */
+        z-index: 10;
+    }
+
+    /* Add Device Modal - Help Info Frame (Frame 34 from Figma) */
+    /* This is a plain info frame, NOT the Alert component */
+    .add-device-help-frame {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: var(--ds-space-3); /* 12px from Figma Frame 34 */
+        gap: var(--ds-space-2); /* 8px from Figma Frame 34 */
+        width: 100%;
+        background: var(--ds-color-neutral-true-50); /* #FAFAFA from Figma */
+        border-radius: var(--ds-radius-lg); /* 8px from Figma */
+    }
+
+    .add-device-help-header {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        gap: var(--ds-space-2-5); /* 10px from Figma Frame 35 */
+        width: 100%;
+    }
+
+    .add-device-help-icon {
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        color: var(--ds-color-neutral-true-600); /* #525252 from Figma Vector border */
+        stroke-width: 2;
+    }
+
+    .add-device-help-title {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-semibold); /* 600 from Figma */
+        font-size: var(--ds-text-sm); /* 14px from Figma */
+        line-height: var(--ds-leading-sm); /* 20px from Figma */
+        color: var(--ds-color-neutral-true-800); /* #292929 from Figma */
+        flex: 1;
+    }
+
+    .add-device-help-list {
+        margin: 0;
+        padding-left: var(--ds-space-5); /* 20px from Figma */
+        list-style: disc;
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm); /* 14px from Figma */
+        line-height: var(--ds-leading-sm); /* 20px from Figma */
+        color: var(--ds-color-neutral-true-500); /* #737373 from Figma */
+        width: 100%;
+    }
+
+    .add-device-help-list li {
+        margin-bottom: var(--ds-space-1);
+    }
+
+    .add-device-help-list li:last-child {
+        margin-bottom: 0;
+    }
+
+    /* Assign Deployment Modal - Dropdown styles - match Dropdown component from design-system */
+    /* position: fixed so it is not clipped by modal-body overflow */
+    .assign-deployment-dropdown {
+        position: fixed;
+        /* top, left, width set from JS based on input container */
+        background: var(--ds-bg-primary);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-lg);
+        /* Height: enough for multiple items - match Dropdown component */
+        max-height: 300px; /* Match Dropdown component default max-height */
+        min-height: 200px; /* Min height for ~3-4 items */
+        overflow-y: auto;
+        overflow-x: hidden;
+        /* Z-index above modal so it is not covered */
+        z-index: 150; /* Above modal-backdrop (50) and modal-body (0) */
+        /* Shadow - match Dropdown component from design-system */
+        box-shadow: var(--ds-shadow-lg);
+        /* Padding for options container - match Dropdown component */
+        padding: var(--ds-space-1);
+        display: flex;
+        flex-direction: column;
+        /* Keep dropdown from being clipped - use fixed positioning */
+        margin-top: var(--ds-space-1); /* Small gap between input and dropdown */
+    }
+
+    /* Scrollbar styling - match Dropdown component */
+    .assign-deployment-dropdown::-webkit-scrollbar {
+        width: 16px;
+    }
+
+    .assign-deployment-dropdown::-webkit-scrollbar-track {
+        background: var(--ds-bg-secondary);
+    }
+
+    .assign-deployment-dropdown::-webkit-scrollbar-thumb {
+        background: var(--ds-color-neutral-true-200);
+        border-radius: var(--ds-radius-lg);
+        border: 4px solid var(--ds-bg-secondary);
+    }
+
+    .assign-deployment-option {
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-3);
+        padding: var(--ds-space-2) var(--ds-space-4);
+        border: none;
+        background: transparent;
+        border-radius: var(--ds-radius-md);
+        cursor: pointer;
+        text-align: left;
+        transition: background-color 0.15s ease;
+        /* Match Dropdown component option styling */
+        min-height: 54px; /* Match Dropdown .dropdown-option min-height */
+    }
+
+    .assign-deployment-option:hover {
+        background: var(--ds-color-neutral-true-50);
+    }
+
+    .assign-deployment-option-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .assign-deployment-option-name {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-800);
+    }
+
+    .assign-deployment-option-package {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
+    }
+
+    .assign-deployment-empty {
+        padding: var(--ds-space-3) var(--ds-space-4);
+        text-align: center;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+    }
+    .assign-deployment-empty.no-data-state-inline,
+    .assign-deployment-empty.assign-deployment-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--ds-space-3);
+        padding: var(--ds-space-8) var(--ds-space-4);
+        min-height: 160px;
+    }
+    .no-data-state-inline-text {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-base);
+        font-weight: var(--ds-font-regular);
+        color: var(--ds-text-tertiary);
+    }
+
+    /* Assign Deployment Modal - Input container so dropdown is not clipped */
+    .assign-deployment-input-container {
+        position: relative;
+        /* Ensure container does not clip dropdown */
+        overflow: visible;
+        /* Stacking context so dropdown can appear above other elements */
+        z-index: 10;
+    }
+
+    /* Install App Modal - Dropdown styles - match Dropdown component from design-system */
+    /* position: fixed so it is not clipped by modal-body overflow */
+    .install-app-dropdown {
+        position: fixed;
+        /* top, left, width set from JS based on input container */
+        background: var(--ds-bg-primary);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-lg);
+        /* Height: enough for multiple items - match Dropdown component */
+        max-height: 300px; /* Match Dropdown component default max-height */
+        min-height: 200px; /* Min height for ~3-4 items */
+        overflow-y: auto;
+        overflow-x: hidden;
+        /* Z-index above modal so it is not covered */
+        z-index: 150; /* Above modal-backdrop (50) and modal-body (0) */
+        /* Shadow - match Dropdown component from design-system */
+        box-shadow: var(--ds-shadow-lg);
+        /* Padding for options container - match Dropdown component */
+        padding: var(--ds-space-1);
+        display: flex;
+        flex-direction: column;
+        /* Keep dropdown from being clipped - use fixed positioning */
+        margin-top: var(--ds-space-1); /* Small gap between input and dropdown */
+    }
+
+    /* Scrollbar styling - match Dropdown component */
+    .install-app-dropdown::-webkit-scrollbar {
+        width: 16px;
+    }
+
+    .install-app-dropdown::-webkit-scrollbar-track {
+        background: var(--ds-bg-secondary);
+    }
+
+    .install-app-dropdown::-webkit-scrollbar-thumb {
+        background: var(--ds-color-neutral-true-200);
+        border-radius: var(--ds-radius-lg);
+        border: 4px solid var(--ds-bg-secondary);
+    }
+
+    .install-app-option {
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-3);
+        padding: var(--ds-space-2) var(--ds-space-4);
+        border: none;
+        background: transparent;
+        border-radius: var(--ds-radius-md);
+        cursor: pointer;
+        text-align: left;
+        transition: background-color 0.15s ease;
+        /* Match Dropdown component option styling */
+        min-height: 54px; /* Match Dropdown .dropdown-option min-height */
+    }
+
+    .install-app-option:hover {
+        background: var(--ds-color-neutral-true-50);
+    }
+
+    .install-app-option-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .install-app-option-name {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-800);
+    }
+
+    .install-app-option-package {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
+    }
+
+    .install-app-empty {
+        padding: var(--ds-space-3) var(--ds-space-4);
+        text-align: center;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+    }
+
+    .install-app-selected-label {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-medium);
+        font-size: var(--ds-text-md);
+        line-height: var(--ds-leading-md);
+        color: var(--ds-color-neutral-true-800);
+        margin: 0 0 var(--ds-space-2) 0;
+    }
+
+    .install-app-selected-container {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .install-app-selected-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--ds-space-3) 0;
+        border-bottom: 1px solid var(--ds-border-default);
+    }
+
+    .install-app-selected-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .install-app-selected-name {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        font-weight: var(--ds-font-medium);
+        color: var(--ds-color-neutral-true-800);
+    }
+
+    .install-app-selected-package {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
+    }
+
+    .install-app-empty-state {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+        padding: var(--ds-space-3) 0;
+    }
+
+    /* Install App Modal - Input container so dropdown is not clipped */
+    .install-app-input-container {
+        position: relative;
+        /* Ensure container does not clip dropdown */
+        overflow: visible;
+        /* Stacking context so dropdown can appear above other elements */
+        z-index: 10;
+    }
+
+    /* Update Firmware Modal - Firmware List styles */
+    .firmware-list-item {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        padding: var(--ds-space-3) var(--ds-space-4);
+        border: none;
+        background: var(--ds-color-neutral-true-50);
+        border-radius: var(--ds-radius-lg);
+        cursor: pointer;
+        text-align: left;
+        gap: var(--ds-space-1);
+        transition: opacity 0.15s ease, border-color 0.15s ease;
+    }
+
+    .firmware-list-item:hover {
+        opacity: 0.9;
+    }
+
+    .firmware-list-item-selected {
+        border: 2px solid var(--ds-color-blue-light-500);
+        background: var(--ds-color-neutral-true-50);
+    }
+
+    .firmware-list-item-row {
+        display: flex;
+        align-items: flex-start;
+        width: 100%;
+        gap: var(--ds-space-3);
+    }
+
+    .firmware-list-item-content {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        gap: 2px;
+    }
+
+    .firmware-list-item-name {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-md);
+        line-height: var(--ds-leading-md);
+        font-weight: var(--ds-font-medium);
+        color: var(--ds-color-neutral-true-800);
+    }
+
+    .firmware-list-item-package {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-gray-500);
+    }
+
+    .firmware-list-item-column {
+        display: flex;
+        flex-direction: column;
+        flex-shrink: 0;
+        width: 120px;
+        padding-left: var(--ds-space-4);
+    }
+
+    .firmware-list-item-label {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-gray-500);
+    }
+
+    .firmware-list-item-value {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-900);
+    }
+
+    .firmware-list-item-created {
+        display: flex;
+        align-items: center;
+        padding-left: 32px;
+    }
+
+    .firmware-list-item-created-text {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        letter-spacing: 0.01em;
+        color: var(--ds-color-gray-500);
+    }
+
+    .firmware-list-empty {
+        padding: var(--ds-space-8) var(--ds-space-4);
+        text-align: center;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+        background: var(--ds-color-neutral-true-50);
+        border-radius: var(--ds-radius-md);
+    }
+
+    /* Update Firmware Modal - Pagination styles */
+    .firmware-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        width: 100%;
+        padding: var(--ds-space-2) 0;
+        gap: var(--ds-space-2);
+        border-top: 1px solid var(--ds-border-default);
+        margin-top: var(--ds-space-4);
+    }
+
+    .firmware-pagination-info {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-600);
+    }
+
+    .firmware-pagination-controls {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .firmware-pagination-current {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        background: var(--ds-bg-secondary);
+        border-radius: var(--ds-radius-lg);
+    }
+
+    .firmware-pagination-current span {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        font-weight: var(--ds-font-medium);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-gray-800);
+    }
+
+    /* Edit Device Modal - Password toggle button */
+    .password-toggle-button {
+        position: absolute;
+        right: var(--ds-space-3);
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 1;
+    }
+
+    .password-toggle-button :global(button) {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        width: auto !important;
+        height: auto !important;
+        color: var(--ds-text-secondary) !important;
+    }
+
+    /* Edit Device Modal - Configuration blocks */
+    .config-block {
+        background: var(--ds-bg-secondary);
+        border-radius: var(--ds-radius-xl);
+        padding: 0;
+    }
+
+    .config-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--ds-space-4) var(--ds-space-5);
+        border-bottom: 1px solid var(--ds-border-default);
+    }
+
+    .config-row-last {
+        border-bottom: none;
+    }
+
+    .config-label {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-medium);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-800);
+        margin: 0;
+    }
+
+    .config-description {
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-color-neutral-true-500);
+        margin: 0;
+    }
+
+    /* Edit Device Modal - Slider input wrapper */
+    .config-slider-input-wrapper {
+        display: flex;
+        align-items: center;
+        gap: var(--ds-space-1);
+        min-width: 70px;
+    }
+
+    .config-slider-input {
+        width: 50px;
+        padding: var(--ds-space-1-5) var(--ds-space-2);
+        border: 1px solid var(--ds-color-neutral-true-300);
+        border-radius: var(--ds-radius-md);
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        text-align: center;
+        background: var(--ds-color-white);
+        color: var(--ds-text-primary);
+    }
+
+    .config-slider-unit {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-neutral-true-500);
+    }
+
+    /* Edit Device Modal - Launcher preview */
+    .config-launcher-preview {
+        width: 64px;
+        height: 64px;
+        background: var(--ds-color-white);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-lg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
     }
 </style>
