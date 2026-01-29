@@ -43,30 +43,41 @@ export const GET: RequestHandler = restrict(
         const statusFilter = url.searchParams.get('status');
 
         try {
-            // Verify device exists and user has access
+            // Verify device exists and user has access (same rule as POST /api/devices/[id]/actions)
             const device = await prisma.device.findUnique({
                 where: { id: deviceId },
-                select: { 
-                    id: true, 
+                select: {
+                    id: true,
                     name: true,
                     createdBy: true,
-                    accountId: true
+                    accountId: true,
+                    account: {
+                        select: {
+                            members: { select: { userId: true } }
+                        }
+                    }
                 }
             });
 
             if (!device) {
-                return json({ 
-                    success: false, 
+                return json({
+                    success: false,
                     error: { code: 'DEVICE_NOT_FOUND', message: 'Device not found' }
                 }, { status: 404 });
             }
 
-            // Check if user has access to this device
-            if (user.systemRole !== SystemRole.ADMIN && device.createdBy !== user.id) {
-                return json({ 
-                    success: false, 
-                    error: { code: 'FORBIDDEN', message: 'Access denied to this device' }
-                }, { status: 403 });
+            // Check if user has access: ADMIN, or owner (createdBy), or member of device's account
+            if (user.systemRole !== SystemRole.ADMIN) {
+                const isOwner = device.createdBy === user.id;
+                const isAccountMember = device.accountId && device.account?.members?.some(
+                    (m: { userId: string }) => m.userId === user.id
+                );
+                if (!isOwner && !isAccountMember) {
+                    return json({
+                        success: false,
+                        error: { code: 'FORBIDDEN', message: 'Access denied to this device' }
+                    }, { status: 403 });
+                }
             }
 
             // Build where clause for BundleDevice

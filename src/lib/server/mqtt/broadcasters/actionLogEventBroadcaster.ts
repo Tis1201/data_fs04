@@ -72,7 +72,13 @@ export class ActionLogEventBroadcaster {
               sequenceNumber = await SequenceGenerator.getNextSequence(prisma, log.deviceId);
             }
           } else {
-            throw updateError;
+            // SequenceGenerator failed (e.g. DB/transaction) — use fallback so broadcast can proceed
+            logger.warn('[ActionLogEventBroadcaster] Using fallback sequence after error', {
+              logId: log.id,
+              deviceId: log.deviceId,
+              error: updateError instanceof Error ? updateError.message : String(updateError)
+            });
+            sequenceNumber = 0;
           }
         }
       }
@@ -103,7 +109,7 @@ export class ActionLogEventBroadcaster {
         durationMs: dbRecord.durationMs,
         message: dbRecord.message,
         user: dbRecord.user ? { name: dbRecord.user.name } : null,
-        sequenceNumber: dbRecord.sequenceNumber
+        sequenceNumber: dbRecord.sequenceNumber ?? sequenceNumber
       };
 
       const event: ActionLogEvent = {

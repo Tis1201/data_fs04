@@ -405,23 +405,30 @@
             
             const params = new URLSearchParams({
                 page: String(appsCurrentPage),
-                pageSize: String(appsPageSize)
+                limit: String(appsPageSize)
             });
-            
             if (appsSearchTerm) params.set('search', appsSearchTerm);
-            
-            const res = await fetch(`/api/v2/devices/${device.id}/apps?${params.toString()}`);
+            const res = await fetch(`/api/v2/devices/${device.id}/apps-with-pins?${params.toString()}`);
             if (!res.ok) throw new Error(`Failed to load apps: ${res.statusText}`);
-            
             const result = await res.json();
             if (!result?.success) throw new Error(result?.error || 'Failed to load apps');
-            
-            // V2 API: data = { items, total, page, pageSize, totalPages }; legacy: { apps, pagination }
             const payload = result.data ?? result;
-            apps = payload.apps ?? payload.items ?? [];
-            appsTotalCount = payload.total ?? payload.pagination?.total ?? apps.length;
-            appsTotalPages = payload.totalPages ?? payload.pagination?.totalPages ?? 1;
-            if (payload.page != null) appsCurrentPage = payload.page;
+            const rawApps = payload.apps ?? payload.items ?? [];
+            // Normalize for DataTable pin column (pinField: 'is_pinned') and API field names
+            apps = rawApps.map((a: any) => ({
+                ...a,
+                app_name: a.app_name ?? a.appName,
+                package_name: a.package_name ?? a.packageName,
+                app_type: a.app_type ?? a.appType,
+                size_bytes: a.size_bytes ?? a.sizeBytes,
+                install_date: a.install_date ?? a.installDate,
+                last_modified: a.last_modified ?? a.lastModified,
+                is_pinned: a.isPinned ?? a.is_pinned ?? false
+            }));
+            appsTotalCount = payload.pagination?.total ?? payload.total ?? apps.length;
+            appsTotalPages = payload.pagination?.totalPages ?? payload.totalPages ?? 1;
+            if (payload.pagination?.page != null) appsCurrentPage = payload.pagination.page;
+            else if (payload.page != null) appsCurrentPage = payload.page;
             appsLoaded = true;
         } catch (e) {
             console.error('Failed to load apps:', e);
@@ -551,7 +558,7 @@
     // DataTable columns for Installed Apps (design-system DataTable)
     $: appsColumns = [
         { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), width: '48px', sortable: false },
-        { id: 'company', header: 'Company', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px', sortable: false },
+        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px', sortable: false },
         { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px', sortable: false },
         { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px', sortable: false },
         { id: 'size', header: 'Size', type: 'text', accessor: (row: DeviceApp) => formatBytes(row.size_bytes), width: '80px', sortable: false },
@@ -592,6 +599,9 @@
         app.packageName.toLowerCase().includes(installAppSearch.toLowerCase())
     );
 
+    // Package names currently on device (for "Already on device" in Install modal)
+    $: installedPackageNames = new Set((apps || []).map((a: DeviceApp) => (a.package_name || '').trim()).filter(Boolean));
+
     async function loadAvailableAppsForInstall() {
         availableAppsForInstallLoading = true;
         try {
@@ -618,6 +628,8 @@
         installAppDropdownInteracting = false;
         showInstallAppModal = true;
         loadAvailableAppsForInstall();
+        // Refresh device app list so we can show "Already on device" for installed apps
+        if (device?.id) loadApps();
     }
 
     function updateInstallAppDropdownPosition() {
@@ -1813,6 +1825,13 @@
                     <div class="deployments-empty">
                         <GitFork size={48} color="#D6D6D6" />
                         <p>No deployments found for this device</p>
+                        <Button
+                            variant="primary"
+                            size="medium"
+                            on:click={() => goto('/user/iot/bundles')}
+                        >
+                            Go to Bundles
+                        </Button>
                     </div>
                 {:else}
                     <DataTable
@@ -2254,6 +2273,7 @@
             >
                 {#each installAppFilteredOptions as app (app.id)}
                     {@const isSelected = installAppSelected.includes(app.id)}
+                    {@const alreadyOnDevice = app.packageName && installedPackageNames.has(app.packageName.trim())}
                     <button
                         type="button"
                         class="install-app-option"
@@ -2266,7 +2286,12 @@
                         />
                         <div class="install-app-option-content">
                             <span class="install-app-option-name">{app.name}</span>
-                            <span class="install-app-option-package">{app.packageName}</span>
+                            <span class="install-app-option-package">
+                                {app.packageName}
+                                {#if alreadyOnDevice}
+                                    <span class="install-app-already-badge">Already on device</span>
+                                {/if}
+                            </span>
                         </div>
                     </button>
                 {/each}
@@ -2736,7 +2761,7 @@
 
     /* Tabs Wrapper */
     .tabs-wrapper {
-        margin-top: 8px;
+        /*margin-top: 8px;*/
         width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -3213,7 +3238,7 @@
         padding: var(--ds-card-padding-md) !important;
     }
     
-    .col-company {
+    .col-app {
         min-width: 400px;
     }
     
@@ -3885,6 +3910,15 @@
         line-height: var(--ds-leading-xs);
         color: var(--ds-color-gray-500);
     }
+    .install-app-already-badge {
+        margin-left: var(--ds-space-2);
+        padding: 2px 6px;
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--ds-color-gray-600);
+        background: var(--ds-bg-secondary);
+        border-radius: var(--ds-radius-sm);
+    }
     .install-app-empty {
         padding: var(--ds-space-3) var(--ds-space-4);
         text-align: center;
@@ -4041,9 +4075,9 @@
             gap: var(--ds-space-2);
         }
         
-        .tabs-wrapper {
+        /*.tabs-wrapper {
             margin-top: var(--ds-space-2);
-        }
+        }*/
         
         .tab-content {
             margin-top: var(--ds-space-3);

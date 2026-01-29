@@ -16,7 +16,9 @@ export type DeviceActionType =
   | 'config_update'
   | 'logs'
   | 'pull_file'
-  | 'push_file';
+  | 'push_file'
+  | 'pin_apps'
+  | 'unpin_app';
 
 export type DeviceActionStatus =
   | 'initiated'

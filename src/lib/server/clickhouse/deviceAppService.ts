@@ -63,10 +63,109 @@ export class DeviceAppService {
   }
 
   /**
-   * Note: This service only READS from ClickHouse
-   * Device app data is inserted by devices via logs_raw → mv_device_apps → device_apps
-   * Server only pulls/processes data from ClickHouse
+   * Check if ClickHouse is configured and available (without throwing).
+   * Used by API routes to return empty app list instead of 500 when ClickHouse is not set up.
    */
+  isAvailable(): boolean {
+    try {
+      const url = process.env.CLICKHOUSE_URL;
+      const username = process.env.CLICKHOUSE_USER_NAME;
+      const password = process.env.CLICKHOUSE_PASSWORD;
+      return !!(url && username && password);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Note: This service READS from ClickHouse; optionally WRITES via insertDeviceAppReport
+   * (used by emulator/device to report app list so GET apps returns data from ClickHouse, same as production).
+   * Data flow: device/app report → logs_raw → mv_device_apps_ingest → mv_device_apps table.
+   */
+
+  /**
+   * Insert a device app list into logs_raw so it flows through the MV into mv_device_apps.
+   * All rows use the same timestamp so they appear as one "sync" for getDeviceApps.
+   * Only call when isAvailable() is true.
+   */
+  async insertDeviceAppReport(
+    deviceId: string,
+    apps: Array<{ packageName: string; appName: string; version?: string; appType?: string; metadata?: string; sizeBytes?: number | string }>
+  ): Promise<void> {
+    if (!apps.length) return;
+    const now = new Date();
+    const c1 = now.toISOString().slice(0, 19).replace('T', ' ');
+    const empty = (s: string | undefined) => s ?? '';
+    const rows = apps.map((app) => ({
+      c1,
+      c2: '',
+      c3: '',
+      c4: deviceId,
+      c5: '',
+      c6: '',
+      c7: '',
+      c8: '',
+      c9: '',
+      c10: 'DEVICE_APPS',
+      c11: '',
+      c12: '',
+      c13: '',
+      c14: '',
+      c15: empty(app.packageName),
+      c16: empty(app.appName),
+      c17: empty(app.version),
+      c18: empty(app.appType),
+      c19: typeof app.metadata === 'string' ? app.metadata : (app.metadata ? JSON.stringify(app.metadata) : '{}'),
+      c20: '',
+      c21: app.sizeBytes != null ? String(app.sizeBytes) : '0',
+      c22: '',
+      c23: '',
+      c24: '',
+      c25: '',
+      c26: '',
+      c27: '',
+      c28: '',
+      c29: '',
+      c30: '',
+      c31: '',
+      c32: '',
+      c33: '',
+      c34: '',
+      c35: '',
+      c36: '',
+      c37: '',
+      c38: '',
+      c39: '',
+      c40: '',
+      c41: '',
+      c42: '',
+      c43: '',
+      c44: '',
+      c45: '',
+      c46: '',
+      c47: '',
+      c48: '',
+      c49: '',
+      c50: '',
+      c51: '',
+      c52: '',
+      c53: '',
+      c54: '',
+      c55: '',
+      c56: '',
+      c57: '',
+      c58: '',
+      c59: '',
+      c60: '',
+      c61: null as string | null
+    }));
+    await this.clickhouse.insert({
+      table: 'logs_raw',
+      values: rows,
+      format: 'JSONEachRow'
+    });
+    logger.debug('[DeviceAppService] insertDeviceAppReport', { deviceId, count: apps.length });
+  }
 
   /**
    * Get current app data for a device with pagination
@@ -155,7 +254,6 @@ export class DeviceAppService {
       const countResponse = await countResult.json();
       const total = Number((countResponse?.data?.[0] as any)?.total || 0);
 
-      console.log("queryyy", whereConditions)
       // Get paginated apps (all apps from latest sync)
       const result = await this.clickhouse.query({
         query: `
@@ -209,17 +307,13 @@ export class DeviceAppService {
         limit
       };
     } catch (error) {
-      // Fail gracefully when ClickHouse is unavailable - return empty data
-      logger.warn('ClickHouse unavailable for device apps query, returning empty data', {
+      // Preserve old behaviour: throw so API returns 5xx when ClickHouse is configured but fails
+      logger.error('Failed to query device apps from ClickHouse', {
         error: error instanceof Error ? error.message : String(error),
-        deviceId
+        deviceId,
+        stack: error instanceof Error ? error.stack : undefined
       });
-      return {
-        apps: [],
-        total: 0,
-        page,
-        limit
-      };
+      throw error;
     }
   }
 
@@ -263,12 +357,11 @@ export class DeviceAppService {
       const data = response?.data || [];
       return data as unknown as DeviceAppData[];
     } catch (error) {
-      // Fail gracefully when ClickHouse is unavailable
-      logger.warn('ClickHouse unavailable for multiple device apps query, returning empty data', {
+      logger.error('Failed to query multiple device apps from ClickHouse', {
         error: error instanceof Error ? error.message : String(error),
         deviceIds
       });
-      return {};
+      throw error;
     }
   }
 
@@ -305,12 +398,11 @@ export class DeviceAppService {
       const data = response?.data || [];
       return data as unknown as DeviceAppData[];
     } catch (error) {
-      // Fail gracefully when ClickHouse is unavailable
-      logger.warn('ClickHouse unavailable for app search, returning empty data', {
+      logger.error('Failed to search apps in ClickHouse', {
         error: error instanceof Error ? error.message : String(error),
         searchTerm
       });
-      return [];
+      throw error;
     }
   }
 
@@ -367,17 +459,10 @@ export class DeviceAppService {
         last_sync: new Date((stats as any).last_sync)
       };
     } catch (error) {
-      // Fail gracefully when ClickHouse is unavailable
-      logger.warn('ClickHouse unavailable for app stats, returning zero stats', {
+      logger.error('Failed to query app stats from ClickHouse', {
         error: error instanceof Error ? error.message : String(error)
       });
-      return {
-        totalApps: 0,
-        systemApps: 0,
-        userApps: 0,
-        lastSync: null,
-        topApps: []
-      };
+      throw error;
     }
   }
 
