@@ -141,6 +141,7 @@
     import Avatar from './Avatar.svelte';
     import Button from './Button.svelte';
     import ActionMenu from './ActionMenu.svelte';
+    import Tooltip from './Tooltip.svelte';
 
     // ==========================================================================
     // PROPS
@@ -720,22 +721,31 @@
                                             {/each}
                                         </div>
                                     {:else if column.type === 'pin'}
-                                        <!-- Pin: filled when pinned, outline when not -->
+                                        <!-- Pin: filled when pinned, outline when not. Tooltip per design (dark, arrow down). -->
                                         {@const isPinned = column.pinField ? row[column.pinField] : Boolean(value)}
                                         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                                         <div on:click|stopPropagation>
-                                            <button
-                                                type="button"
-                                                class="p-1 rounded transition-colors hover:bg-[#F9FAFB]"
-                                                on:click={() => column.onPin?.(row, !isPinned)}
+                                            <Tooltip
+                                                text={isPinned ? 'Remove pinned app' : 'Pinup app'}
+                                                theme="dark"
+                                                arrow="bottom"
+                                                position="top"
+                                                trigger="hover"
+                                                portal={true}
                                             >
-                                                <Pin
-                                                    size={20}
-                                                    strokeWidth={isPinned ? 2 : 1.67}
-                                                    color={isPinned ? '#424242' : '#737373'}
-                                                    fill={isPinned ? '#424242' : 'none'}
-                                                />
-                                            </button>
+                                                <button
+                                                    type="button"
+                                                    class="p-1 rounded transition-colors hover:bg-[#F9FAFB]"
+                                                    on:click={() => column.onPin?.(row, !isPinned)}
+                                                >
+                                                    <Pin
+                                                        size={20}
+                                                        strokeWidth={isPinned ? 2 : 1.67}
+                                                        color={isPinned ? '#424242' : '#737373'}
+                                                        fill={isPinned ? '#424242' : 'none'}
+                                                    />
+                                                </button>
+                                            </Tooltip>
                                         </div>
                                     {:else if column.type === 'moreMenu'}
                                         {@const actions = column.getMenuActions ? column.getMenuActions(row) : (column.menuActions ?? [])}

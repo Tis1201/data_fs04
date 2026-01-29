@@ -14,7 +14,7 @@
 </script>
 
 <script lang="ts">
-    import { createEventDispatcher, onDestroy } from 'svelte';
+    import { createEventDispatcher, onDestroy, tick } from 'svelte';
     
     // Props
     export let text: string = 'This is a tooltip';
@@ -25,11 +25,47 @@
     export let position: TooltipPosition = 'top';
     export let maxWidth: number = 320;
     export let open: boolean = false; // For manual control or click trigger
+    /** When true, render tooltip in document.body with position:fixed so it is not clipped by overflow (e.g. in tables). */
+    export let portal: boolean = false;
     
     const dispatch = createEventDispatcher<{
         show: void;
         hide: void;
     }>();
+    
+    let triggerEl: HTMLElement | null = null;
+    let triggerRect: DOMRect | null = null;
+    let isHovered = false;
+    
+    function updateRect() {
+        if (triggerEl && (isHovered || open)) triggerRect = triggerEl.getBoundingClientRect();
+    }
+    
+    async function handleMouseEnter() {
+        isHovered = true;
+        if (portal) {
+            await tick();
+            updateRect();
+        }
+    }
+    
+    function handleMouseLeave() {
+        isHovered = false;
+        if (portal) triggerRect = null;
+    }
+    
+    function appendToBody(node: HTMLElement) {
+        if (typeof document !== 'undefined') document.body.appendChild(node);
+        return {
+            destroy() {
+                node.parentNode?.removeChild(node);
+            }
+        };
+    }
+    
+    $: if (portal && (isHovered || open) && triggerEl) {
+        updateRect();
+    }
     
     // Theme colors
     const themeConfig = {
@@ -96,42 +132,81 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <span 
+    bind:this={triggerEl}
     class="tooltip-wrapper"
     class:hover-trigger={trigger === 'hover'}
     class:click-open={trigger === 'click' && open}
     class:manual-open={trigger === 'manual' && open}
     on:click={handleClick}
+    on:mouseenter={portal ? handleMouseEnter : undefined}
+    on:mouseleave={portal ? handleMouseLeave : undefined}
 >
     <!-- Trigger slot -->
     <slot />
     
-    <!-- Tooltip -->
-    <div 
-        class="tooltip tooltip-{position}"
-        class:has-arrow={arrow !== 'none'}
-        role="tooltip"
-        style="
-            --tooltip-bg: {config.background};
-            --tooltip-border: {theme === 'light' && arrow === 'none' ? config.border : 'none'};
-            --tooltip-title-color: {config.titleColor};
-            --tooltip-supporting-color: {config.supportingColor};
-            --tooltip-arrow-bg: {config.arrowBg};
-            --tooltip-max-width: {maxWidth}px;
-        "
-    >
-        <div class="tooltip-content" class:with-supporting={hasSupportingText}>
-            <span class="tooltip-title">{text}</span>
-            
-            {#if hasSupportingText}
-                <span class="tooltip-supporting">{supportingText}</span>
+    {#if portal && (isHovered || open) && triggerRect}
+        <!-- Portal: render in body so tooltip is not clipped by overflow (e.g. DataTable) -->
+        <div
+            use:appendToBody
+            class="tooltip-portal"
+            style="
+                position: fixed;
+                left: {triggerRect.left + triggerRect.width / 2}px;
+                top: {position === 'top' ? triggerRect.top - 8 : triggerRect.bottom + 8}px;
+                transform: translate(-50%, {position === 'top' ? '-100%' : '0'});
+                z-index: 99999;
+                pointer-events: none;
+                --tooltip-bg: {config.background};
+                --tooltip-border: {theme === 'light' && arrow === 'none' ? config.border : 'none'};
+                --tooltip-title-color: {config.titleColor};
+                --tooltip-supporting-color: {config.supportingColor};
+                --tooltip-arrow-bg: {config.arrowBg};
+                --tooltip-max-width: {maxWidth}px;
+            "
+        >
+            <div
+                class="tooltip tooltip-{position} tooltip-fixed"
+                class:has-arrow={arrow !== 'none'}
+                class:portal-visible={(isHovered || open)}
+                role="tooltip"
+            >
+                <div class="tooltip-content" class:with-supporting={hasSupportingText}>
+                    <span class="tooltip-title">{text}</span>
+                    {#if hasSupportingText}
+                        <span class="tooltip-supporting">{supportingText}</span>
+                    {/if}
+                </div>
+                {#if arrow !== 'none'}
+                    <div class="tooltip-arrow arrow-{arrow}"></div>
+                {/if}
+            </div>
+        </div>
+    {:else if !portal}
+        <!-- Inline tooltip (can be clipped by parent overflow) -->
+        <div 
+            class="tooltip tooltip-{position}"
+            class:has-arrow={arrow !== 'none'}
+            role="tooltip"
+            style="
+                --tooltip-bg: {config.background};
+                --tooltip-border: {theme === 'light' && arrow === 'none' ? config.border : 'none'};
+                --tooltip-title-color: {config.titleColor};
+                --tooltip-supporting-color: {config.supportingColor};
+                --tooltip-arrow-bg: {config.arrowBg};
+                --tooltip-max-width: {maxWidth}px;
+            "
+        >
+            <div class="tooltip-content" class:with-supporting={hasSupportingText}>
+                <span class="tooltip-title">{text}</span>
+                {#if hasSupportingText}
+                    <span class="tooltip-supporting">{supportingText}</span>
+                {/if}
+            </div>
+            {#if arrow !== 'none'}
+                <div class="tooltip-arrow arrow-{arrow}"></div>
             {/if}
         </div>
-        
-        <!-- Arrow -->
-        {#if arrow !== 'none'}
-            <div class="tooltip-arrow arrow-{arrow}"></div>
-        {/if}
-    </div>
+    {/if}
 </span>
 
 <style>
@@ -153,10 +228,25 @@
         box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.08), 0px 4px 6px -2px rgba(16, 24, 40, 0.03);
     }
     
-    /* Show tooltip on hover */
-    .tooltip-wrapper.hover-trigger:hover .tooltip,
-    .tooltip-wrapper.click-open .tooltip,
-    .tooltip-wrapper.manual-open .tooltip {
+    /* Portal tooltip: visibility controlled by .portal-visible (no parent :hover in body) */
+    .tooltip.tooltip-fixed {
+        position: relative;
+        bottom: auto;
+        left: auto;
+        right: auto;
+        top: auto;
+        margin: 0;
+        transform: none;
+    }
+    .tooltip.tooltip-fixed.portal-visible {
+        opacity: 1;
+        visibility: visible;
+    }
+    
+    /* Show inline tooltip on hover */
+    .tooltip-wrapper.hover-trigger:hover .tooltip:not(.tooltip-fixed),
+    .tooltip-wrapper.click-open .tooltip:not(.tooltip-fixed),
+    .tooltip-wrapper.manual-open .tooltip:not(.tooltip-fixed) {
         opacity: 1;
         visibility: visible;
     }
