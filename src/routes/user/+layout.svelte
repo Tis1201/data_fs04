@@ -152,6 +152,14 @@
                 subtitle: 'View, filter, and manage all registered devices'
             };
         }
+        // Sensors listing only (not detail /radar/[id] or /radar/new)
+        if (pathname === '/user/controllers/radar' || pathname === '/user/controllers/radar/') {
+            return {
+                headerStyle: 'page',
+                title: 'Sensors',
+                subtitle: 'View, filter, and manage all radar sensors'
+            };
+        }
         if (pathname.includes('/dashboard')) {
             return {
                 headerStyle: 'page',
