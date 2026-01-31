@@ -199,6 +199,13 @@
 						{title}
 					</h2>
 				{/if}
+
+				<!-- Optional header actions (e.g. CSV Template button) - between title and close -->
+				{#if $$slots['header-actions']}
+					<div class="modal-header-actions">
+						<slot name="header-actions" />
+					</div>
+				{/if}
 				
 				{#if showCloseButton}
 					<!-- Close Button - uses Button component from design-system -->
@@ -318,7 +325,6 @@
 		gap: 12px;
 		width: 100%;
 		min-height: 56px;
-		height: 56px;
 		background: #FFFFFF;
 		border-radius: 16px 16px 0 0; /* Match parent top corners */
 		flex: none;
@@ -358,10 +364,25 @@
 		margin: 0;
 	}
 
+	/* Header actions slot (e.g. CSV Template button) - between title and close */
+	.modal-header-actions {
+		flex: none;
+		order: 2;
+		flex-grow: 0;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		margin-left: auto;
+	}
+	.modal-header-actions:empty {
+		display: none;
+	}
+
 	/* Close Button Wrapper - Button component with custom positioning */
 	.modal-close-btn-wrapper {
 		flex: none;
-		order: 2;
+		order: 3;
 		flex-grow: 0;
 		width: 24px;
 		height: 24px;

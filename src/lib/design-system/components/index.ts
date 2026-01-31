@@ -146,7 +146,9 @@ export interface ColumnDef<T = any> {
     
     // For badge/status cells
     statusColor?: (value: any, row: T) => BadgeColor;
-    
+    /** When set, controls dot on badge. Default: false for badge, true for status. */
+    showDot?: (value: any, row: T) => boolean;
+
     // For avatar cells
     avatarField?: string;
     nameField?: string;

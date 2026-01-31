@@ -209,6 +209,9 @@
     // Reactive Set for faster lookup and proper Svelte reactivity
     $: selectedKeySet = new Set(selectedRows.map(r => r[keyField]));
 
+    /** Only one Actions (moreMenu) dropdown open at a time; key = row[keyField] ?? rowIndex */
+    let openMoreMenuKey: string | number | null = null;
+
     // ==========================================================================
     // FUNCTIONS
     // ==========================================================================
@@ -750,11 +753,13 @@
                                         </div>
                                     {:else if column.type === 'moreMenu'}
                                         {@const actions = column.getMenuActions ? column.getMenuActions(row) : (column.menuActions ?? [])}
-                                        <!-- 3-dot more menu: use ActionMenu when menuActions or getMenuActions provided -->
+                                        {@const rowKey = row[keyField] ?? rowIndex}
+                                        <!-- 3-dot more menu: only one open at a time -->
                                         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                                         <div on:click|stopPropagation>
                                             {#if actions.length > 0}
                                                 <ActionMenu
+                                                    open={openMoreMenuKey === rowKey}
                                                     items={actions
                                                         .filter(a => !a.hidden || !a.hidden(row))
                                                         .map(a => ({
@@ -769,6 +774,8 @@
                                                     size="sm"
                                                     triggerVariant="text"
                                                     width="140px"
+                                                    on:open={() => { openMoreMenuKey = rowKey; }}
+                                                    on:close={() => { openMoreMenuKey = null; }}
                                                     on:select={(e) => {
                                                         const act = actions.find(x => x.id === e.detail.id);
                                                         act?.onClick?.(row);

@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import type { AuthenticatedEvent, AuthenticatedLoadEvent } from '$lib/server/security/guards';
@@ -15,26 +15,59 @@ import { createPreclaimActions } from '$lib/server/preclaims/preclaimActions';
 export const load = restrict(
     async ({ url, locals, depends }: AuthenticatedLoadEvent) => {
         depends('app:userPreclaimSets');
-        
+
         try {
-            // User routes need ownership checking - only show preclaims from their accounts
-            // Note: locals.prisma is already enhanced by middleware for user routes
             const auth = await locals.auth.validate();
             const userId = auth?.user?.id;
             const accountId = (locals as any).currentAccount?.account?.id;
-            
-            return await loadPreclaimList(locals, url, {
-                checkOwnership: true, // User can only see preclaims from their accounts
+
+            const listResult = await loadPreclaimList(locals, url, {
+                checkOwnership: true,
                 userId,
                 accountId,
-                useEnhancedPrisma: true // Use enhanced Prisma (already set in locals.prisma by middleware)
+                useEnhancedPrisma: true
             });
+
+            // Load profile options for Add/Edit modal (GLOBAL level, current account)
+            const currentAccountId = (locals as any).currentAccount?.account?.id ?? accountId;
+            const profiles = currentAccountId
+                ? await locals.prisma.deviceProfile.findMany({
+                      where: {
+                          isActive: true,
+                          level: 'GLOBAL',
+                          accountId: currentAccountId
+                      },
+                      select: { id: true, name: true, description: true },
+                      orderBy: { name: 'asc' }
+                  })
+                : [];
+
+            const profileOptions = profiles.map((p: { id: string; name: string; description: string | null }) => ({
+                id: p.id,
+                label: p.name
+            }));
+
+            const accounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
+                select: { id: true, name: true },
+                orderBy: { name: 'asc' }
+            });
+            const accountOptions = accounts.map((a: { id: string; name: string }) => ({
+                id: a.id,
+                label: a.name
+            }));
+
+            return {
+                ...listResult,
+                profileOptions,
+                accountOptions
+            };
         } catch (e) {
             logger.error(`Error loading preclaims: ${JSON.stringify(e)}`);
             throw error(500, 'Failed to load preclaims');
         }
     },
-    [SystemRole.USER] // Only allow user role to access this route
+    [SystemRole.USER]
 ) satisfies PageServerLoad;
 
 /*******************************************************************************************
@@ -42,23 +75,38 @@ export const load = restrict(
  *  Actions Block
  * 
  *******************************************************************************************/
-// Create actions with user privileges (ownership check via enhanced Prisma)
 const preclaimActions = createPreclaimActions({
-    checkOwnership: true, // Users can only toggle status of preclaims they have access to
-    useEnhancedPrisma: true // Use enhanced Prisma (already set in locals.prisma by middleware)
+    checkOwnership: true,
+    useEnhancedPrisma: true
 });
 
 export const actions: Actions = {
-    /**
-     * Toggle preclaim set status action
-     */
     toggleStatus: restrict(
         async ({ request, locals }: AuthenticatedEvent) => {
-            return await preclaimActions.toggleStatus({
-                request,
-                locals
-            });
+            return await preclaimActions.toggleStatus({ request, locals });
         },
-        [SystemRole.USER] // Only allow user role to access this action
+        [SystemRole.USER]
+    ),
+
+    delete: restrict(
+        async ({ request, locals }: AuthenticatedEvent) => {
+            const formData = await request.formData();
+            const id = formData.get('id')?.toString();
+            if (!id) {
+                return fail(400, { type: 'error', message: 'Pre-Enrollment set ID is required' });
+            }
+            try {
+                const existing = await locals.prisma.preclaimSet.findFirst({ where: { id } });
+                if (!existing) {
+                    return fail(404, { type: 'error', message: 'Pre-Enrollment set not found' });
+                }
+                await locals.prisma.preclaimSet.delete({ where: { id } });
+                return { type: 'success', message: 'Pre-enrollment deleted successfully.' };
+            } catch (e) {
+                logger.error(`Error deleting preclaim set ${id}: ${e}`);
+                return fail(500, { type: 'error', message: 'Unable to delete Pre-enrollment. Please try again!' });
+            }
+        },
+        [SystemRole.USER]
     )
 };

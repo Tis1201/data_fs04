@@ -1,7 +1,9 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { json } from '@sveltejs/kit';
+import rawPrisma from '$lib/server/prisma';
 import { logger } from '$lib/server/logger';
-import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import { requirePermission } from '$lib/server/security/permissions';
+import { ErrorCodes } from '$lib/types/api';
 
 /**
  * GET /api/v2/preclaims/[id]/devices
@@ -15,57 +17,81 @@ import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/ut
  */
 export const GET = unifiedEndpoint(
   async ({ context, params, event }) => {
-    const { prisma } = context;
+    const { prisma, permissionUser } = context;
     const { id } = params;
     const url = event.url;
 
-    // Normalize query params to the shared table utils convention
-    // Client sends sort_field/sort_order; map them to sort/order
-    const normalizedUrl = new URL(url);
-    const sortFieldParam = url.searchParams.get('sort_field');
-    const sortOrderParam = url.searchParams.get('sort_order');
-    if (sortFieldParam) normalizedUrl.searchParams.set('sort', sortFieldParam);
-    if (sortOrderParam) normalizedUrl.searchParams.set('order', sortOrderParam);
+    // Load preclaim set and check permission with resource (required for USER role)
+    const preclaimSet = await prisma.preclaimSet.findFirst({
+      where: { id },
+      select: { id: true, accountId: true }
+    });
+    if (!preclaimSet) {
+      throw Object.assign(new Error('Pre-claim set not found'), { status: 404, code: ErrorCodes.NOT_FOUND });
+    }
+    await requirePermission(permissionUser, 'preclaim.view', preclaimSet);
 
-    // Use the shared fetchTableData utility for consistency
-    const result = await fetchTableData<any>(
-      { prisma },
-      normalizedUrl,
-      {
-        modelName: 'preclaimDevice',
-        searchableFields: ['id', 'deviceId', 'macId', 'name'],
-        allowedFilters: ['status'],
-        defaultSortField: 'createdAt',
-        defaultSortOrder: 'desc',
-        defaultPerPage: 10,
-        select: {
-          id: true,
-          deviceId: true,
-          macId: true,
-          name: true,
-          status: true,
-          claimedAt: true,
-          createdAt: true
-        },
-        // Ensure we only fetch claims for this preclaim set
-        baseWhere: { setId: id },
-        // Map URL filters to DB fields/operators
-        filterMappings: {
-          status: {
-            field: 'status',
-            operator: 'equals',
-            valueTransformer: (value: string) => value.toUpperCase()
-          }
+    // Direct DB query (bypass fetchTableData to avoid empty result / URL parsing issues)
+    const directCount = await rawPrisma.preclaimDevice.count({ where: { setId: id } });
+    logger.info(`[preclaims/devices] setId=${id} directCount=${directCount}`);
+
+    const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
+    const perPage = Math.min(100, Math.max(1, Number(url.searchParams.get('per_page')) || 10));
+    const sortField = url.searchParams.get('sort_field') || url.searchParams.get('sort') || 'createdAt';
+    const sortOrder = (url.searchParams.get('sort_order') || url.searchParams.get('order') || 'desc') as 'asc' | 'desc';
+    const search = (url.searchParams.get('search') || '').trim();
+
+    const select = {
+      id: true,
+      deviceId: true,
+      macId: true,
+      name: true,
+      status: true,
+      claimedAt: true,
+      createdAt: true
+    };
+
+    const baseWhere = { setId: id };
+    const where = search
+      ? {
+          AND: [
+            baseWhere,
+            {
+              OR: [
+                { id: { contains: search, mode: 'insensitive' as const } },
+                { macId: { contains: search, mode: 'insensitive' as const } },
+                { name: { contains: search, mode: 'insensitive' as const } }
+              ]
+            }
+          ]
         }
-      }
-    );
+      : baseWhere;
 
-    // Preserve the response shape expected by the table component
+    const [records, totalRecords] = await Promise.all([
+      rawPrisma.preclaimDevice.findMany({
+        where,
+        select,
+        orderBy: { [sortField]: sortOrder },
+        skip: (page - 1) * perPage,
+        take: perPage
+      }),
+      rawPrisma.preclaimDevice.count({ where })
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / perPage) || 1;
+    const pagination = {
+      page,
+      per_page: perPage,
+      total_records: totalRecords,
+      total_pages: totalPages
+    };
+    const sort = { field: sortField, order: sortOrder };
+
     return json({
-      records: result.records,
-      pagination: result.meta.pagination,
-      sort: result.meta.sort
+      records: records as any[],
+      pagination,
+      sort
     });
   },
-  { permission: 'preclaim.view' }
+  {} // permission checked in handler with preclaim set resource
 );

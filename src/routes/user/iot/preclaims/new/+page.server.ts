@@ -100,6 +100,7 @@ export const actions: Actions = {
                 // Read once
                 const formData = await request.formData();
                 const rawFile = formData.get('file');
+                const saveAsDraft = formData.get('saveAsDraft') === 'true' || formData.get('saveAsDraft') === '1';
 
                 // Build synthetic request for validation (preserve boundary)
                 const headers = new Headers();
@@ -108,7 +109,7 @@ export const actions: Actions = {
                     headers.append(key, value);
                 }
                 const validateRequest = new Request(request.url, { method: request.method, headers, body: formData });
-                const form = await superValidate(validateRequest, zod(preclaimSetSchema));
+                const form = await superValidate(validateRequest, zod(preclaimSetSchema), { id: 'preclaim-set-form' });
 
                 if (!form.valid) {
                     return fail(400, { form });
@@ -231,7 +232,7 @@ export const actions: Actions = {
                             data: {
                                 name: form.data.name,
                                 description: form.data.description || '',
-                                status: 'ACTIVE',
+                                status: saveAsDraft ? 'INACTIVE' : 'ACTIVE', // Draft = INACTIVE, Add = ACTIVE
                                 expiresAt: expiresAt,
                                 accountId,
                                 profileId: form.data.profileId || null, // Optional profile assignment

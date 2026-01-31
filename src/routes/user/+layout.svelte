@@ -191,6 +191,30 @@
                 subtitle: 'Manage application packages and resources'
             };
         }
+        // Pre-Enrollment (preclaims)
+        if (pathname.startsWith('/user/iot/preclaims/') && pathname !== '/user/iot/preclaims' && pathname !== '/user/iot/preclaims/') {
+            const isNew = pathname === '/user/iot/preclaims/new' || pathname === '/user/iot/preclaims/new/';
+            const isEdit = /\/edit\/?$/.test(pathname);
+            const isDetail = /^\/user\/iot\/preclaims\/[^/]+\/?$/.test(pathname.replace(/\/$/, ''));
+            return {
+                headerStyle: 'page',
+                title: isNew ? 'Add Pre-Enrollment Set' : isEdit ? 'Edit Pre-Enrollment Set' : isDetail ? 'Pre-Enrollment Set Details' : 'Pre-Enrollment',
+                subtitle: isDetail
+                    ? 'Pre-register devices to automatically assign them to the correct account and device profile during enrollment.'
+                    : isNew
+                        ? 'Create a new pre-enrollment set and upload device list (CSV/XLSX)'
+                        : isEdit
+                            ? 'Update pre-enrollment set and device profile'
+                            : 'Pre-register devices to assign to account and device profile during enrollment.'
+            };
+        }
+        if (pathname === '/user/iot/preclaims' || pathname === '/user/iot/preclaims/') {
+            return {
+                headerStyle: 'page',
+                title: 'Pre-Enrollment',
+                subtitle: 'Pre-register devices to assign to account and device profile during enrollment.'
+            };
+        }
         if (pathname.includes('/dashboard')) {
             return {
                 headerStyle: 'page',

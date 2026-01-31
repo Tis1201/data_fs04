@@ -213,33 +213,33 @@
 			</button>
 		{/if}
 		
-		<!-- Title Section - exact specs from Figma -->
-		<div class="flex flex-col items-start" style="width: 322px; height: 46px; gap: 2px;">
+		<!-- Title Section - flex + min-width:0 + overflow hidden để khi co màn hình không đè user menu -->
+		<div class="flex flex-col items-start title-section min-w-0" style="gap: 2px;">
 			{#if title}
 				<h1 
-					class="font-semibold"
-					style="width: 322px; height: 24px; font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-semibold); font-size: var(--ds-text-lg); line-height: var(--ds-leading-lg); color: {titleColor};"
+					class="font-semibold title-text"
+					style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-semibold); font-size: var(--ds-text-lg); line-height: var(--ds-leading-lg); color: {titleColor};"
 				>
 					{title}
 				</h1>
 			{/if}
 			{#if subtitle}
 				<p 
-					class="font-normal"
-					style="width: 322px; height: 20px; font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: {subtitleColor};"
+					class="font-normal subtitle-text"
+					style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: {subtitleColor};"
 				>
 					{subtitle}
 				</p>
 			{/if}
 		</div>
 		
-		<!-- Spacer -->
-		<div class="flex-1"></div>
+		<!-- Spacer - min-w-0 để khi co màn hình spacer thu nhỏ, title section cũng thu theo -->
+		<div class="flex-1 min-w-0"></div>
 	{/if}
 	
 	<!-- User Menu (common to both styles) - uses ActionMenu component from design-system -->
 	{#if showUserMenu && user}
-		<div class="user-menu-container">
+		<div class="user-menu-container shrink-0">
 			<!-- User Info Button (trigger) -->
 			<button
 				bind:this={userMenuTriggerRef}
@@ -310,14 +310,14 @@
 	{#if style === 'page'}
 		<!-- Divider - exact specs from Figma -->
 		{#if showDivider}
-			<div class="flex items-center justify-center" style="width: 4px; height: 40px; padding: 0px 2px;">
+			<div class="flex items-center justify-center shrink-0" style="width: 4px; height: 40px; padding: 0px 2px;">
 				<div style="width: 0px; height: 40px; border-left: 1px solid {borderColor};"></div>
 			</div>
 		{/if}
 		
 		<!-- Grid Button - exact specs from Figma -->
 		{#if showGridButton}
-			<div class="grid-menu-container" style="position: relative;">
+			<div class="grid-menu-container shrink-0" style="position: relative;">
 				<button
 					type="button"
 					class="flex items-center justify-center rounded-lg bg-transparent border-0"
@@ -408,6 +408,21 @@
 <svelte:window on:click={handleClickOutside} />
 
 <style>
+	/* Page header title section - khi co màn hình thu nhỏ, cắt chữ ellipsis, không đè user menu */
+	.title-section {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+	}
+	
+	.title-text,
+	.subtitle-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	
 	/* User Menu Container */
 	.user-menu-container {
 		position: relative;
