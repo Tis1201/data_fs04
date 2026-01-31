@@ -109,22 +109,21 @@
         showFilterModal = true;
     }
 
-    // Debounced search: update URL only when user has changed search (browser only)
+    // Debounced search: only goto when search param actually changed (avoids resetting page after pagination click)
     $: if (browser && typeof searchValue !== 'undefined') {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
+            const currentSearch = $page.url.searchParams.get('search') || '';
+            const newSearch = searchValue.trim();
+            if (newSearch === currentSearch) return;
             const url = new URL($page.url);
-            if (searchValue.trim()) {
-                url.searchParams.set('search', searchValue.trim());
+            if (newSearch) {
+                url.searchParams.set('search', newSearch);
             } else {
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            const newUrl = url.pathname + url.search;
-            const currentUrl = $page.url.pathname + $page.url.search;
-            if (newUrl !== currentUrl) {
-                goto(newUrl, { noScroll: true });
-            }
+            goto(url.pathname + url.search, { noScroll: true });
         }, 500);
     }
 

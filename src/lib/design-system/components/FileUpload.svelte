@@ -169,6 +169,7 @@
                 <!-- Browse Button - uses Button component from design-system -->
                 <!-- Note: Clicking this button or the drop-zone both open the file picker -->
                 <Button
+                    type="button"
                     variant="text"
                     size="md"
                     color="primary"

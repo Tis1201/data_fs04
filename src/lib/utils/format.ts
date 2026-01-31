@@ -36,3 +36,26 @@ export function formatDate(date: Date | string): string {
         minute: '2-digit'
     });
 }
+
+/** Options for table date/time: "Sep 01, 2025 09:49 AM" */
+const TABLE_DATETIME_OPTIONS: Intl.DateTimeFormatOptions = {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+};
+
+/**
+ * Standard format for all date/time cells in DataTable: "Sep 01, 2025 09:49 AM"
+ * @param value - Date, string, or number (timestamp)
+ * @returns Formatted string or '-' if falsy
+ */
+export function formatTableDateTime(value: Date | string | number | null | undefined): string {
+    if (value == null || value === '') return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    const s = new Intl.DateTimeFormat('en-US', TABLE_DATETIME_OPTIONS).format(date);
+    return s.replace(/, (\d{1,2}:\d{2}\s*[AP]M)$/i, ' $1');
+}

@@ -187,6 +187,7 @@ export const actions: Actions = {
                         logger.info(`Processing file upload: ${uploadedFile.name || '<no name>'}`);
                         filePath = await saveFile(uploadedFile);
                         form.data.path = filePath;
+                        form.data.size = uploadedFile.size;
                         logger.info(`File saved successfully: ${filePath}`);
                         form.data.file = null; // strip before persisting
                     } else {
@@ -239,11 +240,13 @@ export const actions: Actions = {
                         prisma: enhancedPrisma
                     })
 
-                    // Clean the form state
+                    // Clean the form state so superforms returns type: "success" (path was set server-side)
                     const cleanForm = { ...form };
                     cleanForm.data = { ...form.data };
-                    delete cleanForm.data.file;
-                    
+                    delete (cleanForm.data as Record<string, unknown>).file;
+                    cleanForm.errors = {};
+                    cleanForm.valid = true;
+
                     return message(
                         cleanForm,
                         createSuccessResponse('Resource created successfully', {

@@ -135,6 +135,7 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, CreditCard, HelpCircle, ArrowUp, ArrowDown, Pin } from 'lucide-svelte';
+    import { formatTableDateTime } from '$lib/utils/format';
     import Checkbox from './Checkbox.svelte';
     import Badge from './Badge.svelte';
     import Tag from './Tag.svelte';
@@ -293,15 +294,11 @@
     $: paginationPages = paginated && pagination.totalPages > 0 ? getPaginationPages() : [];
 
     function formatDate(value: any): string {
-        if (!value) return '-';
-        const date = new Date(value);
-        return date.toLocaleDateString();
+        return formatTableDateTime(value);
     }
 
     function formatDateTime(value: any): string {
-        if (!value) return '-';
-        const date = new Date(value);
-        return date.toLocaleString();
+        return formatTableDateTime(value);
     }
 
     function formatNumber(value: any): string {

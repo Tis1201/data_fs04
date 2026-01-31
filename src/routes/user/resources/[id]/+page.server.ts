@@ -253,20 +253,21 @@ export const load = restrict(
                 }
             });
             
-            // Also fetch the creator's information if needed
             let creator = null;
+            let updater = null;
             if (resource) {
                 creator = await locals.prisma.user.findUnique({
                     where: { id: resource.createdBy },
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true
-                    }
+                    select: { id: true, name: true, email: true }
                 });
+                if (resource.updatedBy) {
+                    updater = await locals.prisma.user.findUnique({
+                        where: { id: resource.updatedBy },
+                        select: { id: true, name: true, email: true }
+                    });
+                }
             }
-            
-            // If resource doesn't exist or user doesn't have access, throw a 404 error
+
             if (!resource) {
                 throw error(404, 'Resource not found');
             }
@@ -304,12 +305,20 @@ export const load = restrict(
                 accountId: resource.accountId || '',
                 file: null // Don't populate file field for editing
             };
+
+            const accounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
+                select: { id: true, name: true },
+                orderBy: { name: 'asc' }
+            });
             
             return {
                 form,
+                accounts,
                 resource: {
                     ...resource,
-                    creator // Add the creator information to the resource
+                    creator,
+                    updater
                 },
                 userId: locals.user.id, // Pass the user ID for permission checks
                 meta: {

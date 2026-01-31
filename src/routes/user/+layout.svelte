@@ -175,6 +175,22 @@
                 subtitle: 'View, filter, and manage all radar sensors'
             };
         }
+        if (pathname.startsWith('/user/resources/') && pathname !== '/user/resources' && pathname !== '/user/resources/') {
+            const isDetail = /^\/user\/resources\/[^/]+$/.test(pathname.replace(/\/$/, ''));
+            const isNew = pathname === '/user/resources/new' || pathname === '/user/resources/new/';
+            return {
+                headerStyle: 'page',
+                title: isNew ? 'Add Resource' : isDetail ? 'Resource Details' : 'Applications & Resources',
+                subtitle: isDetail ? 'Key information about this resource' : (isNew ? 'Upload a new application or resource package' : 'Manage application packages and resources')
+            };
+        }
+        if (pathname === '/user/resources' || pathname === '/user/resources/') {
+            return {
+                headerStyle: 'page',
+                title: 'Applications & Resources',
+                subtitle: 'Manage application packages and resources'
+            };
+        }
         if (pathname.includes('/dashboard')) {
             return {
                 headerStyle: 'page',

@@ -1,4 +1,4 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -105,23 +105,25 @@ export const load = restrict(
                 }
             });
 
-            // Return the data
+            // Return the data (meta.pagination + meta.sort for design-system DataTable)
             return {
                 resources,
                 accounts,
                 resourceTypes: resourceTypes.map((rt) => rt.type),
                 meta: {
-                    totalItems: totalResources,
-                    itemsPerPage: perPage,
-                    totalPages,
-                    currentPage: page
+                    pagination: {
+                        page,
+                        per_page: perPage,
+                        total_records: totalResources,
+                        total_pages: totalPages
+                    },
+                    sort: {
+                        field: sortField,
+                        order: sortOrder
+                    }
                 },
                 filters: {
                     types: types
-                },
-                sort: {
-                    field: sortField,
-                    order: sortOrder
                 }
             };
         } catch (err) {
@@ -135,41 +137,34 @@ export const load = restrict(
 export const actions: Actions = {
     delete: restrict(
         async (event: AuthenticatedEvent) => {
-            const { request, locals, url } = event;
+            const { request, locals } = event;
             try {
                 const formData = await request.formData();
                 const id = formData.get('id')?.toString();
 
                 if (!id) {
-                    return fail(400, { error: 'Resource ID is required' });
+                    return fail(400, { type: 'error', message: 'Resource ID is required' });
                 }
 
-                // Get the resource first to get the file path
                 const resource = await locals.prisma.resource.findUnique({
                     where: { id },
                     select: { path: true }
                 });
 
                 if (!resource) {
-                    return fail(404, { error: 'Resource not found' });
+                    return fail(404, { type: 'error', message: 'Resource not found' });
                 }
 
-                // Delete the file from cloud storage first
                 if (resource.path) {
                     try {
                         await deleteFileFromCloudStorage(resource.path);
                         logger.info(`Successfully deleted file from cloud storage: ${resource.path}`);
-                    } catch (error) {
-                        logger.error(`Failed to delete file from cloud storage: ${error}`);
-                        // Continue with database deletion even if file deletion fails
+                    } catch (storageErr) {
+                        logger.error(`Failed to delete file from cloud storage: ${storageErr}`);
                     }
                 }
 
-                // Try to delete the resource - Zenstack will automatically check access permissions
-                // If the user doesn't have access, Zenstack will throw an error
-                await locals.prisma.resource.delete({
-                    where: { id }
-                });
+                await locals.prisma.resource.delete({ where: { id } });
 
                 logger.info(`Resource deleted: ${id} by user ${locals.user?.id ?? 'unknown'}`);
 
@@ -184,15 +179,10 @@ export const actions: Actions = {
                     prisma: locals.prisma
                 });
 
-                // Redirect to refresh the page and show updated list
-                throw redirect(303, url.pathname);
+                return { type: 'success' };
             } catch (err) {
-                // If it's a redirect, re-throw it
-                if (err && typeof err === 'object' && 'status' in err && err.status === 303) {
-                    throw err;
-                }
                 logger.error(`Error deleting resource: ${err}`);
-                return fail(500, { error: 'Failed to delete resource' });
+                return fail(500, { type: 'error', message: 'Failed to delete resource' });
             }
         },
         [SystemRole.USER]
