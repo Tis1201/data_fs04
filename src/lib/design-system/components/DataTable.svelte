@@ -52,6 +52,8 @@
         
         // For badge/status cells (using BadgeColor from design system)
         statusColor?: (value: any, row: T) => 'gray' | 'error' | 'warning' | 'yellow' | 'success' | 'teal' | 'blue-light' | 'blue' | 'indigo' | 'purple' | 'pink' | 'rose';
+        /** When set, controls dot on badge. Active/Inactive = dot, Online/Offline = no dot. Default: false for badge, true for status (legacy). */
+        showDot?: (value: any, row: T) => boolean;
         
         // For avatar cells
         avatarField?: string;
@@ -530,7 +532,7 @@
                                         <Badge 
                                             label={String(value || '-')}
                                             color={column.statusColor ? column.statusColor(value, row) : 'gray'}
-                                            showDot={column.type === 'status'}
+                                            showDot={column.showDot != null ? column.showDot(value, row) : (column.type === 'status')}
                                             size="sm"
                                         />
                                     {:else if column.type === 'multiBadge'}

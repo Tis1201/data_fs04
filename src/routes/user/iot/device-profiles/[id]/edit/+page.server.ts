@@ -1,7 +1,7 @@
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 import type { PageServerLoad, Actions } from './$types';
 import { fail, redirect, error } from '@sveltejs/kit';
-import { superValidate, message } from 'sveltekit-superforms';
+import { superValidate } from 'sveltekit-superforms';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { logAudit } from '$lib/server/audit-logger';
@@ -70,142 +70,125 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
     };
 };
 
+function getIpAddress(locals: App.Locals, getClientAddress: () => string): string {
+    try {
+        return (locals as { ipAddress?: string }).ipAddress ?? getClientAddress();
+    } catch {
+        return '';
+    }
+}
+
 export const actions: Actions = {
-    update: async ({ params, request, locals, url, fetch, getClientAddress }) => {
-        // Check authentication
-        const auth = await locals.auth.validate();
-        if (!auth?.user) {
-            return fail(401, { message: 'Unauthorized' });
-        }
-
+    update: async ({ params, request, locals, fetch, getClientAddress }) => {
         const { id: profileId } = params;
-
-        // Validate form
-        const form = await superValidate(request, zod(profileSchema));
-        
-        if (!form.valid) {
-            return fail(400, { form });
-        }
-
         try {
-            // Get existing profile for audit log
+            const auth = await locals.auth.validate();
+            if (!auth?.user) {
+                return fail(401, { message: 'Unauthorized' });
+            }
+
+            const form = await superValidate(request, zod(profileSchema));
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+
             const existingProfile = await locals.prisma.deviceProfile.findUnique({
                 where: { id: profileId }
             });
-
             if (!existingProfile) {
                 return fail(404, { form, error: 'Device profile not found' });
             }
 
-            // Parse settings from JSON string
-            let settingsArray = [];
+            let settingsArray: Array<{ key?: string; value?: string; dataType?: string; label?: string; category?: string; order?: number }>;
             try {
                 settingsArray = JSON.parse(form.data.settings || '[]');
-            } catch (e) {
-                console.error('Error parsing settings JSON:', e);
+            } catch {
                 settingsArray = [];
             }
 
-            // First, delete all existing settings for this profile
             await locals.prisma.deviceProfileSetting.deleteMany({
-                where: { profileId: profileId }
+                where: { profileId }
             });
 
-            // Then update the profile and create new settings
-            // Filter out only the fields that exist in the database schema
             const updatedProfile = await locals.prisma.deviceProfile.update({
                 where: { id: profileId },
                 data: {
                     name: form.data.name,
                     description: form.data.description,
-                    isActive: form.data.isActive === 'true', // Convert string to boolean
+                    isActive: form.data.isActive === 'true',
                     updatedBy: auth.user.id,
                     settings: {
-                        create: settingsArray.map((setting: any, index: number) => ({
-                            key: setting.key,
-                            value: String(setting.value || ''), // Ensure value is a string
-                            dataType: setting.dataType,
-                            label: setting.label,
-                            category: setting.category || 'General',
-                            order: setting.order !== undefined ? setting.order : index
+                        create: settingsArray.map((s: any, index: number) => ({
+                            key: String(s?.key ?? ''),
+                            value: String(s?.value ?? ''),
+                            dataType: String(s?.dataType ?? 'text'),
+                            label: String(s?.label ?? ''),
+                            category: s?.category ?? 'General',
+                            order: typeof s?.order === 'number' ? s.order : index
                         }))
                     }
                 }
             });
 
-            // Log audit for device profile update
-            await logAudit({
-                actionType: AuditActionType.UPDATE,
-                tableName: 'DeviceProfile',
-                recordId: profileId,
-                oldData: existingProfile,
-                newData: updatedProfile,
-                userId: auth.user.id,
-                ipAddress: (locals as any).ipAddress || getClientAddress(),
-                prisma: locals.prisma
-            });
+            try {
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'DeviceProfile',
+                    recordId: profileId,
+                    oldData: existingProfile,
+                    newData: updatedProfile,
+                    userId: auth.user.id,
+                    ipAddress: getIpAddress(locals, getClientAddress) || undefined,
+                    prisma: locals.prisma
+                });
+            } catch (auditErr) {
+                console.error('Audit log failed (profile still updated):', auditErr);
+            }
 
             const deviceProfile = await locals.prisma.deviceProfile.findUnique({
                 where: { id: profileId },
                 select: {
                     id: true,
                     name: true,
-                    settings: {
-                        select: {
-                            id: true,
-                            key: true,
-                            value: true,
-                            dataType: true,
-                            category: true
-                        }
-                    },
-                    assignments: {
-                        select: {
-                            id: true
-                        }
-                    }
+                    settings: { select: { id: true, key: true, value: true, dataType: true, category: true } },
+                    assignments: { select: { id: true } }
                 }
             });
 
-            // Only broadcast config if profile is active and has assignments
-            if (updatedProfile.isActive && deviceProfile?.assignments && deviceProfile.assignments.length > 0) {
-                const config = mapToConfigPayload(deviceProfile as any);
-
+            if (updatedProfile.isActive && deviceProfile?.assignments?.length) {
                 try {
+                    const config = mapToConfigPayload(deviceProfile as any);
                     const response = await fetch(`/api/v2/device-profiles/${profileId}/broadcast-config`, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            config
-                        })
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ config })
                     });
-
                     if (!response.ok) {
-                        const data = await response.json();
-                        console.error('Error broadcasting device profile settings: ', data);
+                        const data = await response.json().catch(() => ({}));
+                        console.error('Error broadcasting device profile settings:', data);
                     }
                 } catch (err) {
-                    console.error('Error broadcasting device profile settings: ', err);
+                    console.error('Error broadcasting device profile settings:', err);
                 }
             }
 
-            // Update form with fresh data from the database to reflect saved state
-            form.data.name = updatedProfile.name;
-            form.data.description = updatedProfile.description || '';
-            form.data.isActive = String(updatedProfile.isActive);
-
-            return message(form, { success: true, text: 'Device profile updated successfully' });
-
-        } catch (error) {
-            console.error('Error updating device profile:', error);
-            if (error instanceof Error && 'status' in error) {
-                throw error;
+            // Form actions must return plain serializable data, not json() Response
+            return { type: 'success', success: true, message: 'Device profile updated successfully' };
+        } catch (err) {
+            if (err instanceof Error && 'status' in err) {
+                throw err;
             }
-            return fail(500, { 
-                form,
-                message: 'Failed to update device profile' 
+            const errMsg =
+                err instanceof Error
+                    ? err.message
+                    : typeof err === 'object' && err !== null && 'message' in err
+                      ? String((err as { message: unknown }).message)
+                      : String(err);
+            const safeMsg = errMsg || 'Failed to update device profile';
+            console.error('Error updating device profile:', safeMsg, err);
+            return fail(500, {
+                message: safeMsg,
+                error: { message: safeMsg }
             });
         }
     }

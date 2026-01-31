@@ -7,13 +7,11 @@ import type { TableDataOptions } from '$lib/components/ui_components_sveltekit/t
 const baseDeviceProfileTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     modelName: 'deviceProfile',
     searchableFields: ['name', 'description', 'id'],
-    allowedFilters: ['statuses'],
+    allowedFilters: [] as string[], // statuses filter applied manually in loader (isActive boolean)
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
-    filterMappings: {
-        'statuses': { field: 'isActive', operator: 'in' }
-    },
+    filterMappings: {},
     include: {
         account: {
             select: {

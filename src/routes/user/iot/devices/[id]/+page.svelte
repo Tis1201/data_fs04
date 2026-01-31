@@ -1464,7 +1464,7 @@
                                     label={isOnline ? 'Online' : 'Offline'} 
                                     color={isOnline ? 'success' : 'gray'}
                                     size="sm"
-                                    showDot={true}
+                                    showDot={false}
                                 />
                             </div>
                             <div class="info-row-detail">

@@ -37,33 +37,25 @@ export async function loadDeviceProfileList(
             : createDeviceProfileTableOptions(); // Admin can see all profiles
 
         // Add account filtering to baseWhere if ownership check is enabled
-        if (options?.checkOwnership && accountIds.length > 0) {
+        if (options?.checkOwnership) {
             tableOptions.baseWhere = {
                 ...tableOptions.baseWhere,
                 accountId: { in: accountIds }
             };
         }
 
-        // Handle status filter manually (isActive field)
+        // Apply status filter (URL: statuses=active|inactive -> DB: isActive boolean)
         const statusesParam = url.searchParams.get('statuses');
         if (statusesParam) {
-            const statuses = statusesParam.split(',').filter(Boolean);
-            const statusConditions: any[] = [];
-            
-            if (statuses.includes('active')) {
-                statusConditions.push({ isActive: true });
-            }
-            if (statuses.includes('inactive')) {
-                statusConditions.push({ isActive: false });
-            }
-            
+            const parts = statusesParam.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+            const statusConditions: Array<{ isActive: boolean }> = [];
+            if (parts.includes('active')) statusConditions.push({ isActive: true });
+            if (parts.includes('inactive')) statusConditions.push({ isActive: false });
             if (statusConditions.length > 0) {
-                // Merge with existing baseWhere
                 const existingWhere = tableOptions.baseWhere || {};
                 tableOptions.baseWhere = {
-                    ...existingWhere,
                     AND: [
-                        ...(existingWhere.AND || []),
+                        existingWhere,
                         { OR: statusConditions }
                     ]
                 };
@@ -78,7 +70,9 @@ export async function loadDeviceProfileList(
             meta: result.meta
         };
     } catch (e) {
-        logger.error(`Error loading device profiles: ${JSON.stringify(e)}`);
+        const errMsg = e instanceof Error ? e.message : String(e);
+        const errStack = e instanceof Error ? e.stack : undefined;
+        logger.error(`Error loading device profiles: ${errMsg}`, errStack ? { stack: errStack } : {});
         throw error(500, 'Failed to load device profiles');
     }
 }
@@ -112,7 +106,10 @@ export async function loadDeviceProfileDetail(
                                 name: true,
                                 description: true,
                                 deviceType: true,
-                                status: true
+                                status: true,
+                                macAddress: true,
+                                wifiMac: true,
+                                lastUsedAt: true
                             }
                         }
                     }

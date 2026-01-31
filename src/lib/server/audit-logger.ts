@@ -14,6 +14,21 @@ export interface LogAuditOptions {
     changeSummary?: string;
 }
 
+/** Make a plain object safe for Prisma Json: dates to string, no undefined/circular. */
+function sanitizeForJson(value: Record<string, any> | null): Record<string, any> | null {
+    if (value == null) return null;
+    try {
+        const out = JSON.parse(JSON.stringify(value, (_, v) => {
+            if (v instanceof Date) return v.toISOString();
+            if (typeof v === 'bigint') return Number(v);
+            return v;
+        }));
+        return out as Record<string, any>;
+    } catch {
+        return {};
+    }
+}
+
 export async function logAudit(options: LogAuditOptions): Promise<void> {
     const {
         actionType,
@@ -25,9 +40,14 @@ export async function logAudit(options: LogAuditOptions): Promise<void> {
         ipAddress,
         prisma,
         changeSummary
-    } = options
+    } = options;
 
-    const generatedChangeSummary = changeSummary || generateChangeSummary(oldData || {}, newData || {});
+    const safeOld = sanitizeForJson(oldData);
+    const safeNew = sanitizeForJson(newData);
+    const generatedChangeSummary = changeSummary || generateChangeSummary(safeOld || {}, safeNew || {});
+
+    const oldJson = safeOld === null ? Prisma.JsonNull : safeOld;
+    const newJson = safeNew === null ? Prisma.JsonNull : safeNew;
 
     if (Array.isArray(recordId)) {
         await prisma.auditLog.createMany({
@@ -38,8 +58,8 @@ export async function logAudit(options: LogAuditOptions): Promise<void> {
                 userId,
                 ipAddress,
                 changeSummary: generatedChangeSummary,
-                oldData: oldData === null ? Prisma.JsonNull : oldData,
-                newData: newData === null ? Prisma.JsonNull : newData
+                oldData: oldJson,
+                newData: newJson
             }))
         });
     } else {
@@ -51,8 +71,8 @@ export async function logAudit(options: LogAuditOptions): Promise<void> {
                 userId,
                 ipAddress,
                 changeSummary: generatedChangeSummary,
-                oldData: oldData === null ? Prisma.JsonNull : oldData,
-                newData: newData === null ? Prisma.JsonNull : newData
+                oldData: oldJson,
+                newData: newJson
             }
         });
     }

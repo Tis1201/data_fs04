@@ -111,123 +111,112 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     };
 };
 
+function getIpAddress(locals: App.Locals, getClientAddress: () => string): string {
+    try {
+        return (locals as { ipAddress?: string }).ipAddress ?? getClientAddress();
+    } catch {
+        return '';
+    }
+}
+
 export const actions: Actions = {
     create: async ({ request, locals, getClientAddress }) => {
-        // Check authentication
-        const auth = await locals.auth.validate();
-        if (!auth?.user) {
-            return fail(401, { message: 'Unauthorized' });
-        }
-        
-        // Validate form with standard data type
-        const form = await superValidate(request, zod(profileSchema));
-        
-        if (!form.valid) {
-            return fail(400, { form });
-        }
-
-        // Check user's account access and role
-        let userAccountMembership;
-        
-        if (auth.user.systemRole === 'ADMIN') {
-            // For system admin, we need to get any account they have access to
-            userAccountMembership = await locals.prisma.accountMembership.findFirst({
-                where: { userId: auth.user.id },
-                select: { accountId: true, role: true }
-            });
-            
-            if (!userAccountMembership) {
-                return fail(403, { 
-                    form,
-                    message: 'No account access found. Please contact your administrator.' 
-                });
-            }
-        } else {
-            // Regular user - need OWNER or ADMIN role in account
-            const allUserMemberships = await locals.prisma.accountMembership.findMany({
-                where: { userId: auth.user.id },
-                select: { accountId: true, role: true }
-            });
-            
-            userAccountMembership = await locals.prisma.accountMembership.findFirst({
-                where: { 
-                    userId: auth.user.id,
-                    role: { in: ['OWNER', 'ADMIN', 'MEMBER'] }
-                },
-                select: { accountId: true, role: true }
-            });
-
-            if (!userAccountMembership) {
-                return fail(403, { 
-                    form,
-                    message: 'Access denied. You need OWNER, ADMIN, or MEMBER role in an account to create device profiles. Your current role(s): ' + 
-                             (allUserMemberships.map(m => m.role).join(', ') || 'None')
-                });
-            }
-        }
-
-        // Parse settings from form data
-        let settings = [];
         try {
-            settings = JSON.parse(form.data.settings || '[]');
-        } catch (e) {
-            // Error parsing settings JSON
-            settings = [];
-        }
+            const auth = await locals.auth.validate();
+            if (!auth?.user) {
+                return fail(401, { message: 'Unauthorized' });
+            }
 
-        try {
-            // Create device profile with settings
-            // Filter out only the fields that exist in the database schema
+            const form = await superValidate(request, zod(profileSchema));
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+
+            let userAccountMembership: { accountId: string; role: string };
+            if (auth.user.systemRole === 'ADMIN') {
+                const m = await locals.prisma.accountMembership.findFirst({
+                    where: { userId: auth.user.id },
+                    select: { accountId: true, role: true }
+                });
+                if (!m) {
+                    return fail(403, { form, message: 'No account access found. Please contact your administrator.' });
+                }
+                userAccountMembership = m;
+            } else {
+                const allUserMemberships = await locals.prisma.accountMembership.findMany({
+                    where: { userId: auth.user.id },
+                    select: { accountId: true, role: true }
+                });
+                const m = await locals.prisma.accountMembership.findFirst({
+                    where: { userId: auth.user.id, role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } },
+                    select: { accountId: true, role: true }
+                });
+                if (!m) {
+                    return fail(403, {
+                        form,
+                        message: 'Access denied. You need OWNER, ADMIN, or MEMBER role in an account to create device profiles. Your current role(s): ' +
+                            (allUserMemberships.map((x) => x.role).join(', ') || 'None')
+                    });
+                }
+                userAccountMembership = m;
+            }
+
+            let settings: Array<{ key: string; value: string; dataType: string; label: string; category?: string; order?: number }>;
+            try {
+                settings = JSON.parse(form.data.settings || '[]');
+            } catch {
+                settings = [];
+            }
+
             const profile = await locals.prisma.deviceProfile.create({
                 data: {
                     name: form.data.name,
                     description: form.data.description,
-                    isActive: form.data.isActive === 'true', // Convert string to boolean
+                    isActive: form.data.isActive === 'true',
                     accountId: userAccountMembership.accountId,
                     createdBy: auth.user.id,
                     settings: {
-                        create: settings.map((setting: any, index: number) => ({
-                            key: setting.key,
-                            value: String(setting.value || ''), // Ensure value is a string
-                            dataType: setting.dataType,
-                            label: setting.label,
-                            category: setting.category || 'General',
-                            order: setting.order !== undefined ? setting.order : index
+                        create: settings.map((s: any, index: number) => ({
+                            key: String(s?.key ?? ''),
+                            value: String(s?.value ?? ''),
+                            dataType: String(s?.dataType ?? 'text'),
+                            label: String(s?.label ?? ''),
+                            category: s?.category ?? 'General',
+                            order: typeof s?.order === 'number' ? s.order : index
                         }))
                     }
                 }
             });
 
-            // Log audit for device profile creation
-            await logAudit({
-                actionType: AuditActionType.INSERT,
-                tableName: 'DeviceProfile',
-                recordId: profile.id,
-                oldData: null,
-                newData: profile,
-                userId: auth.user.id,
-                ipAddress: (locals as any).ipAddress || getClientAddress(),
-                prisma: locals.prisma
-            });
+            try {
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'DeviceProfile',
+                    recordId: profile.id,
+                    oldData: null,
+                    newData: profile,
+                    userId: auth.user.id,
+                    ipAddress: getIpAddress(locals, getClientAddress) || undefined,
+                    prisma: locals.prisma
+                });
+            } catch (auditErr) {
+                console.error('Audit log failed (profile still created):', auditErr);
+            }
 
-            // Return success response - let the form handler handle the redirect
-            return { 
-                form,
-                success: true,
-                message: 'Device profile created successfully'
-            };
-
-        } catch (error) {
-            return fail(500, { 
-                form: {
-                    ...form,
-                    data: {
-                        name: form.data.name,
-                        description: form.data.description,
-                        settings: form.data.settings
-                    }
-                },
-                message: 'Failed to create device profile' 
+            // Form actions must return plain serializable data, not json() Response
+            return { type: 'success', success: true, message: 'Device profile created successfully' };
+        } catch (err) {
+            const errMsg =
+                err instanceof Error
+                    ? err.message
+                    : typeof err === 'object' && err !== null && 'message' in err
+                      ? String((err as { message: unknown }).message)
+                      : String(err);
+            const safeMsg = errMsg || 'Failed to create device profile';
+            console.error('Error creating device profile:', safeMsg, err);
+            return fail(500, {
+                message: safeMsg,
+                error: { message: safeMsg }
             });
         }
     }

@@ -152,6 +152,21 @@
                 subtitle: 'View, filter, and manage all registered devices'
             };
         }
+        if (pathname.includes('/iot/device-profiles/') && pathname.endsWith('/edit')) {
+            return {
+                headerStyle: 'page',
+                title: 'Edit Profile',
+                subtitle: 'Edit profile settings and assignments'
+            };
+        }
+        if (pathname.includes('/iot/device-profiles')) {
+            const isDetailView = /^\/user\/iot\/device-profiles\/[^/]+$/.test(pathname.replace(/\/$/, ''));
+            return {
+                headerStyle: 'page',
+                title: isDetailView ? 'Profile Details' : 'Profiles',
+                subtitle: isDetailView ? 'Key information about this profile' : 'Manage device profiles and assignments'
+            };
+        }
         // Sensors listing only (not detail /radar/[id] or /radar/new)
         if (pathname === '/user/controllers/radar' || pathname === '/user/controllers/radar/') {
             return {
