@@ -1,7 +1,7 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
-    import { Pencil, Info, Monitor, Download } from 'lucide-svelte';
+    import { Pencil, Info, HardDrive, Download } from 'lucide-svelte';
     import { Button, Card, InputField } from '$lib/design-system/components';
     import AddEditPreclaimModal from '../components/AddEditPreclaimModal.svelte';
     import PreclaimDeviceTable from '../components/PreclaimDeviceTable.svelte';
@@ -232,7 +232,7 @@
     <Card variant="default" padding="none" radius="2xl" showHeader={true} fullWidth={true} headerDivider={false}>
         <div slot="header" class="devices-header">
             <div class="devices-header-icon">
-                <Monitor size={20} />
+                <HardDrive size={20} />
             </div>
             <div class="devices-header-text">
                 <h3 class="overview-title">Device Registered</h3>
@@ -321,13 +321,14 @@
         align-items: flex-end;
         width: 100%;
     }
-    /* Frame 50: overview + summary row, gap 16px */
+    /* Frame 50: overview + summary row, gap 16px – responsive: stack on tablet/mobile */
     .detail-grid {
         display: flex;
         flex-direction: row;
-        align-items: flex-start;
+        align-items: stretch;
         gap: 16px;
         width: 100%;
+        min-width: 0;
     }
     .detail-grid > :global(.ds-card) {
         flex: 1;
@@ -336,12 +337,16 @@
     .detail-grid > .summary-cards {
         flex: none;
     }
-    @media (max-width: 768px) {
+    @media (max-width: 1024px) {
         .detail-grid {
             flex-direction: column;
         }
+        .detail-grid > .summary-cards {
+            width: 100%;
+            min-width: 0;
+        }
     }
-    /* Overview card header: row, align center, padding 16px, border-bottom #E5E5E5 */
+    /* Overview card header: row, align center, padding 16px, border-bottom #E5E5E5 – responsive wrap */
     .overview-header {
         display: flex;
         flex-direction: row;
@@ -350,6 +355,7 @@
         gap: 8px;
         border-bottom: 1px solid #E5E5E5;
         width: 100%;
+        min-width: 0;
     }
     .overview-header-left {
         display: flex;
@@ -357,6 +363,15 @@
         gap: 8px;
         min-width: 0;
         flex: 1;
+    }
+    @media (max-width: 640px) {
+        .overview-header {
+            flex-wrap: wrap;
+            align-items: flex-start;
+        }
+        .overview-header-text {
+            min-width: 0;
+        }
     }
     .devices-header {
         display: flex;
@@ -387,6 +402,7 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
+        min-width: 0;
     }
     /* devices-body: flex column, padding 16px, gap 16px (Figma) */
     .devices-body {
@@ -398,7 +414,7 @@
         width: 100%;
         min-width: 0;
     }
-    /* search & filter wrap: row, align center, gap 16px, search left 500px, button right */
+    /* search & filter wrap: row, align center, gap 16px, search left 500px, button right – responsive wrap on small */
     .devices-toolbar {
         display: flex;
         flex-direction: row;
@@ -412,6 +428,15 @@
         max-width: 100%;
         min-width: 0;
         flex: 0 1 500px;
+    }
+    @media (max-width: 640px) {
+        .devices-toolbar {
+            flex-wrap: wrap;
+        }
+        .devices-toolbar-search {
+            flex: 1 1 100%;
+            width: 100%;
+        }
     }
     .devices-toolbar-search :global(.ds-input-wrapper) {
         width: 100%;
@@ -444,7 +469,7 @@
         color: #475467;
         margin: 0;
     }
-    /* details wrap: padding 16px, gap 16px */
+    /* details wrap: padding 16px, gap 16px – responsive overflow */
     .overview-body {
         display: flex;
         flex-direction: column;
@@ -452,6 +477,9 @@
         align-items: flex-start;
         padding: 16px;
         gap: 16px;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
     }
     /* Grid: 4 columns, 2 rows. Row1: Name, Status, Assigned Account, Device Profile. Row2: Valid Until, Description (span 3) */
     .overview-grid {
@@ -459,6 +487,7 @@
         grid-template-columns: repeat(4, 1fr);
         gap: 16px;
         width: 100%;
+        min-width: 0;
     }
     .overview-field {
         display: flex;
@@ -469,7 +498,15 @@
     .overview-field-desc {
         grid-column: 2 / -1;
     }
-    @media (max-width: 768px) {
+    @media (max-width: 900px) {
+        .overview-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .overview-field-desc {
+            grid-column: 1 / -1;
+        }
+    }
+    @media (max-width: 600px) {
         .overview-grid {
             grid-template-columns: 1fr;
         }
@@ -536,13 +573,19 @@
     .overview-link:hover {
         text-decoration: underline;
     }
-    /* Summary cards – Figma: wrap (summary-card) + Text Display (summary-row) */
+    /* Summary cards – Figma: wrap (summary-card) + Text Display (summary-row) – responsive full width when stacked */
     .summary-cards {
         display: flex;
         flex-direction: column;
         gap: 12px;
         min-width: 315px;
         width: 315.5px;
+    }
+    @media (max-width: 1024px) {
+        .summary-cards {
+            width: 100%;
+            min-width: 0;
+        }
     }
     /* wrap: flex column, padding 16px, gap 10px, 56px min-height, border-radius 12px */
     .summary-card {
