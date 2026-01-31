@@ -213,8 +213,8 @@
 			</button>
 		{/if}
 		
-		<!-- Title Section - flex + min-width:0 + overflow hidden để khi co màn hình không đè user menu -->
-		<div class="flex flex-col items-start title-section min-w-0" style="gap: 2px;">
+		<!-- Title Section - flex + min-width:0 để tránh tràn, subtitle truncate ellipsis -->
+		<div class="flex flex-col items-start title-section" style="gap: 2px;">
 			{#if title}
 				<h1 
 					class="font-semibold title-text"
@@ -233,13 +233,13 @@
 			{/if}
 		</div>
 		
-		<!-- Spacer - min-w-0 để khi co màn hình spacer thu nhỏ, title section cũng thu theo -->
-		<div class="flex-1 min-w-0"></div>
+		<!-- Spacer -->
+		<div class="flex-1"></div>
 	{/if}
 	
 	<!-- User Menu (common to both styles) - uses ActionMenu component from design-system -->
 	{#if showUserMenu && user}
-		<div class="user-menu-container shrink-0">
+		<div class="user-menu-container">
 			<!-- User Info Button (trigger) -->
 			<button
 				bind:this={userMenuTriggerRef}
@@ -310,14 +310,14 @@
 	{#if style === 'page'}
 		<!-- Divider - exact specs from Figma -->
 		{#if showDivider}
-			<div class="flex items-center justify-center shrink-0" style="width: 4px; height: 40px; padding: 0px 2px;">
+			<div class="flex items-center justify-center" style="width: 4px; height: 40px; padding: 0px 2px;">
 				<div style="width: 0px; height: 40px; border-left: 1px solid {borderColor};"></div>
 			</div>
 		{/if}
 		
 		<!-- Grid Button - exact specs from Figma -->
 		{#if showGridButton}
-			<div class="grid-menu-container shrink-0" style="position: relative;">
+			<div class="grid-menu-container" style="position: relative;">
 				<button
 					type="button"
 					class="flex items-center justify-center rounded-lg bg-transparent border-0"
@@ -408,24 +408,29 @@
 <svelte:window on:click={handleClickOutside} />
 
 <style>
-	/* Page header title section - khi co màn hình thu nhỏ, cắt chữ ellipsis, không đè user menu */
+	/* Page header title section - tránh tràn, không đổi height header; co màn hình thì subtitle ellipsis, không bị user menu che */
 	.title-section {
 		flex: 1;
 		min-width: 0;
 		overflow: hidden;
 	}
 	
+	/* Cần width ràng buộc rõ thì text-overflow: ellipsis mới hiện "..." */
 	.title-text,
 	.subtitle-text {
+		width: 100%;
 		min-width: 0;
+		max-width: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		display: block;
 	}
 	
-	/* User Menu Container */
+	/* User Menu Container - không co lại để title section là phần bị thu nhỏ */
 	.user-menu-container {
 		position: relative;
+		flex-shrink: 0;
 	}
 	
 	/* User Dropdown */

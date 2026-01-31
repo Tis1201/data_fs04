@@ -4,7 +4,7 @@
     import { Pencil, Info, Monitor, Download } from 'lucide-svelte';
     import { Button, Card, InputField } from '$lib/design-system/components';
     import AddEditPreclaimModal from '../components/AddEditPreclaimModal.svelte';
-    import PreclaimDeviceTable from '$lib/components/ui_components_sveltekit/preclaims/PreclaimDeviceTable.svelte';
+    import PreclaimDeviceTable from '../components/PreclaimDeviceTable.svelte';
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
 
