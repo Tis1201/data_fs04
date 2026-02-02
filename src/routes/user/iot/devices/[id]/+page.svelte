@@ -3614,8 +3614,15 @@
         align-items: center;
         padding: var(--ds-space-3) var(--ds-card-padding-md);
         gap: var(--ds-space-3);
-        height: 44px;
-        min-height: 44px;
+        height: 52px;
+        min-height: 52px;
+    }
+
+    /* Align expand column: center icon/button so chevrons line up vertically */
+    .activity-header-cell.activity-col-expand {
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
     }
 
     .activity-header-cell .header-text {
@@ -3629,6 +3636,12 @@
     .activity-col-expand {
         width: 60px;
         flex-shrink: 0;
+    }
+
+    .activity-cell.activity-col-expand {
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
     }
 
     .activity-col-event {

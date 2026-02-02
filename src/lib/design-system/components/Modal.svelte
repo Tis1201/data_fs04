@@ -300,41 +300,43 @@
 		backdrop-filter: blur(12px);
 	}
 
-	/* Modal Container - Figma specs */
+	/* Modal Container - Figma specs (border-radius 16px, Base/White) */
 	.modal-container {
 		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
 		padding: 0;
-		background: #FFFFFF;
-		border-radius: 16px;
-		box-shadow: 0px 20px 24px -4px rgba(16, 24, 40, 0.08), 0px 8px 8px -4px rgba(16, 24, 40, 0.03);
+		background: var(--ds-color-white);
+		border-radius: var(--ds-radius-2xl);
+		box-shadow: var(--ds-modal-shadow);
 		overflow: hidden; /* Prevent content from overflowing container */
 		max-height: calc(100vh - 32px); /* Account for backdrop padding */
 		max-height: calc(100dvh - 32px); /* Use dynamic viewport height for mobile */
 	}
 
-	/* Modal Header - Figma specs */
+	/* Modal Header - Figma specs (56px height, 16px padding, gap 12px, Neutral True/200 border) */
 	.modal-header {
 		box-sizing: border-box;
 		display: flex;
 		flex-direction: row;
 		align-items: center;
-		padding: 16px;
-		gap: 12px;
+		padding: var(--ds-space-4);
+		gap: var(--ds-space-3);
 		width: 100%;
 		min-height: 56px;
-		background: #FFFFFF;
-		border-radius: 16px 16px 0 0; /* Match parent top corners */
+		background: var(--ds-color-white);
+		border-radius: var(--ds-radius-2xl) var(--ds-radius-2xl) 0 0; /* Match parent top corners */
 		flex: none;
 		flex-shrink: 0; /* Prevent header from shrinking */
 		order: 0;
 		align-self: stretch;
+		position: relative;
+		z-index: 1; /* Keep header above body so expand/close are never covered */
 	}
 
 	.modal-header.has-border {
-		border-bottom: 1px solid #E5E5E5;
+		border-bottom: 1px solid var(--ds-color-neutral-true-200);
 	}
 
 	/* Header Icon */
@@ -423,21 +425,21 @@
 		padding-left: 52px;
 	}
 
-	/* Modal Footer - Figma specs */
+	/* Modal Footer - Figma specs (76px height, 16px padding, gap 16px, Neutral True/200 border) */
 	.modal-footer {
 		box-sizing: border-box;
 		display: flex;
 		flex-direction: row;
+		flex-wrap: wrap; /* Allow buttons to wrap on small screens */
 		justify-content: flex-end;
 		align-items: center;
-		padding: 16px;
-		gap: 16px;
+		padding: var(--ds-space-4);
+		gap: var(--ds-space-4);
 		width: 100%;
 		min-height: 76px;
-		height: 76px;
-		background: #FFFFFF;
-		border-top: 1px solid #E5E5E5;
-		border-radius: 0 0 16px 16px; /* Match parent bottom corners */
+		background: var(--ds-color-white);
+		border-top: 1px solid var(--ds-color-neutral-true-200);
+		border-radius: 0 0 var(--ds-radius-2xl) var(--ds-radius-2xl); /* Match parent bottom corners */
 		flex: none;
 		flex-shrink: 0; /* Prevent footer from shrinking */
 		order: 2;
@@ -446,6 +448,39 @@
 	/* Footer Button Wrappers - Button component with custom min-width from Figma specs */
 	.modal-btn-wrapper {
 		min-width: 100px;
+		flex-shrink: 0; /* Prevent buttons from shrinking */
+	}
+
+	/* Responsive: Stack buttons vertically on very small screens */
+	@media (max-width: 480px) {
+		.modal-footer {
+			flex-direction: column-reverse; /* Primary action on top when stacked */
+			gap: 8px;
+			padding: 12px 16px;
+			min-height: auto;
+		}
+
+		.modal-btn-wrapper {
+			width: 100%;
+			min-width: unset;
+		}
+
+		/* Make buttons full width on mobile */
+		.modal-btn-wrapper :global(button) {
+			width: 100%;
+		}
+
+		/* Handle custom footer slots with flex containers */
+		.modal-footer :global([class*="footer-action"]),
+		.modal-footer :global([class*="modal-footer-action"]) {
+			flex-direction: column-reverse !important;
+			width: 100%;
+		}
+
+		.modal-footer :global([class*="footer-action"]) :global(button),
+		.modal-footer :global([class*="modal-footer-action"]) :global(button) {
+			width: 100%;
+		}
 	}
 
 	/* Ensure modal body text inherits styles */

@@ -28,32 +28,33 @@
         }
     }
 
-    // Container styles based on type
+    // Container styles (Figma Frame 39: align-items flex-start, gap 24px, height 48px, border-bottom)
     $: containerStyles = (() => {
         const styles: string[] = [
             'display: flex',
             'flex-direction: row',
-            'align-items: flex-end'
+            'align-items: flex-start',
+            'justify-content: flex-start'
         ];
 
         if (type === 'button') {
-            // Button tabs have gap and can have background
             styles.push('gap: 4px');
             styles.push('padding: 4px');
-            styles.push('background: #F9FAFB');
-            styles.push('border-radius: 8px');
+            styles.push('background: var(--ds-bg-secondary)');
+            styles.push('border-radius: var(--ds-radius-lg)');
             if (fullWidth) {
                 styles.push('width: 100%');
             }
         } else {
-            // Underline tabs always full width with border at bottom
-            styles.push('gap: 24px');
-            styles.push('border-bottom: 1px solid #EAECF0');
+            styles.push('gap: var(--ds-space-6)');
+            styles.push('border-bottom: 1px solid var(--ds-color-gray-200)');
+            styles.push('height: 48px');
+            styles.push('min-height: 48px');
             styles.push('position: relative');
-            styles.push('width: 100%'); // Always full width for underline type
-            styles.push('overflow-x: auto'); // Allow horizontal scroll on small screens
-            styles.push('overflow-y: hidden'); // Prevent vertical scroll
-            styles.push('-webkit-overflow-scrolling: touch'); // Smooth scrolling on iOS
+            styles.push('width: 100%');
+            styles.push('overflow-x: auto');
+            styles.push('overflow-y: hidden');
+            styles.push('-webkit-overflow-scrolling: touch');
         }
 
         return styles.join('; ');
@@ -68,7 +69,8 @@
     {#each tabs as tab (tab.id)}
         <div 
             class="tab-wrapper"
-            class:full-width={fullWidth}
+            class:full-width={fullWidth && type === 'button'}
+            class:underline-type={type === 'underline' || type === 'underline-filled'}
             role="presentation"
         >
             <Tab
@@ -99,23 +101,36 @@
     }
 
     .tab-group::-webkit-scrollbar-thumb {
-        background: #D0D5DD;
-        border-radius: 2px;
+        background: var(--ds-color-gray-300);
+        border-radius: var(--ds-radius-sm);
     }
 
     .tab-group::-webkit-scrollbar-thumb:hover {
-        background: #98A2B3;
+        background: var(--ds-color-gray-400);
     }
 
     /* Firefox scrollbar */
     .tab-group {
         scrollbar-width: thin;
-        scrollbar-color: #D0D5DD transparent;
+        scrollbar-color: var(--ds-color-gray-300) transparent;
     }
 
     .tab-wrapper {
         flex: none;
         min-width: fit-content; /* Prevent tabs from shrinking too much */
+    }
+
+    /* Underline types: wrapper fills full height so tabs align on one row with tab group border */
+    .tab-wrapper.underline-type {
+        height: 100%;
+        display: flex;
+        align-items: stretch;
+    }
+
+    .tab-wrapper.underline-type :global(button) {
+        flex: 1;
+        min-height: 0;
+        height: 100% !important; /* Override Tab inline height so tab aligns with tab group border */
     }
 
     .tab-wrapper.full-width {

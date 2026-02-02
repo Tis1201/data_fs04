@@ -86,8 +86,7 @@ export function formatResourceDate(date: string | Date | null | undefined): stri
             month: 'short',
             day: 'numeric',
             hour: 'numeric',
-            minute: 'numeric',
-            timeZoneName: 'short'
+            minute: 'numeric'
         });
     } catch {
         return 'Invalid date';

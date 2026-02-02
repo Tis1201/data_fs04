@@ -222,6 +222,30 @@
                 subtitle: 'Overview of your account'
             };
         }
+        // Bulk Deployments (bundles)
+        if (pathname.startsWith('/user/iot/bundles/') && pathname !== '/user/iot/bundles' && pathname !== '/user/iot/bundles/') {
+            const isNew = pathname === '/user/iot/bundles/new' || pathname === '/user/iot/bundles/new/';
+            const isEdit = /\/edit\/?$/.test(pathname);
+            const isDetail = /^\/user\/iot\/bundles\/[^/]+\/?$/.test(pathname.replace(/\/$/, ''));
+            return {
+                headerStyle: 'page',
+                title: isNew ? 'Add Deployment' : isEdit ? 'Edit Deployment' : isDetail ? 'Deployment Details' : 'Bulk Deployments',
+                subtitle: isDetail
+                    ? 'View deployment status and performance'
+                    : isNew
+                        ? 'Create a new deployment with apps and devices'
+                        : isEdit
+                            ? 'Update deployment settings'
+                            : 'Deployment contains a grouped set of resources or deployments to devices'
+            };
+        }
+        if (pathname === '/user/iot/bundles' || pathname === '/user/iot/bundles/') {
+            return {
+                headerStyle: 'page',
+                title: 'Bulk Deployments',
+                subtitle: 'Deployment contains a grouped set of resources or deployments to devices'
+            };
+        }
         // Default
         return {
             headerStyle: 'page',

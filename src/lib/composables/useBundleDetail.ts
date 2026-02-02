@@ -61,7 +61,7 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
     // State management
     const showAppSelector = writable(false);
     const addingApp = writable(false);
-    const activeTab = writable('info');
+    const activeTab = writable('devices');
     const deviceStatusVersion = writable(0);
     const wavesVersion = writable(0);
     const deviceProgressReloadToken = writable(0);

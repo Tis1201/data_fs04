@@ -47,8 +47,7 @@ export function formatDeviceProfileDate(date: string | Date | null | undefined):
             month: 'short',
             day: 'numeric',
             hour: 'numeric',
-            minute: 'numeric',
-            timeZoneName: 'short'
+            minute: 'numeric'
         });
     } catch {
         return 'Invalid date';

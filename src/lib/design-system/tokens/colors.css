@@ -95,6 +95,9 @@
   --ds-color-error-800: #912018;
   --ds-color-error-900: #7A271A;
 
+  /* Purple 3 (from Figma View Device modal - Device Uptime value) */
+  --ds-color-purple-700: #6941C6;
+
   /* Blue Light - Button Primary (from Figma) */
   --ds-color-blue-light-25: #F5FBFF;
   --ds-color-blue-light-50: #F0F9FF;

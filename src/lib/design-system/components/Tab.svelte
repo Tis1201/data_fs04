@@ -105,12 +105,18 @@
             'gap: 8px',
             `padding: ${config.padding}`,
             `height: ${config.height}`,
-            'border-radius: 6px',
             'cursor: pointer',
             'transition: all 0.15s ease',
             'box-sizing: border-box',
             "font-family: var(--ds-font-family-primary)"
         ];
+
+        // Border radius: only for button type; underline types must have no radius
+        if (type === 'button') {
+            styles.push('border-radius: 6px');
+        } else {
+            styles.push('border-radius: 0');
+        }
 
         if (type === 'button') {
             // Button type styles
@@ -134,17 +140,16 @@
             }
         } else if (type === 'underline') {
             // Underline type styles
-            styles.push('border-radius: 0');
             styles.push('position: relative');
             styles.push('padding-bottom: 12px');
         } else if (type === 'underline-filled') {
-            // Underline filled type styles
+            // Underline filled (Figma: 48px height, 2px underline full width)
             if (current) {
-                styles.push('background: #FAFAFA');
-                styles.push('border-bottom: 2px solid #424242');
+                styles.push('background: var(--ds-color-neutral-true-50)');
+                styles.push('border-bottom: 2px solid var(--ds-color-neutral-true-700)');
             } else if (activeState === 'hover') {
-                styles.push('background: #FAFAFA');
-                styles.push('border-bottom: 2px solid #424242');
+                styles.push('background: var(--ds-color-neutral-true-50)');
+                styles.push('border-bottom: 2px solid var(--ds-color-neutral-true-700)');
             } else {
                 styles.push('background: transparent');
                 styles.push('border-bottom: 2px solid transparent');

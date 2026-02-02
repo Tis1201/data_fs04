@@ -104,36 +104,46 @@
 		}
 	}
 	
+	const VIEWPORT_PADDING = 16;
+
 	function calculatePosition() {
 		// Use external trigger if provided, otherwise use internal trigger wrapper
 		const trigger = externalTriggerRef || (triggerWrapperRef || null);
 		if (!trigger || !menuRef) return;
-		
+
 		const triggerRect = trigger.getBoundingClientRect();
 		const menuRect = menuRef.getBoundingClientRect();
 		const viewportHeight = window.innerHeight;
 		const viewportWidth = window.innerWidth;
-		
-		// Calculate top position
+		const menuHeight = menuRect.height;
+
+		// Prefer opening below trigger
 		let top = triggerRect.bottom + 4;
-		if (top + menuRect.height > viewportHeight - 16) {
-			// Open above if not enough space below
-			top = triggerRect.top - menuRect.height - 4;
+		if (top + menuHeight > viewportHeight - VIEWPORT_PADDING) {
+			// Not enough space below: open above trigger
+			top = triggerRect.top - menuHeight - 4;
 		}
-		
+		// Clamp top so menu never overflows viewport
+		if (top < VIEWPORT_PADDING) {
+			top = VIEWPORT_PADDING;
+		}
+		if (top + menuHeight > viewportHeight - VIEWPORT_PADDING) {
+			top = viewportHeight - menuHeight - VIEWPORT_PADDING;
+		}
+
 		// Calculate left position
-		let left = align === 'right' 
-			? triggerRect.right - menuRect.width 
+		let left = align === 'right'
+			? triggerRect.right - menuRect.width
 			: triggerRect.left;
-		
-		// Ensure menu stays within viewport
-		if (left + menuRect.width > viewportWidth - 16) {
-			left = viewportWidth - menuRect.width - 16;
+
+		// Ensure menu stays within viewport horizontally
+		if (left + menuRect.width > viewportWidth - VIEWPORT_PADDING) {
+			left = viewportWidth - menuRect.width - VIEWPORT_PADDING;
 		}
-		if (left < 16) {
-			left = 16;
+		if (left < VIEWPORT_PADDING) {
+			left = VIEWPORT_PADDING;
 		}
-		
+
 		menuPosition = { top, left };
 	}
 	
@@ -154,7 +164,10 @@
 	// Recalculate position when open state changes (only for fixed positioning)
 	$: if (open && !externalTriggerRef) {
 		tick().then(() => {
-			if (triggerWrapperRef) calculatePosition();
+			// First tick: menu might not have layout yet; run again after paint so height is correct
+			requestAnimationFrame(() => {
+				if (menuRef) calculatePosition();
+			});
 		});
 	}
 	
@@ -281,7 +294,7 @@
 		transform: rotate(180deg);
 	}
 	
-	/* Menu Container */
+	/* Menu Container - constrain width/height so menu never overflows viewport */
 	.menu {
 		position: fixed;
 		z-index: 9999;
@@ -293,6 +306,10 @@
 		border: 1px solid var(--ds-border-default);
 		border-radius: var(--ds-radius-lg);
 		box-shadow: var(--ds-shadow-lg);
+		max-width: calc(100vw - 32px);
+		max-height: calc(100vh - 32px);
+		overflow-x: hidden;
+		overflow-y: auto;
 	}
 	
 	/* When used with external trigger, use relative positioning */

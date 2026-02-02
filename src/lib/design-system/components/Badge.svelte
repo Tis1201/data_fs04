@@ -43,6 +43,8 @@
     
     // State
     export let disabled: boolean = false;
+    /** When false, render as span (display-only, no button semantics or click). */
+    export let interactive: boolean = true;
 
     const dispatch = createEventDispatcher<{
         remove: void;
@@ -200,44 +202,64 @@
 
 {#if iconOnly}
     <!-- Icon-only badge (Full=No) -->
-    <button
-        type="button"
-        class="badge-icon-only"
-        class:badge-disabled={disabled}
-        style="
-            width: {iconOnlySpec.size};
-            height: {iconOnlySpec.size};
-            {bgStyle}
-            {textStyle}
-        "
-        on:click={handleClick}
-        {disabled}
-        {...$$restProps}
-    >
-        <Plus 
-            size={iconOnlySpec.iconSize} 
-            strokeWidth={2.5}
-        />
-    </button>
+    {#if interactive}
+        <button
+            type="button"
+            class="badge-icon-only"
+            class:badge-disabled={disabled}
+            style="
+                width: {iconOnlySpec.size};
+                height: {iconOnlySpec.size};
+                {bgStyle}
+                {textStyle}
+            "
+            on:click={handleClick}
+            {disabled}
+            {...$$restProps}
+        >
+            <Plus 
+                size={iconOnlySpec.iconSize} 
+                strokeWidth={2.5}
+            />
+        </button>
+    {:else}
+        <span
+            class="badge-icon-only badge-static"
+            class:badge-disabled={disabled}
+            style="
+                width: {iconOnlySpec.size};
+                height: {iconOnlySpec.size};
+                {bgStyle}
+                {textStyle}
+            "
+            {...$$restProps}
+        >
+            <Plus 
+                size={iconOnlySpec.iconSize} 
+                strokeWidth={2.5}
+            />
+        </span>
+    {/if}
 {:else}
     <!-- Full badge (Full=Yes) -->
-    <button
-        type="button"
-        class="badge"
-        class:badge-disabled={disabled}
-        style="
-            height: {sizeSpec.height};
-            padding: {sizeSpec.padding};
-            gap: {sizeSpec.gap};
-            font-size: {sizeSpec.fontSize};
-            line-height: {sizeSpec.lineHeight};
-            {bgStyle}
-            {textStyle}
-        "
-        on:click={handleClick}
-        {disabled}
-        {...$$restProps}
-    >
+    {#if interactive}
+        <button
+            type="button"
+            class="badge"
+            class:badge-disabled={disabled}
+            style="
+                height: {sizeSpec.height};
+                padding: {sizeSpec.padding};
+                gap: {sizeSpec.gap};
+                font-size: {sizeSpec.fontSize};
+                line-height: {sizeSpec.lineHeight};
+                {bgStyle}
+                {textStyle}
+            "
+            on:click={handleClick}
+            {disabled}
+            {...$$restProps}
+        >
         <!-- Status Dot -->
         {#if showDot}
             <span 
@@ -320,6 +342,85 @@
             </button>
         {/if}
     </button>
+    {:else}
+        <span
+            class="badge badge-static"
+            class:badge-disabled={disabled}
+            style="
+                height: {sizeSpec.height};
+                padding: {sizeSpec.padding};
+                gap: {sizeSpec.gap};
+                font-size: {sizeSpec.fontSize};
+                line-height: {sizeSpec.lineHeight};
+                {bgStyle}
+                {textStyle}
+            "
+            {...$$restProps}
+        >
+        <!-- Status Dot -->
+        {#if showDot}
+            <span 
+                class="badge-dot-wrapper"
+                style="width: {sizeSpec.dotSize}px; height: {sizeSpec.dotSize}px;"
+            >
+                <span 
+                    class="badge-dot"
+                    style="
+                        background-color: {config.dot}; 
+                        width: {sizeSpec.dotInner}px; 
+                        height: {sizeSpec.dotInner}px;
+                    "
+                />
+            </span>
+        {/if}
+
+        <!-- Circle indicator -->
+        {#if showCircle}
+            <span 
+                class="badge-circle"
+                style="
+                    width: {sizeSpec.circleSize}px; 
+                    height: {sizeSpec.circleSize}px;
+                    border-color: {config.text};
+                "
+            />
+        {/if}
+
+        <!-- Avatar -->
+        {#if showAvatar}
+            {#if avatar}
+                <img 
+                    src={avatar} 
+                    alt={avatarAlt || label}
+                    class="badge-avatar"
+                    style="width: {sizeSpec.avatarSize}px; height: {sizeSpec.avatarSize}px;"
+                />
+            {:else if avatarInitials}
+                <span 
+                    class="badge-avatar-initials"
+                    style="
+                        width: {sizeSpec.avatarSize}px; 
+                        height: {sizeSpec.avatarSize}px;
+                        font-size: {size === 'sm' ? '8px' : '10px'};
+                    "
+                >
+                    {avatarInitials}
+                </span>
+            {/if}
+        {/if}
+
+        <!-- Label -->
+        <span class="badge-label">{label}</span>
+
+        <!-- Arrow Right -->
+        {#if showArrow}
+            <ArrowRight 
+                size={sizeSpec.iconSize} 
+                strokeWidth={2}
+            />
+        {/if}
+        </span>
+    {/if}
 {/if}
 
 <style>

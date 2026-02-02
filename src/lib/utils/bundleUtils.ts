@@ -12,7 +12,8 @@ export const BUNDLE_STATUS_LABELS: Record<string, string> = {
     IN_PROGRESS: 'In Progress',
     CANCELLED: 'Cancelled',
     COMPLETED: 'Completed',
-    FAILED: 'Failed'
+    FAILED: 'Failed',
+    STOPPED: 'Stopped'
 };
 
 /**
@@ -21,6 +22,38 @@ export const BUNDLE_STATUS_LABELS: Record<string, string> = {
 export function getBundleStatusLabel(status: string | null | undefined): string {
     if (!status) return 'Unknown';
     return BUNDLE_STATUS_LABELS[status] || String(status);
+}
+
+/**
+ * Design-system Badge color for bundle status (Figma: Draft=gray, Scheduled=blue, In Progress=warning, Completed=success, Failed=error, Cancelled=error)
+ */
+export type BundleStatusBadgeColor = 'gray' | 'blue-light' | 'warning' | 'success' | 'error';
+
+export function getBundleStatusBadgeColor(
+    status: string | null | undefined,
+    _row?: { scheduledAt?: Date | string | null }
+): BundleStatusBadgeColor {
+    if (!status) return 'gray';
+    const s = String(status).toUpperCase();
+    if (s === 'DRAFT') return 'gray';
+    if (s === 'PUBLISHED') return 'blue-light'; // Scheduled
+    if (s === 'IN_PROGRESS') return 'warning';
+    if (s === 'COMPLETED') return 'success';
+    if (s === 'FAILED' || s === 'CANCELLED') return 'error';
+    if (s === 'STOPPED') return 'warning';
+    return 'gray';
+}
+
+/**
+ * Display label for list/detail (Figma: PUBLISHED with scheduledAt = "Scheduled", else "Published")
+ */
+export function getBundleStatusDisplayLabel(
+    status: string | null | undefined,
+    row?: { scheduledAt?: Date | string | null }
+): string {
+    const s = String(status || '').toUpperCase();
+    if (s === 'PUBLISHED' && row?.scheduledAt) return 'Scheduled';
+    return getBundleStatusLabel(status);
 }
 
 /**
@@ -37,7 +70,8 @@ export function getBundleStatusVariant(
         IN_PROGRESS: 'default',     // Primary blue
         CANCELLED: 'destructive',   // Red
         COMPLETED: 'success',       // Green
-        FAILED: 'destructive'       // Red
+        FAILED: 'destructive',      // Red
+        STOPPED: 'default'          // Warning / paused
     };
     
     return variantMap[status] || 'outline';
@@ -55,7 +89,8 @@ export function getBundleStatusTextClass(status: string | null | undefined): str
         IN_PROGRESS: 'text-blue-600',
         CANCELLED: 'text-red-600',
         COMPLETED: 'text-green-600',
-        FAILED: 'text-red-600'
+        FAILED: 'text-red-600',
+        STOPPED: 'text-amber-600'
     };
     
     return classMap[status] || 'text-muted-foreground';
@@ -73,7 +108,8 @@ export function getStatusTextBorderClasses(status: string | null | undefined): s
         IN_PROGRESS: 'text-blue-700 border-blue-300',
         CANCELLED: 'text-red-700 border-red-200',
         COMPLETED: 'text-green-700 border-green-200',
-        FAILED: 'text-red-700 border-red-200'
+        FAILED: 'text-red-700 border-red-200',
+        STOPPED: 'text-amber-700 border-amber-200'
     };
     
     return classMap[status] || 'text-zinc-800 border-zinc-200';
@@ -121,12 +157,25 @@ export function formatBundleDate(date: string | Date | null | undefined): string
             month: 'short',
             day: 'numeric',
             hour: 'numeric',
-            minute: 'numeric',
-            timeZoneName: 'short'
+            minute: 'numeric'
         });
     } catch {
         return 'Invalid date';
     }
+}
+
+/**
+ * Format end-on date from scheduledAt + activePeriodDays (for deployment overview)
+ */
+export function formatBundleEndOn(
+    scheduledAt: string | Date | null | undefined,
+    activePeriodDays: number | null | undefined
+): string {
+    if (!scheduledAt) return '—';
+    const days = Math.min(Math.max(Number(activePeriodDays) || 1, 1), 30);
+    const start = new Date(scheduledAt);
+    const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
+    return formatBundleDate(end);
 }
 
 /**
@@ -145,8 +194,7 @@ export function formatBundleDateWithTimezone(
             day: 'numeric',
             hour: 'numeric',
             minute: 'numeric',
-            timeZone: timezone,
-            timeZoneName: 'short'
+            timeZone: timezone
         });
     } catch {
         return '';

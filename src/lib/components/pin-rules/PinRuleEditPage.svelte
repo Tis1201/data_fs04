@@ -7,8 +7,8 @@
     import { Label } from "$lib/components/ui/label";
     import { Textarea } from "$lib/components/ui/textarea";
     import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import AppSelector from "$lib/components/ui_components_sveltekit/bundles/app_select/AppSelector.svelte";
-    import DeviceSelector from "$lib/components/ui_components_sveltekit/bundles/device_select/DeviceSelector.svelte";
+    import AppSelector from "$lib/components/bundles_ui/app_select/AppSelector.svelte";
+    import DeviceSelector from "$lib/components/bundles_ui/device_select/DeviceSelector.svelte";
     import * as Dialog from "$lib/components/ui/dialog";
     import { Plus } from "lucide-svelte";
     import { toast } from "svelte-sonner";

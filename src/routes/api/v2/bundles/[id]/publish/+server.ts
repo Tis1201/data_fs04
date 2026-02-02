@@ -5,6 +5,7 @@ import { logger } from '$lib/server/logger';
 import { publishBundleCore } from '$lib/server/bundles/bundlePublisher';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { requirePermission } from '$lib/server/security/permissions';
 
 /**
  * POST /api/v2/bundles/[id]/publish
@@ -37,6 +38,9 @@ export const POST = unifiedEndpoint(
         { status: 404, code: ErrorCodes.NOT_FOUND }
       );
     }
+
+    // Require bundle.publish with bundle as resource (USER can publish only bundles in their account)
+    await requirePermission(context.permissionUser, 'bundle.publish', bundle);
 
     if (bundle.status !== 'DRAFT') {
       throw Object.assign(
@@ -92,5 +96,5 @@ export const POST = unifiedEndpoint(
       }
     );
   },
-  { permission: 'bundle.publish' }
+  { permission: 'bundle.publish', skipPermission: true }
 );

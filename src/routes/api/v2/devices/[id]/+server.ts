@@ -6,17 +6,19 @@
  */
 
 import { unifiedEndpoint, requireResourceAccess } from '$lib/server/api/unifiedEndpoint';
-import { successResponse, errorResponse, ErrorCodes } from '$lib/types/api';
+import { requirePermission } from '$lib/server/security/permissions';
+import { successResponse, ErrorCodes } from '$lib/types/api';
 import prisma from '$lib/server/prisma';
 
 /**
  * GET /api/v2/devices/[id]
- * Get device details
+ * Get device details.
+ * Permission is checked with the loaded device as resource so USER role can pass (device.view requires resource.accountId).
  */
 export const GET = unifiedEndpoint(
 	async ({ context, params }) => {
 		const deviceId = params.id;
-		
+
 		const device = await prisma.device.findUnique({
 			where: { id: deviceId },
 			include: {
@@ -41,26 +43,31 @@ export const GET = unifiedEndpoint(
 				}
 			}
 			// Note: When using include, Prisma automatically includes all scalar fields
-			// So profileId and all config fields (kioskLockMode, displayResolution, etc.) 
+			// So profileId and all config fields (kioskLockMode, displayResolution, etc.)
 			// will be automatically included in the result
 		});
-		
+
 		if (!device) {
 			throw Object.assign(
 				new Error('Device not found'),
 				{ status: 404, code: ErrorCodes.NOT_FOUND }
 			);
 		}
-		
-		// Check access
+
+		// Check permission with device as resource (USER needs resource.accountId for device.view)
+		await requirePermission(context.permissionUser, 'device.view', {
+			accountId: device.accountId ?? undefined,
+			createdBy: device.createdBy ?? undefined
+		});
+
 		requireResourceAccess(context, {
 			accountId: device.accountId || undefined,
 			createdBy: device.createdBy
 		});
-		
+
 		return successResponse(device, { requestId: context.requestId });
 	},
-	{ permission: 'device.view' }
+	{ permission: 'device.view', skipPermission: true }
 );
 
 /**

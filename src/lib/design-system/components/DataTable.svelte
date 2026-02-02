@@ -372,7 +372,7 @@
 
 </script>
 
-<div class="ds-datatable overflow-hidden rounded-lg {bordered ? 'border border-[var(--ds-border-default)]' : ''} {!cellBorders ? 'dt-no-cell-borders' : ''} shadow-sm" style="--ds-datatable-checkbox-width: {checkboxColumnWidth};">
+<div class="ds-datatable overflow-hidden rounded-lg {bordered ? 'border border-[var(--ds-border-default)] shadow-sm' : ''} {!cellBorders ? 'dt-no-cell-borders' : ''}" style="--ds-datatable-checkbox-width: {checkboxColumnWidth};">
     <!-- Table Container -->
     <div class="overflow-x-auto">
         <table class="{tableClasses}">
@@ -529,12 +529,18 @@
                                             {/if}
                                         </div>
                                     {:else if column.type === 'status' || column.type === 'badge'}
-                                        <Badge 
-                                            label={String(value || '-')}
-                                            color={column.statusColor ? column.statusColor(value, row) : 'gray'}
-                                            showDot={column.showDot != null ? column.showDot(value, row) : (column.type === 'status')}
-                                            size="sm"
-                                        />
+                                        {@const isEmpty = value == null || value === '' || String(value).trim() === '' || value === '—'}
+                                        {#if isEmpty}
+                                            <span class="{primaryTextClasses}">—</span>
+                                        {:else}
+                                            <Badge 
+                                                label={String(value)}
+                                                color={column.statusColor ? column.statusColor(value, row) : 'gray'}
+                                                showDot={column.showDot != null ? column.showDot(value, row) : (column.type === 'status')}
+                                                size="sm"
+                                                interactive={false}
+                                            />
+                                        {/if}
                                     {:else if column.type === 'multiBadge'}
                                         <!-- Multiple badges with overflow -->
                                         {@const badges = column.badgesField ? row[column.badgesField] : (Array.isArray(value) ? value : [])}
@@ -551,6 +557,7 @@
                                                         label={String(badge)}
                                                         color="gray"
                                                         size="sm"
+                                                        interactive={false}
                                                     />
                                                 {/each}
                                                 {#if remainingCount > 0}
@@ -558,6 +565,7 @@
                                                         label="+{remainingCount}"
                                                         color="gray"
                                                         size="sm"
+                                                        interactive={false}
                                                     />
                                                 {/if}
                                             </div>
@@ -773,7 +781,7 @@
                                                     align="right"
                                                     size="sm"
                                                     triggerVariant="text"
-                                                    width="140px"
+                                                    width="auto"
                                                     on:open={() => { openMoreMenuKey = rowKey; }}
                                                     on:close={() => { openMoreMenuKey = null; }}
                                                     on:select={(e) => {
