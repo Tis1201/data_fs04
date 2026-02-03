@@ -5,7 +5,11 @@ import { waitForScreenshotResult } from '$lib/client/mqtt/screenshotFlow';
 import {
     refreshDevice as mqttRefreshDevice,
     rebootDevice as mqttRebootDevice,
-    getDeviceLogs as mqttGetDeviceLogs
+    getDeviceLogs as mqttGetDeviceLogs,
+    updateFirmware as mqttUpdateFirmware,
+    installApp as mqttInstallApp,
+    pullFile as mqttPullFile,
+    pushFile as mqttPushFile
 } from '$lib/client/mqtt/deviceActions';
 
 export interface DeviceActionCallbacks {
@@ -55,7 +59,7 @@ export class DeviceActionsService {
      * Retrieve snapshot/screenshot from device via MQTT
      */
     async retrieveSnapshot(
-        screenshotData: { 
+        screenshotData: {
             data: { get: () => string | null; set: (value: string | null) => void };
             format: { get: () => string; set: (value: string) => void };
         },
@@ -67,7 +71,7 @@ export class DeviceActionsService {
             status: "loading",
             message: "Taking screenshot...",
         });
-        
+
         let operationId: string | undefined;
 
         try {
@@ -119,8 +123,8 @@ export class DeviceActionsService {
                 // Extract durationMs from error if available (from device.screenshot notification)
                 const durationMs = (error as any)?.durationMs;
                 this.callbacks.updateActionLog(
-                    operationId, 
-                    'failed', 
+                    operationId,
+                    'failed',
                     error instanceof Error ? error.message : 'Failed to capture screenshot',
                     durationMs
                 );
@@ -266,7 +270,7 @@ export class DeviceActionsService {
     }
 
     /**
-     * Update firmware
+     * Update firmware via MQTT RPC
      */
     async updateFirmware(firmware: { version: string; id: string }): Promise<void> {
         this.isLoading.set(true);
@@ -276,37 +280,26 @@ export class DeviceActionsService {
             message: 'Initiating firmware update...'
         });
 
+        let operationId: string | undefined;
+
         try {
-            // Make API call FIRST to get real operationId
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'updateFirmware',
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'firmware_update',
+                'Firmware Update',
+                () => mqttUpdateFirmware({
+                    deviceId: this.deviceId,
                     firmwareVersion: firmware.version ?? '1.0.0',
                     resourceId: firmware.id
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to update firmware: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            
-            // ✅ Create log with real ID from server response
-            if (realLogId && this.callbacks.addActionLog) {
-                this.callbacks.addActionLog('firmware_update', 'Initiating firmware update…', 'initiated', realLogId);
-            }
+                }, { timeoutMs: 60000 }),
+                'Firmware update initiated…',
+                'Firmware update initiated'
+            );
+            operationId = opId;
 
             this.actionStatus.set({
                 action: 'firmware',
                 status: 'success',
-                message: 'Firmware update initiated',
+                message: result.message || 'Firmware update initiated',
             });
             toast.success('Firmware update initiated');
         } catch (error) {
@@ -317,14 +310,16 @@ export class DeviceActionsService {
             });
             toast.error('Failed to update firmware');
             console.error('Error updating firmware:', error);
-            // Note: No log entry created on error - operationId not available
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to update firmware');
+            }
         } finally {
             this.isLoading.set(false);
         }
     }
 
     /**
-     * Install app
+     * Install app via MQTT RPC
      */
     async installApp(app: { id: string; packageName?: string }): Promise<void> {
         this.isLoading.set(true);
@@ -334,37 +329,26 @@ export class DeviceActionsService {
             message: 'Initiating app installation...'
         });
 
+        let operationId: string | undefined;
+
         try {
-            // Make API call FIRST to get real operationId
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'installApp',
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'install_app',
+                'Install App',
+                () => mqttInstallApp({
+                    deviceId: this.deviceId,
                     packageName: app.packageName ?? 'unknown',
                     resourceId: app.id
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to install app: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            
-            // ✅ Create log with real ID from server response
-            if (realLogId && this.callbacks.addActionLog) {
-                this.callbacks.addActionLog('install', 'Initiating app installation…', 'initiated', realLogId);
-            }
+                }, { timeoutMs: 60000 }),
+                'App installation initiated…',
+                'App installation initiated'
+            );
+            operationId = opId;
 
             this.actionStatus.set({
                 action: 'installApp',
                 status: 'success',
-                message: 'App installation initiated',
+                message: result.message || 'App installation initiated',
             });
             toast.success('App installation initiated');
         } catch (error) {
@@ -375,14 +359,16 @@ export class DeviceActionsService {
             });
             toast.error('Failed to install app');
             console.error('Error installing app:', error);
-            // Note: No log entry created on error - operationId not available
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to install app');
+            }
         } finally {
             this.isLoading.set(false);
         }
     }
 
     /**
-     * Pull file from device
+     * Pull file from device via MQTT RPC
      */
     async pullFile(sourcePath: string, destinationPath?: string, resourceId?: string): Promise<void> {
         this.isLoading.set(true);
@@ -392,35 +378,26 @@ export class DeviceActionsService {
             message: 'Initiating file pull...'
         });
 
+        let operationId: string | undefined;
+
         try {
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'pullFile',
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'pullFile',
+                'Pull File',
+                () => mqttPullFile({
+                    deviceId: this.deviceId,
                     sourcePath: sourcePath.trim(),
-                    destinationPath: destinationPath || sourcePath.trim(),
-                    ...(resourceId ? { resourceId } : {})
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to pull file: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
-                this.callbacks.addActionLog?.('pullFile', 'File pull initiated…', 'in_progress', realLogId);
-            }
+                    destinationPath: destinationPath || sourcePath.trim()
+                }, { timeoutMs: 60000 }),
+                'File pull initiated…',
+                'File pull initiated'
+            );
+            operationId = opId;
 
             this.actionStatus.set({
                 action: 'pullFile',
                 status: 'success',
-                message: 'File pull initiated',
+                message: result.message || 'File pull initiated',
             });
             toast.success('File pull initiated');
         } catch (error) {
@@ -431,14 +408,16 @@ export class DeviceActionsService {
             });
             toast.error('Failed to pull file');
             console.error('Error pulling file:', error);
-            this.callbacks.addActionLog?.('pullFile', 'Failed to pull file', 'failed');
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to pull file');
+            }
         } finally {
             this.isLoading.set(false);
         }
     }
 
     /**
-     * Push file to device
+     * Push file to device via MQTT RPC
      */
     async pushFile(sourcePath: string, destinationPath: string, resourceId?: string): Promise<void> {
         this.isLoading.set(true);
@@ -448,35 +427,31 @@ export class DeviceActionsService {
             message: 'Initiating file push...'
         });
 
+        let operationId: string | undefined;
+
         try {
-            const response = await fetch(`/api/devices/${this.deviceId}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                keepalive: true,
-                body: JSON.stringify({
-                    action: 'pushFile',
+            if (!resourceId) {
+                throw new Error('Resource ID is required for push file');
+            }
+
+            const { result, operationId: opId } = await this.executeActionWithLog(
+                'pushFile',
+                'Push File',
+                () => mqttPushFile({
+                    deviceId: this.deviceId,
                     sourcePath: sourcePath.trim(),
                     destinationPath: destinationPath.trim(),
-                    ...(resourceId ? { resourceId } : {})
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error?.message || `Failed to push file: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            const realLogId = result.data?.operationId;
-            if (realLogId) {
-                this.callbacks.addActionLog?.('pushFile', 'File push initiated…', 'in_progress', realLogId);
-            }
+                    resourceId
+                }, { timeoutMs: 60000 }),
+                'File push initiated…',
+                'File push initiated'
+            );
+            operationId = opId;
 
             this.actionStatus.set({
                 action: 'pushFile',
                 status: 'success',
-                message: 'File push initiated',
+                message: result.message || 'File push initiated',
             });
             toast.success('File push initiated');
         } catch (error) {
@@ -487,7 +462,9 @@ export class DeviceActionsService {
             });
             toast.error('Failed to push file');
             console.error('Error pushing file:', error);
-            this.callbacks.addActionLog?.('pushFile', 'Failed to push file', 'failed');
+            if (operationId && this.callbacks.updateActionLog) {
+                this.callbacks.updateActionLog(operationId, 'failed', error instanceof Error ? error.message : 'Failed to push file');
+            }
         } finally {
             this.isLoading.set(false);
         }

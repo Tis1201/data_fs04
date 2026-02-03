@@ -7,6 +7,14 @@
     import type { ColumnDef, PaginationState } from "$lib/design-system/components";
     import type { TabItem } from "$lib/design-system/components/TabGroup.svelte";
     import EditDeviceModal from "$lib/components/devices/EditDeviceModal.svelte";
+    import ScreenshotModal from "$lib/components/ui_components_sveltekit/devices/ScreenshotModal.svelte";
+    import ConfirmationDialog from "$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte";
+    import { callUserRpc } from "$lib/client/mqtt/userRpc";
+    import { waitForScreenshotResult } from "$lib/client/mqtt/screenshotFlow";
+    import { ActionLogSyncManager } from "$lib/client/sync/ActionLogSyncManager";
+    import { mqttClient } from "$lib/client/mqtt/mqttClient";
+    import { createModalHandler } from "$lib/client/mqtt/handlers/ui/modalHandler";
+    import { createProgressBarHandler } from "$lib/client/mqtt/handlers/ui/progressBarHandler";
     import { toast } from "$lib/stores/alertToast";
     import {
         formatDeploymentDate,
@@ -24,15 +32,15 @@
         formatActionDescription
     } from "$lib/utils/deviceDetailsUtils";
     import { formatBytes } from "$lib/utils/format";
-    import { 
-        PenLine, 
-        RefreshCw, 
-        Camera, 
-        Airplay, 
-        Terminal as TerminalIcon, 
-        Upload, 
-        Download, 
-        BookUp2, 
+    import {
+        PenLine,
+        RefreshCw,
+        Camera,
+        Airplay,
+        Terminal as TerminalIcon,
+        Upload,
+        Download,
+        BookUp2,
         Power,
         ScanFace,
         Info,
@@ -64,7 +72,7 @@
 
 
     export let data: PageData;
-    
+
     // Apps state
     interface DeviceApp {
         device_id: string;
@@ -79,7 +87,7 @@
         is_pinned?: boolean;
         is_system_app: boolean;
     }
-    
+
     let apps: DeviceApp[] = [];
     let appsLoading = false;
     let appsLoaded = false; // Track if apps have been loaded
@@ -89,7 +97,7 @@
     let appsPageSize = 10;
     let appsTotalPages = 1;
     let appsSearchTerm = '';
-    
+
     // Alert notifications (design-system Alert instead of toast)
     type AlertSeverity = 'info' | 'success' | 'warning' | 'error';
     let alerts: Array<{ id: number; severity: AlertSeverity; message: string }> = [];
@@ -102,10 +110,10 @@
     function dismissAlert(id: number) {
         alerts = alerts.filter((a) => a.id !== id);
     }
-    
+
     // Deployments state
     type DeploymentStatus = 'Draft' | 'Scheduled' | 'In Progress' | 'Completed' | 'Failed' | 'Stopped' | 'Cancelled';
-    
+
     interface Deployment {
         id: string;
         name: string;
@@ -116,7 +124,7 @@
         /** BundleDevice id, required for Remove (unassign device from bundle) */
         bundleDeviceId?: string | null;
     }
-    
+
     let deployments: Deployment[] = [];
     let deploymentsLoading = false;
     let deploymentsLoaded = false;
@@ -124,7 +132,7 @@
     let deploymentsCurrentPage = 1;
     let deploymentsPageSize = 10;
     let deploymentsTotalPages = 1;
-    
+
     // Get allowed actions based on deployment status
     function getDeploymentActions(status: DeploymentStatus): { label: string; action: string; color?: string }[] {
         switch (status) {
@@ -168,7 +176,7 @@
                 return [{ label: 'View', action: 'view' }];
         }
     }
-    
+
     // Handle deployment action (View = go to bundle detail; Remove/Delete = unassign device from bundle)
     async function handleDeploymentAction(deployment: Deployment, action: string) {
         switch (action) {
@@ -203,25 +211,25 @@
                 addAlert('info', `Action ${action} on ${deployment.name}`);
         }
     }
-    
+
     // Load deployments from API
     async function loadDeployments() {
         if (!device?.id || deploymentsLoading) return;
-        
+
         try {
             deploymentsLoading = true;
-            
+
             const params = new URLSearchParams({
                 page: String(deploymentsCurrentPage),
                 pageSize: String(deploymentsPageSize)
             });
-            
+
             const res = await fetch(`/api/devices/${device.id}/deployments?${params.toString()}`);
-            
+
             if (!res.ok) throw new Error(`Failed to load deployments: ${res.statusText}`);
-            
+
             const result = await res.json();
-            
+
             if (result.success && result.data?.deployments) {
                 // Transform API response to Deployment format (API returns startedAt/completedAt and bundleDeviceId)
                 deployments = result.data.deployments.map((d: any) => ({
@@ -236,7 +244,7 @@
                     createdAt: d.createdAt,
                     scheduledAt: d.scheduledAt
                 }));
-                
+
                 deploymentsTotalCount = result.data.pagination?.total || deployments.length;
                 deploymentsTotalPages = result.data.pagination?.totalPages || Math.ceil(deploymentsTotalCount / deploymentsPageSize);
             } else {
@@ -244,7 +252,7 @@
                 deploymentsTotalCount = 0;
                 deploymentsTotalPages = 1;
             }
-            
+
             deploymentsLoaded = true;
         } catch (e) {
             console.error('Failed to load deployments:', e);
@@ -256,7 +264,7 @@
             deploymentsLoading = false;
         }
     }
-    
+
     // Get deployment action menu items
     function getDeploymentMenuItems(deployment: Deployment): Array<{ id: string; label: string; icon?: any; destructive?: boolean }> {
         const actions = getDeploymentActions(deployment.status);
@@ -266,7 +274,7 @@
             destructive: action.color === '#B42318'
         }));
     }
-    
+
     // DataTable columns for Deployments (design-system DataTable)
     $: deploymentColumns = [
         { id: 'name', header: 'Deployment Name', type: 'text', accessor: 'name', minWidth: '400px', sortable: false },
@@ -276,22 +284,22 @@
         { id: 'status', header: 'Status', type: 'status', accessor: 'status', statusColor: (_v: any, row: Deployment) => getDeploymentBadgeColor(row.status), width: '140px', sortable: false },
         { id: 'action', header: 'Action', type: 'moreMenu', align: 'right', width: '85px', getMenuActions: (d: Deployment) => getDeploymentActions(d.status).map(a => ({ id: a.action, label: a.label, color: a.color === '#B42318' ? 'danger' : undefined, onClick: (row: Deployment) => handleDeploymentAction(row, a.action) })) }
     ] as ColumnDef<Deployment>[];
-    
+
     // Load deployments when tab changes
     $: if (activeTab === 'deployments' && device?.id && !deploymentsLoaded && !deploymentsLoading) {
         loadDeployments();
     }
-    
+
     // Activity Logs state
     type ActivityLogStatus = 'Success' | 'In Progress' | 'Failed' | 'Warning';
-    
+
     interface ActivityLogDetail {
         label: string;
         oldValue?: string;
         newValue: string;
         tags?: string[]; // For tag-type values
     }
-    
+
     interface ActivityLog {
         id: string;
         eventName: string;
@@ -301,7 +309,7 @@
         expanded?: boolean;
         details?: ActivityLogDetail[];
     }
-    
+
     let activityLogs: ActivityLog[] = [];
     let activityLogsLoading = false;
     let activityLogsLoaded = false;
@@ -309,28 +317,28 @@
     let activityLogsCurrentPage = 1;
     let activityLogsPageSize = 10;
     let activityLogsTotalPages = 1;
-    
+
     // Toggle activity log expansion
     function toggleActivityLogExpansion(logId: string) {
-        activityLogs = activityLogs.map(log => 
+        activityLogs = activityLogs.map(log =>
             log.id === logId ? { ...log, expanded: !log.expanded } : log
         );
     }
-    
+
     // Load activity logs from API
     async function loadActivityLogs() {
         if (!device?.id || activityLogsLoading) return;
-        
+
         try {
             activityLogsLoading = true;
-            
+
             const offset = (activityLogsCurrentPage - 1) * activityLogsPageSize;
             const res = await fetch(`/api/devices/${device.id}/action-logs?limit=${activityLogsPageSize}&offset=${offset}`);
-            
+
             if (!res.ok) throw new Error(`Failed to load activity logs: ${res.statusText}`);
-            
+
             const result = await res.json();
-            
+
             if (result.success && result.data?.logs) {
                 // Transform API response to ActivityLog format
                 activityLogs = result.data.logs.map((log: any) => ({
@@ -342,14 +350,14 @@
                     expanded: false,
                     details: buildActivityLogDetails(log)
                 }));
-                
+
                 // Get total count for pagination
                 const countRes = await fetch(`/api/devices/${device.id}/action-logs?limit=1&offset=0`);
                 if (countRes.ok) {
                     const countResult = await countRes.json();
                     // Estimate total based on whether we got full page
-                    activityLogsTotalCount = activityLogs.length < activityLogsPageSize 
-                        ? offset + activityLogs.length 
+                    activityLogsTotalCount = activityLogs.length < activityLogsPageSize
+                        ? offset + activityLogs.length
                         : Math.max(offset + activityLogsPageSize * 2, 100); // Estimate
                 }
                 activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
@@ -358,7 +366,7 @@
                 activityLogsTotalCount = 0;
                 activityLogsTotalPages = 1;
             }
-            
+
             activityLogsLoaded = true;
         } catch (e) {
             console.error('Failed to load activity logs:', e);
@@ -370,39 +378,39 @@
             activityLogsLoading = false;
         }
     }
-    
+
     // Build activity log details from API response
     function buildActivityLogDetails(log: any): Array<{ label: string; oldValue?: string; newValue?: string; tags?: string[] }> {
         const details: Array<{ label: string; oldValue?: string; newValue?: string; tags?: string[] }> = [];
-        
+
         if (log.durationMs) {
             details.push({ label: 'Duration:', newValue: `${log.durationMs}ms` });
         }
-        
+
         if (log.user?.name) {
             details.push({ label: 'Initiated by:', newValue: log.user.name });
         }
-        
+
         if (log.error) {
             details.push({ label: 'Error:', newValue: log.error });
         }
-        
+
         return details;
     }
-    
+
     // Load activity logs when tab changes
     $: if (activeTab === 'activity' && device?.id && !activityLogsLoaded && !activityLogsLoading) {
         loadActivityLogs();
     }
-    
+
     // Load apps data
     async function loadApps() {
         if (!device?.id || appsLoading) return;
-        
+
         try {
             appsLoading = true;
             appsError = null;
-            
+
             const params = new URLSearchParams({
                 page: String(appsCurrentPage),
                 limit: String(appsPageSize)
@@ -441,7 +449,7 @@
             appsLoading = false;
         }
     }
-    
+
     // Toggle pin app
     async function togglePinApp(app: DeviceApp) {
         try {
@@ -449,11 +457,11 @@
                 method: app.is_pinned ? 'DELETE' : 'POST'
             });
             if (!res.ok) throw new Error('Failed to toggle pin');
-            
+
             // Update local state
-            apps = apps.map(a => 
-                a.package_name === app.package_name 
-                    ? { ...a, is_pinned: !a.is_pinned } 
+            apps = apps.map(a =>
+                a.package_name === app.package_name
+                    ? { ...a, is_pinned: !a.is_pinned }
                     : a
             );
             addAlert('success', app.is_pinned ? 'App unpinned' : 'App pinned');
@@ -461,91 +469,79 @@
             addAlert('error', `Failed to toggle pin: ${e instanceof Error ? e.message : 'Unknown error'}`);
         }
     }
-    
+
     // App actions
     async function handleRestartApp(app: DeviceApp) {
         try {
             addAlert('info', `Restarting app... ${app.app_name}`);
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ 
-                    action: 'restartApp',
-                    packageName: app.package_name
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to restart app');
-            }
-            
-            addAlert('success', `App restart initiated! ${app.app_name}`);
+
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.app.restart', {
+                deviceId: device?.id,
+                packageName: app.package_name
+            }, { timeoutMs: 180000 }); // 3 minutes
+
+            addAlert('success', result.message || `App restart initiated! ${app.app_name}`);
         } catch (error) {
             console.error('Restart app failed:', error);
-            addAlert('error', 'Unable to restart app. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to restart app. Please try again!');
         }
     }
-    
+
     async function handleAppSettings(app: DeviceApp) {
         try {
             addAlert('info', `Opening app settings... ${app.app_name}`);
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ 
-                    action: 'config',
-                    packageName: app.package_name
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to open app settings');
-            }
-            
-            addAlert('success', `App settings opened! ${app.app_name}`);
+
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.app.config', {
+                deviceId: device?.id,
+                packageName: app.package_name
+            }, { timeoutMs: 180000 }); // 3 minutes
+
+            addAlert('success', result.message || `App settings opened! ${app.app_name}`);
         } catch (error) {
             console.error('App settings failed:', error);
-            addAlert('error', 'Unable to open app settings. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to open app settings. Please try again!');
         }
     }
-    
+
     async function handleUninstallApp(app: DeviceApp) {
         if (app.is_system_app) {
             addAlert('error', 'Cannot uninstall system app');
             return;
         }
-        
+
         if (!confirm(`Are you sure you want to uninstall "${app.app_name}"?`)) {
             return;
         }
-        
+
         try {
             addAlert('info', `Uninstalling app... ${app.app_name}`);
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ 
-                    action: 'uninstall',
-                    packageName: app.package_name
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to uninstall app');
-            }
-            
-            addAlert('success', `App uninstall initiated! ${app.app_name}`);
+
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.app.uninstall', {
+                deviceId: device?.id,
+                packageName: app.package_name
+            }, { timeoutMs: 300000 }); // 5 minutes
+
+            addAlert('success', result.message || `App uninstall initiated! ${app.app_name}`);
             // Reload apps list after uninstall
             setTimeout(() => loadApps(), 2000);
         } catch (error) {
             console.error('Uninstall app failed:', error);
-            addAlert('error', 'Unable to uninstall app. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to uninstall app. Please try again!');
         }
     }
-    
+
     // Get app action menu items
     function getAppMenuItems(app: DeviceApp): Array<{ id: string; label: string; icon?: any; destructive?: boolean; disabled?: boolean }> {
         return [
@@ -554,7 +550,7 @@
             { id: 'uninstall', label: 'Uninstall App', icon: Trash2, destructive: true, disabled: app.is_system_app }
         ];
     }
-    
+
     // DataTable columns for Installed Apps (design-system DataTable)
     $: appsColumns = [
         { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), width: '48px', sortable: false },
@@ -569,7 +565,7 @@
             { id: 'uninstall', label: 'Uninstall App', color: 'danger', onClick: (r: DeviceApp) => handleUninstallApp(r), disabled: () => row.is_system_app }
         ] }
     ] as ColumnDef<DeviceApp>[];
-    
+
     // Load apps when tab changes to apps (only once)
     $: if (activeTab === 'apps' && device?.id && !appsLoaded && !appsLoading) {
         loadApps();
@@ -677,15 +673,11 @@
             const selectedApps = availableAppsForInstall.filter(app => installAppSelected.includes(app.id));
             const results = await Promise.allSettled(
                 selectedApps.map(app =>
-                    fetch(`/api/devices/${device.id}/actions`, {
-                        method: 'POST',
-                        headers: { 'content-type': 'application/json' },
-                        body: JSON.stringify({
-                            action: 'installApp',
-                            packageName: app.packageName,
-                            resourceId: app.id
-                        })
-                    })
+                    callUserRpc('device.app.install', {
+                        deviceId: device.id,
+                        packageName: app.packageName,
+                        resourceId: app.id
+                    }, { timeoutMs: 60000 })
                 )
             );
             const failCount = results.filter(r => r.status === 'rejected').length;
@@ -709,9 +701,20 @@
     // =========================
     let showEditDeviceModal = false;
 
+    // Screenshot modal (same flow as admin: MQTT RPC device.screenshot)
+    let screenshotOpen = false;
+    let screenshotData: string | null = null;
+    let screenshotFormat = 'jpeg';
+
+    // Reboot confirmation dialog
+    let showRebootConfirm = false;
+
+    // Generate API Key confirmation dialog
+    let showGenerateKeyConfirm = false;
+
     // Available tags from server
     $: availableTags = data.availableTags || [];
-    
+
     // Available profiles from server
     $: availableProfiles = ((data as any).availableProfiles || []) as Array<{ id: string; name: string; description?: string }>;
 
@@ -729,6 +732,8 @@
     let pushFileDestinationPath = "";
     let pushFileSearchTerm = "";
     let pushFileLoading = false;
+    let pushFileProgress = 0;
+    let pushFileStatusMessage = "";
     let pushFileResources: Array<{
         id: string;
         name: string;
@@ -755,7 +760,7 @@
         size: string;
         createdOn: string;
     }
-    
+
     let showUpdateFirmwareModal = false;
     let updateFirmwareSearch = "";
     let updateFirmwareSelected: string | null = null;
@@ -766,11 +771,11 @@
     let updateFirmwareOptionsLoading = false;
 
     // Computed: filtered firmwares for Update Firmware modal
-    $: updateFirmwareFilteredOptions = updateFirmwareOptions.filter((fw) => 
+    $: updateFirmwareFilteredOptions = updateFirmwareOptions.filter((fw) =>
         fw.name.toLowerCase().includes(updateFirmwareSearch.toLowerCase()) ||
         fw.packageName.toLowerCase().includes(updateFirmwareSearch.toLowerCase())
     );
-    
+
     // Computed: paginated firmwares
     $: updateFirmwareTotalPages = Math.max(1, Math.ceil(updateFirmwareFilteredOptions.length / updateFirmwarePerPage));
     $: updateFirmwarePaginatedOptions = updateFirmwareFilteredOptions.slice(
@@ -782,31 +787,152 @@
     // Use both data prop and $page.data to ensure reactivity
     let device = data.device;
     $: device = $page.data?.device || data.device;
-    
+
     // Device profile - reactive to ensure Configuration tab updates when profile changes
     // Use both data prop and $page.data to ensure reactivity after invalidate
     $: deviceProfile = $page.data?.deviceProfile || data.deviceProfile;
-    
+
     // Device information from ClickHouse (loaded on server)
     // Will be null if ClickHouse is not configured or no data available
     $: deviceInfo = $page.data?.deviceInformation || data.deviceInformation;
-    
+
     // Auto-refresh device info every 30 seconds to get latest metrics
     let healthRefreshInterval: ReturnType<typeof setInterval> | null = null;
-    
+    let actionLogSyncManager: ActionLogSyncManager | null = null;
+    let mqttUnsubscribes: (() => void)[] = [];
+
     onMount(() => {
         // Refresh device info periodically to get latest metrics from ClickHouse
         healthRefreshInterval = setInterval(() => {
             invalidate('app:device-detail');
         }, 30000); // Refresh every 30 seconds
+
+        // Set up real-time action log sync
+        if (device?.id) {
+            try {
+                actionLogSyncManager = new ActionLogSyncManager(
+                    device.id,
+                    () => {
+                        // Get current logs in ActionLog format
+                        return activityLogs.map(log => ({
+                            id: log.id,
+                            deviceId: device.id,
+                            actionType: log.description || 'unknown',
+                            status: log.status as any,
+                            progress: null,
+                            initiatedBy: 'user',
+                            initiatedAt: log.timestamp,
+                            completedAt: null,
+                            durationMs: null,
+                            message: log.description || '',
+                            user: null
+                        }));
+                    },
+                    (logs) => {
+                        // Update activity logs from synced action logs
+                        console.log('[UserDevicePage] ActionLogSyncManager updating logs:', logs.length);
+                        if (logs.length > 0) {
+                            console.log('[UserDevicePage] Sample log:', logs[0]);
+                        }
+                        activityLogs = logs.map(log => ({
+                            id: log.id,
+                            eventName: formatActivityLogDate(log.initiatedAt),
+                            description: formatActionDescription(log.actionType, log.message),
+                            status: mapActionStatus(log.status),
+                            timestamp: log.initiatedAt,
+                            expanded: false,
+                            details: []
+                        }));
+                        activityLogsTotalCount = logs.length;
+                        activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
+                        console.log('[UserDevicePage] Activity logs updated, count:', activityLogs.length);
+                    }
+                );
+                console.log('[UserDevicePage] ActionLogSyncManager initialized for device:', device.id);
+            } catch (error) {
+                console.error('[UserDevicePage] Failed to initialize ActionLogSyncManager:', error);
+            }
+
+            // Set up MQTT handlers for real-time modal and progress updates
+            try {
+                const modalHandler = createModalHandler({
+                    deviceId: device.id,
+                    showPullFileModal: {
+                        get: () => showPullFileModal,
+                        set: (val: boolean) => { showPullFileModal = val; }
+                    },
+                    showPushFileModal: {
+                        get: () => showPushFileModal,
+                        set: (val: boolean) => { showPushFileModal = val; }
+                    },
+                    showInstallAppModal: {
+                        get: () => showInstallAppModal,
+                        set: (val: boolean) => { showInstallAppModal = val; }
+                    },
+                    isLoading: {
+                        get: () => installAppLoading,
+                        set: (val: boolean) => { installAppLoading = val; }
+                    }
+                });
+
+                const progressHandler = createProgressBarHandler({
+                    deviceId: device.id,
+                    pushFileProgress: {
+                        get: () => pushFileProgress,
+                        set: (val: number) => { pushFileProgress = val; }
+                    },
+                    pushFileStatusMessage: {
+                        get: () => pushFileStatusMessage,
+                        set: (val: string) => { pushFileStatusMessage = val; }
+                    }
+                });
+
+                // Wrap handlers with logging
+                const loggingModalHandler = (payload: any) => {
+                    console.log('[UserDevicePage] Received device:statusUpdate:', payload);
+                    modalHandler(payload);
+                };
+
+                const loggingProgressHandler = (payload: any) => {
+                    console.log('[UserDevicePage] Received device:progressUpdate:', payload);
+                    progressHandler(payload);
+                };
+
+                const statusUnsub = mqttClient.onNotification('device:statusUpdate', loggingModalHandler);
+                const progressUnsub = mqttClient.onNotification('device:progressUpdate', loggingProgressHandler);
+
+                mqttUnsubscribes.push(statusUnsub, progressUnsub);
+
+                console.log('[UserDevicePage] MQTT handlers for modals and progress set up');
+            } catch (error) {
+                console.error('[UserDevicePage] Failed to set up MQTT handlers:', error);
+            }
+        }
     });
-    
+
     onDestroy(() => {
         if (healthRefreshInterval) {
             clearInterval(healthRefreshInterval);
         }
+        if (actionLogSyncManager) {
+            try {
+                actionLogSyncManager.cleanup();
+            } catch (error) {
+                console.error('[UserDevicePage] Error cleaning up ActionLogSyncManager:', error);
+            }
+            actionLogSyncManager = null;
+        }
+        // Cleanup MQTT subscriptions
+        mqttUnsubscribes.forEach(unsub => {
+            try {
+                unsub();
+            } catch (error) {
+                console.error('[UserDevicePage] Error unsubscribing from MQTT:', error);
+            }
+        });
+        mqttUnsubscribes = [];
     });
-    
+
     // Helper function to get profile setting value by key
     // This function respects the merged settings from loadDeviceProfile:
     // - Device-specific overrides (if any) take precedence
@@ -818,39 +944,39 @@
         if (!deviceProfile) {
             return defaultValue;
         }
-        
+
         const settings = deviceProfile.settings;
         if (!settings || !Array.isArray(settings)) {
             return defaultValue;
         }
-        
+
         // Find the setting by key
         const setting = settings.find((s: any) => s.key === key);
         if (!setting) {
             return defaultValue;
         }
-        
+
         // Check if value is null, undefined, or empty string
         if (setting.value === null || setting.value === undefined || setting.value === '') {
             return defaultValue;
         }
-        
+
         // Handle boolean values
         if (setting.dataType === 'boolean') {
             return setting.value === 'true' || setting.value === true ? 'Enable' : 'Disable';
         }
-        
+
         // Return the setting value (already merged with overrides by loadDeviceProfile)
         return String(setting.value);
     }
-    
+
     // Helper function to parse JSON string settings (for kiosk_application, home_launcher)
     function getProfileSettingParsed(key: string, field: 'name' | 'package' | 'value', defaultValue: string = '-'): string {
         const value = getProfileSetting(key, '');
         if (value === '' || value === '-') {
             return defaultValue;
         }
-        
+
         // Try to parse as JSON (for complex settings like kiosk_application)
         try {
             const parsed = JSON.parse(value);
@@ -863,7 +989,7 @@
                 return value;
             }
         }
-        
+
         return defaultValue;
     }
 
@@ -901,27 +1027,55 @@
 
     // Action handlers
     async function handleRefresh() {
-        await invalidate('app:device');
+        if (!device?.id) return;
+        try {
+            addAlert('info', 'Sending refresh command to device...');
+
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.refresh', {
+                deviceId: device.id
+            }, { timeoutMs: 30000 });
+
+            addAlert('success', result.message || 'Device refresh command sent successfully!');
+
+            // Also invalidate local data to refresh UI
+            await invalidate('app:device');
+        } catch (error) {
+            console.error('Refresh failed:', error);
+            addAlert('error', error instanceof Error ? error.message : 'Unable to refresh device. Please try again!');
+        }
     }
 
     async function handleSnapshot() {
+        if (!device?.id) return;
         try {
             addAlert('info', 'Capturing screenshot...');
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ action: 'screenshot' })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to capture screenshot');
+            const rpcResult = await callUserRpc<{
+                flowId?: string;
+                result: { deviceId: string; objectPath: string; operationId: string };
+            }>('device.screenshot', { deviceId: device.id }, { timeoutMs: 60000 });
+
+            const flowId = rpcResult?.flowId;
+            if (!flowId) {
+                throw new Error('Missing flowId in screenshot response');
             }
-            
-            addAlert('success', 'Screenshot captured successfully!');
+
+            const screenshot = await waitForScreenshotResult(flowId, device.id, { timeoutMs: 60000 });
+
+            if (screenshot?.data) {
+                screenshotData = screenshot.data;
+                screenshotFormat = screenshot.format || 'jpeg';
+                screenshotOpen = true;
+                addAlert('success', 'Screenshot captured successfully!');
+            } else {
+                throw new Error('No image data received from device');
+            }
         } catch (error) {
             console.error('Screenshot failed:', error);
-            addAlert('error', 'Unable to capture screenshot. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to capture screenshot. Please try again!');
         }
     }
 
@@ -962,28 +1116,24 @@
             addAlert('error', 'Please enter a source file path');
             return;
         }
-        
+
         pullFileLoading = true;
         try {
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'pullFile',
-                    sourcePath: pullFileSourcePath.trim()
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to pull file');
-            }
-            
-            addAlert('success', 'File pulled successfully!');
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.file.pull', {
+                deviceId: device?.id,
+                sourcePath: pullFileSourcePath.trim(),
+                destinationPath: pullFileSourcePath.trim()
+            }, { timeoutMs: 60000 });
+
+            addAlert('success', result.message || 'File pulled successfully!');
             showPullFileModal = false;
         } catch (error) {
             console.error('Pull file failed:', error);
-            toast.error('Unable to pull file. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to pull file. Please try again!');
         } finally {
             pullFileLoading = false;
         }
@@ -999,11 +1149,11 @@
                 pageSize: String(pushFilePageSize),
                 ...(pushFileSearchTerm ? { search: pushFileSearchTerm } : {})
             });
-            
+
             // Use the same API as the old app for consistency
             const res = await fetch(`/api/resources/files?${params}`);
             if (!res.ok) throw new Error('Failed to load resources');
-            
+
             const data = await res.json();
             pushFileResources = data.items || [];
             pushFileTotalCount = data.meta?.totalCount || 0;
@@ -1026,35 +1176,33 @@
             toast.error('Please enter a destination path');
             return;
         }
-        
+
         const selectedResource = pushFileResources.find(r => r.id === pushFileSelectedResourceId);
         if (!selectedResource) {
             toast.error('Selected resource not found');
             return;
         }
-        
+
         pushFileLoading = true;
         try {
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'pushFile',
-                    resourceId: pushFileSelectedResourceId,
-                    destinationPath: pushFileDestinationPath.trim()
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to push file');
-            }
-            
-            toast.success('File push initiated!');
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.file.push', {
+                deviceId: device?.id,
+                sourcePath: selectedResource.name,
+                destinationPath: pushFileDestinationPath.trim(),
+                resourceId: pushFileSelectedResourceId
+            }, { timeoutMs: 60000 });
+
+            console.log('[PushFile] RPC result:', result);
+
+            addAlert('success', result.message || 'File push initiated!');
             showPushFileModal = false;
         } catch (error) {
             console.error('Push file failed:', error);
-            toast.error('Unable to push file. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to push file. Please try again!');
         } finally {
             pushFileLoading = false;
         }
@@ -1066,7 +1214,7 @@
         try {
             const res = await fetch(`/api/user/resources/firmware?pageSize=100`);
             if (!res.ok) throw new Error('Failed to load firmware');
-            
+
             const data = await res.json();
             updateFirmwareOptions = (data.items || []).map((item: any) => ({
                 id: item.id,
@@ -1094,47 +1242,55 @@
             toast.error('Please select a firmware to update');
             return;
         }
-        
+
+        const selectedFirmware = updateFirmwareOptions.find(fw => fw.id === updateFirmwareSelected);
+        if (!selectedFirmware) {
+            toast.error('Selected firmware not found');
+            return;
+        }
+
         updateFirmwareLoading = true;
         try {
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'pushFile',
-                    resourceId: updateFirmwareSelected,
-                    destinationPath: '/tmp/firmware_update'
-                })
-            });
-            
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.error?.message || 'Failed to update firmware');
-            }
-            
-            toast.success('Firmware updated successfully!');
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.firmware.update', {
+                deviceId: device?.id,
+                firmwareVersion: selectedFirmware.version || '1.0.0',
+                resourceId: updateFirmwareSelected
+            }, { timeoutMs: 60000 });
+
+            addAlert('success', result.message || 'Firmware update initiated!');
             showUpdateFirmwareModal = false;
         } catch (error) {
             console.error('Firmware update failed:', error);
-            toast.error('Unable to update Firmware. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to update Firmware. Please try again!');
         } finally {
             updateFirmwareLoading = false;
         }
     }
 
     async function handleReboot() {
-        if (!confirm('Are you sure you want to reboot this device?')) return;
+        showRebootConfirm = true;
+    }
+
+    async function confirmReboot() {
         try {
-            const res = await fetch(`/api/devices/${device?.id}/actions`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ action: 'reboot' })
-            });
-            if (!res.ok) throw new Error('Failed to reboot');
-            toast.success('Device rebooted successfully!');
+            addAlert('info', 'Rebooting device...');
+
+            const result = await callUserRpc<{
+                success: boolean;
+                operationId?: string;
+                message?: string;
+            }>('device.reboot', {
+                deviceId: device?.id
+            }, { timeoutMs: 30000 });
+
+            addAlert('success', result.message || 'Device reboot initiated successfully!');
         } catch (error) {
             console.error('Reboot failed:', error);
-            toast.error('Unable to reboot device. Please try again!');
+            addAlert('error', error instanceof Error ? error.message : 'Unable to reboot device. Please try again!');
         }
     }
 
@@ -1177,19 +1333,20 @@
     // Generate new API Key
     let isGeneratingKey = false;
     let generateKeyForm: HTMLFormElement | null = null;
-    
+
     // Handle button click to show confirm before submitting
     function handleGenerateKeyClick() {
+        showGenerateKeyConfirm = true;
+    }
+
+    // Confirm and execute key generation
+    function confirmGenerateKey() {
         if (!generateKeyForm) return;
-        
-        if (!confirm('Are you sure you want to generate a new API Key? The old key will be invalidated.')) {
-            return;
-        }
-        
+
         isGeneratingKey = true;
         // Submit form - SvelteKit will handle the action
         generateKeyForm.requestSubmit();
-        
+
         // After form submits, refresh data
         setTimeout(async () => {
             await invalidate('app:device');
@@ -1310,11 +1467,11 @@
                 <div class="info-row">
                     <span class="info-label">Connection Status</span>
                     <div class="info-value">
-                        <Badge 
-                            label={isOnline ? 'Online' : 'Offline'} 
-                            color={isOnline ? 'success' : 'gray'} 
-                            variant="filled" 
-                            size="sm" 
+                        <Badge
+                            label={isOnline ? 'Online' : 'Offline'}
+                            color={isOnline ? 'success' : 'gray'}
+                            variant="filled"
+                            size="sm"
                         />
                     </div>
                 </div>
@@ -1370,10 +1527,10 @@
                         <div class="info-card-body">
                             <div class="info-row-detail">
                                 <span class="label">Device State</span>
-                                <Badge 
-                                    label={isActive ? 'Active' : 'Inactive'} 
-                                    color={isActive ? 'success' : 'gray'} 
-                                    variant="filled" 
+                                <Badge
+                                    label={isActive ? 'Active' : 'Inactive'}
+                                    color={isActive ? 'success' : 'gray'}
+                                    variant="filled"
                                     size="sm"
                                     showDot={true}
                                 />
@@ -1460,8 +1617,8 @@
                         <div class="info-card-body">
                             <div class="info-row-detail">
                                 <span class="label">Connection Status</span>
-                                <Badge 
-                                    label={isOnline ? 'Online' : 'Offline'} 
+                                <Badge
+                                    label={isOnline ? 'Online' : 'Offline'}
                                     color={isOnline ? 'success' : 'gray'}
                                     size="sm"
                                     showDot={false}
@@ -1516,9 +1673,9 @@
                                 <h4>Security</h4>
                                 <p>API keys, licenses, and security settings</p>
                             </div>
-                            <form 
+                            <form
                                 bind:this={generateKeyForm}
-                                method="POST" 
+                                method="POST"
                                 action="?/generateApiKey"
                                 style="display: inline-block"
                             >
@@ -1753,7 +1910,7 @@
                         Install New App
                     </Button>
                 </div>
-                
+
                 <div>
                 {#if appsLoading}
                     <div class="apps-loading">
@@ -1814,7 +1971,7 @@
                         <p>Configuration setup of this device</p>
                     </div>
                 </div>
-                
+
                 <div>
                 {#if deploymentsLoading}
                     <div class="deployments-loading">
@@ -1828,6 +1985,7 @@
                         <Button
                             variant="primary"
                             size="medium"
+                            class="btn-compact-padding"
                             on:click={() => goto('/user/iot/bundles')}
                         >
                             Go to Bundles
@@ -1900,7 +2058,7 @@
                                     <span class="header-text">Status</span>
                                 </div>
                             </div>
-                            
+
                             <!-- Table Body -->
                             {#each activityLogs as log (log.id)}
                                 <!-- Main Row -->
@@ -1923,7 +2081,7 @@
                                         <span class="description-text">{log.description}</span>
                                     </div>
                                     <div class="activity-cell activity-col-status">
-                                        <Badge 
+                                        <Badge
                                             label={log.status}
                                             color={getActivityLogBadgeColor(log.status)}
                                             variant="filled"
@@ -1932,7 +2090,7 @@
                                         />
                                     </div>
                                 </div>
-                                
+
                                 <!-- Expanded Details -->
                                 {#if log.expanded && log.details && log.details.length > 0}
                                     <div class="activity-details-row">
@@ -1964,7 +2122,7 @@
                                 {/if}
                             {/each}
                         </div>
-                        
+
                         <!-- Pagination -->
                         <div class="activity-pagination">
                             <span class="pagination-details">{((activityLogsCurrentPage - 1) * activityLogsPageSize) + 1} - {Math.min(activityLogsCurrentPage * activityLogsPageSize, activityLogsTotalCount)} of {activityLogsTotalCount}</span>
@@ -1998,6 +2156,36 @@
 </div>
 
 <!-- Edit Device Modal (Shared Component) -->
+<ScreenshotModal
+    open={screenshotOpen}
+    imageData={screenshotData}
+    format={screenshotFormat}
+    onClose={() => {
+        screenshotOpen = false;
+        screenshotData = null;
+    }}
+/>
+
+<!-- Reboot Confirmation Dialog -->
+<ConfirmationDialog
+    bind:open={showRebootConfirm}
+    title="Reboot Device"
+    description="Are you sure you want to reboot this device? This will restart the device and may take a few minutes."
+    confirmText="Reboot"
+    cancelText="Cancel"
+    onConfirm={confirmReboot}
+/>
+
+<!-- Generate API Key Confirmation Dialog -->
+<ConfirmationDialog
+    bind:open={showGenerateKeyConfirm}
+    title="Generate New API Key"
+    description="Are you sure you want to generate a new API Key? The old key will be invalidated and any applications using it will need to be updated."
+    confirmText="Generate"
+    cancelText="Cancel"
+    onConfirm={confirmGenerateKey}
+/>
+
 <EditDeviceModal
     bind:open={showEditDeviceModal}
     device={device}
@@ -2132,13 +2320,13 @@
                                     <div class="push-file-radio-dot"></div>
                                 {/if}
                             </div>
-                            
+
                             <!-- File info -->
                             <div class="push-file-info">
                                 <span class="push-file-name">{resource.name}</span>
                                 <span class="push-file-package">{resource.packageName || '-'}</span>
                             </div>
-                            
+
                             <!-- Meta info -->
                             <div class="push-file-meta">
                                 <div class="push-file-meta-item">
@@ -2404,7 +2592,7 @@
                     <!-- Main Row: Radio + Name/Package + Version + Size -->
                     <div class="flex items-start w-full">
                         <!-- Radio Button -->
-                        <div 
+                        <div
                             class="flex items-center justify-center flex-shrink-0"
                             style="
                                 width: 20px;
@@ -2420,7 +2608,7 @@
                                 <div style="width: 10px; height: 10px; border-radius: 50%; background: #141414;"></div>
                             {/if}
                         </div>
-                        
+
                         <!-- Name + Package Name (flex: 1) -->
                         <div class="flex flex-col" style="flex: 1; min-width: 0; gap: 2px;">
                             <span style="font-family: var(--ds-font-family-primary); font-size: 16px; line-height: 24px; font-weight: 500; color: #292929;">
@@ -2430,7 +2618,7 @@
                                 {firmware.packageName}
                             </span>
                         </div>
-                        
+
                         <!-- Version Column (fixed width) -->
                         <div class="flex flex-col flex-shrink-0" style="width: 120px; padding-left: 16px;">
                             <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085;">
@@ -2440,7 +2628,7 @@
                                 {firmware.version}
                             </span>
                         </div>
-                        
+
                         <!-- Size Column (fixed width) -->
                         <div class="flex flex-col flex-shrink-0" style="width: 100px; padding-left: 16px;">
                             <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085;">
@@ -2451,7 +2639,7 @@
                             </span>
                         </div>
                     </div>
-                    
+
                     <!-- Created On Row -->
                     <div class="flex items-center" style="padding-left: 32px;">
                         <span style="font-family: var(--ds-font-family-primary); font-size: 12px; line-height: 16px; letter-spacing: 0.01em; color: #667085;">
@@ -2470,8 +2658,8 @@
 
     <!-- Pagination -->
     {#if updateFirmwareFilteredOptions.length > 0}
-        <div 
-            class="flex items-center justify-end w-full" 
+        <div
+            class="flex items-center justify-end w-full"
             style="
                 padding: 8px 0;
                 gap: 8px;
@@ -2504,7 +2692,7 @@
                     on:click={() => updateFirmwarePage = Math.max(1, updateFirmwarePage - 1)}
                 />
                 <!-- Current Page -->
-                <div 
+                <div
                     class="flex items-center justify-center"
                     style="
                         width: 40px;
@@ -2584,12 +2772,12 @@
         justify-content: flex-end;
         width: 100%;
     }
-    
+
     @media (max-width: 500px) {
         .edit-button-wrapper {
             justify-content: stretch;
         }
-        
+
         .edit-button-wrapper :global(button) {
             width: 100%;
         }
@@ -2619,7 +2807,7 @@
         width: 100% !important;
         min-width: 0 !important;
     }
-    
+
     .device-health-card {
         width: 100%;
         min-width: 0;
@@ -2718,7 +2906,7 @@
         width: 100% !important;
         max-width: 426px !important;
     }
-    
+
     .general-card {
         width: 100%;
         max-width: 426px;
@@ -2766,20 +2954,20 @@
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
     }
-    
+
     .tabs-wrapper::-webkit-scrollbar {
         height: 4px;
     }
-    
+
     .tabs-wrapper::-webkit-scrollbar-track {
         background: transparent;
     }
-    
+
     .tabs-wrapper::-webkit-scrollbar-thumb {
         background: #D6D6D6;
         border-radius: 2px;
     }
-    
+
     .tabs-wrapper::-webkit-scrollbar-thumb:hover {
         background: #A3A3A3;
     }
@@ -2919,12 +3107,12 @@
         flex-wrap: wrap;
         gap: var(--ds-space-2);
     }
-    
+
     .security-card .info-card-header form {
         margin-left: auto;
         width: 100%;
     }
-    
+
     @media (min-width: 501px) {
         .security-card .info-card-header form {
             width: auto;
@@ -2944,7 +3132,7 @@
         line-height: 20px;
         color: #141414;
     }
-    
+
     /* Configuration Card - Override layout properties only */
     :global(.config-card .ds-card) {
         box-sizing: border-box !important;
@@ -2982,16 +3170,16 @@
         overflow: hidden;
         margin-bottom: var(--ds-space-4);
     }
-    
+
     .config-table-wrap:last-child {
         margin-bottom: 0;
     }
-    
+
     /* Round bottom corners for last row cells */
     .config-table-wrap .config-row.last .config-cell:first-child {
         border-bottom-left-radius: var(--ds-radius-lg);
     }
-    
+
     .config-table-wrap .config-row.last .config-cell:last-child {
         border-bottom-right-radius: var(--ds-radius-lg);
     }
@@ -3100,7 +3288,7 @@
     :global(.apps-card .ds-datatable) {
         border: none !important;
     }
-    
+
     .apps-icon-wrap {
         display: flex;
         justify-content: center;
@@ -3110,14 +3298,14 @@
         height: 44px;
         border-radius: var(--ds-radius-lg);
     }
-    
+
     .apps-header-text {
         display: flex;
         flex-direction: column;
         gap: var(--ds-space-0-5);
         flex: 1;
     }
-    
+
     .apps-header-text h4 {
         font-weight: var(--ds-font-medium);
         font-size: var(--ds-text-lg);
@@ -3125,7 +3313,7 @@
         color: var(--ds-text-primary);
         margin: 0;
     }
-    
+
     .apps-header-text p {
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-sm);
@@ -3133,7 +3321,7 @@
         color: var(--ds-text-secondary);
         margin: 0;
     }
-    
+
     .apps-loading,
     .no-data-state {
         display: flex;
@@ -3143,13 +3331,13 @@
         padding: var(--ds-space-12);
         gap: var(--ds-space-4);
     }
-    
+
     .apps-loading span {
         font-size: var(--ds-text-sm);
         color: var(--ds-text-tertiary);
         margin: 0;
     }
-    
+
     .no-data-state-text {
         font-family: var(--ds-font-family-primary);
         font-size: var(--ds-text-base);
@@ -3157,14 +3345,14 @@
         color: #A3A3A3;
         margin: 0;
     }
-    
+
     .no-data-state-actions {
         display: flex;
         flex-wrap: wrap;
         gap: var(--ds-space-2);
         justify-content: center;
     }
-    
+
     .loading-spinner {
         width: 24px;
         height: 24px;
@@ -3173,11 +3361,11 @@
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
     }
-    
+
     @keyframes spin {
         to { transform: rotate(360deg); }
     }
-    
+
     .apps-table-wrap {
         display: flex;
         flex-direction: column;
@@ -3185,16 +3373,16 @@
         border-radius: var(--ds-radius-lg);
         overflow: hidden;
     }
-    
+
     .apps-table {
         width: 100%;
         border-collapse: collapse;
     }
-    
+
     .apps-table thead {
         background: var(--ds-color-neutral-true-100, #F5F5F5);
     }
-    
+
     .apps-table th {
         padding: var(--ds-space-3) var(--ds-card-padding-md);
         text-align: left;
@@ -3205,7 +3393,7 @@
         color: var(--ds-text-secondary);
         border-bottom: 1px solid var(--ds-border-default);
     }
-    
+
     .apps-table td {
         padding: var(--ds-card-padding-md);
         font-family: var(--ds-font-family-primary);
@@ -3217,72 +3405,72 @@
         vertical-align: middle;
         background: var(--ds-color-white);
     }
-    
+
     /* Round bottom corners for last row cells */
     .apps-table tbody tr:last-child td:first-child {
         border-bottom: none;
         border-bottom-left-radius: var(--ds-radius-lg);
     }
-    
+
     .apps-table tbody tr:last-child td:last-child {
         border-bottom: none;
         border-bottom-right-radius: var(--ds-radius-lg);
     }
-    
+
     .apps-table tbody tr:not(:last-child) td {
         border-bottom: 1px solid var(--ds-border-default);
     }
-    
+
     .col-pin {
         width: 52px;
         padding: var(--ds-card-padding-md) !important;
     }
-    
+
     .col-app {
         min-width: 400px;
     }
-    
+
     .col-type {
         width: 150px;
     }
-    
+
     .col-version {
         width: 100px;
     }
-    
+
     .col-size {
         width: 100px;
     }
-    
+
     .col-installed {
         width: 200px;
     }
-    
+
     .col-actions {
         width: 78px;
         text-align: center;
     }
-    
+
     .app-details {
         display: flex;
         flex-direction: column;
         gap: 0;
     }
-    
+
     .app-name {
         font-weight: var(--ds-font-medium);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
         color: var(--ds-text-primary);
     }
-    
+
     .app-package {
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
         color: var(--ds-text-tertiary);
     }
-    
+
     /* Pagination */
     .apps-pagination {
         display: flex;
@@ -3293,7 +3481,7 @@
         gap: var(--ds-space-2);
         border-top: 1px solid var(--ds-border-default);
     }
-    
+
     .pagination-info {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
@@ -3301,13 +3489,13 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-gray-600);
     }
-    
+
     .pagination-controls {
         display: flex;
         align-items: center;
         gap: var(--ds-space-1);
     }
-    
+
     .page-number {
         display: flex;
         align-items: center;
@@ -3323,7 +3511,7 @@
         text-align: center;
         color: var(--ds-color-gray-800);
     }
-    
+
     /* Deployments Card - Override layout properties only */
     :global(.deployments-card .ds-card) {
         box-sizing: border-box !important;
@@ -3331,7 +3519,7 @@
         flex-direction: column !important;
         gap: var(--ds-space-4) !important;
     }
-    
+
     /* Align with tab Details: padding="none" + header has padding like info-card-header */
     .deployments-header {
         display: flex;
@@ -3352,7 +3540,7 @@
     :global(.deployments-card .ds-datatable) {
         border: none !important;
     }
-    
+
     .deployments-icon-wrap {
         display: flex;
         justify-content: center;
@@ -3362,14 +3550,14 @@
         height: 44px;
         border-radius: var(--ds-radius-lg);
     }
-    
+
     .deployments-header-text {
         display: flex;
         flex-direction: column;
         gap: var(--ds-space-0-5);
         flex: 1;
     }
-    
+
     .deployments-header-text h4 {
         font-weight: var(--ds-font-medium);
         font-size: var(--ds-text-lg);
@@ -3377,7 +3565,7 @@
         color: var(--ds-text-primary);
         margin: 0;
     }
-    
+
     .deployments-header-text p {
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-sm);
@@ -3385,7 +3573,7 @@
         color: var(--ds-text-secondary);
         margin: 0;
     }
-    
+
     .deployments-loading,
     .deployments-empty {
         display: flex;
@@ -3395,14 +3583,14 @@
         padding: var(--ds-space-12);
         gap: var(--ds-space-4);
     }
-    
+
     .deployments-loading span,
     .deployments-empty p {
         font-size: var(--ds-text-sm);
         color: var(--ds-text-tertiary);
         margin: 0;
     }
-    
+
     /* Bulk Deployments table – aligned with Figma spec */
     .deployments-table-wrap {
         display: flex;
@@ -3412,17 +3600,17 @@
         overflow-x: auto; /* horizontal scroll when viewport is small */
         overflow-y: hidden;
     }
-    
+
     .deployments-table {
         width: 100%;
         min-width: 1125px; /* 400+100+200+200+140+85 – wide enough for horizontal scroll on small screens */
         border-collapse: collapse;
     }
-    
+
     .deployments-table thead {
         background: var(--ds-color-neutral-true-100);
     }
-    
+
     .deployments-table th {
         /* Figma: Table header cell – height 44px, padding 12px 16px, bg #F5F5F5, border #EAECF0 */
         min-height: 44px;
@@ -3437,7 +3625,7 @@
         background: var(--ds-color-neutral-true-100);
         border-bottom: 1px solid var(--ds-color-gray-200);
     }
-    
+
     .deployments-table td {
         /* Figma: Table cell – padding 16px, min-height 52px, font 14/20 #141414. No border-bottom per spec. */
         padding: var(--ds-space-4);
@@ -3451,46 +3639,46 @@
         background: var(--ds-color-white);
         min-height: 52px;
     }
-    
+
     /* Figma: Action cell – padding 8px 16px, 36×36 button */
     .deployments-table td.dep-col-action {
         padding: var(--ds-space-2) var(--ds-space-4);
     }
-    
+
     /* Round bottom corners for last row – 9px to match wrapper */
     .deployments-table tbody tr:last-child td:first-child {
         border-bottom-left-radius: 9px;
     }
-    
+
     .deployments-table tbody tr:last-child td:last-child {
         border-bottom-right-radius: 9px;
     }
-    
+
     .dep-col-name {
         min-width: 400px;
     }
-    
+
     .dep-col-version {
         width: 100px;
     }
-    
+
     .dep-col-started {
         width: 200px;
     }
-    
+
     .dep-col-ended {
         width: 200px;
     }
-    
+
     .dep-col-status {
         width: 140px;
     }
-    
+
     .dep-col-action {
         width: 85px;
         text-align: center;
     }
-    
+
     /* Deployments Pagination – Figma: padding 8px 24px, gap 8px, height 56px, border-top #EAECF0 */
     .deployments-pagination {
         display: flex;
@@ -3503,7 +3691,7 @@
         box-sizing: border-box;
         border-top: 1px solid var(--ds-color-gray-200);
     }
-    
+
     .dep-pagination-info {
         /* Figma: Details – Body/14-Regular, Neutral-True/600 #525252 */
         font-family: var(--ds-font-family-primary);
@@ -3512,19 +3700,19 @@
         line-height: 20px;
         color: var(--ds-color-neutral-true-600);
     }
-    
+
     .dep-pagination-controls {
         display: flex;
         align-items: center;
         gap: 2px; /* Figma: Pagination numbers gap 2px */
     }
-    
+
     .dep-page-numbers {
         display: flex;
         align-items: center;
         gap: 2px; /* Figma: gap 2px between page number cells */
     }
-    
+
     .dep-page-number {
         /* Figma: _Pagination number base – 40×40, radius 8px */
         display: flex;
@@ -3542,17 +3730,17 @@
         cursor: pointer;
         transition: background 0.15s ease;
     }
-    
+
     .dep-page-number:hover {
         background: var(--ds-color-neutral-true-100);
     }
-    
+
     .dep-page-number.active {
         /* Figma: active – Gray/50 #F9FAFB, Gray/800 #1D2939 */
         background: var(--ds-color-gray-50);
         color: var(--ds-color-gray-800);
     }
-    
+
     .dep-page-ellipsis {
         display: flex;
         align-items: center;
@@ -3667,16 +3855,16 @@
         background: var(--ds-color-white);
         border-bottom: 1px solid var(--ds-border-default);
     }
-    
+
     /* Round bottom corners for last activity row */
     .activity-table-wrap .activity-row:last-child {
         border-bottom: none;
     }
-    
+
     .activity-table-wrap .activity-row:last-child .activity-cell:first-child {
         border-bottom-left-radius: var(--ds-radius-lg);
     }
-    
+
     .activity-table-wrap .activity-row:last-child .activity-cell:last-child {
         border-bottom-right-radius: var(--ds-radius-lg);
     }
@@ -3839,7 +4027,7 @@
         align-items: center;
         gap: var(--ds-space-1);
     }
-    
+
     .activity-pagination .page-number {
         display: flex;
         justify-content: center;
@@ -3994,7 +4182,7 @@
         .general-card {
             max-width: 100% !important;
         }
-        
+
         :global(.general-card .ds-card) {
             max-width: 100% !important;
         }
@@ -4002,7 +4190,7 @@
         .quick-actions {
             grid-template-columns: repeat(4, 1fr);
         }
-        
+
         .details-wrap {
             gap: var(--ds-space-4);
         }
@@ -4013,7 +4201,7 @@
         .device-details-page {
             padding: 24px;
         }
-        
+
         .header-section {
             grid-template-columns: 1fr;
             gap: var(--ds-space-4);
@@ -4022,11 +4210,11 @@
         .general-card {
             max-width: 100% !important;
         }
-        
+
         :global(.general-card .ds-card) {
             max-width: 100% !important;
         }
-        
+
         .details-grid {
             grid-template-columns: 1fr;
         }
@@ -4034,7 +4222,7 @@
         .details-column {
             width: 100%;
         }
-        
+
         .details-wrap {
             flex-wrap: wrap;
             gap: var(--ds-space-3);
@@ -4051,7 +4239,7 @@
             grid-template-columns: repeat(2, 1fr);
             gap: var(--ds-space-3);
         }
-        
+
         .details-wrap {
             gap: var(--ds-space-3);
         }
@@ -4062,12 +4250,12 @@
         .device-details-page {
             padding: 24px;
         }
-        
+
         .header-section {
             gap: var(--ds-space-3);
         }
 
-        
+
         /* Align: all cards use padding="none", header manages own padding */
         .card-header,
         .info-card-header,
@@ -4087,11 +4275,11 @@
             grid-template-columns: repeat(2, 1fr);
             gap: var(--ds-space-2);
         }
-        
+
         /*.tabs-wrapper {
             margin-top: var(--ds-space-2);
         }*/
-        
+
         .tab-content {
             margin-top: var(--ds-space-3);
         }
@@ -4106,60 +4294,60 @@
             grid-template-columns: 1fr;
             gap: var(--ds-space-2);
         }
-        
+
         .details-wrap {
             flex-direction: column;
             align-items: flex-start;
             gap: var(--ds-space-3);
         }
-        
+
         .metric-item {
             flex: 1 1 100%;
             width: 100%;
             min-width: 100%;
         }
-        
+
         .card-title {
             font-size: 16px;
             line-height: 22px;
         }
-        
+
         .card-subtitle {
             font-size: 13px;
             line-height: 18px;
         }
-        
+
         .metric-value {
             font-size: 24px;
             line-height: 30px;
         }
-        
+
         .info-row-detail {
             flex-direction: column;
             align-items: flex-start;
             gap: var(--ds-space-1);
         }
-        
+
         .info-row-detail .value {
             text-align: left;
         }
-        
+
         .info-row {
             flex-direction: column;
             align-items: flex-start;
             gap: var(--ds-space-2);
         }
-        
+
         .info-value-text {
             text-align: left;
         }
     }
-    
+
     @media (max-width: 375px) {
         .device-details-page {
             padding: 24px;
         }
-        
+
         /* Align: all cards use padding="none", header manages own padding */
         .card-header,
         .info-card-header,
@@ -4180,7 +4368,7 @@
     /* ========================================
        Push File Modal Styles (Design System)
        ======================================== */
-    
+
     /* File List Item */
     .push-file-item {
         display: flex;
@@ -4357,7 +4545,7 @@
     /* ========================================
        Pull File Modal Styles (Design System)
        ======================================== */
-    
+
     .pull-file-info-box {
         background: #FAFAFA;
         border-radius: 8px;
@@ -4398,5 +4586,10 @@
 
     .pull-file-info-list li:last-child {
         margin-bottom: 0;
+    }
+
+    /* Custom button styles */
+    :global(.btn-compact-padding) {
+        padding: 5px 5px !important;
     }
 </style>

@@ -528,7 +528,14 @@
                             <!-- Device Name: padding 12px 16px, gap 6px -->
                             <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
                                 <div class="flex flex-col gap-[6px]">
-                                    <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.name}</span>
+                                    <button
+                                        type="button"
+                                        class="device-name-link text-left"
+                                        style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); cursor: pointer; background: none; border: none; padding: 0;"
+                                        on:click={() => handleAction("view", row)}
+                                    >
+                                        {row.name}
+                                    </button>
                                     {#if row.tags && row.tags.length > 0}
                                         <div class="flex items-center gap-1 flex-nowrap">
                                             {#each row.tags.slice(0, 3) as deviceTag}
@@ -605,7 +612,7 @@
             <div style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-600); white-space: nowrap;">
                 {(pagination.page - 1) * pagination.perPage + 1} - {Math.min(pagination.page * pagination.perPage, pagination.total)} of {pagination.total}
             </div>
-            
+
             <!-- Pagination numbers: gap 2px -->
             <div class="flex items-center" style="gap: 2px;">
                 <!-- First page: 36x36px, padding 8px, border-radius 8px -->
@@ -618,7 +625,7 @@
                 >
                     <ChevronsLeft size={20} style="color: #292929;" />
                 </button>
-                
+
                 <!-- Previous page: 36x36px, padding 8px, border-radius 8px -->
                 <button
                     type="button"
@@ -678,8 +685,8 @@
     {#if currentColumn?.filterOptions}
         <!-- Backdrop to close dropdown when clicking outside -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div 
-            class="fixed inset-0" 
+        <div
+            class="fixed inset-0"
             style="z-index: 9998;"
             on:click={() => openFilterColumn = null}
             on:keydown={(e) => { if (e.key === 'Escape') openFilterColumn = null; }}
@@ -691,7 +698,7 @@
             tabindex="-1"
         >
             {#each currentColumn.filterOptions as option (option.value)}
-                <div 
+                <div
                     class="flex items-center gap-3 cursor-pointer"
                     style="padding: 10px 8px; border-radius: 8px; transition: background-color 0.15s ease;"
                     role="option"
@@ -729,7 +736,7 @@
                         checked={activeFilters[openFilterColumn]?.includes(option.value) || false}
                         size="md"
                     />
-                    <span 
+                    <span
                         style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-700);"
                     >
                         {option.label}
@@ -746,8 +753,8 @@
     {#if currentRow}
         <!-- Backdrop to close menu when clicking outside -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div 
-            class="fixed inset-0" 
+        <div
+            class="fixed inset-0"
             style="z-index: 9998;"
             on:click={() => { openActionMenuId = null; actionMenuPosition = null; }}
             on:keydown={(e) => { if (e.key === 'Escape') { openActionMenuId = null; actionMenuPosition = null; } }}
@@ -813,5 +820,10 @@
     th,
     td {
         vertical-align: middle;
+    }
+
+    .device-name-link:hover {
+        text-decoration: underline;
+        color: var(--ds-color-primary-800);
     }
 </style>
