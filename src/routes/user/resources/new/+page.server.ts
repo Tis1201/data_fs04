@@ -216,7 +216,7 @@ export const actions: Actions = {
                             version: form.data.version,
                             versionCode: form.data.versionCode ?? null,
                             signature: form.data.signature ?? null,
-                            releaseType: 'Production', // Default release type
+                            releaseType: form.data.releaseType || 'Production',
                             format: form.data.format,
                             packageName: form.data.packageName,
                             path: form.data.path,

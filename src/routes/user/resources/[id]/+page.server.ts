@@ -92,6 +92,8 @@ export const actions: Actions = {
                         type: form.data.type,
                         target: form.data.target || undefined,
                         version: form.data.version,
+                        versionCode: form.data.versionCode ?? null,
+                        signature: form.data.signature ?? null,
                         releaseType: form.data.releaseType,
                         format: form.data.format,
                         packageName: form.data.packageName,

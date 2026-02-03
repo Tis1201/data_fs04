@@ -20,6 +20,9 @@
         type: string;
         target: string | null;
         version: string | null;
+        versionCode: number | null;
+        signature: string | null;
+        releaseType: string | null;
         format: string | null;
         packageName: string | null;
         path: string | null;
@@ -190,13 +193,19 @@
         return m[type?.toLowerCase()] ?? type ?? '—';
     }
 
-    function targetDisplay(target: string | null | undefined): string {
-        if (!target) return '—';
-        const t = target.toLowerCase();
-        if (t === 'user') return 'User';
-        if (t === 'device') return 'Device';
-        if (t === 'account') return 'Account';
-        return target;
+    function releaseTypeDisplay(rt: string | null | undefined): string {
+        if (!rt) return 'Production';
+        const t = rt.trim();
+        if (['Alpha', 'Beta', 'Production'].includes(t)) return t;
+        return rt;
+    }
+
+    function escapeHtml(s: string): string {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     $: columns = [
@@ -204,10 +213,16 @@
             id: 'name',
             header: 'Name',
             accessor: (row: ResourceRow) => row.name || '',
-            supportingField: 'packageName',
-            type: 'textWithSupporting' as const,
+            type: 'custom' as const,
             sortable: true,
-            width: '280px'
+            width: '280px',
+            render: (value: unknown, row: ResourceRow) => {
+                const name = row.name || '—';
+                const pkg = row.packageName || '';
+                const link = `<a href="${basePath}/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
+                const pkgLine = pkg ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(pkg)}</span>` : '';
+                return `<div class="flex flex-col gap-0"><span>${link}</span>${pkgLine ? `<span>${pkgLine}</span>` : ''}</div>`;
+            }
         },
         {
             id: 'type',
@@ -218,9 +233,9 @@
             width: '120px'
         },
         {
-            id: 'target',
-            header: 'Target',
-            accessor: (row: ResourceRow) => targetDisplay(row.target),
+            id: 'releaseType',
+            header: 'Release Type',
+            accessor: (row: ResourceRow) => releaseTypeDisplay(row.releaseType),
             type: 'text' as const,
             sortable: true,
             width: '100px'
@@ -359,7 +374,10 @@
         path: editResourceRow.path ?? undefined,
         type: editResourceRow.type,
         format: editResourceRow.format ?? undefined,
-        size: editResourceRow.size
+        size: editResourceRow.size,
+        releaseType: editResourceRow.releaseType ?? undefined,
+        versionCode: editResourceRow.versionCode ?? undefined,
+        signature: editResourceRow.signature ?? undefined
     } : null}
     accounts={accounts}
     on:close={closeEditResourceModal}

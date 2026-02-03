@@ -1,7 +1,7 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
-    import { Pencil, Download, Info } from 'lucide-svelte';
+    import { Pencil, Download, Info, Copy } from 'lucide-svelte';
     import { Button, Card } from '$lib/design-system/components';
     import AddEditResourceModal from '../components/AddEditResourceModal.svelte';
     import type { PageData } from './$types';
@@ -40,13 +40,36 @@
         return m[type?.toLowerCase()] ?? type ?? '—';
     }
 
-    function targetDisplay(target: string | null | undefined): string {
-        if (!target) return '—';
-        const t = target.toLowerCase();
-        if (t === 'user') return 'User';
-        if (t === 'device') return 'Device';
-        if (t === 'account') return 'Account';
-        return target;
+    function releaseTypeDisplay(rt: string | null | undefined): string {
+        if (!rt) return 'Production';
+        const t = rt.trim();
+        if (['Alpha', 'Beta', 'Production'].includes(t)) return t;
+        return rt;
+    }
+
+    function formatBytes(bytes: number | null | undefined): string {
+        if (bytes == null || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    const TRUNCATE_FILE_NAME = 56;
+    const TRUNCATE_PATH = 80;
+
+    function truncateWithEllipsis(str: string | null | undefined, maxLen: number): string {
+        if (!str) return '—';
+        if (str.length <= maxLen) return str;
+        return str.slice(0, maxLen - 3) + '...';
+    }
+
+    /** Display filename from path: strip query string, take last segment, truncate if long */
+    function displayFileName(path: string | null | undefined): string {
+        if (!path) return '—';
+        const withoutQuery = path.split('?')[0];
+        const segment = withoutQuery.split('/').filter(Boolean).pop() || path;
+        return truncateWithEllipsis(segment, TRUNCATE_FILE_NAME);
     }
 
     $: createdByLabel = resource.creator
@@ -55,9 +78,24 @@
     $: updatedByLabel = resource.updater
         ? `${resource.updater.name || resource.updater.email || 'Unknown'}`
         : 'Unknown';
-    $: uploadedFileName = resource.path
-        ? resource.path.split('/').filter(Boolean).pop() || resource.name || '—'
-        : resource.name || '—';
+    /** Filename for download attribute (no query string) */
+    $: downloadFileName = resource.path
+        ? (resource.path.split('?')[0].split('/').filter(Boolean).pop() || resource.name || 'resource')
+        : resource.name || 'resource';
+    /** Short display for "Resource Uploaded File" (truncated if long) */
+    $: uploadedFileDisplay = displayFileName(resource.path) || resource.name || '—';
+    /** Short display for "Resource Path" (truncated if long) */
+    $: pathDisplay = truncateWithEllipsis(resource.path, TRUNCATE_PATH);
+
+    async function copyResourcePath() {
+        if (!resource.path) return;
+        try {
+            await navigator.clipboard.writeText(resource.path);
+            toast.success('Resource path copied to clipboard');
+        } catch {
+            toast.error('Failed to copy path');
+        }
+    }
 
 </script>
 
@@ -106,10 +144,6 @@
                     <span class="resource-overview-value">{resource.packageName || '—'}</span>
                 </div>
                 <div class="resource-overview-field">
-                    <span class="resource-overview-label">Target</span>
-                    <span class="resource-overview-value">{targetDisplay(resource.target)}</span>
-                </div>
-                <div class="resource-overview-field">
                     <span class="resource-overview-label">Version</span>
                     <span class="resource-overview-value">{resource.version || '—'}</span>
                 </div>
@@ -118,19 +152,52 @@
                     <span class="resource-overview-value">{typeDisplay(resource.type)}</span>
                 </div>
                 <div class="resource-overview-field">
+                    <span class="resource-overview-label">Release Type</span>
+                    <span class="resource-overview-value">{releaseTypeDisplay(resource.releaseType)}</span>
+                </div>
+                <div class="resource-overview-field">
+                    <span class="resource-overview-label">Format</span>
+                    <span class="resource-overview-value">{(resource.format || '—').toUpperCase()}</span>
+                </div>
+                <div class="resource-overview-field">
+                    <span class="resource-overview-label">Size</span>
+                    <span class="resource-overview-value">{formatBytes(resource.size)}</span>
+                </div>
+                <div class="resource-overview-field">
                     <span class="resource-overview-label">Account</span>
                     <span class="resource-overview-value">{resource.account?.name ?? '—'}</span>
                 </div>
+                {#if resource.versionCode != null}
+                    <div class="resource-overview-field">
+                        <span class="resource-overview-label">Version Code</span>
+                        <span class="resource-overview-value">{resource.versionCode}</span>
+                    </div>
+                {/if}
+                {#if resource.signature}
+                    <div class="resource-overview-field resource-overview-field-span-2">
+                        <span class="resource-overview-label">Signature</span>
+                        <span class="resource-overview-value resource-overview-value-mono">{resource.signature}</span>
+                    </div>
+                {/if}
+                {#if resource.description}
+                    <div class="resource-overview-field resource-overview-field-span-2">
+                        <span class="resource-overview-label">Description</span>
+                        <span class="resource-overview-value">{resource.description}</span>
+                    </div>
+                {/if}
                 <div class="resource-overview-field resource-overview-field-span-2">
                     <span class="resource-overview-label">Resource Uploaded File</span>
                     {#if resource.path}
                         <a
                             href="/api/resources/{resource.id}"
-                            download={uploadedFileName}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             class="resource-overview-file-link"
+                            title="Download (generates signed URL, same as admin)"
+                            on:click|preventDefault={() => window.open(`/api/resources/${resource.id}`, '_blank')}
                         >
                             <Download size={16} />
-                            {uploadedFileName}
+                            <span class="resource-overview-truncate" title={resource.path}>{uploadedFileDisplay}</span>
                         </a>
                     {:else}
                         <span class="resource-overview-value">—</span>
@@ -138,7 +205,22 @@
                 </div>
                 <div class="resource-overview-path-section">
                     <span class="resource-overview-label">Resource Path</span>
-                    <span class="resource-overview-path-value">{resource.path || '—'}</span>
+                    <div class="resource-overview-path-row">
+                        {#if resource.path}
+                            <button
+                                type="button"
+                                class="resource-overview-path-copy"
+                                title="Copy full path"
+                                on:click={copyResourcePath}
+                            >
+                                <Copy size={16} />
+                            </button>
+                        {/if}
+                        <span
+                            class="resource-overview-path-value resource-overview-truncate"
+                            title={resource.path || ''}
+                        >{pathDisplay}</span>
+                    </div>
                 </div>
             </div>
             <div class="resource-overview-footer">
@@ -165,7 +247,10 @@
             path: resource.path ?? undefined,
             type: resource.type,
             format: resource.format ?? undefined,
-            size: resource.size
+            size: resource.size,
+            releaseType: resource.releaseType ?? undefined,
+            versionCode: resource.versionCode ?? undefined,
+            signature: resource.signature ?? undefined
         }}
         accounts={accounts}
         on:close={() => (showEditModal = false)}
@@ -269,6 +354,11 @@
         line-height: 24px;
         color: #141414;
     }
+    .resource-overview-value-mono {
+        font-family: ui-monospace, monospace;
+        font-size: 14px;
+        word-break: break-all;
+    }
     /* Figma: Resource Uploaded File — use design system token primary-600 (#155EEF) */
     .resource-overview-file-link {
         display: inline-flex;
@@ -290,6 +380,34 @@
         gap: 4px;
         min-width: 0;
     }
+    .resource-overview-path-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+    .resource-overview-path-row .resource-overview-path-value {
+        flex: 1;
+        min-width: 0;
+    }
+    .resource-overview-path-copy {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: #525252;
+        cursor: pointer;
+    }
+    .resource-overview-path-copy:hover {
+        background: var(--ds-color-neutral-true-100);
+        color: #141414;
+    }
     .resource-overview-path-value {
         font-weight: 500;
         font-size: 16px;
@@ -297,6 +415,14 @@
         color: #141414;
         word-break: break-all;
         font-family: ui-monospace, monospace;
+    }
+    .resource-overview-truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+        display: inline-block;
+        vertical-align: bottom;
     }
     /* Figma: footer — divider, gap 4px */
     .resource-overview-footer {

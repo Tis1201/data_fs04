@@ -10,11 +10,12 @@
     } from '$lib/design-system/components';
     import type { UploadedFile } from '$lib/design-system/components/FileUpload.svelte';
     import { Info, Download } from 'lucide-svelte';
+    import { parseZipFile, parseApkFile, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
 
     export let open: boolean = false;
     export let mode: 'add' | 'edit' = 'add';
     export let resourceId: string | null = null;
-    /** Pre-filled data for edit mode */
+    /** Pre-filled data for edit mode (target is kept for submit only, not shown in form) */
     export let initialData: {
         name?: string;
         packageName?: string;
@@ -25,6 +26,9 @@
         type?: string;
         format?: string;
         size?: number;
+        releaseType?: string;
+        versionCode?: number | null;
+        signature?: string | null;
     } | null = null;
     /** Accounts for Account dropdown: { id, name }[] */
     export let accounts: { id: string; name: string }[] = [];
@@ -35,10 +39,10 @@
         error: string;
     }>();
 
-    const TARGET_OPTIONS = [
-        { id: 'user', label: 'User' },
-        { id: 'device', label: 'Device' },
-        { id: 'account', label: 'Account' }
+    const RELEASE_TYPE_OPTIONS = [
+        { id: 'Alpha', label: 'Alpha' },
+        { id: 'Beta', label: 'Beta' },
+        { id: 'Production', label: 'Production' }
     ];
 
     const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file';
@@ -51,13 +55,20 @@
 
     let name = '';
     let packageName = '';
-    let target = 'user';
     let version = '1.0.0';
     let accountId = '';
     let resourcePath = '';
+    let releaseType = 'Production';
+    let versionCode: number | null = null;
+    let signature = '';
 
     let selectedFile: File | null = null;
     let uploadedFiles: UploadedFile[] = [];
+    let zipParsing = false;
+    let zipParseSuccess = '';
+    let zipParseError = '';
+    let isApkOrCpk = false;
+    let isApk = false;
 
     $: accountOptions = accounts.map((a) => ({ id: a.id, label: a.name }));
 
@@ -65,20 +76,28 @@
     $: if (open) {
         if (!wasOpen) {
             errorMessage = null;
+            zipParseSuccess = '';
+            zipParseError = '';
+            isApkOrCpk = false;
+            isApk = false;
             if (mode === 'edit' && initialData) {
                 name = initialData.name ?? '';
                 packageName = initialData.packageName ?? '';
-                target = initialData.target ?? 'user';
                 version = initialData.version ?? '1.0.0';
                 accountId = initialData.accountId ?? '';
                 resourcePath = initialData.path ?? '';
+                releaseType = initialData.releaseType ?? 'Production';
+                versionCode = initialData.versionCode ?? null;
+                signature = initialData.signature ?? '';
             } else if (mode === 'add') {
                 name = '';
                 packageName = '';
-                target = 'user';
                 version = '1.0.0';
                 accountId = accounts[0]?.id ?? '';
                 resourcePath = '';
+                releaseType = 'Production';
+                versionCode = null;
+                signature = '';
                 selectedFile = null;
                 uploadedFiles = [];
             }
@@ -90,17 +109,15 @@
 
     const RESOURCE_NAME_REQUIRED = 'Resource name is required';
     const FILE_REQUIRED = 'Resource upload file is required';
-    const TARGET_REQUIRED = 'Please select Target';
     const ACCOUNT_REQUIRED = 'Please select Account';
     $: resourceNameError = errorMessage === RESOURCE_NAME_REQUIRED ? errorMessage : '';
     $: fileUploadError = errorMessage === FILE_REQUIRED;
-    $: targetError = errorMessage === TARGET_REQUIRED;
     $: accountError = errorMessage === ACCOUNT_REQUIRED;
     // Clear resource name error when user fills name (or it’s auto-filled from file) so UI stays in sync
     $: if (name?.trim() && errorMessage === RESOURCE_NAME_REQUIRED) errorMessage = null;
     // Clear file required error when user uploads a file so validation reflects current state
     $: if (mode === 'add' && (selectedFile != null || uploadedFiles.length > 0) && errorMessage === FILE_REQUIRED) errorMessage = null;
-    $: serverFileError = errorMessage != null && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== TARGET_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && isFileRelatedError(errorMessage);
+    $: serverFileError = errorMessage != null && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && isFileRelatedError(errorMessage);
     function isFileRelatedError(msg: string): boolean {
         const lower = msg.toLowerCase();
         return lower.includes('file') || lower.includes('upload') || lower.includes('allowed') || lower.includes('type') || lower.includes('format') || lower.includes('extension');
@@ -116,7 +133,7 @@
             .replace(/\s+/g, '_')
             .replace(/[^a-z0-9_-]/g, '');
     }
-    function handleFileDrop(e: CustomEvent<FileList>) {
+    async function handleFileDrop(e: CustomEvent<FileList>) {
         const list = e.detail;
         if (!list?.length) return;
         const file = list[0];
@@ -131,14 +148,70 @@
             }
         ];
         const base = fileBaseName(file.name);
-        if (!name?.trim()) name = base;
+        name = name?.trim() || base;
         const slug = toPackageSlug(base);
         if (!packageName?.trim() && slug) packageName = `${slug}_v1`;
+        version = '1.0.0';
+        versionCode = null;
+        signature = '';
+        zipParseSuccess = '';
+        zipParseError = '';
+        isApkOrCpk = false;
+        isApk = false;
+
+        const fileName = file.name.toLowerCase();
+        const isSupported = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb');
+        isApk = fileName.endsWith('.apk');
+
+        if (isSupported) {
+            zipParsing = true;
+            try {
+                if (isApk) {
+                    const apkResult = await parseApkFile(file);
+                    if (apkResult.success && apkResult.data) {
+                        if (apkResult.data.packageName) packageName = apkResult.data.packageName;
+                        if (apkResult.data.versionName) version = apkResult.data.versionName;
+                        if (apkResult.data.versionCode != null) versionCode = apkResult.data.versionCode;
+                        if (apkResult.data.signature) signature = apkResult.data.signature;
+                        if (apkResult.data.appName) name = apkResult.data.appName;
+                        isApkOrCpk = true;
+                        zipParseSuccess = '✓ Successfully parsed APK file';
+                    } else {
+                        zipParseError = apkResult.error || 'Failed to parse APK file';
+                    }
+                } else {
+                    const result = await parseZipFile(file);
+                    if (result.success && result.appData) {
+                        const pkg = generatePackageName(result.appData);
+                        if (pkg) packageName = pkg;
+                        const ver = extractVersion(result.appData);
+                        if (ver) version = ver;
+                        const displayName = extractDisplayName(result.appData);
+                        if (displayName) name = displayName;
+                        isApkOrCpk = true;
+                        const fileType = fileName.endsWith('.cpk') ? 'CPK' : fileName.endsWith('.deb') ? 'DEB' : 'ZIP';
+                        zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
+                    } else {
+                        zipParseError = result.error || 'Failed to parse file';
+                    }
+                }
+            } catch (err) {
+                zipParseError = 'Failed to parse file';
+            } finally {
+                zipParsing = false;
+            }
+        }
     }
 
     function handleFileRemove() {
         selectedFile = null;
         uploadedFiles = [];
+        versionCode = null;
+        signature = '';
+        zipParseSuccess = '';
+        zipParseError = '';
+        isApkOrCpk = false;
+        isApk = false;
     }
 
     function toErrorMessage(v: unknown): string {
@@ -171,11 +244,6 @@
             errorMessage = FILE_REQUIRED;
             return;
         }
-        const validTargets = ['user', 'device', 'account'];
-        if (!target?.trim() || !validTargets.includes(target)) {
-            errorMessage = TARGET_REQUIRED;
-            return;
-        }
         if (!accountId?.trim()) {
             errorMessage = ACCOUNT_REQUIRED;
             return;
@@ -185,9 +253,12 @@
             const fd = new FormData();
             fd.set('name', name.trim());
             fd.set('packageName', packageName.trim());
-            fd.set('target', target);
+            fd.set('target', mode === 'edit' ? (initialData?.target ?? 'user') : 'user');
             fd.set('version', version.trim() || '1.0.0');
             fd.set('accountId', accountId);
+            fd.set('releaseType', releaseType);
+            if (versionCode != null) fd.set('versionCode', String(versionCode));
+            if (signature) fd.set('signature', signature);
 
             if (mode === 'add') {
                 if (selectedFile) {
@@ -227,6 +298,9 @@
                 fd.set('format', initialData?.format ?? 'zip');
                 fd.set('path', initialData?.path ?? '');
                 fd.set('size', String(initialData?.size ?? 0));
+                fd.set('releaseType', releaseType);
+                if (versionCode != null) fd.set('versionCode', String(versionCode));
+                if (signature) fd.set('signature', signature);
                 const res = await fetch(`/user/resources/${resourceId}?/update`, {
                     method: 'POST',
                     body: fd,
@@ -261,7 +335,7 @@
     on:close={handleClose}
 >
     <form on:submit|preventDefault={handleSubmit} class="resource-modal-form">
-        {#if errorMessage && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== TARGET_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && !serverFileError}
+        {#if errorMessage && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && !serverFileError}
             <p class="resource-form-error">{errorMessage}</p>
         {/if}
 
@@ -287,6 +361,15 @@
                         errorMessage = null;
                     }}
                 />
+                {#if zipParsing}
+                    <p class="resource-parse-status resource-parse-pending">Parsing file…</p>
+                {/if}
+                {#if zipParseSuccess}
+                    <p class="resource-parse-status resource-parse-success">{zipParseSuccess}</p>
+                {/if}
+                {#if zipParseError}
+                    <p class="resource-parse-status resource-parse-error">{zipParseError}</p>
+                {/if}
             </div>
         {:else}
             {#if initialData?.path}
@@ -313,6 +396,7 @@
                 required={true}
                 state={resourceNameError ? 'error' : 'default'}
                 helperText={resourceNameError}
+                disabled={false}
             />
         </div>
         <div class="resource-field">
@@ -321,26 +405,17 @@
                 label="Package Name"
                 placeholder="Enter"
                 bind:value={packageName}
+                disabled={true}
             />
         </div>
         <div class="resource-row">
-            <div class="resource-field">
-                <Dropdown
-                    label="Target"
-                    placeholder="Select"
-                    options={TARGET_OPTIONS}
-                    bind:value={target}
-                    required={true}
-                    error={targetError}
-                    errorMessage={targetError ? TARGET_REQUIRED : ''}
-                />
-            </div>
             <div class="resource-field">
                 <InputField
                     type="text"
                     label="Version"
                     placeholder="Enter"
                     bind:value={version}
+                    disabled={true}
                 />
             </div>
             <div class="resource-field">
@@ -352,9 +427,42 @@
                     required={true}
                     error={accountError}
                     errorMessage={accountError ? ACCOUNT_REQUIRED : ''}
+                    disabled={mode === 'edit'}
+                />
+            </div>
+            <div class="resource-field">
+                <Dropdown
+                    label="Release Type"
+                    placeholder="Select"
+                    options={RELEASE_TYPE_OPTIONS}
+                    bind:value={releaseType}
                 />
             </div>
         </div>
+        <div class="resource-row">
+            {#if isApk && (versionCode != null || signature)}
+                <div class="resource-field">
+                    <InputField
+                        type="number"
+                        label="Version Code"
+                        placeholder="Auto-extracted from APK"
+                        bind:value={versionCode}
+                        disabled={true}
+                    />
+                </div>
+            {/if}
+        </div>
+        {#if isApk && signature}
+            <div class="resource-field">
+                <InputField
+                    type="text"
+                    label="Signature"
+                    placeholder="Auto-extracted from APK"
+                    value={signature}
+                    disabled={true}
+                />
+            </div>
+        {/if}
         <div class="resource-field resource-path-wrap">
             <div class="resource-path-label-row">
                 <span class="resource-field-label">Resource Path</span>
@@ -472,5 +580,19 @@
         margin-top: var(--ds-space-2);
         padding-top: var(--ds-space-4);
         border-top: 1px solid var(--ds-color-neutral-true-200);
+    }
+    .resource-parse-status {
+        font-size: var(--ds-text-xs);
+        margin: 0;
+        margin-top: var(--ds-space-1);
+    }
+    .resource-parse-pending {
+        color: var(--ds-color-blue-light-600);
+    }
+    .resource-parse-success {
+        color: var(--ds-color-success-600);
+    }
+    .resource-parse-error {
+        color: var(--ds-color-error-600);
     }
 </style>

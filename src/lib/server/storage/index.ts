@@ -223,6 +223,35 @@ export async function generatePresignedUrlGCloud(
 }
 
 /**
+ * Upload file contents to a presigned GCS URL (PUT with uploadType=media).
+ * Used so the server actually writes the file to GCS when in LOCAL_CLOUD/GCLOUD mode.
+ */
+async function uploadFileToPresignedUrl(
+    file: File,
+    uploadUrl: string,
+    contentType: string
+): Promise<void> {
+    const arrayBuffer = await file.arrayBuffer();
+    const body = Buffer.from(arrayBuffer);
+    if (body.length === 0) {
+        throw new Error('Uploaded file is empty (0 bytes)');
+    }
+    const res = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': contentType || 'application/octet-stream'
+        },
+        body
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        logger.error(`GCS upload failed: ${res.status} ${res.statusText}`, { body: text.slice(0, 500) });
+        throw new Error(`Failed to upload file to GCS: ${res.status} ${res.statusText}`);
+    }
+    logger.info(`Uploaded file to GCS: ${file.name || 'unknown'} (${body.length} bytes)`);
+}
+
+/**
  * Main function to handle file upload based on storage configuration
  */
 export async function handleFileUpload(file: File): Promise<UploadResult> {
@@ -249,8 +278,10 @@ export async function handleFileUpload(file: File): Promise<UploadResult> {
                 file.type,
                 config.targetServiceAccount
             );
+            await uploadFileToPresignedUrl(file, presignedUrlLocalCloud.url, presignedUrlLocalCloud.contentType);
+            const stableUrlLocalCloud = `https://storage.googleapis.com/${config.bucket}/${filePath}`;
             return {
-                url: presignedUrlLocalCloud.url,
+                url: stableUrlLocalCloud,
                 path: filePath,
                 bucket: config.bucket
             };
@@ -264,8 +295,10 @@ export async function handleFileUpload(file: File): Promise<UploadResult> {
                 filePath,
                 file.type
             );
+            await uploadFileToPresignedUrl(file, presignedUrlGCloud.url, presignedUrlGCloud.contentType);
+            const stableUrlGCloud = `https://storage.googleapis.com/${config.bucket}/${filePath}`;
             return {
-                url: presignedUrlGCloud.url,
+                url: stableUrlGCloud,
                 path: filePath,
                 bucket: config.bucket
             };
