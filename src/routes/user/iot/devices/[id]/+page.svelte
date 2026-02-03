@@ -513,19 +513,21 @@
         }
     }
 
-    async function handleUninstallApp(app: DeviceApp) {
+    function handleUninstallApp(app: DeviceApp) {
         if (app.is_system_app) {
             addAlert('error', 'Cannot uninstall system app');
             return;
         }
+        uninstallAppTarget = app;
+        showUninstallAppConfirm = true;
+    }
 
-        if (!confirm(`Are you sure you want to uninstall "${app.app_name}"?`)) {
-            return;
-        }
-
+    async function confirmUninstallApp() {
+        if (!uninstallAppTarget) return;
+        const app = uninstallAppTarget;
+        uninstallAppTarget = null;
         try {
             addAlert('info', `Uninstalling app... ${app.app_name}`);
-
             const result = await callUserRpc<{
                 success: boolean;
                 operationId?: string;
@@ -534,9 +536,7 @@
                 deviceId: device?.id,
                 packageName: app.package_name
             }, { timeoutMs: 300000 }); // 5 minutes
-
             addAlert('success', result.message || `App uninstall initiated! ${app.app_name}`);
-            // Reload apps list after uninstall
             setTimeout(() => loadApps(), 2000);
         } catch (error) {
             console.error('Uninstall app failed:', error);
@@ -713,6 +713,10 @@
 
     // Generate API Key confirmation dialog
     let showGenerateKeyConfirm = false;
+
+    // Uninstall App confirmation dialog
+    let showUninstallAppConfirm = false;
+    let uninstallAppTarget: DeviceApp | null = null;
 
     // Available tags from server
     $: availableTags = data.availableTags || [];
@@ -2256,6 +2260,17 @@
     confirmText="Generate"
     cancelText="Cancel"
     onConfirm={confirmGenerateKey}
+/>
+
+<!-- Uninstall App Confirmation Dialog -->
+<ConfirmationDialog
+    bind:open={showUninstallAppConfirm}
+    title="Uninstall App"
+    description={uninstallAppTarget ? `Are you sure you want to uninstall "${uninstallAppTarget.app_name}"?` : ''}
+    confirmText="Uninstall"
+    cancelText="Cancel"
+    onConfirm={confirmUninstallApp}
+    onCancel={() => { uninstallAppTarget = null; }}
 />
 
 <EditDeviceModal
