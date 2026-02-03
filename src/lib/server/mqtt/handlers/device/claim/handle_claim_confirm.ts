@@ -2,6 +2,7 @@ import { ClaimStatus } from '@prisma/client';
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
 import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
+import { markPreclaimSetCompletedIfAllClaimed } from '$lib/server/device/devicePreclaim';
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../../core/publish';
 
@@ -155,6 +156,8 @@ export async function handleClaimConfirm(
     // Always use MAC address for device name; fallback to generic name if MAC is missing
     const deviceName = macAddress ? `device - ${macAddress}` : 'device - unknown';
 
+    let preclaimSetIdToComplete: string | null = null;
+
     const createdDevice = await prisma.$transaction(async (tx) => {
         const created = await tx.device.create({
             data: {
@@ -234,11 +237,22 @@ export async function handleClaimConfirm(
                         deviceId: created.id
                     }
                 });
+                preclaimSetIdToComplete = preclaim.setId;
             }
         }
 
         return created;
     });
+
+    if (preclaimSetIdToComplete) {
+        try {
+            await markPreclaimSetCompletedIfAllClaimed(prisma, preclaimSetIdToComplete);
+        } catch (err) {
+            logger.warn(
+                `[DeviceClaimConfirm] Failed to mark preclaim set ${preclaimSetIdToComplete} completed: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+    }
 
     logger.info(
         `[DeviceClaimConfirm] Created device ${createdDevice.id} for user ${user.id} account ${account?.id ?? 'n/a'} from factoryDevice ${factoryDevice.id}`

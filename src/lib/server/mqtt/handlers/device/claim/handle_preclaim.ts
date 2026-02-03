@@ -19,6 +19,11 @@ interface HandlePreclaimArgs {
  *    `device.claim.confirm`.
  *  - If a claimed Device already exists for the fingerprint, log and skip.
  */
+/** Normalize MAC/fingerprint for consistent lookup (trim, uppercase). */
+function normalizeMacOrFingerprint(value: string): string {
+    return value.trim().toUpperCase();
+}
+
 export async function handlePreclaimAutoClaim({
     prisma,
     factoryDeviceId,
@@ -31,6 +36,7 @@ export async function handlePreclaimAutoClaim({
         return;
     }
 
+    const normalized = normalizeMacOrFingerprint(hardwareFingerprint);
     const now = new Date();
 
     // Sniff test: see if a claimed Device already exists for this MAC/hardware fingerprint.
@@ -38,8 +44,11 @@ export async function handlePreclaimAutoClaim({
         where: {
             claimedAt: { not: null },
             OR: [
+                { hardwareId: normalized },
                 { hardwareId: hardwareFingerprint },
+                { macAddress: normalized },
                 { macAddress: hardwareFingerprint },
+                { wifiMac: normalized },
                 { wifiMac: hardwareFingerprint }
             ]
         },
@@ -58,14 +67,17 @@ export async function handlePreclaimAutoClaim({
 
     const preclaim = await prisma.preclaimDevice.findFirst({
         where: {
-            macId: hardwareFingerprint,
-            status: 'PENDING',
-            claimedAt: null,
-            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-            set: {
-                status: 'ACTIVE',
-                OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
-            }
+            AND: [
+                { OR: [{ macId: normalized }, { macId: hardwareFingerprint.trim() }] },
+                { status: 'PENDING', claimedAt: null },
+                { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+                {
+                    set: {
+                        status: 'ACTIVE',
+                        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+                    }
+                }
+            ]
         },
         include: {
             set: true

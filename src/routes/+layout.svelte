@@ -2,6 +2,9 @@
     import "../app.postcss";
     import { Toaster } from "svelte-sonner";
     import AuthStateHandler from "$lib/components/auth/AuthStateHandler.svelte";
+
+    /** Route params from SvelteKit (avoids "unknown prop 'params'" warning) */
+    export let params: Record<string, string> = {};
 </script>
 
 <Toaster 

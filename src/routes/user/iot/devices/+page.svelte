@@ -26,6 +26,8 @@
     }
 
     export let data: PageData;
+    /** Route params from SvelteKit (avoids "unknown prop 'params'" warning) */
+    export let params: Record<string, string> = {};
 
     // State
     let devices: DeviceRow[] = [];
@@ -243,7 +245,6 @@
                 url.searchParams.set(key, values.join(','));
             });
 
-            // Invalidate and reload
             await invalidate('app:userDevices');
             await goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         } catch (error) {
@@ -1102,12 +1103,20 @@
         }
     }
 
-    // Handle search with debounce
+    // Handle search with debounce (skip first run on mount; only reload when search actually differs from URL)
     let searchTimeout: ReturnType<typeof setTimeout>;
+    let searchDebounceHasRunOnce = false;
     $: {
         if (searchValue !== undefined) {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => {
+                if (!searchDebounceHasRunOnce) {
+                    searchDebounceHasRunOnce = true;
+                    return;
+                }
+                // Only reload if user changed search from current URL (avoids extra load when URL and input are already in sync)
+                const urlSearch = typeof window !== 'undefined' ? (new URL(window.location.href).searchParams.get('search') || '') : '';
+                if (searchValue === urlSearch) return;
                 pagination.page = 1;
                 reloadData();
             }, 500);

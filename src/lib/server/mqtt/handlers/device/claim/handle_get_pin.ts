@@ -93,13 +93,14 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient; 
         }
     }
 
-    // Optional: check for pre-claim mappings based on hardware fingerprint.
-    // This is a side-effect only; it must not change the RPC response shape.
+    // Optional: check for pre-claim mappings by hardware fingerprint or MAC from request.
+    // Use MAC from params when factory device has no hardwareFingerprint (e.g. first connection).
+    const macOrFingerprint = factoryDevice.hardwareFingerprint ?? macAddress ?? null;
     try {
         await handlePreclaimAutoClaim({
             prisma,
             factoryDeviceId,
-            hardwareFingerprint: factoryDevice.hardwareFingerprint
+            hardwareFingerprint: macOrFingerprint
         });
     } catch (err) {
         logger.error(

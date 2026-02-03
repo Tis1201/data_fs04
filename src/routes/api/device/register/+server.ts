@@ -19,7 +19,7 @@ import {
     toResponse
 } from '$lib/shared/response_format';
 import { verifyFactoryJWT } from '$lib/server/device/deviceJWTChecker';
-import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
+import { checkDevicePreclaim, markPreclaimSetCompletedIfAllClaimed } from '$lib/server/device/devicePreclaim';
 import { PreclaimProfileService } from '$lib/server/device/profile';
 import { getClientIp } from '$lib/utils/request-utils';
 import { logAudit } from '$lib/server/audit-logger';
@@ -217,6 +217,9 @@ export const GET: RequestHandler = async (event) => {
                     deviceId: deviceId
                 }
             });
+
+            // If this was the last device in the set, mark the preclaim set as completed
+            await markPreclaimSetCompletedIfAllClaimed(locals.prisma, preclaim.preclaim.setId);
 
             // Log audit for PreclaimDevice update
             await logAudit({

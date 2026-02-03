@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { goto } from '$app/navigation';
+    import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
     import { Pencil, Info, HardDrive, Download } from 'lucide-svelte';
     import { Button, Card, InputField } from '$lib/design-system/components';
@@ -10,7 +10,11 @@
 
     export let data: PageData;
 
-    const { preclaimSet, claims = [], metrics = {}, profileOptions = [] } = data;
+    // Reactive so that after invalidate('app:preclaim') the UI updates (import/remove device)
+    $: preclaimSet = data?.preclaimSet;
+    $: claims = data?.claims ?? [];
+    $: metrics = data?.metrics ?? {};
+    $: profileOptions = data?.profileOptions ?? [];
 
     let showEditModal = false;
     let searchDisplayValue = '';
@@ -58,7 +62,7 @@
             }
             if (importedCount != null && typeof importedCount === 'number') {
                 toast.success(importedCount === 1 ? '1 device imported successfully!' : `${importedCount} devices imported successfully!`);
-                goto($page.url.pathname, { invalidateAll: true });
+                await invalidate('app:preclaim');
             } else {
                 let msg: string | undefined;
                 if (data?.type === 'failure') {
@@ -98,12 +102,20 @@
         return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
     }
 
-    function statusDisplay(status: string | null | undefined): string {
-        const s = (status || '').toUpperCase();
-        if (s === 'ACTIVE') return 'Active';
-        if (s === 'INACTIVE') return 'Inactive';
-        return status || '—';
-    }
+    /** Draft (INACTIVE): View, Edit, Delete. In Progress (ACTIVE, valid date not met): View only. Completed (ACTIVE, valid date met): View only. */
+    $: isDraft = (preclaimSet?.status || '').toUpperCase() === 'INACTIVE';
+    $: setDisplayStatus = (() => {
+        const s = (preclaimSet?.status || '').toUpperCase();
+        if (s === 'INACTIVE') return 'Draft';
+        if (s === 'ACTIVE') {
+            const exp = preclaimSet?.expiresAt ? new Date(preclaimSet.expiresAt) : null;
+            const now = new Date();
+            if (exp != null && exp <= now) return 'Completed';
+            return 'In Progress';
+        }
+        return preclaimSet?.status || '—';
+    })();
+    $: setStatusBadgeClass = setDisplayStatus === 'Draft' ? 'gray' : setDisplayStatus === 'In Progress' ? 'warning' : 'success';
 
     function onSearchInput(e: CustomEvent<string>) {
         const v = e.detail ?? '';
@@ -135,18 +147,20 @@
 </script>
 
 <div class="preclaim-detail">
-    <!-- Buttons row: align end (Figma: buttons wrap) -->
+    <!-- Buttons row: only show Edit Set when Draft (In Progress / Completed = View only) -->
     <div class="detail-buttons">
-        <Button
-            variant="filled"
-            color="primary"
-            size="lg"
-            iconLeft={true}
-            on:click={() => (showEditModal = true)}
-        >
-            <Pencil size={20} slot="icon-left" />
-            Edit Set
-        </Button>
+        {#if isDraft}
+            <Button
+                variant="filled"
+                color="primary"
+                size="lg"
+                iconLeft={true}
+                on:click={() => (showEditModal = true)}
+            >
+                <Pencil size={20} slot="icon-left" />
+                Edit Set
+            </Button>
+        {/if}
     </div>
 
     <!-- Frame 50: overview card + summary cards -->
@@ -175,11 +189,11 @@
                     <div class="overview-field">
                         <span class="overview-label">Set status</span>
                         <span
-                            class="status-badge status-badge-{(preclaimSet?.status || '').toLowerCase() === 'active' ? 'success' : 'gray'}"
-                            aria-label="Set status: {statusDisplay(preclaimSet?.status)}"
+                            class="status-badge status-badge-{setStatusBadgeClass}"
+                            aria-label="Set status: {setDisplayStatus}"
                         >
                             <span class="status-badge-dot"></span>
-                            <span class="status-badge-label">{statusDisplay(preclaimSet?.status)}</span>
+                            <span class="status-badge-label">{setDisplayStatus}</span>
                         </span>
                     </div>
                     <div class="overview-field">
@@ -260,17 +274,19 @@
                     on:change={onImportCsvFile}
                     aria-label="Select CSV file to import"
                 />
-                <Button
-                    variant="outline"
-                    color="primary"
-                    size="md"
-                    iconLeft={true}
-                    disabled={importCsvSubmitting || !preclaimSet?.id}
-                    on:click={() => importCsvInput?.click()}
-                >
-                    <Download size={20} slot="icon-left" />
-                    {importCsvSubmitting ? 'Importing…' : 'Import CSV'}
-                </Button>
+                {#if isDraft}
+                    <Button
+                        variant="outline"
+                        color="primary"
+                        size="md"
+                        iconLeft={true}
+                        disabled={importCsvSubmitting || !preclaimSet?.id}
+                        on:click={() => importCsvInput?.click()}
+                    >
+                        <Download size={20} slot="icon-left" />
+                        {importCsvSubmitting ? 'Importing…' : 'Import CSV'}
+                    </Button>
+                {/if}
             </div>
             <div class="devices-table-wrap">
                 {#key `preclaim-devices-${preclaimSet?.id ?? ''}-${totalDevices}`}
@@ -278,6 +294,8 @@
                         preclaimId={preclaimSet?.id ?? ''}
                         hideToolbar={true}
                         initialRecords={claims}
+                        allowRemove={isDraft}
+                        onRecordsUpdated={() => invalidate('app:preclaim')}
                     />
                 {/key}
             </div>
@@ -551,6 +569,13 @@
     }
     .status-badge-gray .status-badge-dot {
         background: #667085;
+    }
+    .status-badge-warning {
+        background: #FFF7ED;
+        color: #B54708;
+    }
+    .status-badge-warning .status-badge-dot {
+        background: #DC6803;
     }
     /* Label: Body/14px/14-Regular, Neutral-True/600 #525252 */
     .overview-label {

@@ -24,6 +24,8 @@
     import { toast } from '$lib/stores/alertToast';
 
     export let data: PageData;
+    /** Route params from SvelteKit (avoids "unknown prop 'params'" warning) */
+    export let params: Record<string, string> = {};
 
     $: bundles = (data as any)?.bundles ?? [];
     $: meta = (data as any)?.meta ?? {};

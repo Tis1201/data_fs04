@@ -3,7 +3,7 @@
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
     import { toast } from '$lib/stores/alertToast';
-    import { Button, InputField, DataTable, Modal } from '$lib/design-system/components';
+    import { Button, InputField, DataTable, ConfirmModal } from '$lib/design-system/components';
     import type { SortState } from '$lib/design-system/components';
     import { Search, Plus } from 'lucide-svelte';
     import type { PageData } from './$types';
@@ -344,22 +344,17 @@
     on:error={(e) => onEditError(e.detail)}
 />
 
-<Modal
+<ConfirmModal
     open={showDeleteModal}
     title="Delete Pre-Enrollment"
-    type="error"
-    size="md"
+    description="Are you sure you want to delete this pre-enrollment? Once you delete this pre-enrollment, it can not be reverse."
     cancelText="Cancel"
     confirmText="Delete"
     confirmLoading={deleteLoading}
     confirmDisabled={deleteLoading}
     on:close={closeDeleteModal}
     on:confirm={confirmDelete}
->
-    <p class="delete-confirm-text">
-        Are you sure you want to delete this pre-enrollment? Once you delete this pre-enrollment, it can not be reverse.
-    </p>
-</Modal>
+/>
 
 <style>
     .preclaim-list-page {
@@ -376,8 +371,5 @@
     }
     .table-wrap {
         min-width: 0;
-    }
-    .delete-confirm-text {
-        color: var(--ds-text-secondary);
     }
 </style>

@@ -13,7 +13,7 @@ import {
 } from '$lib/shared/response_format';
 // import { getMessageRelay } from '$lib/server/pushpin/middleware'; // TODO: Re-enable when pushpin middleware is implemented
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
-import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
+import { checkDevicePreclaim, markPreclaimSetCompletedIfAllClaimed } from '$lib/server/device/devicePreclaim';
 import { ClaimStatus } from '@prisma/client';
 
 /**
@@ -188,6 +188,9 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                         }
                     });
                     logger.info(`[Register] Updated preclaim record for device ${deviceId}`);
+
+                    // If this was the last device in the set, mark the preclaim set as completed
+                    await markPreclaimSetCompletedIfAllClaimed(locals.prisma, preclaim.preclaim.setId);
 
                     // TODO: Re-enable when pushpin middleware is implemented
                     // Publish "registered" message via Redis Pub/Sub (sidecars relay to Pushpin)

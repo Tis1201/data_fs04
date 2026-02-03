@@ -10,6 +10,10 @@
   export let preclaimId: string;
   export let hideToolbar: boolean = false;
   export let initialRecords: Array<Record<string, any>> | undefined = undefined;
+  /** When false (e.g. In Progress / Completed), only View is shown; no Remove. Default true for list/draft. */
+  export let allowRemove: boolean = true;
+  /** When provided (e.g. on detail page), called after a device is removed so the parent can refetch/invalidate. */
+  export let onRecordsUpdated: (() => void) | undefined = undefined;
 
   let loading = true;
   let confirmRemoveOpen = false;
@@ -124,12 +128,14 @@
             onClick: () => goto(`/user/iot/devices/${row.deviceId}`)
           });
         }
-        actions.push({
-          id: 'remove',
-          label: 'Remove',
-          color: 'danger',
-          onClick: () => confirmRemove(row)
-        });
+        if (allowRemove) {
+          actions.push({
+            id: 'remove',
+            label: 'Remove',
+            color: 'danger',
+            onClick: () => confirmRemove(row)
+          });
+        }
         return actions;
       }
     }
@@ -141,11 +147,9 @@
     confirmRemoveOpen = true;
   }
 
-  function getConfirmRemoveMessage(): string {
-    if (!rowToRemove) return '';
-    const mac = rowToRemove.macId || rowToRemove.name || rowToRemove.deviceId || 'this device';
-    return `Remove ${mac} from the pre-claim set? This will only remove it from the set; the device itself is not affected.`;
-  }
+  $: confirmRemoveDescription = rowToRemove
+    ? `Are you sure you want to remove device ${rowToRemove.wifiAddress || rowToRemove.macId || rowToRemove.name || rowToRemove.deviceId || 'this device'}? Once you remove this device from the pre-claim set, it can not be reversed.`
+    : '';
 
   function closeRemoveModal() {
     confirmRemoveOpen = false;
@@ -172,6 +176,7 @@
       if (res.ok) {
         await loadData();
         closeRemoveModal();
+        onRecordsUpdated?.();
       } else {
         const err = await res.json().catch(() => ({}));
         const message = err?.error?.message || res.statusText || 'Remove failed';
@@ -275,8 +280,8 @@
 
 <ConfirmModal
   open={confirmRemoveOpen}
-  title="Remove device from pre-claim"
-  description={getConfirmRemoveMessage()}
+  title="Remove device"
+  description={confirmRemoveDescription}
   confirmText="Remove"
   cancelText="Cancel"
   confirmLoading={removeLoading}

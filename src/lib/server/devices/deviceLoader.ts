@@ -258,32 +258,29 @@ export async function loadDeviceList(
             }));
         }
 
-        // Load device information from ClickHouse for all devices
-        // 1) By MAC (lanMac/wifiMac/macAddress); 2) by device_id for devices with no MAC hit (e.g. Node emulator)
-        let deviceInfoMap = new Map<string, any>();
+        // Load device information from ClickHouse: run both lookups in parallel to cut wall-clock time
         const macAddresses = devicesWithRealTimeStatus
             .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
             .filter(Boolean);
-        if (macAddresses.length > 0) {
-            try {
-                deviceInfoMap = await getMultipleDeviceInformation(macAddresses);
-            } catch (err) {
-                logger.warn(`Failed to load device information from ClickHouse: ${err}`);
-                deviceInfoMap = new Map();
-            }
-        }
-        let deviceInfoByDeviceIdMap = new Map<string, any>();
-        const deviceIdsWithoutInfo = devicesWithRealTimeStatus.filter((d: any) => {
-            const mac = d.macAddress || d.lanMac || d.wifiMac;
-            return !mac || !deviceInfoMap.has(mac);
-        }).map((d: any) => d.id);
-        if (deviceIdsWithoutInfo.length > 0) {
-            try {
-                deviceInfoByDeviceIdMap = await getBulkDeviceInformationByDeviceIds(deviceIdsWithoutInfo);
-            } catch (err) {
-                logger.warn(`Failed to load device information by device_id: ${err}`);
-            }
-        }
+        const allDeviceIds = devicesWithRealTimeStatus.map((d: any) => d.id);
+
+        const [byMacResult, byDeviceIdResult] = await Promise.all([
+            macAddresses.length > 0
+                ? getMultipleDeviceInformation(macAddresses).catch((err) => {
+                    logger.warn(`Failed to load device information from ClickHouse (by MAC): ${err}`);
+                    return new Map<string, any>();
+                })
+                : Promise.resolve(new Map<string, any>()),
+            allDeviceIds.length > 0
+                ? getBulkDeviceInformationByDeviceIds(allDeviceIds).catch((err) => {
+                    logger.warn(`Failed to load device information by device_id: ${err}`);
+                    return new Map<string, any>();
+                })
+                : Promise.resolve(new Map<string, any>())
+        ]);
+
+        const deviceInfoMap = byMacResult;
+        const deviceInfoByDeviceIdMap = byDeviceIdResult;
 
         // Calculate device statistics (admin only)
         // Wrap in try-catch to allow page to load even if stats calculation fails

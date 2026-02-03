@@ -10,28 +10,18 @@ import { createDeviceActions } from '$lib/server/devices/deviceActions';
  * 
  *******************************************************************************************/
 export const load: PageServerLoad = async ({ url, locals, depends }) => {
-    // Mark for client-side invalidation
     depends('app:userDevices');
 
     try {
-        // User routes need ownership checking - only show devices they own or have access to
         const userId = (locals as any).user?.id || (locals as any).auth?.user?.id;
         const accountId = (locals as any).currentAccount?.account?.id;
-
-        logger.info('Loading devices for user', { userId, accountId, path: url.pathname });
 
         const result = await loadDeviceList(locals, url, {
             checkOwnership: true,
             userId,
             accountId,
-            includeStats: true,        // Users also get device statistics for their devices
-            includeRealTimeStatus: true // Users get real-time status
-        });
-
-        logger.info('Successfully loaded devices', {
-            deviceCount: result?.devices?.length || 0,
-            userId,
-            accountId
+            includeStats: true,
+            includeRealTimeStatus: true
         });
 
         return result;

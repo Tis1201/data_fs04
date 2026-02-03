@@ -9,6 +9,8 @@
     import { topMenuItems } from "$lib/stores/menuStore";
 
     export let data;
+    /** Route params from SvelteKit (avoids "unknown prop 'params'" warning) */
+    export let params: Record<string, string> = {};
     let collapsed = false;
     let showMenu = false;
     

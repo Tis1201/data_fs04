@@ -1559,6 +1559,7 @@ enum ClaimStatus {
 enum SetStatus {
   ACTIVE
   INACTIVE
+  EXPIRED
 }
 
 // Device pre-claim set uploaded by admin

@@ -4,7 +4,7 @@
     import type { PageData } from "./$types";
     import { page } from "$app/stores";
     import { goto, invalidate } from "$app/navigation";
-    import { TabGroup, Button, Badge, Tag, Modal, InputField, Card, ActionMenu, Checkbox, DataTable, Alert } from "$lib/design-system/components";
+    import { TabGroup, Button, Badge, Tag, Modal, ConfirmModal, InputField, Card, ActionMenu, Checkbox, DataTable, Alert } from "$lib/design-system/components";
     import type { ColumnDef, PaginationState } from "$lib/design-system/components";
     import type { TabItem } from "$lib/design-system/components/TabGroup.svelte";
     import EditDeviceModal from "$lib/components/devices/EditDeviceModal.svelte";
@@ -526,6 +526,7 @@
         if (!uninstallAppTarget) return;
         const app = uninstallAppTarget;
         uninstallAppTarget = null;
+        showUninstallAppConfirm = false;
         try {
             addAlert('info', `Uninstalling app... ${app.app_name}`);
             const result = await callUserRpc<{
@@ -2262,15 +2263,15 @@
     onConfirm={confirmGenerateKey}
 />
 
-<!-- Uninstall App Confirmation Dialog -->
-<ConfirmationDialog
-    bind:open={showUninstallAppConfirm}
+<!-- Uninstall App Confirmation (same ConfirmModal as Delete Resource / Delete Device) -->
+<ConfirmModal
+    open={showUninstallAppConfirm}
     title="Uninstall App"
     description={uninstallAppTarget ? `Are you sure you want to uninstall "${uninstallAppTarget.app_name}"?` : ''}
-    confirmText="Uninstall"
     cancelText="Cancel"
-    onConfirm={confirmUninstallApp}
-    onCancel={() => { uninstallAppTarget = null; }}
+    confirmText="Uninstall"
+    on:close={() => { showUninstallAppConfirm = false; uninstallAppTarget = null; }}
+    on:confirm={confirmUninstallApp}
 />
 
 <EditDeviceModal

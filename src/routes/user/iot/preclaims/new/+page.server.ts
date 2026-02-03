@@ -11,6 +11,7 @@ import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // PreclaimSet upload schema (file validated in action)
 const preclaimSetSchema = z.object({
@@ -282,6 +283,42 @@ export const actions: Actions = {
                             ipAddress: locals.ipAddress,
                             prisma: enhancedPrisma
                         });
+                    }
+
+                    // One-time cron job per set: schedule at set's expiresAt (entity-expire will mark devices + set as EXPIRED)
+                    if (result.set.expiresAt) {
+                        try {
+                            await upsertEntityExpirationCronjob(locals.prisma, {
+                                entityType: 'preclaimSet',
+                                entityId: result.set.id,
+                                expiresAt: result.set.expiresAt,
+                                action: 'mark',
+                                userId: auth.user.id,
+                                accountId
+                            });
+                        } catch (cronErr) {
+                            logger.warn(`Failed to create expiration cronjob for preclaim set ${result.set.id}:`, cronErr);
+                        }
+                    }
+
+                    // Optional: per-device expiration cron jobs when a row has its own expiresAt
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (row.expiresAt && result.devices[i]) {
+                            const rowExpiresAt = new Date(`${row.expiresAt}T00:00:00`);
+                            try {
+                                await upsertEntityExpirationCronjob(locals.prisma, {
+                                    entityType: 'preclaimDevice',
+                                    entityId: result.devices[i].id,
+                                    expiresAt: rowExpiresAt,
+                                    action: 'mark',
+                                    userId: auth.user.id,
+                                    accountId
+                                });
+                            } catch (cronErr) {
+                                logger.warn(`Failed to create expiration cronjob for preclaim device ${result.devices[i].id}:`, cronErr);
+                            }
+                        }
                     }
 
                     logger.info(`PreclaimSet created ${result.set.id} with ${rows.length} devices`);

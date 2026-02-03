@@ -9,6 +9,7 @@ import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { createSuccessResponse } from '$lib/types/api';
+import { upsertEntityExpirationCronjob, deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 export const load = restrict(
   async (event: AuthenticatedLoadEvent) => {
@@ -146,6 +147,20 @@ export const actions: Actions = {
           ipAddress: (locals as any)?.ipAddress,
           prisma: locals.prisma
         });
+
+        // One-time cron job per set: create/update when expiresAt is set, remove when cleared
+        if (updated.expiresAt) {
+          await upsertEntityExpirationCronjob(locals.prisma, {
+            entityType: 'preclaimSet',
+            entityId: id,
+            expiresAt: updated.expiresAt,
+            action: 'mark',
+            userId: locals.user.id,
+            accountId: existing.accountId
+          });
+        } else {
+          await deleteEntityExpirationCronjob(locals.prisma, 'preclaimSet', id);
+        }
 
         return message(
           form,

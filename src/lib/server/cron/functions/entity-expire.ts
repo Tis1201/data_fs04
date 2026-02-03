@@ -192,11 +192,31 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
         });
         break;
 
-      case 'mark':
+      case 'mark': {
+        // preclaimSet: mark all PENDING devices in set as EXPIRED, then set set status to EXPIRED
+        if (entityType === 'preclaimSet') {
+          const deviceResult = await (prisma as any).preclaimDevice.updateMany({
+            where: { setId: entityId, status: 'PENDING' },
+            data: { status: 'EXPIRED' }
+          });
+          const count = deviceResult.count ?? 0;
+          logger.info(`[EntityExpire] PreclaimSet ${entityId}: marked ${count} device(s) as EXPIRED`);
+
+          await (prisma as any).preclaimSet.update({
+            where: { id: entityId },
+            data: { status: 'EXPIRED' }
+          });
+          logger.info(`[EntityExpire] PreclaimSet ${entityId}: set status to EXPIRED`);
+
+          await (prisma as any).cronJob.update({
+            where: { id: jobId },
+            data: { status: 'COMPLETED', lastResult: 'success', lastError: null }
+          });
+          break;
+        }
+
         // Mark entity as expired (soft delete)
         const markData = updateFields || config.markFields || {};
-        
-        // Replace 'now' placeholder with actual Date
         const processedMarkData: Record<string, any> = {};
         for (const [key, value] of Object.entries(markData)) {
           processedMarkData[key] = value === 'now' ? new Date() : value;
@@ -209,17 +229,13 @@ export const entityExpire: CronFunction<EntityExpireArgs> = async (
         logger.info(`[EntityExpire] Marked entity as expired: ${entityType}/${entityId}`, {
           updates: processedMarkData
         });
-        
-        // Mark cronjob as completed since entity is now processed
+
         await (prisma as any).cronJob.update({
           where: { id: jobId },
-          data: { 
-            status: 'COMPLETED', 
-            lastResult: 'success',
-            lastError: null
-          }
+          data: { status: 'COMPLETED', lastResult: 'success', lastError: null }
         });
         break;
+      }
 
       case 'deactivate':
         // Deactivate entity (set active=false or similar)

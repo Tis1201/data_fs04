@@ -22,6 +22,8 @@
     } from "lucide-svelte";
 
     export let data;
+    /** Route params from SvelteKit (avoids "unknown prop 'params'" warning) */
+    export let params: Record<string, string> = {};
 
     const dispatch = createEventDispatcher();
 
@@ -63,7 +65,7 @@
             label: 'RDM Management',
             icon: Box,
             children: [
-                { id: 'rdm-devices', label: 'Devices', href: '/user/iot/devices' },
+                { id: 'rdm-devices', label: 'Devices', href: '/user/iot/devices?page=1&per_page=10&sort=name&order=asc', preload: false },
                 { id: 'bulk-deployment', label: 'Bulk Deployment', href: '/user/iot/bundles' },
                 { id: 'applications', label: 'Application & Resources', href: '/user/resources' },
                 { id: 'pre-enrollment', label: 'Pre-Enrollment', href: '/user/iot/preclaims' },
@@ -260,9 +262,8 @@
     }
 
     function handleItemClick(e: CustomEvent<NavItem>) {
-        if (e.detail.href) {
-            goto(e.detail.href);
-        }
+        // Do not call goto() here — the Sidebar <a> already navigates. Calling goto() caused a
+        // second __data.json load (initiator: +layout.svelte). We only dispatch for listeners.
         dispatch('navigate', e.detail);
     }
 
