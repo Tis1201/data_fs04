@@ -17,6 +17,7 @@ export { default as TextareaField } from './TextareaField.svelte';
 export { default as DataTable } from './DataTable.svelte';
 export { default as Card } from './Card.svelte';
 export { default as Modal } from './Modal.svelte';
+export { default as ConfirmModal } from './ConfirmModal.svelte';
 export { default as Breadcrumbs } from './Breadcrumbs.svelte';
 export { default as FileUpload, type UploadedFile } from './FileUpload.svelte';
 export { default as Dropdown } from './Dropdown.svelte';

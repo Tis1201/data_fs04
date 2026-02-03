@@ -59,6 +59,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates bash \
   libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 libfreetype6 \
   openssl \
+  binutils \
+  xz-utils \
+  tar \
   && rm -rf /var/lib/apt/lists/*
 
 # Copy built artifacts and dependencies

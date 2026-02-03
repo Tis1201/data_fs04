@@ -3,7 +3,7 @@
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
     import { toast } from '$lib/stores/alertToast';
-    import { Button, InputField, DataTable, Modal } from '$lib/design-system/components';
+    import { Button, InputField, DataTable, ConfirmModal } from '$lib/design-system/components';
     import type { SortState } from '$lib/design-system/components';
     import { Search, Plus } from 'lucide-svelte';
     import type { PageData } from './$types';
@@ -387,20 +387,15 @@
     on:error={(e) => onEditResourceError(e.detail)}
 />
 
-<!-- Delete Resource modal (wording per Figma) -->
-<Modal
+<!-- Delete Resource modal (reusable ConfirmModal; wording per Figma) -->
+<ConfirmModal
     open={showDeleteModal}
     title="Delete Resource"
-    type="error"
-    size="md"
+    description="Are you sure you want to delete this resource? Once you delete this resource, it can not be reverse."
     cancelText="Cancel"
     confirmText="Delete"
     confirmLoading={deleteLoading}
     confirmDisabled={deleteLoading}
     on:close={closeDeleteModal}
     on:confirm={confirmDeleteResource}
->
-    <p class="text-[var(--ds-text-secondary)]">
-        Are you sure you want to delete this resource? Once you delete this resource, it can not be reverse.
-    </p>
-</Modal>
+/>

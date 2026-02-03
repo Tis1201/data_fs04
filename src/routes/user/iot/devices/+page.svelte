@@ -1,6 +1,6 @@
 <script lang="ts">
     import { tick } from "svelte";
-    import { DeviceTable, Button, InputField, Modal, Checkbox, BulkActionsBar, Dropdown, Tag, Radio } from "$lib/design-system/components";
+    import { DeviceTable, Button, InputField, Modal, ConfirmModal, Checkbox, BulkActionsBar, Dropdown, Tag, Radio } from "$lib/design-system/components";
     import type { DeviceRow, DeviceTablePagination, DeviceTableSort } from "$lib/design-system/components/DeviceTable.svelte";
     import { goto, invalidate } from "$app/navigation";
     import { page } from "$app/stores";
@@ -1446,42 +1446,17 @@
 </Modal>
 
 <!-- Delete Device Confirmation Modal -->
-<Modal
+<ConfirmModal
     open={showDeleteModal}
     title="Delete Device"
-    type="error"
-    size="md"
-    overlayBg="rgba(0, 78, 235, 0.03)"
-    showFooter={true}
+    description="Are you sure you want to delete this device? This action can not be reverse."
+    cancelText="Cancel"
+    confirmText="Delete"
+    confirmLoading={actionLoading}
+    confirmDisabled={actionLoading}
     on:close={cancelDeleteModal}
->
-    <p style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-md); line-height: var(--ds-leading-md); color: var(--ds-text-primary); margin: 0;">
-        Are you sure you want to delete this device? This action can not be reverse.
-    </p>
-
-    <div slot="footer" class="flex items-center justify-end gap-4 w-full">
-        <Button
-            variant="outline"
-            color="primary"
-            size="lg"
-            style="height: 44px;"
-            on:click={cancelDeleteModal}
-            disabled={actionLoading}
-        >
-            Cancel
-        </Button>
-        <Button
-            variant="filled"
-            color="primary"
-            size="lg"
-            on:click={confirmDelete}
-            disabled={actionLoading}
-            loading={actionLoading}
-        >
-            Delete
-        </Button>
-    </div>
-</Modal>
+    on:confirm={confirmDelete}
+/>
 
 <!-- Edit Device Modal (Shared Component) -->
 <EditDeviceModal

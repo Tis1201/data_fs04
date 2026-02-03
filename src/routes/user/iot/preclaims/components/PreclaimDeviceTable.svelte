@@ -1,16 +1,20 @@
 <!-- User preclaims module: device table for redesign; lives outside ui_components_sveltekit submodule. -->
 <script lang="ts">
-  import { DataTable } from '$lib/design-system/components';
+  import { DataTable, ConfirmModal } from '$lib/design-system/components';
   import type { ColumnDef, SortState, BadgeColor } from '$lib/design-system/components';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
+  import { toast } from '$lib/stores/alertToast';
 
   export let preclaimId: string;
   export let hideToolbar: boolean = false;
   export let initialRecords: Array<Record<string, any>> | undefined = undefined;
 
   let loading = true;
+  let confirmRemoveOpen = false;
+  let rowToRemove: Record<string, any> | null = null;
+  let removeLoading = false;
   let records: Array<Record<string, any>> = [];
   let apiPagination = { page: 1, per_page: 10, total_records: 0, total_pages: 0 };
   let apiSort = { field: 'createdAt', order: 'desc' as 'asc' | 'desc' };
@@ -109,21 +113,75 @@
       type: 'moreMenu',
       width: '85px',
       align: 'center',
-      getMenuActions: (row: Record<string, any>) => [
-        {
-          id: 'view',
-          label: 'View',
-          onClick: () => { /* TODO: navigate to device view if needed */ }
-        },
-        {
+      getMenuActions: (row: Record<string, any>) => {
+        const status = (row.status || '').toUpperCase();
+        const isRegistered = status === 'FULFILLED' && row.deviceId;
+        const actions: { id: string; label: string; onClick: () => void; color?: 'danger' }[] = [];
+        if (isRegistered) {
+          actions.push({
+            id: 'view',
+            label: 'View',
+            onClick: () => goto(`/user/iot/devices/${row.deviceId}`)
+          });
+        }
+        actions.push({
           id: 'remove',
           label: 'Remove',
           color: 'danger',
-          onClick: () => { /* TODO: remove device from preclaim */ }
-        }
-      ]
+          onClick: () => confirmRemove(row)
+        });
+        return actions;
+      }
     }
   ];
+
+  function confirmRemove(row: Record<string, any>) {
+    if (!browser) return;
+    rowToRemove = row;
+    confirmRemoveOpen = true;
+  }
+
+  function getConfirmRemoveMessage(): string {
+    if (!rowToRemove) return '';
+    const mac = rowToRemove.macId || rowToRemove.name || rowToRemove.deviceId || 'this device';
+    return `Remove ${mac} from the pre-claim set? This will only remove it from the set; the device itself is not affected.`;
+  }
+
+  function closeRemoveModal() {
+    confirmRemoveOpen = false;
+    rowToRemove = null;
+  }
+
+  async function onConfirmRemove() {
+    if (!rowToRemove) return;
+    removeLoading = true;
+    try {
+      await removeDevice(rowToRemove);
+    } finally {
+      removeLoading = false;
+    }
+  }
+
+  async function removeDevice(row: Record<string, any>) {
+    if (!browser || !preclaimId || !row?.id) return;
+    try {
+      const res = await fetch(`/api/v2/preclaims/${preclaimId}/devices/${row.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        await loadData();
+        closeRemoveModal();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        const message = err?.error?.message || res.statusText || 'Remove failed';
+        toast.error(message);
+      }
+    } catch (e) {
+      console.error('Remove device failed:', e);
+      toast.error('Failed to remove device. Please try again.');
+    }
+  }
 
   async function fetchData() {
     if (!browser || !preclaimId) return null;
@@ -214,6 +272,18 @@
     goto(url.toString(), { replaceState: true, noScroll: true });
   }
 </script>
+
+<ConfirmModal
+  open={confirmRemoveOpen}
+  title="Remove device from pre-claim"
+  description={getConfirmRemoveMessage()}
+  confirmText="Remove"
+  cancelText="Cancel"
+  confirmLoading={removeLoading}
+  confirmDisabled={removeLoading}
+  on:close={closeRemoveModal}
+  on:confirm={onConfirmRemove}
+/>
 
 <DataTable
   columns={columns}

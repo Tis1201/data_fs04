@@ -7,7 +7,8 @@
         Button,
         InputField,
         DataTable,
-        Modal
+        Modal,
+        ConfirmModal
     } from '$lib/design-system/components';
     import AddDeploymentModal from './components/AddDeploymentModal.svelte';
     import EditDeploymentModal from './components/EditDeploymentModal.svelte';
@@ -593,22 +594,17 @@
     </p>
 </Modal>
 
-<Modal
+<ConfirmModal
     open={showDeleteModal}
     title="Delete Deployment"
-    type="error"
-    size="md"
+    description="Are you sure you want to delete this deployment? This action can not be reverse."
     cancelText="Cancel"
     confirmText="Delete"
     confirmLoading={deleteLoading}
     confirmDisabled={deleteLoading}
     on:close={closeDeleteModal}
     on:confirm={confirmDelete}
->
-    <p class="modal-action-text">
-        Are you sure you want to delete this deployment? This action can not be reverse.
-    </p>
-</Modal>
+/>
 
 <Modal
     open={showDuplicateModal}
