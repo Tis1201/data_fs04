@@ -11,21 +11,21 @@ import {
     ResponseStatus,
     toResponse
 } from '$lib/shared/response_format';
-import { getMessageRelay } from '$lib/server/pushpin/middleware';
+// import { getMessageRelay } from '$lib/server/pushpin/middleware'; // TODO: Re-enable when pushpin middleware is implemented
 import { subscriptionRegistry } from '$lib/server/messaging/core/subscriptionRegistry';
 import { checkDevicePreclaim } from '$lib/server/device/devicePreclaim';
 import { ClaimStatus } from '@prisma/client';
 
 /**
  * Pushpin device registration endpoint (stateless).
- * 
+ *
  * ARCHITECTURE:
  * - Device connects to Pushpin (not backend directly)
  * - Backend returns GRIP headers immediately (stateless)
  * - Pushpin holds the connection
  * - When device is claimed, backend publishes via Pushpin Control Port
  * - No ReadableStream, no SSEConnection, no ConnectionManager
- * 
+ *
  * FLOW:
  * 1. Device → Pushpin → Backend (validate, return GRIP headers)
  * 2. Backend → immediately returns (stateless)
@@ -50,14 +50,14 @@ export const GET: RequestHandler = async ({ locals, request }) => {
         // Check if device is already claimed before by matching device "macAddress" with "X-Device-MAC"
         if (mac) {
             const existingDevice = await locals.prisma.device.findFirst({
-                where: { 
+                where: {
                     OR: [
                         { macAddress: mac },
                         { wifiMac: mac }
                     ]
                 }
             });
-            
+
             if (existingDevice?.claimedBy) {
                 logger.warn(`[Register] Device with MAC ${mac} is already claimed`);
                 throw toResponse(createErrorResponse({
@@ -118,15 +118,15 @@ export const GET: RequestHandler = async ({ locals, request }) => {
             try {
                 await DeviceManager.registerDevice(pin, deviceMeta);
                 logger.info(`[Register] Device ${deviceId} registered in DeviceManager`);
-                
+
                 // Handle preclaimed devices (auto-claim)
                 const preclaim = (locals as any).preclaimDevice;
                 if (preclaim) {
                     logger.info(`[Register] Processing preclaim for device ${deviceId}`);
-                    
+
                     // Get the claiming user (from preclaim or set creator)
                     let resolvedClaimUserId: string | null = preclaim.preclaim.claimedBy;
-                    
+
                     if (!resolvedClaimUserId) {
                         const preclaimSet = await locals.prisma.preclaimSet.findUnique({
                             where: { id: preclaim.preclaim.setId },
@@ -134,26 +134,26 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                         });
                         resolvedClaimUserId = preclaimSet?.createdBy || null;
                     }
-                    
+
                     if (!resolvedClaimUserId) {
                         logger.error(`[Register] No user found to claim preclaimed device ${deviceId}`);
                         return;
                     }
-                    
+
                     // Claim the device
                     const claimedDevice = await DeviceManager.claimDevice(pin, {
                         userId: resolvedClaimUserId,
                         accountId: preclaim.preclaim.accountId,
                         preclaimId: preclaim.preclaim.id
                     });
-                    
+
                     if (!claimedDevice) {
                         logger.error(`[Register] Failed to claim device ${deviceId} after preclaim`);
                         return;
                     }
-                    
+
                     logger.info(`[Register] Device ${deviceId} claimed successfully`);
-                    
+
                     // Update device network identifiers using the provided MAC
                     if (mac) {
                         await locals.prisma.device.update({
@@ -165,18 +165,18 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                         });
                         logger.info(`[Register] Updated MAC address for device ${deviceId}`);
                     }
-                    
+
                     // Get the actual API key from the claimed device
                     const deviceWithApiKey = await locals.prisma.device.findUnique({
                         where: { id: claimedDevice.id },
                         select: { apiKey: true }
                     });
-                    
+
                     if (!deviceWithApiKey?.apiKey) {
                         logger.error(`[Register] No API key found for claimed device ${deviceId}`);
                         return;
                     }
-                    
+
                     // Update preclaim record
                     await locals.prisma.preclaimDevice.update({
                         where: { id: preclaim.preclaim.id },
@@ -188,8 +188,10 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                         }
                     });
                     logger.info(`[Register] Updated preclaim record for device ${deviceId}`);
-                    
+
+                    // TODO: Re-enable when pushpin middleware is implemented
                     // Publish "registered" message via Redis Pub/Sub (sidecars relay to Pushpin)
+                    /*
                     const messageRelay = getMessageRelay();
                     if (!messageRelay) {
                         logger.error(`[Register] MessageRelay not initialized - cannot publish registration message for device ${deviceId}`);
@@ -208,9 +210,11 @@ export const GET: RequestHandler = async ({ locals, request }) => {
                             },
                             timestamp: new Date().toISOString()
                         });
-                        
+
                         logger.info(`[Register] Published registration message for device ${deviceId} via Redis Pub/Sub`);
                     }
+                    */
+                    logger.info(`[Register] Skipping pushpin message relay (not implemented yet) for device ${deviceId}`);
                 }
             } catch (error) {
                 logger.error(`[Register] Error in background registration: ${error}`);
