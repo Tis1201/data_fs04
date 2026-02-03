@@ -51,6 +51,15 @@ export async function checkDeviceAccess({
         throw new Error('Device not found');
     }
 
+    // Skip owner/account check for admin users
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { systemRole: true }
+    });
+    if (user?.systemRole === 'ADMIN' || user?.systemRole === 'SUPER_ADMIN') {
+        return { deviceId: device.id, isOwner: false, isAccountMember: true };
+    }
+
     const isOwner = device.createdBy === userId;
 
     const isAccountMember = Boolean(
