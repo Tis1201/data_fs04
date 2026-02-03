@@ -12,7 +12,12 @@ import { getEnhancedPrisma } from '$lib/server/prisma';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
-import { getStorageConfig } from '$lib/server/storage';
+import {
+    getStorageConfig,
+    ensureResourceInResourcesFolder,
+    parseGCloudUrl,
+    isGCloudUrl
+} from '$lib/server/storage';
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
@@ -155,12 +160,30 @@ export const actions: Actions = {
 
                 try {
                     // Check if file has already been uploaded to cloud storage
-                    const { isGCloudUrl } = await import('$lib/server/storage/gcloudUrlUtils');
                     if (form.data.path && isGCloudUrl(form.data.path)) {
                         logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
-                        // File is already uploaded, use the existing path
+                        const config = getStorageConfig();
+                        if (
+                            (config.mode === 'LOCAL_CLOUD' || config.mode === 'GCLOUD') &&
+                            config.bucket
+                        ) {
+                            const parsed = parseGCloudUrl(form.data.path);
+                            if (parsed) {
+                                const newObjectPath = await ensureResourceInResourcesFolder(
+                                    parsed.bucket,
+                                    parsed.objectPath
+                                );
+                                const finalPath = `https://storage.googleapis.com/${parsed.bucket}/${newObjectPath}`;
+                                form.data.path = finalPath;
+                                logger.info(`[create] Resource path ensured in resources folder: ${finalPath}`);
+                            }
+                        }
                         filePath = form.data.path;
-                    } else if (form.data.file && typeof form.data.file === 'object' && 'arrayBuffer' in form.data.file) {
+                    } else if (
+                        form.data.file &&
+                        typeof form.data.file === 'object' &&
+                        'arrayBuffer' in form.data.file
+                    ) {
                         const uploadedFile = form.data.file as File;
 
                         if (uploadedFile.size === 0) {

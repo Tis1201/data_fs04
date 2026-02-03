@@ -5,7 +5,7 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
-import { deleteFileFromCloudStorage } from '$lib/server/storage';
+import { deleteFileFromCloudStorage, getStorageConfig } from '$lib/server/storage';
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
@@ -26,7 +26,7 @@ export const load = restrict(
 
             // Build the where clause for filtering
             const where: any = {};
-            
+
             // Add search filter if provided
             if (search) {
                 // Convert search to lowercase for case-insensitive comparison
@@ -38,12 +38,12 @@ export const load = restrict(
                     { packageName: { contains: searchLower } }
                 ];
             }
-            
+
             // Add type filter if provided
             if (types.length > 0) {
                 where.type = { in: types };
             }
-            
+
             // Add account filter if provided
             if (accountId) {
                 where.accountId = accountId;
@@ -84,7 +84,7 @@ export const load = restrict(
 
             // Calculate pagination metadata
             const totalPages = Math.ceil(totalResources / perPage);
-                
+
             // Get accounts for filtering - Zenstack will automatically filter based on access policies
             const accounts = await locals.prisma.account.findMany({
                 where: { isSystem: false },
@@ -108,11 +108,14 @@ export const load = restrict(
                 }
             });
 
+            const storageConfig = getStorageConfig();
+
             // Return the data (meta.pagination + meta.sort for design-system DataTable)
             return {
                 resources,
                 accounts,
                 resourceTypes: resourceTypes.map((rt) => rt.type),
+                storageConfig,
                 meta: {
                     pagination: {
                         page,

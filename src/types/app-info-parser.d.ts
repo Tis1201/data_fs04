@@ -1,6 +1,6 @@
 declare module 'app-info-parser' {
   export default class AppInfoParser {
-    constructor(file: string | Buffer);
+    constructor(file: string | Buffer | File);
     parse(): Promise<{
       package?: string;
       versionName?: string;

@@ -3,10 +3,16 @@ import { GoogleAuth, Impersonated } from 'google-auth-library';
 import { logger } from '$lib/server/logger';
 import { join, dirname, basename } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import { getGCloudAccessToken, isCredentialError } from './gcloudAuthUtils';
 
 export type StorageMode = 'LOCAL' | 'LOCAL_CLOUD' | 'GCLOUD';
+
+/** GCS folder for resource uploads during add-flow (before user confirms). Moved to RESOURCES_FOLDER on create. */
+export const RESOURCES_TEMP_PREFIX = 'temp/resources';
+/** GCS folder where all resource files are stored after "Add" is confirmed. */
+export const RESOURCES_FOLDER = 'resources';
 
 export interface StorageConfig {
     mode: StorageMode;
@@ -407,6 +413,134 @@ export async function generateDownloadUrl(
         default:
             throw new Error(`Download URL generation not supported for storage mode: ${config.mode}`);
     }
+}
+
+/**
+ * Download a file from GCS to a local path.
+ * In LOCAL_CLOUD mode uses the impersonated target SA so the server can read objects
+ * that were uploaded via presigned URL (client uploads as that SA).
+ */
+export async function downloadGcsFileToPath(
+    bucket: string,
+    objectPath: string,
+    destinationPath: string,
+    options: { targetServiceAccount?: string } = {}
+): Promise<void> {
+    const config = getStorageConfig();
+
+    if (config.mode === 'LOCAL_CLOUD' && options.targetServiceAccount) {
+        const accessToken = getGCloudAccessToken(options.targetServiceAccount);
+        const downloadUrl = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectPath)}?alt=media`;
+        const response = await fetch(downloadUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            logger.error(`[downloadGcsFileToPath] LOCAL_CLOUD download failed`, {
+                bucket,
+                objectPath,
+                status: response.status,
+                statusText: response.statusText,
+                body: text.slice(0, 500)
+            });
+            throw new Error(`GCS download failed: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`);
+        }
+        const buffer = Buffer.from(await response.arrayBuffer());
+        await writeFile(destinationPath, buffer);
+        logger.info(`[downloadGcsFileToPath] Downloaded from LOCAL_CLOUD to ${destinationPath}`);
+        return;
+    }
+
+    const storage = new Storage({ projectId: config.projectId });
+    const file = storage.bucket(bucket).file(objectPath);
+    await file.download({ destination: destinationPath });
+    logger.info(`[downloadGcsFileToPath] Downloaded from GCS to ${destinationPath}`);
+}
+
+/**
+ * Copy an object in GCS (same or cross bucket). Used for moving resources from temp to resources folder.
+ */
+async function copyGcsObject(
+    sourceBucket: string,
+    sourcePath: string,
+    destBucket: string,
+    destPath: string,
+    options: { targetServiceAccount?: string } = {}
+): Promise<void> {
+    const config = getStorageConfig();
+
+    if (config.mode === 'LOCAL_CLOUD' && options.targetServiceAccount) {
+        const accessToken = getGCloudAccessToken(options.targetServiceAccount);
+        const copyUrl = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(sourceBucket)}/o/${encodeURIComponent(sourcePath)}/copyTo/b/${encodeURIComponent(destBucket)}/o/${encodeURIComponent(destPath)}`;
+        const response = await fetch(copyUrl, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: '{}'
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            logger.error('[copyGcsObject] LOCAL_CLOUD copy failed', {
+                sourceBucket,
+                sourcePath,
+                destPath,
+                status: response.status,
+                body: text.slice(0, 500)
+            });
+            throw new Error(`GCS copy failed: ${response.status} - ${text.slice(0, 200)}`);
+        }
+        logger.info(`[copyGcsObject] Copied to ${destBucket}/${destPath}`);
+        return;
+    }
+
+    const storage = new Storage({ projectId: config.projectId });
+    const sourceFile = storage.bucket(sourceBucket).file(sourcePath);
+    const destFile = storage.bucket(destBucket).file(destPath);
+    await sourceFile.copy(destFile);
+    logger.info(`[copyGcsObject] Copied to ${destBucket}/${destPath}`);
+}
+
+/**
+ * Move object in GCS (copy then delete source). Used when moving resource from temp/resources to resources.
+ */
+export async function moveGcsObject(
+    bucket: string,
+    sourcePath: string,
+    destPath: string,
+    options: { targetServiceAccount?: string } = {}
+): Promise<void> {
+    const config = getStorageConfig();
+    await copyGcsObject(bucket, sourcePath, bucket, destPath, options);
+    if (config.mode === 'LOCAL_CLOUD' && options.targetServiceAccount) {
+        await deleteFileFromLocalCloud(bucket, sourcePath, options.targetServiceAccount);
+    } else {
+        await deleteFileFromGCloud(bucket, sourcePath);
+    }
+    logger.info(`[moveGcsObject] Moved ${sourcePath} -> ${destPath}`);
+}
+
+/**
+ * Ensure the object path is under the resources folder. If it is under temp/resources or at bucket root,
+ * move it to resources/{filename} and return the new object path. Otherwise return as-is.
+ */
+export async function ensureResourceInResourcesFolder(
+    bucket: string,
+    objectPath: string
+): Promise<string> {
+    const normalized = objectPath.replace(/^\/+|\/+$/g, '');
+    const filename = normalized.split('/').pop() || normalized;
+    const resourcesPath = `${RESOURCES_FOLDER}/${filename}`;
+
+    if (normalized === resourcesPath || normalized.startsWith(`${RESOURCES_FOLDER}/`)) {
+        return normalized;
+    }
+
+    const config = getStorageConfig();
+    const opts = config.mode === 'LOCAL_CLOUD' ? { targetServiceAccount: config.targetServiceAccount } : {};
+    await moveGcsObject(bucket, normalized, resourcesPath, opts);
+    return resourcesPath;
 }
 
 /**

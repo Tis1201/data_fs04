@@ -355,6 +355,7 @@
     resourceId={null}
     initialData={null}
     accounts={accounts}
+    storageConfig={data.storageConfig}
     on:close={closeAddResourceModal}
     on:success={onAddResourceSuccess}
     on:error={(e) => onAddResourceError(e.detail)}
@@ -380,6 +381,7 @@
         signature: editResourceRow.signature ?? undefined
     } : null}
     accounts={accounts}
+    storageConfig={data.storageConfig}
     on:close={closeEditResourceModal}
     on:success={onEditResourceSuccess}
     on:error={(e) => onEditResourceError(e.detail)}

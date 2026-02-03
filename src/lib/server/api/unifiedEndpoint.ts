@@ -161,12 +161,12 @@ export async function createUnifiedContext(
  * @returns JSON error response
  */
 export function handleUnifiedError(error: any, requestId: string, operation?: string) {
-	// Log error with context
-	logger.error(`Unified endpoint error${operation ? `: ${operation}` : ''}`, {
+	const errMsg = error?.message ?? String(error);
+	logger.error(`Unified endpoint error${operation ? `: ${operation}` : ''}: ${errMsg}`, {
 		requestId,
-		error: error.message,
-		code: error.code,
-		stack: error.stack
+		error: errMsg,
+		code: error?.code,
+		stack: error?.stack
 	});
 
 	// Handle specific error types

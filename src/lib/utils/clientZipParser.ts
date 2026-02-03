@@ -46,22 +46,17 @@ export interface DebParseResult {
 }
 
 /**
- * Parse an APK file using the server-side parser
- * @param file - The APK file to parse
- * @returns Promise with parsing result
+ * Parse an APK file via server (FormData to v2 endpoint).
+ * Prefer parseApkFileClient or upload-to-GCS then parseApkByPath when possible.
  */
 export async function parseApkFile(file: File): Promise<ApkParseResult> {
-  console.log('[APK Parser] Starting APK file parsing:', {
-    fileName: file.name,
-    fileSize: file.size,
-    fileType: file.type
-  });
+  console.log('[APK Parser] Parsing APK via v2 (FormData):', { fileName: file.name, fileSize: file.size });
 
   try {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch('/api/admin/iot/resources/parse-apk', {
+    const response = await fetch('/api/v2/resources/parse-apk', {
       method: 'POST',
       body: formData
     });
@@ -70,7 +65,7 @@ export async function parseApkFile(file: File): Promise<ApkParseResult> {
       const errorData = await response.json();
       return {
         success: false,
-        error: errorData.error || 'Failed to parse APK file'
+        error: errorData?.error?.message || errorData?.error || 'Failed to parse APK file'
       };
     }
 
@@ -87,42 +82,178 @@ export async function parseApkFile(file: File): Promise<ApkParseResult> {
 }
 
 /**
- * Parse a .deb file using the server-side parser
- * Uses direct file upload (FormData) for simplicity
- * @param file - The .deb file to parse
+ * Parse an APK file in the browser (no server round-trip).
+ * Uses app-info-parser when available; signature is left null (server-only).
+ * Returns { success: false } if client parsing is not supported or fails.
+ */
+export async function parseApkFileClient(file: File): Promise<ApkParseResult> {
+  if (!file.name.toLowerCase().endsWith('.apk')) {
+    return { success: false, error: 'File must be an APK' };
+  }
+  try {
+    const AppInfoParser = (await import('app-info-parser')).default;
+    const parser = new AppInfoParser(file);
+    const result = await parser.parse();
+    const versionCode =
+      result.versionCode != null
+        ? typeof result.versionCode === 'number'
+          ? result.versionCode
+          : parseInt(String(result.versionCode), 10)
+        : null;
+    const appName =
+      result.application?.label != null
+        ? Array.isArray(result.application.label)
+          ? result.application.label[0]
+          : String(result.application.label)
+        : null;
+    return {
+      success: true,
+      data: {
+        packageName: result.package ?? null,
+        versionName: result.versionName ?? null,
+        versionCode: Number.isNaN(versionCode) ? null : versionCode,
+        signature: null,
+        appName: appName ?? null
+      }
+    };
+  } catch (error) {
+    console.warn('[APK Parser] Client-side parse failed, use server fallback:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Client parse failed'
+    };
+  }
+}
+
+export interface ParseApkOptions {
+  /** When true, on client failure use upload-to-GCS then parseByPath instead of FormData */
+  isCloudMode?: boolean;
+  /** Set after upload when isCloudMode and client parse failed; used for parseByPath */
+  objectPath?: string;
+  bucket?: string;
+}
+
+/**
+ * Parse APK with fallback: try client-side first, then server (by path if cloud, else FormData).
+ * When isCloudMode and client fails, caller must upload file first and pass objectPath/bucket.
+ */
+export async function parseApkWithFallback(
+  file: File,
+  options: ParseApkOptions = {}
+): Promise<ApkParseResult> {
+  const clientResult = await parseApkFileClient(file);
+  if (clientResult.success) {
+    return clientResult;
+  }
+  if (options.isCloudMode && options.objectPath) {
+    return parseApkByPath(options.objectPath, options.bucket);
+  }
+  return parseApkFile(file);
+}
+
+/**
+ * Parse an APK already in GCS by object path (no file body to app server)
+ * Use when file is uploaded to cloud first; server downloads from GCS and parses.
+ * @param objectPath - GCS object path (e.g. from presigned upload response)
+ * @param bucket - Optional bucket; if omitted, server uses default from config
  * @returns Promise with parsing result
  */
-export async function parseDebFile(file: File): Promise<DebParseResult> {
-  console.log('[DEB Parser] Starting DEB file parsing:', {
-    fileName: file.name,
-    fileSize: file.size,
-    fileType: file.type
-  });
+export async function parseApkByPath(objectPath: string, bucket?: string): Promise<ApkParseResult> {
+  console.log('[APK Parser] Parsing APK from GCS path:', { objectPath, bucket });
 
   try {
-    // Use FormData for direct file upload (simpler than presigned URL for now)
+    const response = await fetch('/api/v2/resources/parse-apk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objectPath, bucket })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        success: false,
+        error: errorData?.error?.message || errorData?.error || 'Failed to parse APK file'
+      };
+    }
+
+    const result = await response.json();
+    console.log('[APK Parser] Successfully parsed APK from path:', result.data);
+    return result;
+  } catch (error) {
+    console.error('[APK Parser] APK parse-by-path error:', error);
+    return {
+      success: false,
+      error: 'Failed to parse APK file: ' + (error instanceof Error ? error.message : String(error))
+    };
+  }
+}
+
+/**
+ * Parse a .deb file via server (FormData to v2 endpoint).
+ * Prefer upload-to-GCS then parseDebByPath when in cloud mode.
+ */
+export async function parseDebFile(file: File): Promise<DebParseResult> {
+  console.log('[DEB Parser] Parsing DEB via v2 (FormData):', { fileName: file.name, fileSize: file.size });
+
+  try {
     const formData = new FormData();
     formData.append('file', file);
 
-    console.log('[DEB Parser] Uploading file to server for parsing...');
-    const parseResponse = await fetch('/api/admin/iot/resources/parse-deb', {
+    const response = await fetch('/api/v2/resources/parse-deb', {
       method: 'POST',
       body: formData
     });
 
-    if (!parseResponse.ok) {
-      const errorData = await parseResponse.json();
+    if (!response.ok) {
+      const errorData = await response.json();
       return {
         success: false,
-        error: errorData.error || 'Failed to parse .deb file'
+        error: errorData?.error?.message || errorData?.error || 'Failed to parse .deb file'
       };
     }
 
-    const result = await parseResponse.json();
+    const result = await response.json();
     console.log('[DEB Parser] Successfully parsed DEB:', result.data);
     return result;
   } catch (error) {
     console.error('[DEB Parser] DEB parsing error:', error);
+    return {
+      success: false,
+      error: 'Failed to parse .deb file: ' + (error instanceof Error ? error.message : String(error))
+    };
+  }
+}
+
+/**
+ * Parse a .deb already in GCS by object path (no file body to app server)
+ * Use when file is uploaded to cloud first; server downloads from GCS and parses.
+ * @param objectPath - GCS object path (e.g. from presigned upload response)
+ * @param bucket - Optional bucket; if omitted, server uses default from config
+ * @returns Promise with parsing result
+ */
+export async function parseDebByPath(objectPath: string, bucket?: string): Promise<DebParseResult> {
+  console.log('[DEB Parser] Parsing DEB from GCS path:', { objectPath, bucket });
+
+  try {
+    const response = await fetch('/api/v2/resources/parse-deb', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objectPath, bucket })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        success: false,
+        error: errorData?.error?.message || errorData?.error || 'Failed to parse .deb file'
+      };
+    }
+
+    const result = await response.json();
+    console.log('[DEB Parser] Successfully parsed DEB from path:', result.data);
+    return result;
+  } catch (error) {
+    console.error('[DEB Parser] DEB parse-by-path error:', error);
     return {
       success: false,
       error: 'Failed to parse .deb file: ' + (error instanceof Error ? error.message : String(error))

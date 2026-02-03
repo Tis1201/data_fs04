@@ -13,7 +13,7 @@
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { fileProxy } from 'sveltekit-superforms/client';
     import { browser } from '$app/environment';
-    import { parseZipFile, parseApkFile, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
+    import { parseZipFile, parseApkFile, parseApkFileClient, parseApkByPath, parseDebByPath, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
 
     export let data: PageData;
     const title = "Add IoT Application & Resource";
@@ -63,6 +63,8 @@
     let nativeFileInput: HTMLInputElement | null = null;
     let containerRef: HTMLDivElement;
     let fileUploadRef: any;
+    /** When in cloud mode, APK/DEB are uploaded on file select and parsed by path; this stores the GCS URL so submit skips upload. */
+    let uploadedCloudPath: string | null = null;
 
     const releaseTypeOptions = [
         { value: 'Alpha', label: 'Alpha' },
@@ -122,12 +124,15 @@
 
         // Set flag for APK/CPK files (will be set to true if parsing succeeds)
         isApkOrCpk = false;
+
+        const isCloudMode = data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
         
         if (isSupportedFile) {
             zipParsing = true;
             zipParseError = '';
             zipParseSuccess = '';
             formLocked = true; // Lock the form during file parsing
+            uploadedCloudPath = null;
             
             try {
                 console.log('[File Upload] Before parsing - Form values:', {
@@ -135,59 +140,108 @@
                     packageName: $form.packageName,
                     version: $form.version
                 });
-                
-                // For APK files, parse separately to get versionCode and signature
+
+                // APK: try client-side parse first; fallback to cloud path or FormData
                 if (isApk) {
-                    const apkResult = await parseApkFile(file);
-                    console.log('[File Upload] APK parse result:', apkResult);
-
-                    if (apkResult.success && apkResult.data) {
-                        // Auto-populate package name
-                        if (apkResult.data.packageName) {
-                            $form.packageName = apkResult.data.packageName;
-                        }
-
-                        // Auto-populate version (versionName)
-                        if (apkResult.data.versionName) {
-                            $form.version = apkResult.data.versionName;
-                        }
-
-                        // Auto-populate versionCode (read-only)
-                        if (apkResult.data.versionCode !== null && apkResult.data.versionCode !== undefined) {
-                            $form.versionCode = apkResult.data.versionCode;
-                        }
-
-                        // Auto-populate signature (read-only)
-                        if (apkResult.data.signature) {
-                            $form.signature = apkResult.data.signature;
-                        }
-
-                        // Auto-populate display name (resource name)
-                        if (apkResult.data.appName) {
-                            $form.name = apkResult.data.appName;
-                        }
-
-                        console.log('[File Upload] After APK parsing - Form values:', {
-                            name: $form.name,
-                            packageName: $form.packageName,
-                            version: $form.version,
-                            versionCode: $form.versionCode,
-                            signature: $form.signature
+                    let apkResult = await parseApkFileClient(file);
+                    if (!apkResult.success && isCloudMode) {
+                        const presignedRes = await fetch('/api/v2/upload/presigned-url', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                fileName: file.name,
+                                contentType: file.type || '',
+                                expiresSeconds: 600,
+                                prefix: 'temp/resources'
+                            })
                         });
-
-                        // Mark as auto-extracted and disable fields
+                        if (!presignedRes.ok) {
+                            const err = await presignedRes.json();
+                            throw new Error(err.details || err.error || 'Failed to get upload URL');
+                        }
+                        const { data: presignedData } = await presignedRes.json();
+                        const { url, bucket, objectPath, contentType } = presignedData;
+                        if (!url || !bucket || !objectPath) {
+                            throw new Error('Invalid presigned URL response');
+                        }
+                        const uploadRes = await fetch(url, {
+                            method: 'PUT',
+                            body: file as BodyInit,
+                            headers: { 'Content-Type': contentType || file.type || 'application/octet-stream' }
+                        });
+                        if (!uploadRes.ok) {
+                            throw new Error(`Upload failed: ${uploadRes.status}`);
+                        }
+                        uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                        $form.path = uploadedCloudPath;
+                        $form.size = file.size;
+                        apkResult = await parseApkByPath(objectPath, bucket);
+                    } else if (!apkResult.success) {
+                        apkResult = await parseApkFile(file);
+                    }
+                    if (apkResult.success && apkResult.data) {
+                        if (apkResult.data.packageName) $form.packageName = apkResult.data.packageName;
+                        if (apkResult.data.versionName) $form.version = apkResult.data.versionName;
+                        if (apkResult.data.versionCode != null) $form.versionCode = apkResult.data.versionCode;
+                        if (apkResult.data.signature) $form.signature = apkResult.data.signature;
+                        if (apkResult.data.appName) $form.name = apkResult.data.appName;
                         isAutoExtracted = true;
                         isApkOrCpk = true;
-                        zipParseSuccess = `✓ Successfully parsed APK file`;
+                        zipParseSuccess = uploadedCloudPath ? '✓ Successfully parsed APK file ' : '✓ Successfully parsed APK file';
                     } else {
                         zipParseError = apkResult.error || 'Failed to parse APK file';
                         uploadError = `APK parsing failed: ${zipParseError}`;
-                        console.log('[File Upload] APK parse failed:', { zipParseError, uploadError });
+                        isAutoExtracted = false;
+                        isApkOrCpk = false;
+                    }
+                } else if (isCloudMode && isDeb) {
+                    const presignedRes = await fetch('/api/v2/upload/presigned-url', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            fileName: file.name,
+                            contentType: file.type || '',
+                            expiresSeconds: 600,
+                            prefix: 'temp/resources'
+                        })
+                    });
+                    if (!presignedRes.ok) {
+                        const err = await presignedRes.json();
+                        throw new Error(err.details || err.error || 'Failed to get upload URL');
+                    }
+                    const { data: presignedData } = await presignedRes.json();
+                    const { url, bucket, objectPath, contentType } = presignedData;
+                    if (!url || !bucket || !objectPath) {
+                        throw new Error('Invalid presigned URL response');
+                    }
+                    const uploadRes = await fetch(url, {
+                        method: 'PUT',
+                        body: file as BodyInit,
+                        headers: { 'Content-Type': contentType || file.type || 'application/octet-stream' }
+                    });
+                    if (!uploadRes.ok) {
+                        throw new Error(`Upload failed: ${uploadRes.status}`);
+                    }
+                    uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                    $form.path = uploadedCloudPath;
+                    $form.size = file.size;
+
+                    const debResult = await parseDebByPath(objectPath, bucket);
+                    if (debResult.success && debResult.data) {
+                        $form.packageName = debResult.data.packageName;
+                        $form.version = debResult.data.version;
+                        $form.name = debResult.data.packageName || debResult.data.description || $form.name;
+                        isAutoExtracted = true;
+                        isApkOrCpk = true;
+                        zipParseSuccess = '✓ Successfully parsed DEB file ';
+                    } else {
+                        zipParseError = debResult.error || 'Failed to parse DEB file';
+                        uploadError = `DEB parsing failed: ${zipParseError}`;
                         isAutoExtracted = false;
                         isApkOrCpk = false;
                     }
                 } else {
-                    // For ZIP/CPK/DEB files, use the existing logic
+                    // For ZIP/CPK/DEB (local), use the existing logic
                     const result = await parseZipFile(file);
                     console.log('[File Upload] Parse result:', result);
 
@@ -337,6 +391,7 @@
         }
         $form.size = 0;
         uploadedFiles = [];
+        uploadedCloudPath = null;
         if (nativeFileInput) {
             nativeFileInput.value = '';
         }
@@ -382,19 +437,42 @@
             console.log('[NewResource] Is cloud mode:', isCloudMode);
             
             if (isCloudMode) {
+                if (uploadedCloudPath) {
+                    console.log('[NewResource] Using already-uploaded cloud path, creating resource...');
+                    const createResponse = await fetch('/api/v2/resources/create-cloud', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: $form.name || $form.file?.name?.split('.')[0] || 'Resource',
+                            description: $form.description || '',
+                            type: $form.type || '',
+                            target: $form.target || 'user',
+                            version: $form.version || '',
+                            versionCode: $form.versionCode ?? null,
+                            signature: $form.signature ?? null,
+                            format: $form.format || '',
+                            packageName: $form.packageName || '',
+                            path: uploadedCloudPath,
+                            size: $form.size || 0,
+                            accountId: $form.accountId || ''
+                        })
+                    });
+                    if (!createResponse.ok) {
+                        const error = await createResponse.json();
+                        throw new Error(error.message || 'Failed to create resource record');
+                    }
+                    const result = await createResponse.json();
+                    uploadSuccess = `Resource "${result.data?.resourceId || 'created'}" created successfully!`;
+                    uploadError = '';
+                    setTimeout(() => { window.location.href = '/admin/iot/resources'; }, 1500);
+                    return;
+                }
                 console.log('[NewResource] Cloud mode detected, using CloudFileUpload...');
-                
-                // Use SmartFileUpload component's upload method
                 if (fileUploadRef && typeof fileUploadRef.uploadFiles === 'function') {
-                    console.log('[NewResource] Calling SmartFileUpload.uploadFiles()...');
                     await fileUploadRef.uploadFiles();
-                    
-                    // The uploadComplete event will be handled by handleUploadComplete
-                    // which will create the resource record
                 } else {
                     throw new Error('SmartFileUpload component not available');
                 }
-                
             } else {
                 console.log('[NewResource] Local mode detected, using form submission...');
                 

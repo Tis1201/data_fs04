@@ -7,12 +7,13 @@ import { logger } from '$lib/server/logger';
 /**
  * POST /api/v2/upload/presigned-url
  * Generate a presigned URL for file upload to cloud storage
- * 
+ *
  * Body:
  * - fileName: string (required) - Name of file to upload
  * - contentType: string (optional) - MIME type (will be inferred if missing)
  * - expiresSeconds: number (optional, default: 600) - URL expiration time
- * 
+ * - prefix: string (optional) - GCS path prefix (e.g. "temp/resources"). Object path becomes {prefix}/{uuid}.ext
+ *
  * Returns:
  * - url: string - Presigned upload URL
  * - objectPath: string - Cloud storage object path
@@ -20,7 +21,7 @@ import { logger } from '$lib/server/logger';
  */
 export const POST = unifiedEndpoint(
   async ({ context, event }) => {
-    const { fileName, contentType, expiresSeconds = 600 } = await event.request.json();
+    const { fileName, contentType, expiresSeconds = 600, prefix } = await event.request.json();
 
     if (!fileName) {
       throw Object.assign(
@@ -67,7 +68,11 @@ export const POST = unifiedEndpoint(
       type: inferredContentType
     } as File;
 
-    const objectPath = generateFilePath(mockFile);
+    const baseName = generateFilePath(mockFile);
+    const objectPath =
+      prefix && String(prefix).trim()
+        ? `${String(prefix).replace(/^\/+|\/+$/g, '')}/${baseName}`
+        : baseName;
 
     logger.info(`Generating presigned URL for: ${objectPath} (${inferredContentType})`);
 

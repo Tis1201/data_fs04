@@ -5,6 +5,12 @@ import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { inferTypeAndFormatFromFile } from '$lib/utils/FileUtils';
+import {
+  getStorageConfig,
+  ensureResourceInResourcesFolder,
+  parseGCloudUrl,
+  isGCloudUrl
+} from '$lib/server/storage';
 
 /**
  * POST /api/v2/resources/create-cloud
@@ -62,6 +68,22 @@ export const POST = unifiedEndpoint(
         new Error('Path must be a valid cloud storage URL'),
         { status: 400, code: ErrorCodes.INVALID_INPUT }
       );
+    }
+
+    // When path is GCS, ensure object lives under resources/ (move from temp/resources or root if needed)
+    let finalPath = path;
+    const config = getStorageConfig();
+    if (
+      (config.mode === 'LOCAL_CLOUD' || config.mode === 'GCLOUD') &&
+      config.bucket &&
+      isGCloudUrl(path)
+    ) {
+      const parsed = parseGCloudUrl(path);
+      if (parsed) {
+        const newObjectPath = await ensureResourceInResourcesFolder(parsed.bucket, parsed.objectPath);
+        finalPath = `https://storage.googleapis.com/${parsed.bucket}/${newObjectPath}`;
+        logger.info(`[create-cloud] Resource path ensured in resources folder: ${finalPath}`);
+      }
     }
 
     // Determine target account based on role
@@ -139,7 +161,7 @@ export const POST = unifiedEndpoint(
 
     if (!finalType || !finalFormat) {
       // Extract filename from path, removing query parameters
-      const url = new URL(path);
+      const url = new URL(finalPath);
       const pathParts = url.pathname.split('/');
       const fileName = pathParts[pathParts.length - 1];
 
@@ -167,7 +189,7 @@ export const POST = unifiedEndpoint(
         releaseType: releaseType || 'Production',
         format: finalFormat,
         packageName: packageName || '',
-        path,
+        path: finalPath,
         size: size || 0,
         accountId: targetAccountId,
         createdBy: session.user.id,

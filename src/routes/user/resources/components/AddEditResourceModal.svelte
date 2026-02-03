@@ -10,7 +10,27 @@
     } from '$lib/design-system/components';
     import type { UploadedFile } from '$lib/design-system/components/FileUpload.svelte';
     import { Info, Download } from 'lucide-svelte';
-    import { parseZipFile, parseApkFile, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
+    import {
+        parseZipFile,
+        parseApkFile,
+        parseApkFileClient,
+        parseApkByPath,
+        parseDebFile,
+        parseDebByPath,
+        generatePackageName,
+        extractDisplayName,
+        extractVersion
+    } from '$lib/utils/clientZipParser';
+
+    /** Client-safe: infer resource type/format from filename (no server env) */
+    function inferTypeAndFormatFromFileName(fileName: string): { type: string; format: string } {
+        const format = fileName?.includes('.') ? fileName.split('.').pop()!.toLowerCase() : '';
+        const type =
+            format === 'apk' || format === 'deb' ? 'application' :
+            format === 'zip' ? 'archive' :
+            format === 'cpk' ? 'package' : 'file';
+        return { type, format };
+    }
 
     export let open: boolean = false;
     export let mode: 'add' | 'edit' = 'add';
@@ -32,6 +52,8 @@
     } | null = null;
     /** Accounts for Account dropdown: { id, name }[] */
     export let accounts: { id: string; name: string }[] = [];
+    /** When set (LOCAL_CLOUD/GCLOUD), APK/DEB use upload-to-GCS then parse by path */
+    export let storageConfig: { mode: string; bucket?: string } | null = null;
 
     const dispatch = createEventDispatcher<{
         close: void;
@@ -69,8 +91,38 @@
     let zipParseError = '';
     let isApkOrCpk = false;
     let isApk = false;
+    /** When in cloud mode and file was uploaded for parsing, submit uses this path instead of file */
+    let uploadedCloudPath: string | null = null;
+    /** Upload progress 0–100 when uploading to GCloud; null when not uploading */
+    let uploadProgress: number | null = null;
 
     $: accountOptions = accounts.map((a) => ({ id: a.id, label: a.name }));
+
+    /** Upload file to presigned URL with progress (XHR so we get real %). */
+    function uploadToPresignedUrlWithProgress(
+        url: string,
+        file: File,
+        contentType: string,
+        onProgress: (percent: number) => void
+    ): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', url);
+            xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream');
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    const percent = Math.round((e.loaded / e.total) * 100);
+                    onProgress(percent);
+                }
+            });
+            xhr.addEventListener('load', () => {
+                if (xhr.status >= 200 && xhr.status < 300) resolve();
+                else reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
+            });
+            xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+            xhr.send(file);
+        });
+    }
 
     // Only sync when modal opens: edit = fill from initialData; add = reset once when opening
     $: if (open) {
@@ -100,6 +152,7 @@
                 signature = '';
                 selectedFile = null;
                 uploadedFiles = [];
+                uploadedCloudPath = null;
             }
         }
         wasOpen = true;
@@ -158,16 +211,58 @@
         zipParseError = '';
         isApkOrCpk = false;
         isApk = false;
+        uploadedCloudPath = null;
 
         const fileName = file.name.toLowerCase();
         const isSupported = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb');
         isApk = fileName.endsWith('.apk');
+        const isDeb = fileName.endsWith('.deb');
+        const isCloudMode = storageConfig?.mode === 'LOCAL_CLOUD' || storageConfig?.mode === 'GCLOUD';
 
         if (isSupported) {
             zipParsing = true;
             try {
                 if (isApk) {
-                    const apkResult = await parseApkFile(file);
+                    let apkResult = await parseApkFileClient(file);
+                    if (!apkResult.success && isCloudMode) {
+                        const presignedRes = await fetch('/api/v2/upload/presigned-url', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                fileName: file.name,
+                                contentType: file.type || '',
+                                expiresSeconds: 600,
+                                prefix: 'temp/resources'
+                            })
+                        });
+                        if (!presignedRes.ok) {
+                            const err = await presignedRes.json();
+                            throw new Error(err.details || err.error || 'Failed to get upload URL');
+                        }
+                        const { data: presignedData } = await presignedRes.json();
+                        const { url, bucket, objectPath, contentType } = presignedData;
+                        if (!url || !bucket || !objectPath) {
+                            throw new Error('Invalid presigned URL response');
+                        }
+                        uploadProgress = 0;
+                        uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 0, state: 'ongoing' }];
+                        await uploadToPresignedUrlWithProgress(
+                            url,
+                            file,
+                            contentType || file.type || 'application/octet-stream',
+                            (p) => {
+                                uploadProgress = p;
+                                if (uploadedFiles[0]) uploadedFiles = [{ ...uploadedFiles[0], progress: p }];
+                            }
+                        );
+                        uploadProgress = null;
+                        uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 100, state: 'success' }];
+                        uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                        resourcePath = uploadedCloudPath;
+                        apkResult = await parseApkByPath(objectPath, bucket);
+                    } else if (!apkResult.success) {
+                        apkResult = await parseApkFile(file);
+                    }
                     if (apkResult.success && apkResult.data) {
                         if (apkResult.data.packageName) packageName = apkResult.data.packageName;
                         if (apkResult.data.versionName) version = apkResult.data.versionName;
@@ -175,30 +270,89 @@
                         if (apkResult.data.signature) signature = apkResult.data.signature;
                         if (apkResult.data.appName) name = apkResult.data.appName;
                         isApkOrCpk = true;
-                        zipParseSuccess = '✓ Successfully parsed APK file';
+                        zipParseSuccess = uploadedCloudPath ? '✓ Successfully parsed APK file ' : '✓ Successfully parsed APK file';
                     } else {
                         zipParseError = apkResult.error || 'Failed to parse APK file';
                     }
-                } else {
-                    const result = await parseZipFile(file);
-                    if (result.success && result.appData) {
-                        const pkg = generatePackageName(result.appData);
-                        if (pkg) packageName = pkg;
-                        const ver = extractVersion(result.appData);
-                        if (ver) version = ver;
-                        const displayName = extractDisplayName(result.appData);
-                        if (displayName) name = displayName;
+                } else if (isCloudMode && isDeb) {
+                    const presignedRes = await fetch('/api/v2/upload/presigned-url', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            fileName: file.name,
+                            contentType: file.type || '',
+                            expiresSeconds: 600,
+                            prefix: 'temp/resources'
+                        })
+                    });
+                    if (!presignedRes.ok) {
+                        const err = await presignedRes.json();
+                        throw new Error(err.details || err.error || 'Failed to get upload URL');
+                    }
+                    const { data: presignedData } = await presignedRes.json();
+                    const { url, bucket, objectPath, contentType } = presignedData;
+                    if (!url || !bucket || !objectPath) {
+                        throw new Error('Invalid presigned URL response');
+                    }
+                    uploadProgress = 0;
+                    uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 0, state: 'ongoing' }];
+                    await uploadToPresignedUrlWithProgress(
+                        url,
+                        file,
+                        contentType || file.type || 'application/octet-stream',
+                        (p) => {
+                            uploadProgress = p;
+                            if (uploadedFiles[0]) uploadedFiles = [{ ...uploadedFiles[0], progress: p }];
+                        }
+                    );
+                    uploadProgress = null;
+                    uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 100, state: 'success' }];
+                    uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                    resourcePath = uploadedCloudPath;
+                    const debResult = await parseDebByPath(objectPath, bucket);
+                    if (debResult.success && debResult.data) {
+                        packageName = debResult.data.packageName;
+                        version = debResult.data.version;
+                        name = debResult.data.packageName || debResult.data.description || name;
                         isApkOrCpk = true;
-                        const fileType = fileName.endsWith('.cpk') ? 'CPK' : fileName.endsWith('.deb') ? 'DEB' : 'ZIP';
-                        zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
+                        zipParseSuccess = '✓ Successfully parsed DEB file ';
                     } else {
-                        zipParseError = result.error || 'Failed to parse file';
+                        zipParseError = debResult.error || 'Failed to parse DEB file';
+                    }
+                } else {
+                    if (isDeb) {
+                        const debResult = await parseDebFile(file);
+                        if (debResult.success && debResult.data) {
+                            packageName = debResult.data.packageName;
+                            version = debResult.data.version;
+                            name = debResult.data.packageName || debResult.data.description || name;
+                            isApkOrCpk = true;
+                            zipParseSuccess = '✓ Successfully parsed DEB file';
+                        } else {
+                            zipParseError = debResult.error || 'Failed to parse DEB file';
+                        }
+                    } else {
+                        const result = await parseZipFile(file);
+                        if (result.success && result.appData) {
+                            const pkg = generatePackageName(result.appData);
+                            if (pkg) packageName = pkg;
+                            const ver = extractVersion(result.appData);
+                            if (ver) version = ver;
+                            const displayName = extractDisplayName(result.appData);
+                            if (displayName) name = displayName;
+                            isApkOrCpk = true;
+                            const fileType = fileName.endsWith('.cpk') ? 'CPK' : 'ZIP';
+                            zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
+                        } else {
+                            zipParseError = result.error || 'Failed to parse file';
+                        }
                     }
                 }
             } catch (err) {
-                zipParseError = 'Failed to parse file';
+                zipParseError = err instanceof Error ? err.message : 'Failed to parse file';
             } finally {
                 zipParsing = false;
+                uploadProgress = null;
             }
         }
     }
@@ -206,12 +360,15 @@
     function handleFileRemove() {
         selectedFile = null;
         uploadedFiles = [];
+        uploadedCloudPath = null;
+        resourcePath = '';
         versionCode = null;
         signature = '';
         zipParseSuccess = '';
         zipParseError = '';
         isApkOrCpk = false;
         isApk = false;
+        uploadProgress = null;
     }
 
     function toErrorMessage(v: unknown): string {
@@ -261,7 +418,13 @@
             if (signature) fd.set('signature', signature);
 
             if (mode === 'add') {
-                if (selectedFile) {
+                if (uploadedCloudPath && selectedFile) {
+                    fd.set('path', uploadedCloudPath);
+                    fd.set('size', String(selectedFile.size));
+                    const { type: inferredType, format: inferredFormat } = inferTypeAndFormatFromFileName(selectedFile.name);
+                    fd.set('type', inferredType);
+                    fd.set('format', inferredFormat);
+                } else if (selectedFile) {
                     fd.set('file', selectedFile);
                     fd.set('size', String(selectedFile.size));
                 }
@@ -361,7 +524,9 @@
                         errorMessage = null;
                     }}
                 />
-                {#if zipParsing}
+                {#if uploadProgress != null}
+                    <p class="resource-parse-status resource-parse-pending">Uploading to server... {uploadProgress}%</p>
+                {:else if zipParsing}
                     <p class="resource-parse-status resource-parse-pending">Parsing file…</p>
                 {/if}
                 {#if zipParseSuccess}
@@ -502,7 +667,7 @@
                 color="primary"
                 size="lg"
                 loading={submitting}
-                disabled={submitting}
+                disabled={submitting || zipParsing || (uploadProgress != null && uploadProgress < 100)}
             >
                 {mode === 'add' ? 'Add' : 'Save'}
             </Button>
