@@ -43,15 +43,13 @@ const ACTION_CONFIGS = {
         actionType: 'push_file',
         mqttAction: 'device:actionRequest', 
         timeout: TimeoutConfig.DEVICE_ACTION + (5 * 60 * 1000), // 15 minutes (10 + 5)
-        // Old logic: require sourcePath + destinationPath. When resourceId is provided, validation is skipped (see below).
         requiredFields: ['sourcePath', 'destinationPath']
     },
     pullFile: {
         actionType: 'pull_file',
         mqttAction: 'device:actionRequest', 
         timeout: TimeoutConfig.DEVICE_ACTION,
-        // sourcePath required; destinationPath optional (server-generated when missing; old clients may send both)
-        requiredFields: ['sourcePath']
+        requiredFields: ['sourcePath', 'destinationPath']
     },
     updateFirmware: {
         actionType: 'update_firmware',
@@ -87,18 +85,6 @@ const ACTION_CONFIGS = {
         actionType: 'config_app',
         mqttAction: 'device:actionRequest', 
         timeout: 3 * 60 * 1000, // 3 minutes
-        requiredFields: ['packageName']
-    },
-    pin_apps: {
-        actionType: 'pin_apps',
-        mqttAction: 'device:actionRequest',
-        timeout: 1 * 60 * 1000, // 1 minute
-        requiredFields: ['apps'] // string[] of package names
-    },
-    unpin_app: {
-        actionType: 'unpin_app',
-        mqttAction: 'device:actionRequest',
-        timeout: 1 * 60 * 1000, // 1 minute
         requiredFields: ['packageName']
     }
 } as const;
@@ -161,23 +147,20 @@ export const POST: RequestHandler = restrict(
 
             const actionConfig = ACTION_CONFIGS[action as ActionType];
             logger.info(`[UnifiedActionAPI] Action config:`, actionConfig);
-
-            // Validate required fields (skip for pushFile when resourceId is provided - new flow only)
-            const skipRequiredCheck = action === 'pushFile' && payload.resourceId;
-            if (!skipRequiredCheck) {
-                for (const field of actionConfig.requiredFields) {
-                    if (!payload[field] || !String(payload[field]).trim()) {
-                        logger.warn(`[UnifiedActionAPI] Missing required field: ${field}`);
-                        return json({
-                            success: false,
-                            error: {
-                                code: 'INVALID_REQUEST',
-                                message: `Missing required field: ${field}`,
-                                timestamp: new Date().toISOString(),
-                                requestId: crypto.randomUUID()
-                            }
-                        }, { status: 400 });
-                    }
+            
+            // Validate required fields
+            for (const field of actionConfig.requiredFields) {
+                if (!payload[field] || !String(payload[field]).trim()) {
+                    logger.warn(`[UnifiedActionAPI] Missing required field: ${field}`);
+                    return json({ 
+                        success: false, 
+                        error: { 
+                            code: 'INVALID_REQUEST', 
+                            message: `Missing required field: ${field}`,
+                            timestamp: new Date().toISOString(),
+                            requestId: crypto.randomUUID()
+                        }
+                    }, { status: 400 });
                 }
             }
 
@@ -281,22 +264,8 @@ export const POST: RequestHandler = restrict(
             
             if (action === 'pushFile') {
                 try {
-                    let sourcePath = payload.sourcePath as string;
+                    const sourcePath = payload.sourcePath as string;
                     const resourceId = payload.resourceId as string | undefined;
-                    
-                    // Validate: must have either sourcePath or resourceId
-                    if (!sourcePath && !resourceId) {
-                        logger.warn(`[UnifiedActionAPI] pushFile requires either sourcePath or resourceId`);
-                        return json({ 
-                            success: false, 
-                            error: { 
-                                code: 'INVALID_REQUEST', 
-                                message: 'pushFile requires either sourcePath or resourceId',
-                                timestamp: new Date().toISOString(),
-                                requestId: crypto.randomUUID()
-                            }
-                        }, { status: 400 });
-                    }
                     
                     logger.info(`[UnifiedActionAPI] Processing pushFile action`, {
                         sourcePath,
@@ -566,83 +535,6 @@ export const POST: RequestHandler = restrict(
                 }
             }
             
-            // Generate upload URL for screenshot action
-            if (action === 'screenshot') {
-                try {
-                    const timestamp = Date.now();
-                    const fileName = `screenshot_${timestamp}.jpg`;
-                    const objectPath = `devices/${deviceId}/screenshots/${timestamp}/${fileName}`;
-                    
-                    const storageConfig = getStorageConfig();
-                    if (!storageConfig.bucket) {
-                        throw new Error('GCloud bucket not configured');
-                    }
-                    
-                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for screenshot`, {
-                        mode: storageConfig.mode,
-                        bucket: storageConfig.bucket,
-                        objectPath
-                    });
-                    
-                    let presignedUrlResult;
-                    
-                    // Use the appropriate method based on storage mode
-                    if (storageConfig.mode === 'LOCAL_CLOUD') {
-                        if (!storageConfig.targetServiceAccount) {
-                            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
-                        }
-                        presignedUrlResult = await generatePresignedUrlLocalCloud(
-                            storageConfig.bucket,
-                            objectPath,
-                            'image/jpeg',
-                            storageConfig.targetServiceAccount,
-                            3600 // 1 hour expiration
-                        );
-                    } else if (storageConfig.mode === 'GCLOUD') {
-                        presignedUrlResult = await generatePresignedUrlGCloud(
-                            storageConfig.bucket,
-                            objectPath,
-                            'image/jpeg',
-                            3600 // 1 hour expiration
-                        );
-                    } else {
-                        // For LOCAL mode, use the generic function which handles it
-                        presignedUrlResult = await generatePresignedUrl(
-                            objectPath,
-                            'image/jpeg',
-                            3600
-                        );
-                    }
-                    
-                    uploadUrlData = {
-                        uploadUrl: presignedUrlResult.url,
-                        objectPath: presignedUrlResult.objectPath,
-                        bucket: presignedUrlResult.bucket,
-                        expires: presignedUrlResult.expires,
-                        contentType: presignedUrlResult.contentType
-                    };
-                    
-                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully for screenshot`, {
-                        objectPath: presignedUrlResult.objectPath,
-                        bucket: presignedUrlResult.bucket,
-                        mode: storageConfig.mode
-                    });
-                } catch (error) {
-                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for screenshot`, {
-                        error: error instanceof Error ? error.message : String(error),
-                        stack: error instanceof Error ? error.stack : undefined
-                    });
-                    return json({
-                        success: false,
-                        error: {
-                            code: 'OPERATION_FAILED',
-                            message: 'Failed to generate upload URL for screenshot',
-                            details: error instanceof Error ? error.message : String(error)
-                        }
-                    }, { status: 500 });
-                }
-            }
-            
             if (action === 'installApp') {
                 try {
                     const resourceId = payload.resourceId as string | undefined;
@@ -696,38 +588,18 @@ export const POST: RequestHandler = restrict(
                     }
                     
                     // Add resource metadata to payload (packageName, packageSize)
-                    const packageName = (resource.packageName && String(resource.packageName).trim()) ? resource.packageName : resource.name;
-                    payload.packageName = packageName; // Always use resource-derived value so placeholder "-" from frontend is replaced
+                    const packageName = resource.packageName || resource.name;
+                    payload.packageName = payload.packageName || packageName; // Use provided packageName or resource packageName
                     payload.packageSize = resource.size;
                     payload.appName = packageName; // For backward compatibility
                     
-                    // Generate signed download URL for the app file (GCloud/LOCAL_CLOUD) or build URL for LOCAL
-                    let result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
-                    if (!result && resource.path) {
-                        let downloadUrl: string;
-                        if (resource.path.startsWith('http://') || resource.path.startsWith('https://')) {
-                            downloadUrl = resource.path;
-                        } else if (resource.path.startsWith('/')) {
-                            // LOCAL storage: path is e.g. /uploads/iot/xxx.apk — build full URL
-                            const baseUrl = process.env.PUBLIC_APP_URL || event.url?.origin || 'http://localhost:5173';
-                            downloadUrl = baseUrl.replace(/\/+$/, '') + resource.path;
-                        } else {
-                            downloadUrl = '';
-                        }
-                        if (downloadUrl) {
-                            result = {
-                                downloadUrl,
-                                objectPath: resource.path,
-                                bucket: 'local',
-                                expires: Date.now() + 3600 * 1000
-                            };
-                            logger.info(`[UnifiedActionAPI] Using resource path as download URL (non-GCloud/LOCAL)`, {
-                                resourceId,
-                                resourcePath: resource.path,
-                                downloadUrl
-                            });
-                        }
-                    }
+                    // Extract filename with extension from path
+                    const { extractFilenameWithExtension } = await import('$lib/server/storage/gcloudUrlUtils');
+                    const filename = extractFilenameWithExtension(resource.path, resource.name);
+                    
+                    // Generate signed download URL for the app file
+                    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, filename);
+                    
                     if (result) {
                         downloadUrlData = {
                             downloadUrl: result.downloadUrl,

@@ -6,6 +6,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { restrict } from '$lib/server/security/guards';
 import { generateDownloadUrl, getStorageConfig, parseGCloudUrl, isGCloudUrl } from '$lib/server/storage';
+import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
 
 /**
  * GET handler for resource files
@@ -107,8 +108,11 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                             throw new Error(`Invalid resource path format: ${resource.path}`);
                         }
                         
-                        logger.info(`Generating fresh download URL for cloud storage. Object path: ${objectPath}, filename: ${resource.name}`);
-                        const downloadResult = await generateDownloadUrl(objectPath, 3600, resource.name); // 1 hour expiry
+                        // Extract filename with extension using shared utility
+                        const fileName = extractFilenameWithExtension(resource.path, resource.name);
+                        
+                        logger.info(`Generating fresh download URL. objectPath: ${objectPath}, resource.name: ${resource.name}, final filename: ${fileName}`);
+                        const downloadResult = await generateDownloadUrl(objectPath, 3600, fileName); // 1 hour expiry
                         
                         logger.info(`Redirecting to presigned download URL: ${downloadResult.url}`);
                         

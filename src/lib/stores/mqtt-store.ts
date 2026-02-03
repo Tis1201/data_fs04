@@ -1,6 +1,11 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 import type { MqttClient } from 'mqtt';
+import { matchesTopic, parsePayload, subscribeWithAuthRetry } from '$lib/client/mqtt/utils';
+import { mintConnectionJwt, resolveBrokerUrl } from '$lib/client/mqtt/mintClient';
+import { attachStreamDiagnostics } from '$lib/client/mqtt/streamDiagnostics';
+import { createHeartbeatAndRefresh } from '$lib/client/mqtt/heartbeatAndRefresh';
+import { createMqttConnection } from '$lib/client/mqtt/connectionFactory';
 
 export type MQTTStatus = 'CONNECTING' | 'OPEN' | 'CLOSED' | 'ERROR';
 
@@ -30,9 +35,7 @@ const BASE_RECONNECT_INTERVAL = 2000;
 const MAX_RECONNECT_INTERVAL = 30000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_KEEP_ALIVE = 120;
-const MINT_ENDPOINT = '/api/user/mqtt/mint';
-
-const textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
+const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
 
 let mqttModulePromise: Promise<any> | null = null;
 
@@ -41,131 +44,6 @@ async function loadMqtt() {
         mqttModulePromise = import('mqtt');
     }
     return mqttModulePromise;
-}
-
-function matchesTopic(filter: string, topic: string): boolean {
-    if (!filter) return false;
-    if (filter === '*' || filter === topic) {
-        return true;
-    }
-
-    const filterLevels = filter.split('/');
-    const topicLevels = topic.split('/');
-
-    for (let i = 0; i < filterLevels.length; i++) {
-        const filterLevel = filterLevels[i];
-        const topicLevel = topicLevels[i];
-
-        if (filterLevel === '#') {
-            return true;
-        }
-
-        if (filterLevel === '+') {
-            if (topicLevel === undefined) {
-                return false;
-            }
-            continue;
-        }
-
-        if (filterLevel !== topicLevel) {
-            return false;
-        }
-    }
-
-    return filterLevels.length === topicLevels.length;
-}
-
-function parsePayload(payload: Uint8Array): { raw: string; parsed: unknown } {
-    if (!payload || payload.length === 0) {
-        return { raw: '', parsed: null };
-    }
-
-    const decoder = textDecoder ?? new TextDecoder();
-    const raw = decoder.decode(payload);
-
-    if (!raw) {
-        return { raw: '', parsed: null };
-    }
-
-    try {
-        return { raw, parsed: JSON.parse(raw) };
-    } catch {
-        return { raw, parsed: raw };
-    }
-}
-
-function resolveBrokerUrl(explicitUrl?: string, mintedUrl?: string | null): string | null {
-    if (explicitUrl) return explicitUrl;
-    if (mintedUrl) return mintedUrl ?? null;
-    return null;
-}
-
-async function mintConnectionJwt(): Promise<{ token: string; brokerUrl: string | null; username: string | null; clientId: string | null }> {
-    const response = await fetch(MINT_ENDPOINT, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-    });
-
-    if (!response.ok) {
-        throw new Error(`Failed to mint MQTT credential: ${response.status}`);
-    }
-
-    const payload = await response.json();
-    const data = payload?.data ?? payload;
-    const token = data?.jwt ?? payload?.jwt;
-    const brokerUrl = data?.brokerUrl ?? payload?.brokerUrl ?? null;
-    let clientId: string | null = data?.clientId ?? payload?.clientId ?? null;
-
-    if (!token) {
-        throw new Error('Minted MQTT credential response missing jwt');
-    }
-
-    // Prefer explicit username from mint response (aligned with /api/user/mqtt/mint)
-    let derivedUsername: string | null = data?.username ?? payload?.username ?? null;
-
-    console.log('[MQTT] Minted JWT credential');
-    if (brokerUrl) {
-        console.log('[MQTT] Minted broker URL:', brokerUrl);
-    }
-    if (derivedUsername) {
-        console.log('[MQTT] Minted username from response:', derivedUsername);
-    }
-    if (clientId) {
-        console.log('[MQTT] Minted clientId from response:', clientId);
-    }
-
-    // Backwards-compatible fallback: derive username/clientId from JWT payload if not provided
-    if (!derivedUsername || !clientId) {
-        try {
-            const [, payloadSegment] = token.split('.');
-            if (payloadSegment) {
-                const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-                const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-                const decodedPayload = JSON.parse(atob(padded));
-                console.debug('[MQTT] JWT payload:', decodedPayload);
-                if (!derivedUsername) {
-                    derivedUsername =
-                        decodedPayload?.email ??
-                        decodedPayload?.name ??
-                        decodedPayload?.username ??
-                        decodedPayload?.userId ??
-                        null;
-                }
-                if (!clientId) {
-                    clientId = decodedPayload?.client_id ?? decodedPayload?.clientId ?? null;
-                }
-            } else {
-                console.warn('[MQTT] Unable to decode JWT payload: missing segment');
-            }
-        } catch (err) {
-            console.warn('[MQTT] Failed to decode JWT payload', err);
-        }
-    }
-
-    return { token: token as string, brokerUrl, username: derivedUsername, clientId };
 }
 
 export interface ConnectOptions {
@@ -217,91 +95,26 @@ export function createMQTTStore() {
     let lastBrokerUrl: string | null = null;
     let lastUsername: string | null = null;
     let lastClientId: string | null = null;
-    let detachStreamDiagnostics: (() => void) | null = null;
-    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+    let streamDiagnosticsCleanup: (() => void) | null = null;
+    let forceTokenRefreshOnNextConnect = false;
 
     const topicListeners = new Map<string, Set<TopicCallback>>();
     const wildcardListeners = new Set<TopicCallback>();
     const pendingTopics = new Set<string>();
 
     const detachDiagnostics = () => {
-        if (detachStreamDiagnostics) {
+        if (streamDiagnosticsCleanup) {
             try {
-                detachStreamDiagnostics();
+                streamDiagnosticsCleanup();
             } catch (err) {
                 console.warn('[MQTT] Failed detaching stream diagnostics', err);
             }
-            detachStreamDiagnostics = null;
+            streamDiagnosticsCleanup = null;
         }
-    };
-
-    const attachStreamDiagnostics = (client: MqttClient) => {
-        const stream = (client as any)?.stream;
-        const cleanupFns: (() => void)[] = [];
-
-        if (!stream) {
-            return () => { };
-        }
-
-        if (typeof stream.addEventListener === 'function') {
-            const handleClose = (event: Event) => {
-                const closeEvent = event as CloseEvent;
-                console.error('[MQTT] WebSocket close event', {
-                    code: closeEvent.code,
-                    reason: closeEvent.reason,
-                    wasClean: closeEvent.wasClean
-                });
-            };
-            const handleError = (event: Event) => {
-                const errorEvent = event as ErrorEvent;
-                const message = errorEvent?.message ?? (event as any)?.message ?? event.type ?? 'unknown';
-                console.error('[MQTT] WebSocket error event', message, event);
-            };
-
-            stream.addEventListener('close', handleClose);
-            stream.addEventListener('error', handleError);
-
-            cleanupFns.push(() => {
-                stream.removeEventListener('close', handleClose);
-                stream.removeEventListener('error', handleError);
-            });
-        } else if (typeof stream.on === 'function') {
-            const handleClose = (code?: number, reason?: Buffer | string) => {
-                console.error('[MQTT] Stream close event', {
-                    code,
-                    reason: typeof reason === 'string' ? reason : reason?.toString('utf8')
-                });
-            };
-            const handleError = (error: Error) => {
-                console.error('[MQTT] Stream error event', error);
-            };
-
-            stream.on('close', handleClose);
-            stream.on('error', handleError);
-
-            cleanupFns.push(() => {
-                if (typeof stream.off === 'function') {
-                    stream.off('close', handleClose);
-                    stream.off('error', handleError);
-                } else if (typeof stream.removeListener === 'function') {
-                    stream.removeListener('close', handleClose);
-                    stream.removeListener('error', handleError);
-                }
-            });
-        }
-
-        return () => {
-            cleanupFns.forEach((fn) => {
-                try {
-                    fn();
-                } catch (err) {
-                    console.warn('[MQTT] Failed to remove diagnostics listener', err);
-                }
-            });
-        };
     };
 
     const teardownClient = () => {
+        heartbeatApi.clearTokenRefreshTimer();
         detachDiagnostics();
         if (!currentClient) return;
         try {
@@ -311,33 +124,6 @@ export function createMQTTStore() {
             console.warn('[MQTT] Error closing client', err);
         }
         currentClient = null;
-    };
-
-    const sendHeartbeat = () => {
-        if (currentClient && currentClient.connected && lastUsername) {
-            const topic = `user/${lastUsername}/heartbeat`;
-            const payload = JSON.stringify({ timestamp: Date.now() });
-            currentClient.publish(topic, payload, { qos: 0 }, (err) => {
-                if (err) {
-                    console.error('[MQTT] Failed to send heartbeat', err);
-                }
-            });
-        }
-    };
-
-    const startHeartbeat = () => {
-        if (heartbeatTimer) return;
-        console.log('[MQTT] Starting heartbeat');
-        sendHeartbeat();
-        heartbeatTimer = setInterval(sendHeartbeat, 60000);
-    };
-
-    const stopHeartbeat = () => {
-        if (heartbeatTimer) {
-            console.log('[MQTT] Stopping heartbeat');
-            clearInterval(heartbeatTimer);
-            heartbeatTimer = null;
-        }
     };
 
     const updateState = (partial: Partial<MQTTState>) => {
@@ -466,8 +252,9 @@ export function createMQTTStore() {
             }
 
             try {
-                // Force fresh JWT on reconnection attempts to avoid using stale/expiring tokens
-                const forceRefresh = reconnectAttempts > 0;
+                // Force fresh JWT on reconnection or when broker rejected subscribe (e.g. "Not authorized")
+                const forceRefresh = reconnectAttempts > 0 || forceTokenRefreshOnNextConnect;
+                if (forceTokenRefreshOnNextConnect) forceTokenRefreshOnNextConnect = false;
                 const { token, brokerUrl: mintedBrokerUrl, username, clientId } = await mintIfNeeded(forceRefresh);
                 const brokerUrl = resolveBrokerUrl(options.url, mintedBrokerUrl);
                 if (!brokerUrl) {
@@ -485,18 +272,6 @@ export function createMQTTStore() {
                     messages: []
                 });
 
-                const mqttModule = await loadMqtt();
-                const potentialConnect =
-                    mqttModule.connect ??
-                    (typeof mqttModule.default === 'function' ? mqttModule.default : mqttModule.default?.connect);
-
-                if (typeof potentialConnect !== 'function') {
-                    console.error('[MQTT] Unable to resolve mqtt.connect function from module export', mqttModule);
-                    throw new Error('mqtt.connect function unavailable');
-                }
-
-                const mqttConnect = potentialConnect;
-
                 teardownClient();
 
                 const connectionOptions: Record<string, unknown> = {
@@ -509,79 +284,68 @@ export function createMQTTStore() {
                 };
 
                 const resolvedUsername = username ?? lastUsername;
-                if (resolvedUsername) {
-                    connectionOptions.username = resolvedUsername;
-                }
+                if (resolvedUsername) connectionOptions.username = resolvedUsername;
 
                 const resolvedClientId = clientId ?? lastClientId ?? options.clientId;
-                if (resolvedClientId) {
-                    connectionOptions.clientId = resolvedClientId;
-                }
+                if (resolvedClientId) connectionOptions.clientId = resolvedClientId;
 
-                if (token) {
-                    connectionOptions.password = token;
-                }
+                if (token) connectionOptions.password = token;
 
-                const client = mqttConnect(brokerUrl, connectionOptions);
+                const { client, streamCleanup } = await createMqttConnection({
+                    brokerUrl,
+                    connectionOptions,
+                    loadMqtt,
+                    attachStreamDiagnostics,
+                    onConnect: (c) => {
+                        console.log('[MQTT] Connected');
+                        updateState({
+                            status: 'OPEN',
+                            connection: {
+                                url: brokerUrl,
+                                clientId: c.options.clientId,
+                                status: 'OPEN'
+                            }
+                        });
+                        heartbeatApi.startHeartbeat();
+                        heartbeatApi.scheduleTokenRefresh();
+                        if (pendingTopics.size > 0) {
+                            const handleAuthError = () => {
+                                forceTokenRefreshOnNextConnect = true;
+                                teardownClient();
+                                connectPromise = null;
+                                scheduleReconnect();
+                            };
+                            pendingTopics.forEach(topic => {
+                                subscribeWithAuthRetry(c, topic, handleAuthError).catch(() => {});
+                            });
+                            pendingTopics.clear();
+                        }
+                    },
+                    onMessage: handleMessage,
+                    onClose: (err?: Error) => {
+                        detachDiagnostics();
+                        heartbeatApi.stopHeartbeat();
+                        if (err) console.error('[MQTT] Connection closed due to error', err);
+                        else console.log('[MQTT] Connection closed');
+                        updateState({ status: 'CLOSED' });
+                        scheduleReconnect();
+                    },
+                    onOffline: () => {
+                        console.log('[MQTT] Connection offline');
+                        heartbeatApi.stopHeartbeat();
+                        updateState({ status: 'CONNECTING' });
+                    },
+                    onError: (err: Error) => {
+                        console.error('[MQTT] Error', err);
+                        heartbeatApi.stopHeartbeat();
+                        updateState({ status: 'ERROR', error: err });
+                    }
+                });
 
                 currentClient = client;
                 currentUrl = brokerUrl;
                 reconnectAttempts = 0;
-                detachDiagnostics();
-                detachStreamDiagnostics = attachStreamDiagnostics(client);
-
-                client.on('connect', () => {
-                    console.log('[MQTT] Connected');
-                    updateState({
-                        status: 'OPEN',
-                        connection: {
-                            url: brokerUrl,
-                            clientId: client.options.clientId,
-                            status: 'OPEN'
-                        }
-                    });
-
-                    startHeartbeat();
-
-                    if (pendingTopics.size > 0) {
-                        pendingTopics.forEach(topic => {
-                            client.subscribe(topic, (err) => {
-                                if (err) {
-                                    console.error('[MQTT] Failed to subscribe topic', topic, err);
-                                }
-                            });
-                        });
-                        pendingTopics.clear();
-                    }
-                });
-
-                client.on('message', (topic: string, payload: Buffer) => {
-                    handleMessage(topic, payload);
-                });
-
-                client.on('close', (err?: Error) => {
-                    detachDiagnostics();
-                    stopHeartbeat();
-                    if (err) {
-                        console.error('[MQTT] Connection closed due to error', err);
-                    } else {
-                        console.log('[MQTT] Connection closed');
-                    }
-                    updateState({ status: 'CLOSED' });
-                    scheduleReconnect();
-                });
-
-                client.on('offline', () => {
-                    console.log('[MQTT] Connection offline');
-                    stopHeartbeat();
-                    updateState({ status: 'CONNECTING' });
-                });
-
-                client.on('error', (err: Error) => {
-                    console.error('[MQTT] Error', err);
-                    stopHeartbeat();
-                    updateState({ status: 'ERROR', error: err });
-                });
+                streamDiagnosticsCleanup = streamCleanup;
             } catch (err) {
                 const error = err instanceof Error ? err : new Error(String(err));
                 console.error('[MQTT] Failed to connect', error);
@@ -605,19 +369,36 @@ export function createMQTTStore() {
         await ensureConnected(options);
 
         if (options.topics?.length && currentClient) {
+            const handleAuthError = () => {
+                forceTokenRefreshOnNextConnect = true;
+                teardownClient();
+                connectPromise = null;
+                scheduleReconnect();
+            };
             for (const topic of options.topics) {
-                currentClient.subscribe(topic, (err: Error | null) => {
-                    if (err) {
-                        console.error('[MQTT] Failed to subscribe', topic, err);
-                    }
-                });
+                subscribeWithAuthRetry(currentClient, topic, handleAuthError).catch(() => {});
             }
         }
     }
 
+    // Create heartbeatApi after connect/teardownClient are defined so onTokenRefreshDue can reference them
+    const heartbeatApi = createHeartbeatAndRefresh({
+        getClient: () => currentClient,
+        getUsername: () => lastUsername,
+        getJwtExpiry: () => lastJwtExpiry,
+        beforeExpiryMs: TOKEN_REFRESH_BEFORE_EXPIRY_MS,
+        onTokenRefreshDue: () => {
+            teardownClient();
+            connectPromise = null;
+            forceTokenRefreshOnNextConnect = true;
+            if (currentUrl && allowConnections) connect({ url: currentUrl });
+        }
+    });
+
     function disconnect() {
         console.log('[MQTT] Disconnect requested');
-        stopHeartbeat();
+        heartbeatApi.stopHeartbeat();
+        heartbeatApi.clearTokenRefreshTimer();
         if (reconnectTimer) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
@@ -684,11 +465,13 @@ export function createMQTTStore() {
             listeners.add(callback);
 
             if (currentClient && topicFilter !== '*') {
-                currentClient.subscribe(topicFilter, (err) => {
-                    if (err) {
-                        console.error('[MQTT] Failed to subscribe to filter', topicFilter, err);
-                    }
-                });
+                const handleAuthError = () => {
+                    forceTokenRefreshOnNextConnect = true;
+                    teardownClient();
+                    connectPromise = null;
+                    scheduleReconnect();
+                };
+                subscribeWithAuthRetry(currentClient, topicFilter, handleAuthError).catch(() => {});
             } else if (!currentClient) {
                 pendingTopics.add(topicFilter);
             }

@@ -9,6 +9,47 @@ import path from 'path';
  * - http://storage.googleapis.com/bucket-name/path/to/file
  * - gs://bucket-name/path/to/file
  */
+/**
+ * Extract filename with extension from resource path and name
+ * Prioritizes extension from path over resource.name
+ */
+export function extractFilenameWithExtension(resourcePath: string, resourceName: string): string {
+    // Extract extension from path
+    const pathParts = resourcePath.split('/');
+    const pathFileName = pathParts[pathParts.length - 1];
+    
+    // Remove query parameters if present
+    const cleanPathFileName = pathFileName.split('?')[0];
+    
+    // Determine the file extension from path
+    let fileExtension: string | undefined;
+    if (cleanPathFileName && cleanPathFileName.includes('.')) {
+        fileExtension = cleanPathFileName.split('.').pop();
+    }
+    
+    // Build filename: use resource.name with extension appended if extension exists
+    // Check if resource.name already ends with the extension (not just contains dots)
+    if (fileExtension && resourceName) {
+        const nameLower = resourceName.toLowerCase();
+        const extLower = fileExtension.toLowerCase();
+        const expectedExtension = `.${extLower}`;
+        
+        if (nameLower.endsWith(expectedExtension)) {
+            // resource.name already ends with the correct extension, use it as-is
+            return resourceName;
+        } else {
+            // resource.name doesn't have the extension, append it
+            return `${resourceName}.${fileExtension}`;
+        }
+    } else if (cleanPathFileName && cleanPathFileName.includes('.')) {
+        // Fallback: use filename from path if resource.name is not available
+        return cleanPathFileName;
+    }
+    
+    // Default: return resource.name as-is
+    return resourceName;
+}
+
 export function parseGCloudUrl(gcloudUrl: string): { bucket: string; objectPath: string } | null {
     if (!gcloudUrl) {
         return null;
