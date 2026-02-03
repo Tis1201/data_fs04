@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy, tick } from "svelte";
+    import { writable } from "svelte/store";
     import type { PageData } from "./$types";
     import { page } from "$app/stores";
     import { goto, invalidate } from "$app/navigation";
@@ -12,6 +13,7 @@
     import { callUserRpc } from "$lib/client/mqtt/userRpc";
     import { waitForScreenshotResult } from "$lib/client/mqtt/screenshotFlow";
     import { ActionLogSyncManager } from "$lib/client/sync/ActionLogSyncManager";
+    import { subscribeActionLogUpdates } from "$lib/client/mqtt/handlers/data/actionLogHandler";
     import { mqttClient } from "$lib/client/mqtt/mqttClient";
     import { createModalHandler } from "$lib/client/mqtt/handlers/ui/modalHandler";
     import { createProgressBarHandler } from "$lib/client/mqtt/handlers/ui/progressBarHandler";
@@ -841,7 +843,7 @@
                             status: mapActionStatus(log.status),
                             timestamp: log.initiatedAt,
                             expanded: false,
-                            details: []
+                            details: buildActivityLogDetails(log)
                         }));
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
@@ -851,6 +853,51 @@
                 console.log('[UserDevicePage] ActionLogSyncManager initialized for device:', device.id);
             } catch (error) {
                 console.error('[UserDevicePage] Failed to initialize ActionLogSyncManager:', error);
+            }
+
+            // Add direct MQTT handler for action log updates (same as admin)
+            // This handles device:statusUpdate notifications directly for real-time updates
+            try {
+                const actionStatus = writable({ action: '', status: '', message: '' });
+                const unsubActionLogs = subscribeActionLogUpdates(
+                    device.id,
+                    () => {
+                        // Convert ActivityLog format to ActionLog format for subscribeActionLogUpdates
+                        return activityLogs.map(log => ({
+                            id: log.id,
+                            deviceId: device.id,
+                            actionType: log.description || 'unknown',
+                            status: log.status as any,
+                            progress: null,
+                            initiatedBy: 'user',
+                            initiatedAt: log.timestamp,
+                            completedAt: null,
+                            durationMs: null,
+                            message: log.description || '',
+                            user: null
+                        }));
+                    },
+                    (logs) => {
+                        // Update activity logs from action logs
+                        console.log('[UserDevicePage] subscribeActionLogUpdates updating logs:', logs.length);
+                        activityLogs = logs.map(log => ({
+                            id: log.id,
+                            eventName: formatActivityLogDate(log.initiatedAt),
+                            description: formatActionDescription(log.actionType, log.message),
+                            status: mapActionStatus(log.status),
+                            timestamp: log.initiatedAt,
+                            expanded: false,
+                            details: buildActivityLogDetails(log)
+                        }));
+                        activityLogsTotalCount = logs.length;
+                        activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
+                    },
+                    actionStatus
+                );
+                mqttUnsubscribes.push(unsubActionLogs);
+                console.log('[UserDevicePage] subscribeActionLogUpdates initialized for device:', device.id);
+            } catch (error) {
+                console.error('[UserDevicePage] Failed to initialize subscribeActionLogUpdates:', error);
             }
 
             // Set up MQTT handlers for real-time modal and progress updates
@@ -1184,6 +1231,13 @@
         }
 
         pushFileLoading = true;
+        console.log('[PushFile] Starting push file operation...', {
+            deviceId: device?.id,
+            sourcePath: selectedResource.name,
+            destinationPath: pushFileDestinationPath.trim(),
+            resourceId: pushFileSelectedResourceId
+        });
+
         try {
             const result = await callUserRpc<{
                 success: boolean;
@@ -1201,10 +1255,13 @@
             addAlert('success', result.message || 'File push initiated!');
             showPushFileModal = false;
         } catch (error) {
-            console.error('Push file failed:', error);
-            addAlert('error', error instanceof Error ? error.message : 'Unable to push file. Please try again!');
+            console.error('[PushFile] Push file failed:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Unable to push file. Please try again!';
+            console.error('[PushFile] Error message:', errorMessage);
+            addAlert('error', errorMessage);
         } finally {
             pushFileLoading = false;
+            console.log('[PushFile] Push file operation complete, loading:', pushFileLoading);
         }
     }
 
@@ -1365,6 +1422,21 @@
 
 <!-- Main wrap -->
 <div class="device-details-page">
+    <!-- Alert notifications (push file error, pull file, reboot, etc.) -->
+    {#if alerts.length > 0}
+        <div class="page-alerts">
+            {#each alerts as alert (alert.id)}
+                <Alert
+                    severity={alert.severity}
+                    variant="outline"
+                    message={alert.message}
+                    dismissible={true}
+                    on:dismiss={() => dismissAlert(alert.id)}
+                />
+            {/each}
+        </div>
+    {/if}
+
     <!-- Edit Device Button - Top Right -->
     <div class="edit-button-wrapper">
         <Button
@@ -2764,6 +2836,20 @@
         font-family: var(--ds-font-family-primary);
         background: var(--ds-bg-secondary);
         min-height: 100%;
+    }
+
+    /* Alert notifications (push file error, etc.) - fixed top-right so they show above modals */
+    .page-alerts {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+        max-width: 420px;
+        pointer-events: auto;
     }
 
     /* Edit Button */

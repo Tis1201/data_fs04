@@ -394,7 +394,13 @@ export async function handlePushFile(
     const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, resource.name);
     
     if (!result) {
-        throw new Error('Failed to generate download URL for resource');
+        logger.error('[WebPush File] Failed to generate download URL', {
+            resourceId,
+            resourceName: resource.name,
+            resourcePath: resource.path,
+            reason: 'convertGCloudUrlToSignedDownloadUrl returned null'
+        });
+        throw new Error(`Unable to generate download URL for file "${resource.name}". The file may not be properly uploaded to cloud storage.`);
     }
 
     logger.info(`[WebPush File] Generated signed download URL`, {
